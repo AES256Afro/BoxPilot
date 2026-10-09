@@ -6,16 +6,29 @@ import SignInPage, { SignInLoading, SignInUnavailable } from "./pages/signin/Sig
 import ActivityDrawer from "./shell/ActivityDrawer";
 import { useOperation } from "./shell/ApproveDialog";
 import { SessionControls } from "./shell/SessionControls";
+import { AccountMenu } from "./shell/AccountMenu";
 import { useTheme } from "./useTheme";
 import { ThemeSwitch } from "./ui/ThemeSwitch";
-import { fetchAuthStatus, forgetSession, rememberSession, signedOutReason, type AuthStatus, type SignedOutReason } from "./auth";
+import { fetchAuthStatus, forgetAccount, forgetSession, rememberSession, rememberedAccount, signedOutReasonFor, type AuthStatus, type SignedOutReason } from "./auth";
 import { useSessionEnded } from "./sessionEnd";
+import { connected, useConnection } from "./pwa/connection";
+import { OfflineBanner } from "./shell/OfflineBanner";
+import { DeepLinkApproval, approvalFromUrl, openMessageType, takeApprovalFromLocation } from "./shell/DeepLinkApproval";
+import { RefreshButton } from "./shell/RefreshButton";
 import { connectionLabel } from "./appLinks";
 import { FactsProvider } from "./home/facts";
 import { CommandBar } from "./shell/CommandBar";
 import { NotificationCentre } from "./shell/NotificationCentre";
 import { PageLoading } from "./shell/PageLoading";
-import { ShellDock, ViewSwitch } from "./shell/ShellNav";
+import { ShellDock, ViewSwitch, type DockVariant } from "./shell/ShellNav";
+import { ShellSidebar } from "./shell/ShellSidebar";
+import { openSection, type SettingsSection } from "./pages/settings/sections";
+import { TopBarClock } from "./shell/TopBarClock";
+import { DrawnLookProvider } from "./looks/drawnLook";
+import { LookBar } from "./looks/LookBar";
+import { LookHome } from "./looks/LookHome";
+import { lookById, type LookId } from "./looks/looks";
+import { applyLook, applyLookChoice, useLook } from "./looks/useLook";
 import { ShellHost } from "./shell/ShellHost";
 import { TopBarSlotProvider } from "./shell/TopBarSlot";
 import { PageHeader } from "./ui/PageHeader";
@@ -26,8 +39,8 @@ import { PageHeader } from "./ui/PageHeader";
 // navigation, once, and the immutable asset cache keeps it after that.
 const BackupsPage = lazy(() => import("./pages/backups/BackupsPage"));
 const GitHubPage = lazy(() => import("./pages/github/GitHubPage"));
-const Home = lazy(() => import("./home/Home"));
 const Ops = lazy(() => import("./home/Ops"));
+const TodayPage = lazy(() => import("./pages/today/TodayPage"));
 const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
 const NetworkPage = lazy(() => import("./pages/network/NetworkPage"));
 const RepairCenter = lazy(() => import("./RepairCenter"));
@@ -54,7 +67,7 @@ const Settings = lazy(() => import("./pages/settings/SettingsPage"));
  * page its verdict and facts; since M33.14 that is all of them. A page not listed would get a
  * plain one from the shell, its name in the bar and what it is for behind the info toggle.
  */
-const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance", "agents"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "today", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance", "agents"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
@@ -63,6 +76,16 @@ const ownHeader = new Set<ViewName>(["home", "ops", "services", "logs", "repairs
  */
 function viewFromLocation(): ViewName {
   const params = new URLSearchParams(window.location.search);
+  // Opened from the home screen (the manifest's start_url, M25.1): a phone starts on Today (M25.3),
+  // anything wider on Home. Said in the address, so signing in first still lands there.
+  if (params.get("launch") === "pwa") {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("launch");
+    const phone = typeof window.matchMedia === "function" && window.matchMedia("(max-width: 760px)").matches;
+    if (phone && !params.get("view")) url.searchParams.set("view", "today");
+    window.history.replaceState(null, "", url);
+    return viewFromLocation();
+  }
   const candidate = params.get("view");
   if (candidate && Object.hasOwn(viewCopy, candidate)) return candidate as ViewName;
   if (candidate) {
@@ -77,15 +100,21 @@ function viewFromLocation(): ViewName {
 const keptParams = new Set(["scenario"]);
 
 function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthStatus; onSignedOut: (reason: SignedOutReason | null) => void; onAuthChanged?: (status: AuthStatus) => void }) {
+  // An approval a push opened (M25.2): read before the view, which it leaves on Today.
+  const [approving, setApproving] = useState<string | null>(takeApprovalFromLocation);
   const [view, setViewState] = useState<ViewName>(viewFromLocation);
   // The app the catalog opens at (?app=jellyfin), when a tile or the command bar sent us there.
   const [focusApp, setFocusApp] = useState<string | null>(() => new URLSearchParams(window.location.search).get("app"));
+  // Each request to open an app, counted: asked for the app the catalog was opened at already, the
+  // page did not remount and its sheet, once closed, never came back.
+  const [focusRequest, setFocusRequest] = useState(0);
   const [galleryAsked, setGalleryAsked] = useState(() => new URLSearchParams(window.location.search).has("gallery"));
   const setView = useCallback((asked: ViewName, options: { app?: string; tab?: string } = {}) => {
     // A link to a page that is gone (an older server's "Open Overview") lands on Home.
     const next: ViewName = Object.hasOwn(viewCopy, asked) ? asked : "home";
     setViewState(next);
     setFocusApp(options.app ?? null);
+    if (options.app) setFocusRequest((count) => count + 1);
     setGalleryAsked(false);
     const url = new URL(window.location.href);
     for (const name of [...url.searchParams.keys()]) if (!keptParams.has(name)) url.searchParams.delete(name);
@@ -93,7 +122,23 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (options.app) url.searchParams.set("app", options.app);
     if (options.tab) url.searchParams.set("tab", options.tab); // a tabbed page opens at this tab
     window.history.replaceState(null, "", url);
+    // Settings already open hears of it too, and turns to the section ("Appearance" from the menu),
+    // or to the first one when none is named: the address had dropped the section while the page
+    // went on showing it, until any later render jumped to Account, in the middle of trying a look.
+    if (next === "settings") openSection((options.tab ?? "account") as SettingsSection);
   }, []);
+  // A push tapped while the app is open: the service worker says which approval, and it opens here.
+  useEffect(() => {
+    const container = typeof navigator !== "undefined" && "serviceWorker" in navigator ? navigator.serviceWorker : null;
+    if (!container) return undefined;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== openMessageType) return;
+      setView("today");
+      setApproving(approvalFromUrl(String(event.data.url ?? "")));
+    };
+    container.addEventListener("message", onMessage);
+    return () => container.removeEventListener("message", onMessage);
+  }, [setView]);
   const refreshAuth = () => fetchAuthStatus().then((status) => onAuthChanged?.(status)).catch(() => undefined);
   // When the session reaches its expiry, go back to the sign-in screen instead of leaving every page red.
   useEffect(() => {
@@ -101,7 +146,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (!Number.isFinite(expiresAt)) return undefined;
     const delay = Math.min(2_147_000_000, Math.max(1000, expiresAt - Date.now() + 1000));
     let retry = 0;
-    const check = () => { void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(signedOutReason() ?? "expired"); else onAuthChanged?.(status); }).catch(() => { retry = window.setTimeout(check, 15_000); }); };
+    const check = () => { void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(signedOutReasonFor(status) ?? "expired"); else onAuthChanged?.(status); }).catch(() => { retry = window.setTimeout(check, 15_000); }); };
     const timer = window.setTimeout(check, delay);
     return () => { window.clearTimeout(timer); if (retry) window.clearTimeout(retry); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -116,12 +161,22 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   const [apiMode, setApiMode] = useState("browser preview");
   const role = authStatus.owner?.role ?? "owner";
   const csrfToken = authStatus.csrfToken ?? "";
+  const accountId = authStatus.owner?.id ?? null;
 
   const copy = viewCopy[view];
   const showGallery = galleryAsked && apiMode === "demo";
-  // Home is the Launcher; every other page, the gallery included, is inside the console (M33.8):
-  // the rail, the compact bar and the Command Center's look. On a phone the rail is the dock.
-  const shell = showGallery || view !== "home" ? "console" : "launcher";
+  // The look (M41): every page is drawn in the chosen one, except Home when the look is set for
+  // every page but Home; then Home keeps today's Launcher. Home in the Launcher is its own shell
+  // (the wallpaper, the glass, the dock); every other page is inside the console (M33.8), whose
+  // compact bar and components take the look's values, and is reached the look's way around.
+  const lookChoice = useLook();
+  const onHome = !showGallery && view === "home";
+  const drawnLook: LookId = onHome && lookChoice.scope === "not-home" ? "launcher" : lookChoice.look;
+  const shell = onHome && drawnLook === "launcher" ? "launcher" : "console";
+  const nav = shell === "launcher" ? "dock" : lookById(drawnLook).nav;
+  useLayoutEffect(() => { applyLook(drawnLook); }, [drawnLook]);
+  const { accent, wallpaper, solid } = lookChoice;
+  useLayoutEffect(() => { applyLookChoice({ ...lookChoice, accent, wallpaper, solid }); }, [accent, wallpaper, solid]); // eslint-disable-line react-hooks/exhaustive-deps
   // The look is set on the page's root too, so what opens over the page (a sheet, Activity, the
   // command bar, the approval dialog) is drawn in the same look as the page under it.
   useLayoutEffect(() => {
@@ -145,13 +200,14 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   }, []);
 
   const pageContent = useMemo(() => {
-    if (view === "home") return <Home csrfToken={csrfToken} role={role} onNavigate={setView} />;
+    if (view === "home") return <LookHome look={drawnLook} csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "ops") return <Ops csrfToken={csrfToken} role={role} onNavigate={setView} />;
+    if (view === "today") return <TodayPage csrfToken={csrfToken} role={role} accountId={accountId} onNavigate={setView} />;
     if (view === "setup") return <SetupPage csrfToken={csrfToken} role={role} onDone={() => setView("home")} />;
     if (view === "updates") return <UpdatesPage csrfToken={csrfToken} role={role} />;
-    if (view === "catalog") return <CatalogPage key={focusApp ?? ""} csrfToken={csrfToken} focusApp={focusApp ?? undefined} role={role} />;
+    if (view === "catalog") return <CatalogPage key={`${focusApp ?? ""}:${focusRequest}`} csrfToken={csrfToken} focusApp={focusApp ?? undefined} role={role} />;
     if (view === "services") return <ServicesPage csrfToken={csrfToken} role={role} />;
-    if (view === "system") return <SystemPage csrfToken={csrfToken} role={role} />;
+    if (view === "system") return <SystemPage csrfToken={csrfToken} role={role} onOpenAppearance={() => setView("settings", { tab: "appearance" })} />;
     if (view === "automations") return <AutomationsPage csrfToken={csrfToken} role={role} />;
     if (view === "performance") return <PerformancePage csrfToken={csrfToken} role={role} />;
     if (view === "users") return <UsersPage csrfToken={csrfToken} role={role} />;
@@ -165,7 +221,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "logs") return <LogsPage csrfToken={csrfToken} role={role} />;
     if (view === "agents") return <AgentsPage csrfToken={csrfToken} role={role} />;
     return <Settings csrfToken={csrfToken} role={role} />;
-  }, [csrfToken, focusApp, role, setView, view]);
+  }, [accountId, csrfToken, drawnLook, focusApp, focusRequest, role, setView, view]);
 
   // Where Home and every console page draw the start of the top bar (src/shell/TopBarSlot.tsx).
   const [topBarSlot, setTopBarSlot] = useState<HTMLDivElement | null>(null);
@@ -176,9 +232,11 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
       <ShellHost ask={shell === "console"}>
       {/* data-shell picks the shell's look (M33.8): Home's Launcher floats over its wallpaper; the
           console, everywhere else, is the compact bar beside a rail. data-view names the page. */}
-      <div className="app-shell" data-view={showGallery ? "gallery" : view} data-shell={shell}>
+      <DrawnLookProvider value={drawnLook}>
+      <div className="app-shell" data-view={showGallery ? "gallery" : view} data-shell={shell} data-nav={nav}>
         <a className="skip-link" href="#content">Skip to the page</a>
         <header className="topbar">
+          <LookBar look={drawnLook} role={role} onNavigate={setView} />
           <div className="topbar-left">
             <div className="brand" title={`BoxPilot ${__BOXPILOT_VERSION__}`}><span aria-hidden="true">B</span><div>BoxPilot<small>v{__BOXPILOT_VERSION__}</small></div></div>
             <div className="topbar-slot" ref={setTopBarSlot} />
@@ -186,18 +244,25 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           </div>
           <CommandBar csrfToken={csrfToken} onNavigate={setView} onStart={startOperation} role={role} />
           <div className="topbar-right">
+            <RefreshButton />
             <span className="connection-pill" title="How this browser reached BoxPilot">{connectionLabel(window.location)}</span>
             <ThemeSwitch compact />
-            <NotificationCentre csrfToken={csrfToken} onNavigate={setView} />
+            <NotificationCentre csrfToken={csrfToken} role={role} onNavigate={setView} />
             <ActivityDrawer csrfToken={csrfToken} role={role} />
-            <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut} />
+            <SessionControls authStatus={authStatus} csrfToken={csrfToken} onRefresh={() => void refreshAuth()} onSignedOut={onSignedOut}
+              user={<AccountMenu variant="name" authStatus={authStatus} csrfToken={csrfToken} onNavigate={setView} onSignedOut={onSignedOut} />} />
+            <AccountMenu authStatus={authStatus} csrfToken={csrfToken} onNavigate={setView} onSignedOut={onSignedOut} />
+            <TopBarClock />
           </div>
         </header>
 
-        <ShellDock view={showGallery ? null : view} onSelect={setView} variant={shell === "console" ? "rail" : "dock"} />
+        {nav === "sidebar"
+          ? <><ShellSidebar view={showGallery ? null : view} onSelect={setView} role={role} username={authStatus.owner?.username ?? null} /><div className="look-phone-dock"><ShellDock view={showGallery ? null : view} onSelect={setView} variant="dock" /></div></>
+          : <ShellDock view={showGallery ? null : view} onSelect={setView} variant={nav as DockVariant} />}
 
         <main id="content" tabIndex={-1}>
-          <div className={shell === "console" ? "content content--console" : "content content--wide"} data-density={shell === "console" ? "compact" : undefined}>
+          <div className={shell === "console" ? "content content--console" : "content content--wide"} data-density={shell === "console" ? lookChoice.density : undefined}>
+            <OfflineBanner />
             {showGallery ? <Suspense fallback={<PageLoading name="the design system" />}><Gallery /></Suspense> : <>
               {!ownHeader.has(view) && <PageHeader title={copy.title} about={copy.description} />}
               {/* Keyed by the page, so the page left behind unmounts at once rather than waiting, hidden,
@@ -207,7 +272,9 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           </div>
         </main>
         {operationDialog}
+        {approving && <DeepLinkApproval key={approving} jobId={approving} csrfToken={csrfToken} onClose={() => setApproving(null)} />}
       </div>
+      </DrawnLookProvider>
       </ShellHost>
       </TopBarSlotProvider>
     </FactsProvider>
@@ -227,9 +294,25 @@ function App() {
 
   useEffect(() => {
     void fetchAuthStatus()
-      .then((status) => { if (!status.authenticated) setSignedOut(signedOutReason()); setAuthStatus(status); })
-      .catch((error) => setAuthError(error instanceof Error ? error.message : "Unable to reach BoxPilot authentication"));
+      .then((status) => { if (!status.authenticated) { setSignedOut(signedOutReasonFor(status)); forgetAccount(); } setAuthStatus(status); })
+      .catch((error) => {
+        // BoxPilot cannot be reached (M25.1): a device with a session that has time left opens as
+        // that account, offline, to read what it kept; nothing can be changed until BoxPilot answers.
+        const remembered = rememberedAccount();
+        if (remembered) { setAuthStatusState({ bootstrapRequired: false, authenticated: true, owner: remembered.owner, csrfToken: "", expiresAt: remembered.expiresAt, offline: true }); return; }
+        setAuthError(error instanceof Error ? error.message : "Unable to reach BoxPilot authentication");
+      });
   }, [setAuthStatus]);
+
+  // Offline, ask again as soon as BoxPilot answers; it decides whether the session still stands.
+  const connection = useConnection();
+  const reachable = connected(connection);
+  useEffect(() => {
+    if (!authStatus?.offline || !reachable) return;
+    void fetchAuthStatus()
+      .then((status) => { if (!status.authenticated) { setSignedOut(signedOutReasonFor(status)); forgetAccount(); } setAuthStatus(status); })
+      .catch(() => undefined);
+  }, [authStatus?.offline, reachable, setAuthStatus]);
 
   // An app's "Sign in with BoxPilot" (M19.3) lands here with ?next=/oidc/authorize when the strict
   // session cookie was not sent on the cross-site hop. Once we know the owner is signed in, continue

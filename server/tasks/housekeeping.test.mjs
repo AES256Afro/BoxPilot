@@ -21,7 +21,7 @@ function files(present = []) {
 
 describe("removing previous release trees", () => {
   const root = "/opt";
-  const good = ["/opt/boxpilot.prev.20260825T170951Z", "/opt/boxpilot-prev-0.40.0", "/opt/boxpilot.rollback-0.60.0-d6562ba"];
+  const good = ["/opt/boxpilot.prev.20260825T170951Z", "/opt/boxpilot-prev-0.40.0", "/opt/boxpilot.rollback-0.60.0-d6562ba", "/opt/boxpilot.staging.20261005T120000Z"];
 
   // Linux only: expects POSIX paths.
   it.skipIf(onWindows)("removes the leftovers it is given", async () => {
@@ -57,7 +57,7 @@ describe("removing previous release trees", () => {
     const f = files(good);
     f.rm = vi.fn(async (target) => { if (target === good[1]) throw new Error("EROFS: read-only file system"); f.removed.push(target); });
     const result = await housekeepingRemoveTrees({ paths: good, installRoot: root, currentTree: "/opt/boxpilot" }, { files: f });
-    expect(result.removed).toEqual([good[0], good[2]]);
+    expect(result.removed).toEqual(good.filter((target) => target !== good[1]));
     expect(result.refused).toEqual([{ path: good[1], reason: "EROFS: read-only file system" }]);
   });
 

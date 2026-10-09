@@ -9,6 +9,7 @@
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { roleAtLeast } from "./tool-catalog.mjs";
 
 const json = (value) => JSON.stringify(value === undefined ? null : value);
 const parse = (value, fallback) => { try { return value === null || value === undefined ? fallback : JSON.parse(value); } catch { return fallback; } };
@@ -202,6 +203,40 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       sent_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_agent_chat_posts_state ON agent_chat_posts(state, created_at);
+    -- M45.6: a plan an agent carries out over hours, one step at a time, with a checkpoint after each.
+    CREATE TABLE IF NOT EXISTS agent_plans (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      steps_json TEXT NOT NULL,
+      cursor INTEGER NOT NULL DEFAULT 0,
+      state TEXT NOT NULL,
+      reason TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deadline_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_plans_state ON agent_plans(state, agent_id);
+    -- M46: the example book. Work a person approved (a card staged, a thumbs up, an answer kept as a
+    -- finding, an evaluation question answered right) kept as a request and the plan that served it,
+    -- and the examples each template ships with. Shown to the planner as demonstrations, exported
+    -- as training data. 'source' is the run's id, or seed:<id> for a template's own.
+    CREATE TABLE IF NOT EXISTS agent_examples (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      signal TEXT NOT NULL,
+      request TEXT NOT NULL,
+      plan_json TEXT NOT NULL,
+      answer TEXT,
+      route TEXT,
+      model TEXT,
+      read_role TEXT NOT NULL DEFAULT 'owner',
+      created_at TEXT NOT NULL,
+      UNIQUE (agent_id, source)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_examples_agent ON agent_examples(agent_id, created_at DESC);
   `);
   // Columns added after the first M37 tables: added in place where an older database lacks them.
   const ensureColumn = (table, column, definition) => {
@@ -216,17 +251,26 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   ensureColumn("agent_notes", "pinned", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("agent_notes", "shared", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("agent_notes", "read_role", "TEXT NOT NULL DEFAULT 'owner'");
+  // M44: a finding is a shared note of its own kind ("routine" or "answer"), one per agent and kind.
+  ensureColumn("agent_notes", "finding", "TEXT");
   ensureColumn("agent_proposals", "kind", "TEXT NOT NULL DEFAULT 'plan'");
+  // M45.7: an evaluation held to one route, and the pair a comparison of the routes makes.
+  ensureColumn("agent_eval_runs", "route", "TEXT");
+  ensureColumn("agent_eval_runs", "pair_id", "TEXT");
   ensureColumn("agent_proposals", "question", "TEXT");
   ensureColumn("agent_documents", "source", "TEXT NOT NULL DEFAULT 'upload'");
   ensureColumn("agent_documents", "external_id", "TEXT");
   ensureColumn("agent_documents", "pinned", "INTEGER NOT NULL DEFAULT 0");
   // M38: an image dropped in #agent-files is kept as it came, for the model to describe in quiet hours.
   ensureColumn("agent_documents", "media_type", "TEXT");
+  // M40.5: a reply to a direct message goes to the people in it, by their Zulip ids.
+  ensureColumn("agent_chat_posts", "recipients_json", "TEXT");
   ensureColumn("agent_documents", "media", "BLOB");
   ensureColumn("agent_documents", "described_at", "TEXT");
   ensureColumn("agent_documents", "describe_attempts", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("agent_eval_runs", "model", "TEXT");
+  // M46.3: what the planner understood (goal, subject, constraints, confidence) beside the plan, so an export is the model's own answer.
+  ensureColumn("agent_examples", "intent_json", "TEXT");
   database.exec("CREATE INDEX IF NOT EXISTS idx_agent_runs_parent ON agent_runs(parent_run_id)");
 
   const iso = () => now().toISOString();
@@ -395,6 +439,11 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     prepare("UPDATE agent_runs SET lease_expires_at = ? WHERE id = ? AND state = 'running'").run(new Date(now().getTime() + leaseMs).toISOString(), runId);
   }
 
+  /** A run claimed for a runner that never received it, back in the queue as it was before the claim. */
+  function releaseRun(runId) {
+    return Number(prepare("UPDATE agent_runs SET state = 'queued', started_at = NULL, lease_hash = NULL, lease_expires_at = NULL, runner_id = NULL WHERE id = ? AND state = 'running'").run(runId).changes) > 0;
+  }
+
   /** Move a run to a finished state, once: a run that already finished stays as it ended. */
   function finishRun(runId, { state, reason = null, answer = null, outputKind = null, usage = null, flags = null, evalInfo = undefined }) {
     const row = prepare("SELECT usage_json, flags_json, eval_json FROM agent_runs WHERE id = ?").get(runId);
@@ -418,18 +467,36 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     prepare("UPDATE agents SET last_run_at = ? WHERE id = ?").run(at, agentId);
   }
 
-  /** Runs started today (since `since`) and the model time they used: what a budget counts. */
+  /**
+   * Runs started today (since `since`) and the model time they used: what a budget counts. Of the
+   * runs, `nightlyEvals` are the nightly evaluation's questions (an eval nobody asked for).
+   */
   function usageSince(agentId, since) {
     const rows = agentId === null
-      ? prepare("SELECT usage_json FROM agent_runs WHERE started_at >= ?").all(since)
-      : prepare("SELECT usage_json FROM agent_runs WHERE agent_id = ? AND started_at >= ?").all(agentId, since);
-    let modelMs = 0; let tokens = 0;
+      ? prepare("SELECT usage_json, kind, requested_by FROM agent_runs WHERE started_at >= ?").all(since)
+      : prepare("SELECT usage_json, kind, requested_by FROM agent_runs WHERE agent_id = ? AND started_at >= ?").all(agentId, since);
+    let modelMs = 0; let tokens = 0; let nightlyEvals = 0;
     for (const row of rows) {
       const usage = parse(row.usage_json, {});
       modelMs += (Number(usage.modelMs) || 0) + (Number(usage.loadMs) || 0);
       tokens += (Number(usage.promptTokens) || 0) + (Number(usage.completionTokens) || 0);
+      if (row.kind === "eval" && !row.requested_by) nightlyEvals += 1;
     }
-    return { runs: rows.length, modelMs, tokens };
+    return { runs: rows.length, nightlyEvals, modelMs, tokens };
+  }
+
+  /**
+   * What other agents' findings did since `since` (M44): the hand-offs answered from a specialist's
+   * finding instead of a run, and the answers that cited a finding.
+   */
+  function findingsUseSince(since) {
+    let runsSaved = 0; let answers = 0;
+    for (const row of prepare("SELECT usage_json FROM agent_runs WHERE started_at >= ?").all(since)) {
+      const usage = parse(row.usage_json, {});
+      runsSaved += Number(usage.runsSaved) || 0;
+      if (Number(usage.findingsCited) > 0) answers += 1;
+    }
+    return { runsSaved, answers };
   }
 
   // ---- steps ----
@@ -452,48 +519,147 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   const listSteps = (runId) => prepare("SELECT * FROM agent_run_steps WHERE run_id = ? ORDER BY seq").all(runId).map(stepOf);
   const countSteps = (runId, kind) => Number(prepare("SELECT COUNT(*) AS count FROM agent_run_steps WHERE run_id = ? AND kind = ?").get(runId, kind).count);
 
+  // ---- plans (M45.6) ----
+
+  const planOf = (row) => row && {
+    id: row.id, agentId: row.agent_id, runId: row.run_id, title: row.title, steps: parse(row.steps_json, []), cursor: row.cursor,
+    state: row.state, reason: row.reason ?? null, createdAt: row.created_at, updatedAt: row.updated_at, deadlineAt: row.deadline_at,
+  };
+  /** Plans still going: carrying out a step, or waiting on a job, a check or a person. */
+  const openPlanStates = ["running", "waiting"];
+
+  function createPlan({ agentId, runId, title, steps, deadlineAt }) {
+    const id = randomUUID();
+    const at = iso();
+    prepare("INSERT INTO agent_plans (id, agent_id, run_id, title, steps_json, cursor, state, created_at, updated_at, deadline_at) VALUES (?, ?, ?, ?, ?, 0, 'running', ?, ?, ?)")
+      .run(id, agentId, runId, title, json(steps), at, at, deadlineAt);
+    return getPlan(id);
+  }
+  const getPlan = (id) => planOf(prepare("SELECT * FROM agent_plans WHERE id = ?").get(String(id ?? "")));
+  const openPlans = (agentId = null) => (agentId
+    ? prepare(`SELECT * FROM agent_plans WHERE agent_id = ? AND state IN ('running', 'waiting') ORDER BY created_at`).all(agentId)
+    : prepare(`SELECT * FROM agent_plans WHERE state IN ('running', 'waiting') ORDER BY created_at`).all()).map(planOf);
+  /**
+   * A checkpoint: the plan's steps, where it is and its state, written together, only while the plan
+   * is still the one that was read (`expectedUpdatedAt`) and still open. Null when it moved meanwhile.
+   */
+  function savePlan(id, { steps, cursor, state, reason = null }, expectedUpdatedAt) {
+    const changed = prepare(`UPDATE agent_plans SET steps_json = ?, cursor = ?, state = ?, reason = ?, updated_at = ? WHERE id = ? AND updated_at = ? AND state IN (${openPlanStates.map(() => "?").join(", ")})`)
+      .run(json(steps), cursor, state, reason, iso(), id, expectedUpdatedAt, ...openPlanStates).changes;
+    return Number(changed) ? getPlan(id) : null;
+  }
+
+  // ---- acting (M45.5) ----
+
+  /** The steps where a run staged a job itself: each names the job in its flags. A plan's steps (M45.6) are the plan's. */
+  const actionSteps = (runId) => prepare("SELECT * FROM agent_run_steps WHERE run_id = ? AND kind = 'action' AND json_extract(flags_json, '$.jobId') IS NOT NULL AND json_extract(flags_json, '$.planId') IS NULL ORDER BY seq").all(runId).map(stepOf);
+  /** The run that staged a job, and the plan it was a step of, when an agent's did: `{ runId, planId }`. */
+  const runForJob = (jobId) => {
+    const row = prepare("SELECT run_id, json_extract(flags_json, '$.planId') AS plan_id FROM agent_run_steps WHERE kind = 'action' AND json_extract(flags_json, '$.jobId') = ? LIMIT 1").get(String(jobId ?? ""));
+    return row ? { runId: row.run_id, planId: row.plan_id ?? null } : null;
+  };
+  /** How many jobs an agent staged since `since`: its day's limit. */
+  const countActionsSince = (agentId, since) => Number(prepare(`SELECT COUNT(*) AS count FROM agent_run_steps s JOIN agent_runs r ON r.id = s.run_id
+    WHERE r.agent_id = ? AND s.kind = 'action' AND json_extract(s.flags_json, '$.jobId') IS NOT NULL AND s.started_at >= ?`).get(agentId, since).count);
+  /** The jobs agents staged since `since`, with their runs: whatever still waits on a person is among them. */
+  const actionsSince = (since) => prepare("SELECT run_id AS runId, json_extract(flags_json, '$.jobId') AS jobId, json_extract(flags_json, '$.planId') AS planId, started_at AS startedAt FROM agent_run_steps WHERE kind = 'action' AND json_extract(flags_json, '$.jobId') IS NOT NULL AND started_at >= ? ORDER BY started_at")
+    .all(since).map((row) => ({ runId: row.runId, jobId: row.jobId, planId: row.planId ?? null, startedAt: row.startedAt }));
+
   // ---- notes ----
 
   const noteOf = (row) => ({
     id: row.id, agentId: row.agent_id, title: row.title, body: row.body, source: parse(row.source_json, {}), createdAt: row.created_at, updatedAt: row.updated_at, freshUntil: row.fresh_until ?? null,
-    pinned: Boolean(row.pinned), shared: Boolean(row.shared), readRole: row.read_role ?? "owner",
+    pinned: Boolean(row.pinned), shared: Boolean(row.shared), readRole: row.read_role ?? "owner", finding: row.finding ?? null,
   });
 
   /**
-   * Keep a note: one with the same title is replaced, and the oldest unpinned ones go past
-   * `maxNotes`. `readRole` is what the run that learned it could read: another agent sees a shared
-   * note only if its own run may read as much.
+   * Keep a note: one with the same title, learned at the same role, is replaced, and the oldest
+   * unpinned ones go past `maxNotes`. `readRole` is what the run that learned it could read: another
+   * agent sees a shared note only if its own run may read as much. A same-title note learned at
+   * another role is kept apart (2026-10 sweep 4: an owner's run took over an operator's note, id and
+   * all, and the operator read the owner's words back through it). Findings (M44) are kept apart
+   * too: never replaced by a note of the same title, never counted against `maxNotes`.
    */
   function writeNote(agentId, { title, body, source = {}, freshUntil = null, maxNotes = 50, readRole = "owner", shared = false }) {
     return transaction(() => {
       const at = iso();
-      const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND lower(title) = lower(?)").get(agentId, title);
+      const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL AND lower(title) = lower(?) AND read_role = ?").get(agentId, title, readRole);
       const id = existing?.id ?? randomUUID();
-      if (existing) prepare("UPDATE agent_notes SET body = ?, source_json = ?, updated_at = ?, fresh_until = ?, read_role = ?, shared = ? WHERE id = ?").run(body, json(source), at, freshUntil, readRole, shared ? 1 : 0, id);
+      if (existing) prepare("UPDATE agent_notes SET body = ?, source_json = ?, updated_at = ?, fresh_until = ?, shared = ? WHERE id = ?").run(body, json(source), at, freshUntil, shared ? 1 : 0, id);
       else prepare("INSERT INTO agent_notes (id, agent_id, title, body, source_json, created_at, updated_at, fresh_until, read_role, shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, agentId, title, body, json(source), at, at, freshUntil, readRole, shared ? 1 : 0);
-      const dropped = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND pinned = 0 AND id NOT IN (SELECT id FROM agent_notes WHERE agent_id = ? ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, maxNotes).map((entry) => entry.id);
+      // Never the note just written: with as many pinned as it keeps, that one was dropped, and
+      // every note an agent wrote failed (2026-10 sweep 5).
+      const dropped = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND pinned = 0 AND finding IS NULL AND id != ? AND id NOT IN (SELECT id FROM agent_notes WHERE agent_id = ? AND finding IS NULL ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?)").all(agentId, id, agentId, maxNotes).map((entry) => entry.id);
       for (const gone of dropped) { prepare("DELETE FROM agent_notes WHERE id = ?").run(gone); prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(gone); }
       return noteOf(prepare("SELECT * FROM agent_notes WHERE id = ?").get(id));
     });
   }
 
-  const listNotes = (agentId, { limit = 100 } = {}) => prepare("SELECT * FROM agent_notes WHERE agent_id = ? ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?").all(agentId, Math.min(Math.max(limit, 1), 200)).map(noteOf);
+  const listNotes = (agentId, { limit = 100 } = {}) => prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND finding IS NULL ORDER BY pinned DESC, updated_at DESC, rowid DESC LIMIT ?").all(agentId, Math.min(Math.max(limit, 1), 200)).map(noteOf);
   const getNote = (agentId, noteId) => { const row = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ?").get(agentId, noteId); return row ? noteOf(row) : null; };
-  /** Notes other agents shared, from agents that still exist. */
-  const listSharedNotes = ({ exceptAgentId = null, limit = 200 } = {}) => prepare("SELECT n.* FROM agent_notes n JOIN agents a ON a.id = n.agent_id WHERE n.shared = 1 AND a.deleted_at IS NULL AND n.agent_id IS NOT ? ORDER BY n.updated_at DESC LIMIT ?").all(exceptAgentId, limit).map(noteOf);
+  /** Notes other agents shared, from agents that still exist. Findings are offered on their own (M44). */
+  const listSharedNotes = ({ exceptAgentId = null, limit = 200 } = {}) => prepare("SELECT n.* FROM agent_notes n JOIN agents a ON a.id = n.agent_id WHERE n.shared = 1 AND n.finding IS NULL AND a.deleted_at IS NULL AND n.agent_id IS NOT ? ORDER BY n.updated_at DESC LIMIT ?").all(exceptAgentId, limit).map(noteOf);
+
+  /**
+   * An agent's finding (M44): one per agent and kind ("routine" or "answer"), replaced each time,
+   * shared, never pinned. `readRole` is what the run that found it could read.
+   */
+  function writeFinding(agentId, { kind, title, body, source = {}, freshUntil, readRole = "owner" }) {
+    return transaction(() => {
+      const at = iso();
+      const existing = prepare("SELECT id FROM agent_notes WHERE agent_id = ? AND finding = ?").get(agentId, kind);
+      const id = existing?.id ?? randomUUID();
+      if (existing) prepare("UPDATE agent_notes SET title = ?, body = ?, source_json = ?, updated_at = ?, fresh_until = ?, read_role = ?, shared = 1, pinned = 0 WHERE id = ?").run(title, body, json(source), at, freshUntil, readRole, id);
+      else prepare("INSERT INTO agent_notes (id, agent_id, title, body, source_json, created_at, updated_at, fresh_until, read_role, shared, finding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)").run(id, agentId, title, body, json(source), at, at, freshUntil, readRole, kind);
+      prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(id);
+      return noteOf(prepare("SELECT * FROM agent_notes WHERE id = ?").get(id));
+    });
+  }
+  /** Findings, newest first: one agent's (`agentId`), or every other agent's that still exists (`exceptAgentId`). */
+  const listFindings = ({ agentId = null, exceptAgentId = null, limit = 100 } = {}) => (agentId
+    ? prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND finding IS NOT NULL ORDER BY updated_at DESC, rowid DESC LIMIT ?").all(agentId, limit)
+    : prepare("SELECT n.* FROM agent_notes n JOIN agents a ON a.id = n.agent_id WHERE n.finding IS NOT NULL AND a.deleted_at IS NULL AND n.agent_id IS NOT ? ORDER BY n.updated_at DESC, n.rowid DESC LIMIT ?").all(exceptAgentId, limit)).map(noteOf);
+  /** What an agent shared, forgotten: the owner turned its sharing off. */
+  const deleteFindings = (agentId) => Number(prepare("DELETE FROM agent_notes WHERE agent_id = ? AND finding IS NOT NULL").run(agentId).changes);
   /** Forget: the note and its embedding go, overwritten on disk (secure_delete). */
   const deleteNote = (agentId, noteId) => transaction(() => {
     const changed = Number(prepare("DELETE FROM agent_notes WHERE agent_id = ? AND id = ?").run(agentId, noteId).changes) > 0;
     if (changed) prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(noteId);
     return changed;
   });
-  /** The owner's edit of a note: its words, how long it stays fresh, pinned, shared. */
-  function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared }) {
+  /**
+   * A person's edit of a note: its words, how long it stays fresh, pinned, shared. A finding is
+   * forgotten, not edited. New words, and `trusted` - the person's word that it is fine as it is -
+   * are that person's: the owner's no longer carry the flag of the run that kept it (2026-10 sweep
+   * 3); anyone else's (`by`, the person, as { id, role }) clear it only for runs that read no more
+   * than they may (`trustedBy`), and their words are theirs (`wordsBy`), held to them by a run that
+   * reads more (sweep 4: an operator's Trust, or their rewrite, cleared a note for the owner's runs).
+   * Only new words count: the same words sent back with a new freshness or title are still the
+   * run's (sweep 4: the edit sheet sent them every time, and so trusted the fact). A new title alone
+   * never vouches for the words under it (sweep 5: the owner renaming an operator's note trusted
+   * it); it makes them the editor's only when an earlier word outranked theirs - their title is
+   * theirs, and never the owner's.
+   */
+  function updateNote(agentId, noteId, { title, body, freshUntil, pinned, shared, trusted = false, by = null }) {
     return transaction(() => {
-      const current = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ?").get(agentId, noteId);
+      const current = prepare("SELECT * FROM agent_notes WHERE agent_id = ? AND id = ? AND finding IS NULL").get(agentId, noteId);
       if (!current) return null;
-      prepare("UPDATE agent_notes SET title = ?, body = ?, fresh_until = ?, pinned = ?, shared = ?, updated_at = ? WHERE id = ?")
-        .run(title ?? current.title, body ?? current.body, freshUntil === undefined ? current.fresh_until : freshUntil, pinned === undefined ? current.pinned : pinned ? 1 : 0, shared === undefined ? current.shared : shared ? 1 : 0, iso(), noteId);
+      const source = parse(current.source_json, {});
+      const newWords = body !== undefined && body !== current.body;
+      const newTitle = title !== undefined && title !== current.title;
+      const person = by?.role ? { id: by.id ?? null, role: by.role } : null;
+      const outranks = (earlier) => !earlier?.role || roleAtLeast(person.role, earlier.role);
+      let next = source;
+      if (newWords || trusted) {
+        if (!person || person.role === "owner") { const { injectionHop: _hop, injectionFrom: _from, ...rest } = source; next = { ...rest, injection: false }; }
+        // New words are vouched for by whoever wrote them; a Trust never lowers an earlier one's word.
+        if (person && (newWords || outranks(source.trustedBy))) next = { ...next, trustedBy: person };
+      }
+      const lowersWord = newTitle && Boolean(source.wordsBy?.role) && !roleAtLeast(person?.role ?? "viewer", source.wordsBy.role);
+      if (person && (newWords || (trusted && outranks(source.wordsBy)) || lowersWord)) next = { ...next, wordsBy: person };
+      const cleared = next === source ? current.source_json : json(next);
+      prepare("UPDATE agent_notes SET title = ?, body = ?, fresh_until = ?, pinned = ?, shared = ?, source_json = ?, updated_at = ? WHERE id = ?")
+        .run(title ?? current.title, body ?? current.body, freshUntil === undefined ? current.fresh_until : freshUntil, pinned === undefined ? current.pinned : pinned ? 1 : 0, shared === undefined ? current.shared : shared ? 1 : 0, cleared, iso(), noteId);
       if (body !== undefined || title !== undefined) prepare("DELETE FROM agent_vectors WHERE kind = 'note' AND item_id = ?").run(noteId);
       return noteOf(prepare("SELECT * FROM agent_notes WHERE id = ?").get(noteId));
     });
@@ -546,6 +712,48 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   const deleteVectorsLike = (kind, prefix) => prepare("DELETE FROM agent_vectors WHERE kind = ? AND item_id LIKE ?").run(kind, `${prefix}%`);
   const countVectors = () => Number(prepare("SELECT COUNT(*) AS count FROM agent_vectors").get().count);
 
+  // ---- examples: the work a person approved (M46) ----
+
+  const exampleOf = (row) => row && ({
+    id: row.id, agentId: row.agent_id, source: row.source, signal: row.signal, request: row.request, plan: parse(row.plan_json, []),
+    answer: row.answer ?? null, route: row.route ?? null, model: row.model ?? null, readRole: row.read_role, createdAt: row.created_at,
+    intent: parse(row.intent_json, null), seed: row.source.startsWith("seed:"),
+  });
+  /**
+   * Keep an example: one per agent and source (a run, or a template's seed). A source already kept is
+   * left as it was, so the first approval's record stands; `keep` is the most an agent keeps besides
+   * its seeds, oldest dropped first with their vectors.
+   */
+  function addExample({ agentId, source, signal, request, plan, intent = null, answer = null, route = null, model = null, readRole = "owner", keep = 300 }) {
+    return transaction(() => {
+      const existing = prepare("SELECT * FROM agent_examples WHERE agent_id = ? AND source = ?").get(agentId, source);
+      if (existing) return { ...exampleOf(existing), added: false };
+      const id = randomUUID();
+      prepare("INSERT INTO agent_examples (id, agent_id, source, signal, request, plan_json, intent_json, answer, route, model, read_role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(id, agentId, source, signal, request, json(plan), intent ? json(intent) : null, answer, route, model, readRole, iso());
+      const dropped = prepare("SELECT id FROM agent_examples WHERE agent_id = ? AND source NOT LIKE 'seed:%' AND id NOT IN (SELECT id FROM agent_examples WHERE agent_id = ? AND source NOT LIKE 'seed:%' ORDER BY created_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, keep).map((entry) => entry.id);
+      for (const gone of dropped) { prepare("DELETE FROM agent_examples WHERE id = ?").run(gone); prepare("DELETE FROM agent_vectors WHERE kind = 'example' AND item_id = ?").run(gone); }
+      return { ...exampleOf(prepare("SELECT * FROM agent_examples WHERE id = ?").get(id)), added: true };
+    });
+  }
+  const listExamples = (agentId, { limit = 400 } = {}) => prepare("SELECT * FROM agent_examples WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(agentId, Math.min(Math.max(limit, 1), 1_000)).map(exampleOf);
+  const listAllExamples = ({ limit = 5_000 } = {}) => prepare("SELECT * FROM agent_examples ORDER BY created_at DESC, rowid DESC LIMIT ?").all(Math.min(Math.max(limit, 1), 20_000)).map(exampleOf);
+  const countExamples = (agentId) => prepare("SELECT COUNT(*) AS count, SUM(CASE WHEN source LIKE 'seed:%' THEN 1 ELSE 0 END) AS seeds FROM agent_examples WHERE agent_id = ?").get(agentId);
+  const getExample = (agentId, exampleId) => exampleOf(prepare("SELECT * FROM agent_examples WHERE agent_id = ? AND id = ?").get(agentId, String(exampleId ?? "")));
+  const deleteExample = (agentId, exampleId) => transaction(() => {
+    const changed = Number(prepare("DELETE FROM agent_examples WHERE agent_id = ? AND id = ?").run(agentId, exampleId).changes) > 0;
+    if (changed) prepare("DELETE FROM agent_vectors WHERE kind = 'example' AND item_id = ?").run(exampleId);
+    return changed;
+  });
+  /** The example a run left, if any, taken back: a thumbs down after a thumbs up. */
+  const deleteExampleOfRun = (agentId, runId) => transaction(() => {
+    const row = prepare("SELECT id FROM agent_examples WHERE agent_id = ? AND source = ?").get(agentId, String(runId ?? ""));
+    if (!row) return false;
+    prepare("DELETE FROM agent_examples WHERE id = ?").run(row.id);
+    prepare("DELETE FROM agent_vectors WHERE kind = 'example' AND item_id = ?").run(row.id);
+    return true;
+  });
+
   // ---- feedback ----
 
   function setFeedback(runId, { agentId, version, model = null, verdict, note = null, givenBy }) {
@@ -584,6 +792,22 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     const changed = prepare("UPDATE agent_proposals SET state = ?, decided_by = ?, decided_at = ?, job_ids_json = ? WHERE id = ? AND state = 'open'").run(state, decidedBy, iso(), json(jobIds), id).changes;
     return Number(changed) ? getProposal(id) : null;
   }
+
+  /**
+   * Which job a plan's step was staged as (2026-10 sweep 3), kept on the step itself so every page
+   * that draws the card knows it. Only while the card is open; null when it is not, or has no such step.
+   */
+  function setProposalStepJob(id, index, jobId) {
+    const proposal = getProposal(id);
+    if (!proposal || proposal.state !== "open" || !proposal.steps[index]) return null;
+    const steps = proposal.steps.map((step, at) => (at === index ? { ...step, jobId } : step));
+    const changed = prepare("UPDATE agent_proposals SET steps_json = ? WHERE id = ? AND state = 'open'").run(json(steps), id).changes;
+    return Number(changed) ? getProposal(id) : null;
+  }
+  /** The open cards one of whose steps was staged as this job (a job id is a UUID: nothing in it is a LIKE wildcard). */
+  const listOpenProposalsForJob = (jobId) => (/^[0-9a-f-]{36}$/i.test(String(jobId ?? ""))
+    ? prepare("SELECT * FROM agent_proposals WHERE state = 'open' AND steps_json LIKE ?").all(`%"jobId":"${jobId}"%`).map(proposalOf).filter((proposal) => proposal.steps.some((step) => step.jobId === jobId))
+    : []);
 
   const findOpenProposal = (source, title) => proposalOf(prepare("SELECT * FROM agent_proposals WHERE source = ? AND title = ? AND state = 'open'").get(source, title));
   const listProposalsForRun = (runId) => prepare("SELECT * FROM agent_proposals WHERE run_id = ? ORDER BY created_at, rowid LIMIT 10").all(runId).map(proposalOf);
@@ -637,7 +861,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   // ---- what the agents post to Zulip (M38) ----
 
   const chatPostOf = (row) => row ? ({
-    id: row.id, kind: row.kind, agentId: row.agent_id ?? null, runId: row.run_id ?? null, channel: row.channel, topic: row.topic, content: row.content,
+    id: row.id, kind: row.kind, agentId: row.agent_id ?? null, runId: row.run_id ?? null, channel: row.channel, topic: row.topic, content: row.content, to: parse(row.recipients_json, null),
     attachment: parse(row.attachment_json, null), state: row.state, attempts: Number(row.attempts ?? 0), error: row.error ?? null, messageId: row.message_id ?? null,
     createdAt: row.created_at, sentAt: row.sent_at ?? null,
   }) : null;
@@ -645,13 +869,23 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
    * A post waiting to go. The outbox is bounded: past `max` waiting, the oldest waiting post is
    * dropped (and says so) rather than the queue growing. Returns the post and how many were dropped.
    */
-  function queueChatPost({ kind, agentId = null, runId = null, channel, topic, content, attachment = null }, { max = 200 } = {}) {
+  function queueChatPost({ kind, agentId = null, runId = null, channel = "", topic = "", content, attachment = null, to = null }, { max = 200 } = {}) {
     return transaction(() => {
       const id = randomUUID();
-      prepare("INSERT INTO agent_chat_posts (id, kind, agent_id, run_id, channel, topic, content, attachment_json, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)").run(id, kind, agentId, runId, channel, topic, content, attachment ? json(attachment) : null, iso());
+      prepare("INSERT INTO agent_chat_posts (id, kind, agent_id, run_id, channel, topic, content, attachment_json, recipients_json, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)").run(id, kind, agentId, runId, channel ?? "", topic ?? "", content, attachment ? json(attachment) : null, Array.isArray(to) && to.length ? json(to) : null, iso());
       const dropped = Number(prepare("UPDATE agent_chat_posts SET state = 'dropped', error = 'The outbox was full; this post was dropped.' WHERE state = 'queued' AND id IN (SELECT id FROM agent_chat_posts WHERE state = 'queued' ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?)").run(max).changes);
       return { post: chatPostOf(prepare("SELECT * FROM agent_chat_posts WHERE id = ?").get(id)), dropped };
     });
+  }
+  /**
+   * The last post of an agent's answer where a reply arrived (M47.4): the newest sent reply or
+   * finding with a run, in that channel and topic, or in that direct conversation (every recipient
+   * the same), so "+1" rates the answer above it.
+   */
+  function latestAnsweredPost({ channel = null, topic = null, to = null } = {}) {
+    const rows = prepare("SELECT * FROM agent_chat_posts WHERE run_id IS NOT NULL AND kind IN ('reply', 'findings') AND state = 'sent' ORDER BY sent_at DESC, created_at DESC, rowid DESC LIMIT 100").all().map(chatPostOf);
+    const same = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && [...a].sort().every((value, index) => value === [...b].sort()[index]);
+    return rows.find((post) => (Array.isArray(to) && to.length ? same(post.to, to) : post.channel === String(channel ?? "") && post.topic === String(topic ?? ""))) ?? null;
   }
   const listChatPosts = ({ state = null, limit = 50 } = {}) => (state
     ? prepare("SELECT * FROM agent_chat_posts WHERE state = ? ORDER BY created_at, rowid LIMIT ?").all(state, limit)
@@ -683,25 +917,60 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   }
   const getQuestions = (agentId) => { const row = prepare("SELECT questions_json FROM agent_evals WHERE agent_id = ?").get(agentId); return row ? parse(row.questions_json, []) : null; };
 
-  const evalRunOf = (row) => row && { id: row.id, agentId: row.agent_id, version: row.version, model: row.model ?? null, state: row.state, results: parse(row.results_json, []), score: row.score ?? null, createdBy: row.created_by, createdAt: row.created_at, finishedAt: row.finished_at ?? null };
+  const evalRunOf = (row) => row && { id: row.id, agentId: row.agent_id, version: row.version, model: row.model ?? null, state: row.state, results: parse(row.results_json, []), score: row.score ?? null, createdBy: row.created_by, createdAt: row.created_at, finishedAt: row.finished_at ?? null, route: row.route ?? null, pairId: row.pair_id ?? null };
   /** An evaluation, tied to the agent's version and the model in use, so accuracy can be followed over both. */
-  function createEvalRun({ agentId, version, results, createdBy, model = null }) {
+  function createEvalRun({ agentId, version, results, createdBy, model = null, route = null, pairId = null }) {
     const id = randomUUID();
-    prepare("INSERT INTO agent_eval_runs (id, agent_id, version, model, state, results_json, created_by, created_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)").run(id, agentId, version, model, json(results), createdBy, iso());
+    prepare("INSERT INTO agent_eval_runs (id, agent_id, version, model, state, results_json, created_by, created_at, route, pair_id) VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)").run(id, agentId, version, model, json(results), createdBy, iso(), route, pairId);
     return getEvalRun(id);
   }
   const getEvalRun = (id) => evalRunOf(prepare("SELECT * FROM agent_eval_runs WHERE id = ?").get(id));
   const setEvalResults = (id, results) => prepare("UPDATE agent_eval_runs SET results_json = ? WHERE id = ?").run(json(results), id);
-  const listEvalRuns = (agentId, limit = 10) => prepare("SELECT * FROM agent_eval_runs WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(agentId, limit).map(evalRunOf);
+  const listEvalRuns = (agentId, limit = 10) => prepare("SELECT * FROM agent_eval_runs WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(agentId, limit).map(evalRunOf).map(settleEvalRun);
 
-  /** Record one question's grade; when none is left pending, the evaluation is done and scored. */
+  /**
+   * An evaluation as its runs have ended. Only the runner's finish graded a question, so a run that
+   * ended any other way - cancelled, waited too long in the queue, lost its lease, cut off by a
+   * restart, killed - left its evaluation "running" for good, and every later one of that agent was
+   * refused as "ran in the last hour". Such a question is graded here, as its run ended, whenever
+   * the evaluation is listed; so is one whose run was never queued (BoxPilot stopped part-way through
+   * setting the evaluation up). A completed run is left to the runner's finish, which grades its
+   * answer a moment after marking it completed; any other ending grades the same either way. A
+   * nightly question that was never asked is not graded at all, and left out of the score: refused
+   * at hand-out (the night's model time could not pay for it, 2026-10 sweep 3), or stopped before
+   * or while it ran by something other than its answer - it waited too long to start, its agent or
+   * every agent was paused, the kill switch (sweep 4: each was graded wrong, a false drop in
+   * accuracy). A person's evaluation is graded as it ended: they asked for it then.
+   */
+  function settleEvalRun(evaluation) {
+    if (!evaluation || evaluation.state !== "running") return evaluation;
+    let settled = evaluation;
+    for (const result of evaluation.results) {
+      if (result.passed !== null || result.skipped) continue;
+      const run = result.runId ? getRun(result.runId) : null;
+      if (run && (!finishedStates.has(run.state) || run.state === "completed")) continue;
+      const notAsked = !evaluation.createdBy && ["refused", "cancelled", "killed"].includes(run?.state);
+      const grade = notAsked
+        ? { passed: null, skipped: true, found: `${run.state === "refused" || !run.startedAt ? "Not asked" : "Not graded"}: ${run.reason ?? "there was no model time left for it"}` }
+        : { passed: false, found: run ? `The run ended ${run.state}` : "The run was never queued" };
+      settled = gradeEval(evaluation.id, result.questionId, grade) ?? settled;
+    }
+    return settled;
+  }
+
+  /**
+   * Record one question's grade; when none is left pending, the evaluation is done and scored - on
+   * the questions graded, none when every one was skipped (`skipped`: never asked, or cut short,
+   * for want of the night's model time).
+   */
   function gradeEval(evalId, questionId, grade) {
     return transaction(() => {
       const current = getEvalRun(evalId);
       if (!current) return null;
       const results = current.results.map((entry) => (entry.questionId === questionId ? { ...entry, ...grade } : entry));
-      const pending = results.some((entry) => entry.passed === null);
-      const score = pending ? null : results.length ? results.filter((entry) => entry.passed).length / results.length : 0;
+      const pending = results.some((entry) => entry.passed === null && !entry.skipped);
+      const graded = results.filter((entry) => !entry.skipped);
+      const score = pending ? null : graded.length ? graded.filter((entry) => entry.passed).length / graded.length : results.length ? null : 0;
       prepare("UPDATE agent_eval_runs SET results_json = ?, state = ?, score = ?, finished_at = ? WHERE id = ?").run(json(results), pending ? "running" : "done", score, pending ? null : iso(), evalId);
       return getEvalRun(evalId);
     });
@@ -712,13 +981,14 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   /**
    * Keep what the pages show: finished runs from the last 30 days beyond the newest 500 (their
    * steps go with them), decided or expired proposals after 30 days, finished evaluations beyond
-   * the newest 20 per agent.
+   * the newest 60 per agent (two months of nightly ones: accuracy over time, M40).
    */
-  function prune({ keepRuns = 500, runDays = 30, at = now() } = {}) {
+  function prune({ keepRuns = 500, runDays = 30, keepEvals = 60, at = now() } = {}) {
     const cutoff = new Date(at.getTime() - runDays * 86_400_000).toISOString();
     const runs = prepare(`DELETE FROM agent_runs WHERE state NOT IN ('queued', 'running') AND queued_at < ? AND id NOT IN (SELECT id FROM agent_runs ORDER BY queued_at DESC, rowid DESC LIMIT ?)`).run(cutoff, keepRuns).changes;
     const proposals = prepare("DELETE FROM agent_proposals WHERE state != 'open' AND created_at < ?").run(cutoff).changes;
-    const evals = prepare("DELETE FROM agent_eval_runs WHERE state = 'done' AND id NOT IN (SELECT id FROM agent_eval_runs e WHERE e.agent_id = agent_eval_runs.agent_id ORDER BY created_at DESC LIMIT 20)").run().changes;
+    prepare("DELETE FROM agent_plans WHERE state NOT IN ('running', 'waiting') AND updated_at < ?").run(cutoff);
+    const evals = prepare("DELETE FROM agent_eval_runs WHERE state = 'done' AND id NOT IN (SELECT id FROM agent_eval_runs e WHERE e.agent_id = agent_eval_runs.agent_id ORDER BY created_at DESC LIMIT ?)").run(keepEvals).changes;
     return { runs: Number(runs), proposals: Number(proposals), evals: Number(evals) };
   }
 
@@ -729,14 +999,18 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   return {
     databasePath, transaction,
     createAgent, getAgent, listAgents, getVersion, listVersions, addVersion, setPaused, setNextRun, noteEvent, deleteAgent, setWebhook,
-    enqueueRun, getRun, listRuns, listChildren, listTree, activeRuns, claimNext, holdsLease, extendLease, finishRun, mergeRunFlags, setEvalInfo, markAgentRan, usageSince,
-    addStep, listSteps, countSteps,
+    enqueueRun, getRun, listRuns, listChildren, listTree, activeRuns, claimNext, holdsLease, extendLease, releaseRun, finishRun, mergeRunFlags, setEvalInfo, markAgentRan, usageSince, findingsUseSince,
+    addStep, listSteps, countSteps, actionSteps, runForJob, countActionsSince, actionsSince,
+    createPlan, getPlan, openPlans, savePlan,
     writeNote, listNotes, getNote, listSharedNotes, deleteNote, updateNote,
+    writeFinding, listFindings, deleteFindings,
     getThread, saveThread, deleteThread,
     addEpisode, listEpisodes, deleteEpisode,
     setVector, vectorsOf, deleteVector, deleteVectorsLike, countVectors,
+    addExample, listExamples, listAllExamples, countExamples, getExample, deleteExample, deleteExampleOfRun,
     setFeedback, getFeedback, listFeedback,
-    createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun,
+    createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun, setProposalStepJob, listOpenProposalsForJob,
+    latestAnsweredPost,
     addDocument, upsertDocument, listDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
     getDocumentMedia, listUndescribed, describeDocument, countImageDocuments,
     queueChatPost, listChatPosts, getChatPost, markChatPost, chatPostsSince, countChatPosts, pruneChatPosts, dropQueuedChatPosts,

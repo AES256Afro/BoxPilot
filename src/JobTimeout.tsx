@@ -27,13 +27,35 @@ export function moreTimeOffered(job: Pick<Job, "state" | "timeout"> | null | und
 }
 
 /**
+ * How long after it ran out a job may still be running on the server: 12 hours, the most any
+ * operation runs, or as long again as its own budget when that was longer. The server's rule
+ * (timeouts.mjs stillRunningForMs); one timeout used to hide a finding's fix for weeks.
+ */
+export const stillRunningForMs = 12 * 3_600_000;
+
+/**
+ * Whether what ran out of time may still be running on the server: the whole operation given up on,
+ * or a step left running (a root task past its own limit), and not yet stillRunningForMs past its end
+ * (a finding's last try carries `at`, a job `updatedAt`) nor settled by the server. The same rule as
+ * the server's. Such a job is not run again from a page - that would start a second copy beside the
+ * first - unless the server itself offered it more time (moreTimeOffered), which it does only where
+ * the helper keeps the two apart.
+ */
+export function mayStillBeRunning(job: { state?: string | null; timeout?: JobTimeout | null; at?: string | null; updatedAt?: string | null; createdAt?: string | null } | null | undefined, now: number = Date.now()): boolean {
+  const timeout = job?.state === "failed" ? job.timeout ?? null : null;
+  if (timeout === null || timeout.phase === "queued" || !(timeout.scope === "operation" || timeout.stillRunning === true) || timeout.settled === true) return false;
+  const ended = Date.parse(job?.at ?? job?.updatedAt ?? job?.createdAt ?? "");
+  return !Number.isFinite(ended) || now < ended + Math.max(stillRunningForMs, Number(timeout.budgetMs) || 0);
+}
+
+/**
  * Whether the job's error is only the timeout said again. The server words a whole-operation or
  * queued timeout as the error ("did not finish within 25 minutes. ... Activity shows how far it
  * got"), which the notice below says better; a step's own error still carries what the step said.
  */
 export function errorIsTheTimeout(job: Pick<Job, "state" | "timeout"> | null | undefined): boolean {
   const timeout = jobTimeout(job);
-  return timeout !== null && (timeout.scope === "operation" || timeout.phase === "queued");
+  return timeout !== null && (timeout.scope === "operation" || timeout.phase === "queued" || timeout.stillRunning === true);
 }
 
 const tiers: readonly string[] = ["low", "medium", "high"];
@@ -50,7 +72,7 @@ export function JobTimeoutNotice({ job, onMoreTime, busy = false }: { job: Job; 
     ? `It waited ${formatDuration(timeout.elapsedMs)} behind other work on the server and never started.`
     : timeout.scope === "operation"
       ? `It had ${formatDuration(timeout.budgetMs)} and used all of it. It may still be running on the server.`
-      : `${timeout.step ?? "One step"} had ${formatDuration(timeout.budgetMs)} and did not finish. The job ran for ${formatDuration(timeout.elapsedMs)}.`;
+      : `${timeout.step ?? "One step"} had ${formatDuration(timeout.budgetMs)} and did not finish. ${timeout.stillRunning ? "It may still be running on the server." : `The job ran for ${formatDuration(timeout.elapsedMs)}.`}`;
   const offered = Boolean(onMoreTime && moreTime !== null);
   return (
     <Notice

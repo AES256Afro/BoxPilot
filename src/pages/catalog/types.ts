@@ -35,6 +35,8 @@ export interface LiveState {
   container: { exists: boolean; running: boolean; status: string; health: string; restarts: number; image: string | null };
   sidecars?: Array<{ id: string; running: boolean; status: string; restarts: number }>;
   urls: LiveUrl[];
+  /** Each host port it publishes and the address it binds ("*" on the host's own network), from its deployed compose file. */
+  published?: Array<{ id: string | null; host: number; protocol: string; bind: string; fixed: boolean; web: boolean; hostNetwork?: boolean }>;
   updateAvailable?: boolean;
   updateHistory?: Array<{ at: string; from: Record<string, string>; to: Record<string, string>; rolledBack?: boolean }>;
   installedImage?: string | null;
@@ -79,8 +81,13 @@ export interface CatalogContext {
     killswitch: (appId: string) => Promise<void>;
     stopKillswitch: (scheduleId: string) => Promise<void>;
   };
-  /** Closes the sheet, then stages the operation through the approval dialog. */
-  act: (operation: PendingOperation) => void;
+  /**
+   * Closes the sheet, then stages the operation through the approval dialog. `keep` is the edited
+   * Compose file the action came from, handed back by takeComposeDraft when the job did not complete.
+   */
+  act: (operation: PendingOperation, keep?: { composeDraft: string }) => void;
+  /** An app's edited Compose file whose Apply was cancelled or failed, once; null when there is none. */
+  takeComposeDraft: (appId: string) => string | null;
   /** The address to open one of an app's ports at, from wherever this browser is. */
   openUrl: (port: { host: number; exposure: string; path?: string | null }, manifest: Manifest) => string;
   /** Opens the install or settings form in place of the sheet. */

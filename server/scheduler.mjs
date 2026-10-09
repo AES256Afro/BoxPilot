@@ -1,5 +1,6 @@
 import { registry as defaultRegistry } from "./ops/index.mjs";
-import { secretPaths } from "./ops/registry.mjs";
+import { internalRefusal, secretPaths } from "./ops/registry.mjs";
+import { defaultApprovalMode, normalizeApprovalMode } from "./ops/risk.mjs";
 import { overdueScheduleIds } from "./schedule-freshness.mjs";
 import { asSentence } from "./health-alerts.mjs";
 import { recordFailed } from "./jobs.mjs";
@@ -163,10 +164,13 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
     if (!alerts) return;
     try { Promise.resolve(alerts.clear(alertKey(scheduleId), options)).catch(() => {}); } catch { /* nothing to clear */ }
   }
+  /** The approval mode as the job layer reads it: the setting, else the environment, else tiered. */
+  const approvalMode = () => normalizeApprovalMode(store.getSetting?.("approvalMode", null) ?? process.env.BOXPILOT_APPROVAL_MODE ?? defaultApprovalMode);
 
   async function create({ operationId, parameters = {}, frequency, minute, hour = null, weekday = null, spread = false, createdBy }) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation is not registered");
+    if (operation.internal) throw new Error(internalRefusal(operation));
     if (operation.readOnly) throw new Error("Read-only operations run on demand; they are not scheduled");
     if (operation.risk === "high") throw new Error(`${operation.title} is high risk and cannot run unattended`);
     if (operation.minimumRole === "owner" && (store.findOwnerById?.(createdBy)?.role ?? "owner") !== "owner") throw new Error(`Only the owner can schedule ${operation.title}`);
@@ -180,6 +184,9 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
     const prepared = typeof jobs.prepareParameters === "function" ? await jobs.prepareParameters(operationId, parameters ?? {}) : parameters ?? {};
     const parameterError = registry.validate(operationId, prepared);
     if (parameterError) throw new Error(parameterError);
+    // The tier the job layer would stage it at, which what it acts on can raise: installing an app
+    // whose manifest calls it high risk is high, and would ask for a password on every run.
+    if (typeof jobs.effectiveRisk === "function" && await jobs.effectiveRisk(operationId, prepared) === "high") throw new Error(`${operation.title} is high risk here and cannot run unattended`);
     // `spread` means "somewhere quiet near here" rather than "exactly here": the caller is creating
     // one of many identical heavy jobs and does not care about the minute, only the night.
     if (spread && frequency === "weekly") {
@@ -279,7 +286,8 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
         const creator = store.findOwnerById?.(schedule.createdBy) ?? null;
         if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
         const creatorRole = creator?.role ?? "owner";
-        if (jobs.approvalPolicy && store.getSetting?.("approvalMode", null) === "always-password") throw new Error("Enter the owner password to run this: approvals are set to always ask");
+        // The same code the job layer gives a password-gated approval, which is what the skip below tests.
+        if (jobs.approvalPolicy && approvalMode() === "always-password") throw Object.assign(new Error("Enter the owner password to run this: approvals are set to always ask"), { code: "password_required" });
         job = await jobs.createOperationJob(schedule.operationId, schedule.parameters ?? {}, schedule.createdBy, { role: creatorRole });
         // Before it starts: a job can fail before approveAndStart has even returned.
         remember(job.id, schedule.id);
@@ -294,8 +302,10 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
         // A job that was staged but could not start is withdrawn rather than left awaiting approval forever.
         if (job && typeof jobs.cancelJob === "function") { try { jobs.cancelJob(job.id, schedule.createdBy, { role: "owner", reason: `Scheduled run could not start: ${error.message}`.slice(0, 200) }); } catch { /* already moved on */ } }
         // A password-gated approval is a condition, not a sentence: test the code the job layer
-        // attaches, so rewording the message for the owner cannot turn a skip into a forced run.
-        const blocked = error?.code === "password_required" || error?.code === "wrong_password";
+        // attaches, so rewording the message for the owner cannot turn a skip into a forced run. It is
+        // the approval mode's doing only when the mode is always-ask; a job staged high for what it
+        // acts on wants the password in any mode, and is said as the error it is.
+        const blocked = (error?.code === "password_required" || error?.code === "wrong_password") && approvalMode() === "always-password";
         // Keep the pointer to the last real job: it is what the "still running" guard reads next tick.
         store.markScheduleRun(schedule.id, { jobId: job?.id ?? schedule.lastJobId ?? null, result: blocked ? "blocked-by-approval-mode" : `error: ${error.message}`.slice(0, 200), nextDueAt });
         store.recordAudit("schedule.skipped", { actorId: schedule.createdBy, subjectId: schedule.id, details: { operationId: schedule.operationId, reason: blocked ? "always-password approval mode" : error.message } });
@@ -336,11 +346,18 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
    */
   function recover(interrupted = []) {
     const ids = new Set(interrupted.map((job) => job.id));
+    const neverStarted = new Set(interrupted.filter((job) => job.neverStarted).map((job) => job.id));
     const taken = [];
     for (const schedule of store.listSchedules()) {
       if (!schedule.lastJobId || !ids.has(schedule.lastJobId)) continue;
       remember(schedule.lastJobId, null);
       taken.push(schedule.lastJobId);
+      // Still queued in the helper when BoxPilot restarted: it never began, and nothing changed.
+      if (neverStarted.has(schedule.lastJobId)) {
+        store.settleScheduleRun?.(schedule.id, { jobId: schedule.lastJobId, result: "cancelled: BoxPilot restarted before it began" });
+        announce(schedule, "Scheduled task did not run", "BoxPilot restarted before it began, so nothing ran or changed. It runs again at its next time.");
+        continue;
+      }
       store.settleScheduleRun?.(schedule.id, { jobId: schedule.lastJobId, result: "failed: interrupted by a BoxPilot restart" });
       announce(schedule, "Scheduled task was interrupted", "BoxPilot restarted while it was running, so it is marked failed. It may still have finished on its own; check what it changed before running it again.");
     }

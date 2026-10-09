@@ -51,4 +51,41 @@ describe("the optional HTTPS listener", () => {
     expect(() => errorHandler(new Error("EADDRINUSE"))).not.toThrow();
     expect(onError).toHaveBeenCalled();
   });
+
+  // A hand-edited BOXPILOT_TLS_PORT that is no port made listen() throw at once, before any "error"
+  // event, and index.mjs runs this at load: the whole web service crash-looped, HTTP too (sweep 5).
+  it.each(["", "abc", "70000", "-1", "0"])("falls back to 8443 for a TLS port of %j instead of throwing", (value) => {
+    const listen = vi.fn((port, _host, cb) => {
+      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new RangeError("ERR_SOCKET_BAD_PORT");
+      cb?.();
+    });
+    const warn = vi.fn();
+    const server = startTlsListener({}, {
+      env: { BOXPILOT_TLS_CERT: "/c", BOXPILOT_TLS_KEY: "/k", BOXPILOT_TLS_PORT: value },
+      readFile: () => "X", createServer: () => ({ listen, on: () => {} }), log: { warn, log: () => {} },
+    });
+    expect(server).not.toBeNull();
+    expect(listen).toHaveBeenCalledWith(8443, "127.0.0.1", expect.any(Function));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("is not a port"));
+  });
+
+  it("takes the port the way the env file gives it, a comment and all", () => {
+    const listen = vi.fn((_port, _host, cb) => cb?.());
+    startTlsListener({}, {
+      env: { BOXPILOT_TLS_CERT: "/c", BOXPILOT_TLS_KEY: "/k", BOXPILOT_TLS_PORT: "9443   # https" },
+      readFile: () => "X", createServer: () => ({ listen, on: () => {} }), log: quietLog,
+    });
+    expect(listen).toHaveBeenCalledWith(9443, "127.0.0.1", expect.any(Function));
+  });
+
+  it("returns null rather than throwing when listen itself throws", () => {
+    const close = vi.fn();
+    const warn = vi.fn();
+    const server = startTlsListener({}, {
+      env: { BOXPILOT_TLS_CERT: "/c", BOXPILOT_TLS_KEY: "/k" },
+      readFile: () => "X", createServer: () => ({ listen: () => { throw new Error("EACCES"); }, on: () => {}, close }), log: { warn, log: () => {} },
+    });
+    expect(server).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("HTTP is still serving"));
+  });
 });

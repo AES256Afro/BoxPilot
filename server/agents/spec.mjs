@@ -18,14 +18,18 @@
  *                        its team chat (M38): findings, logs and knowledge, each to a Zulip channel
  *   memory               notes kept, how long they stay fresh and how many, whether other agents
  *                        may read them, and a conversation per person
+ *   sharing              findings (M44): whether what its routine runs and checked answers found
+ *                        is kept for the other agents, and whether it reads theirs before it works
  *   escalation           when it hands the matter to the owner as a card: low confidence, a limit
  *                        reached, an action needed, something that looks risky
  *   allow                the apps its tools may look at and the operations it may propose
- *   model                thinking on or off (off by default: on a CPU it costs minutes)
+ *   model                thinking on or off (off by default: on a CPU it costs minutes); which model
+ *                        runs it, local or Claude (M45.3), and what may leave the box when Claude does
  *   orchestration        a supervisor that hands subtasks to other agents, and how deep
  *
  * normalizeSpec() is the one gate: anything else is refused with a sentence, never repaired.
  */
+import { actLimits, grantLevels } from "./grants.mjs";
 import { toolById, toolCatalog, toolPermissions } from "./tool-catalog.mjs";
 import { normalizeChatOutputs } from "./zulip.mjs";
 
@@ -39,6 +43,10 @@ export const scheduleCadences = Object.freeze(["hourly", "every-6-hours", "daily
 export const knowledgeSources = Object.freeze(["docs", "registry", "catalog", "notes", "documents"]);
 export const audiences = Object.freeze(["owner", "operator", "viewer"]);
 export const outputFormats = Object.freeze(["text", "json"]);
+/** Which model runs an agent: the local one, Claude through the model gateway (M45.3), or the local one moving to Claude when the run needs it (M45.4). */
+export const modelRoutes = Object.freeze(["local", "claude", "auto"]);
+/** What may leave the box when Claude runs it: names replaced with stand-ins, or the text as it is. Secrets never. */
+export const dataPolicies = Object.freeze(["redacted", "as-is"]);
 const appIdPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const operationIdPattern = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/;
 const agentIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -209,6 +217,11 @@ export function normalizeSpec(input) {
     turns: integer(rawMemory.turns, { min: 1, max: 20, default: 6 }, "Turns kept word for word"),
   };
 
+  // Findings (M44): a permission each way, on unless the owner turns it off. Sharing keeps what its
+  // routine runs and checked answers found for the other agents; using reads theirs before it works.
+  const rawSharing = section(input.sharing, "Sharing must be a set of choices");
+  const sharing = { shareFindings: bool(rawSharing.shareFindings, true), useFindings: bool(rawSharing.useFindings, true) };
+
   const rawEscalation = section(input.escalation, "Escalation must be a set of choices");
   const escalation = {
     lowConfidence: bool(rawEscalation.lowConfidence, true),
@@ -218,10 +231,33 @@ export function normalizeSpec(input) {
   };
 
   const rawAllow = section(input.allow, "What it may touch must be lists");
-  const allow = { apps: allowList(rawAllow.apps, appIdPattern, "The apps it may look at"), operations: allowList(rawAllow.operations, operationIdPattern, "The operations it may propose") };
+  const allow = { apps: allowList(rawAllow.apps, appIdPattern, "The apps it may look at"), operations: allowList(rawAllow.operations, operationIdPattern, "The operations it may propose or carry out") };
+  // What it may do itself (M45.5): Ask or Run per operation on its list; Propose, the default, is not kept.
+  // The registry's rules for each (grants.mjs) are checked where the agent is saved, which knows the registry.
+  const rawGrants = section(rawAllow.grants, "What it may do itself must be a choice for each operation");
+  const grants = {};
+  for (const [operationId, level] of Object.entries(rawGrants)) {
+    if (!operationIdPattern.test(operationId)) throw new SpecError(`${operationId} is not an operation id`);
+    if (!grantLevels.includes(level)) throw new SpecError(`What it may do with ${operationId} is one of ${grantLevels.join(", ")}`);
+    if (level === "propose") continue;
+    if (allow.operations !== "*" && !allow.operations.includes(operationId)) throw new SpecError(`${operationId} is not on its list of operations, so it cannot carry it out`);
+    grants[operationId] = level;
+  }
+  if (Object.keys(grants).length > actLimits.perAgentGrants) throw new SpecError(`At most ${actLimits.perAgentGrants} operations it carries out itself`);
+  // Kept only when there are some, so an agent saved before M45.5 reads as it was saved.
+  if (Object.keys(grants).length) allow.grants = Object.fromEntries(Object.entries(grants).sort(([a], [b]) => a.localeCompare(b)));
+  // The acting tool follows the grants: off with none; with some, on, or only when a person asked if
+  // the owner set it so. Taking the grants away is how acting stops.
+  for (const id of ["operations.run", "operations.plan"]) tools[id] = !Object.keys(grants).length ? "off" : (rawTools[id] ?? rawTools[id.replace(".", "_")]) === "ask" ? "ask" : "auto";
 
   const rawModel = section(input.model, "The model's settings must be choices");
-  const model = { thinking: bool(rawModel.thinking, false) };
+  const route = rawModel.route ?? "local";
+  if (!modelRoutes.includes(route)) throw new SpecError(`The model is one of ${modelRoutes.join(", ")}`);
+  const dataPolicy = rawModel.dataPolicy ?? "redacted";
+  if (!dataPolicies.includes(dataPolicy)) throw new SpecError(`What may leave the box is one of ${dataPolicies.join(", ")}`);
+  // Claude for a viewer's question only when the owner says so: their words go to Anthropic.
+  // The owner's documents (the library, connector imports, Zulip files) go to Claude only when named here.
+  const model = { thinking: bool(rawModel.thinking, false), route, dataPolicy, claudeForViewers: bool(rawModel.claudeForViewers, false), claudeReadsDocuments: bool(rawModel.claudeReadsDocuments, false) };
 
   const rawOrchestration = section(input.orchestration, "Orchestration must be a set of choices");
   const orchestration = {
@@ -237,7 +273,7 @@ export function normalizeSpec(input) {
   if (outputs.notify === "never") tools["notify.owner"] = "off";
   if (!orchestration.supervisor) tools["agents.handoff"] = "off";
   if (!triggers.ask && !triggers.schedule && !triggers.events.length && !triggers.webhook) throw new SpecError("An agent needs at least one way to start: asked, a schedule, an event or a webhook");
-  return { name, purpose, job, successCriteria, prompt, instructions, audience: audiences.filter((role) => audience.includes(role)), knowledge, tools, triggers, budget, outputs, memory, escalation, allow, model, orchestration };
+  return { name, purpose, job, successCriteria, prompt, instructions, audience: audiences.filter((role) => audience.includes(role)), knowledge, tools, triggers, budget, outputs, memory, sharing, escalation, allow, model, orchestration };
 }
 
 /**

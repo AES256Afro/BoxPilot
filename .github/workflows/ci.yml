@@ -51,9 +51,16 @@ jobs:
 
   # Needs the runner itself, not a container: real systemd ordering, loop devices, the kernel's
   # exFAT driver and the Docker daemon. It edits /etc/fstab and restarts Docker, which is why it
-  # runs only here, on a machine thrown away afterwards.
+  # runs only here, on a machine thrown away afterwards. Also on 22.04, the oldest release BoxPilot
+  # installs on, which differs where this job looks: systemd 249, from before a mount unit's start
+  # waited for systemd to see the mount table (part 6d); Samba 4.15, which has no smbstatus --json;
+  # and a 6.8 kernel, which clears the exFAT mark a write set at every sync.
   drive-shutdown-order:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
       - name: Check out repository
@@ -161,6 +168,29 @@ jobs:
         if: success() || failure()
         run: sudo bash tests/ubuntu/wake-on-lan-link.sh "$(command -v node)"
 
+  # The file server's limits on a real Samba: a share that leads into a protected folder is refused
+  # before smb.conf is written, root and system accounts get no Samba password, what BoxPilot
+  # writes passes testparm and serves a share, and root cannot sign in even with a password set by
+  # hand. Both LTS releases, since Samba's version differs between them.
+  samba-boundaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Shares stay out of protected folders, and root never signs in
+        run: sudo bash tests/ubuntu/samba-boundaries.sh "$(command -v node)"
+
   # The agents runner's hard caps (M37) on real systemd: deploy/boxpilot-agents.service as shipped,
   # the real runner and a fake model burning three times the unit's processor quota. The service's
   # own cgroup must stay at or under CPUQuota=200% under load and idle near 0% afterwards. Both LTS
@@ -183,6 +213,36 @@ jobs:
 
       - name: The agents runner stays under its caps, and idles near 0%
         run: sudo bash tests/ubuntu/agents-caps.sh "$(command -v node)"
+
+      # The runner reads BoxPilot's port from the env file the web service is started with, as do
+      # the upgrade, the installer, the doctor and the firewall. systemd has no inline comments
+      # (`BOXPILOT_PORT=9000 # moved` is all value): every one of them is checked against what
+      # systemd itself gives a unit, on both releases' systemd. Runs whether or not the caps passed.
+      - name: Every reader of the env file agrees with systemd on the port and address
+        if: ${{ !cancelled() }}
+        run: sudo bash tests/ubuntu/env-file-parity.sh "$(command -v node)"
+
+  # M45.3: the model gateway's unit on real systemd: the key from LoadCredential, the socket only the
+  # web service's user opens, a sandbox without anyone else's secrets, and a call that reaches
+  # api.anthropic.com and is refused for its (fake) key, so nothing is billed.
+  model-gateway:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: The gateway holds the key alone and answers only the web service
+        run: sudo bash tests/ubuntu/model-gateway.sh "$(command -v node)"
 
   # M39.2: whether the house keeps its DNS with the server off, against real dnsmasq (the resolver
   # GL.iNet and OpenWrt routers run): each server asked directly, the canary through a "router"

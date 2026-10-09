@@ -28,6 +28,7 @@ async function setup({ now = () => new Date("2026-08-20T10:30:00") } = {}) {
       "app.inspect": { id, title: "Inspect", risk: "low", readOnly: true },
       "snap.delete": { id, title: "Delete a snapshot", risk: "medium", readOnly: false, confirm: (p) => String(p.name ?? "") },
       "recycle.empty": { id, title: "Empty the recycle bin", risk: "medium", readOnly: false },
+      "agents.runtime.cpu": { id, title: "Set the agents runner's processors", risk: "low", readOnly: false, internal: true },
     })[id] ?? null,
     validate: (id, parameters) => (id === "app.backup" && !parameters.id ? "requires id" : null),
   };
@@ -65,6 +66,14 @@ describe("operation scheduler", () => {
     store.close();
   });
 
+  it("refuses to schedule BoxPilot's own plumbing (sweep 3)", async () => {
+    const { store, scheduler, owner } = await setup();
+    try {
+      const base = { frequency: "daily", minute: 0, hour: 3, createdBy: owner.id };
+      await expect(scheduler.create({ ...base, operationId: "agents.runtime.cpu", parameters: { processors: 8, background: 8, resetAfterSeconds: 7_200 } })).rejects.toThrow(/BoxPilot's own/);
+    } finally { store.close(); }
+  });
+
   it("runs due schedules as their creator and advances the next occurrence", async () => {
     let clock = new Date("2026-08-20T02:59:00");
     const { store, jobs, scheduler, owner } = await setup({ now: () => clock });
@@ -89,6 +98,7 @@ describe("operation scheduler", () => {
     const { store, jobs, scheduler, owner } = await setup({ now: () => clock });
     // The job layer marks a password-gated approval with a code; the scheduler reads the code, not the prose.
     jobs.approveAndStart.mockRejectedValueOnce(Object.assign(new Error("Enter the owner password: medium-risk job needs the owner password"), { code: "password_required" }));
+    store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
     const schedule = await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
     clock = new Date("2026-08-20T04:00:30");
     await scheduler.tick();
@@ -104,6 +114,36 @@ describe("operation scheduler", () => {
     expect(store.getSchedule(schedule.id).nextDueAt).toBe(new Date("2026-08-20T10:00:00").toISOString()); // fresh start, no backlog
     scheduler.remove(schedule.id, owner.id);
     expect(store.listSchedules()).toEqual([]);
+    store.close();
+  });
+
+  it("says a password refusal under tiered approvals is an error, not the approval mode", async () => {
+    // A job staged high for what it acts on wants the password whatever the mode; calling that
+    // "blocked by approval mode" sent the owner to a setting that was not the cause.
+    let clock = new Date("2026-08-20T03:00:30");
+    const { store, jobs, scheduler, owner } = await setup({ now: () => clock });
+    jobs.approveAndStart.mockRejectedValueOnce(Object.assign(new Error("Enter the owner password: high-risk job needs the owner password"), { code: "password_required" }));
+    const schedule = await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
+    clock = new Date("2026-08-20T04:00:30");
+    await scheduler.tick();
+    expect(store.getSchedule(schedule.id).lastResult).toBe("error: Enter the owner password: high-risk job needs the owner password");
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "schedule.skipped", details: expect.objectContaining({ reason: "Enter the owner password: high-risk job needs the owner password" }) })]));
+    store.close();
+  });
+});
+
+describe("an operation whose tier depends on what it acts on", () => {
+  it("cannot be scheduled where that makes it high risk", async () => {
+    // app.install is medium, and staged as high for an app whose manifest says so (Pi-hole, the VPN):
+    // every run failed asking for a password, and the record blamed the approval mode.
+    const { store, owner } = await setup();
+    const helper = { request: vi.fn() };
+    const jobs = createJobService(store, helper, { operationRiskHooks: { "app.install": async ({ id }) => (id === "pi-hole" ? "high" : null) } });
+    const scheduler = createSchedulerService({ store, jobs, now: () => new Date("2026-08-20T10:30:00") });
+    const base = { operationId: "app.install", frequency: "weekly", minute: 0, hour: 3, weekday: 0, createdBy: owner.id };
+    await expect(scheduler.create({ ...base, parameters: { id: "pi-hole" } })).rejects.toThrow("Install application is high risk here and cannot run unattended");
+    expect(store.listSchedules()).toEqual([]);
+    await expect(scheduler.create({ ...base, parameters: { id: "jellyfin" } })).resolves.toMatchObject({ operationId: "app.install" });
     store.close();
   });
 });
@@ -285,6 +325,7 @@ describe("a scheduled task that fails (M27.2)", () => {
     expect(state()[key].message).toContain("helper is busy");
 
     // Always-ask approvals skip every run: a choice, but one whose effect is easy to miss.
+    store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
     jobs.approveAndStart = vi.fn(async () => { throw Object.assign(new Error("Enter the owner password"), { code: "password_required" }); });
     clock = new Date("2026-08-20T05:00:30");
     await scheduler.tick();
@@ -372,6 +413,7 @@ describe("what the Schedules panel says about the last run (M27.2)", () => {
     clock = new Date("2026-08-20T05:00:30");
     await scheduler.tick();
     expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "did-not-run", lastReason: "helper is busy" });
+    store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
     jobs.approveAndStart = vi.fn(async () => { throw Object.assign(new Error("Enter the owner password"), { code: "password_required" }); });
     clock = new Date("2026-08-20T06:00:30");
     await scheduler.tick();
@@ -422,6 +464,22 @@ describe("what the Schedules panel says about the last run (M27.2)", () => {
     const jobId = store.getSchedule(schedule.id).lastJobId;
     createSchedulerService({ store, jobs, registry, now: () => clock }).recover([{ id: jobId, title: "Back up application data" }]);
     expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "failed", lastReason: "interrupted by a BoxPilot restart" });
+    store.close();
+  });
+
+  it("says a run BoxPilot restarted before it began did not run, and told the owner nothing changed (sweep 4)", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const { store, jobs, owner, registry } = await setup();
+    const messages = [];
+    const alerts = { raise: async (alert) => { messages.push(alert); }, clear: async () => {} };
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => clock, alerts });
+    const schedule = await scheduler.create({ operationId: "app.backup", parameters: { id: "jellyfin" }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id });
+    clock = new Date("2026-08-20T03:00:30");
+    await scheduler.tick();
+    const jobId = store.getSchedule(schedule.id).lastJobId;
+    createSchedulerService({ store, jobs, registry, now: () => clock, alerts }).recover([{ id: jobId, title: "Back up application data", neverStarted: true }]);
+    expect(outcomeOf(scheduler, schedule.id)).toMatchObject({ lastOutcome: "did-not-run", lastReason: "BoxPilot restarted before it began" });
+    await vi.waitFor(() => expect(messages.at(-1)?.message).toBe("BoxPilot restarted before it began, so nothing ran or changed. It runs again at its next time."));
     store.close();
   });
 });
@@ -487,6 +545,66 @@ describe("a scheduled run whose result was not saved (M27.2)", () => {
     ]);
     stop();
     store.close();
+  });
+});
+
+describe("a schedule due while approvals always ask, with the real job service", () => {
+  // The fake job services above have no approvalPolicy, so the check that refuses before staging
+  // never ran in a test; it threw without the code the skip is recognised by, and every run read
+  // as an error ("could not start") rather than the approval mode the Schedules panel points at.
+  it("is recorded as blocked by the approval mode, and nothing is staged or run", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-sched-always-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    try {
+      const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "operator", passwordHash: "hash" });
+      const helper = { request: vi.fn(async () => ({ ok: true })) };
+      const jobs = createJobService(store, helper);
+      const messages = [];
+      const scheduler = createSchedulerService({ store, jobs, now: () => clock, alerts: { raise: async (alert) => { messages.push(alert.message); }, clear: async () => {} } });
+      const schedule = await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
+      store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
+      clock = new Date("2026-08-20T03:00:30");
+      await scheduler.tick();
+      expect(store.getSchedule(schedule.id).lastResult).toBe("blocked-by-approval-mode");
+      expect(scheduler.list().find((entry) => entry.id === schedule.id)).toMatchObject({ lastOutcome: "did-not-run", lastReason: "Approvals are set to always ask" });
+      expect(messages).toEqual([expect.stringContaining("Approvals are set to always ask")]);
+      expect(store.listAwaitingApproval()).toEqual([]);
+      expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+});
+
+describe("the nightly package updates beside a backup, with the real job service (sweep 4)", () => {
+  // Every schedule defaults to 03:00. Installing package updates can restart BoxPilot when it is
+  // done, and that restart waits for the work beside it (self-restart.mjs), but its approval was
+  // still refused while any other job ran: the nightly update was refused behind the backup, every
+  // night, with a "did not run" alert, and with a reason that was no longer true.
+  it("runs, rather than being refused because the backup is running", async () => {
+    let clock = new Date("2026-08-20T02:59:00");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-sched-upgrade-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    try {
+      const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "operator", passwordHash: "hash" });
+      const helper = { request: vi.fn(async () => ({ upgraded: [] })) };
+      const jobs = createJobService(store, helper);
+      const messages = [];
+      const scheduler = createSchedulerService({ store, jobs, now: () => clock, alerts: { raise: async (alert) => { messages.push(alert.message); }, clear: async () => {} } });
+      const updates = await scheduler.create({ operationId: "apt.upgrade", parameters: {}, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id });
+      // The 03:00 backup is running.
+      const backup = await jobs.createOperationJob("app.backup", { id: "jellyfin" }, owner.id);
+      store.transitionJob(backup.id, "awaiting_approval", "applying");
+      clock = new Date("2026-08-20T03:00:30");
+      await scheduler.tick();
+      const jobId = store.getSchedule(updates.id).lastJobId;
+      expect(jobId).toBeTruthy();
+      await vi.waitFor(() => expect(store.getJob(jobId).state).toBe("completed"));
+      expect(helper.request).toHaveBeenCalledWith("apt.upgrade", expect.anything(), expect.anything());
+      expect(scheduler.list().find((entry) => entry.id === updates.id).lastOutcome).not.toBe("did-not-run");
+      expect(messages).toEqual([]);
+    } finally { store.close(); }
   });
 });
 

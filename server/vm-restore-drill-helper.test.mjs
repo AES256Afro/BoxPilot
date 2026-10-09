@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -123,6 +123,29 @@ describe("isolated VM restore drill helper", () => {
     const nvramFixture = await fixture();
     await symlink("/etc/passwd", path.join(nvramFixture.nvramRoot, `${restoreDrillDomainName(drillId)}_VARS.fd`));
     await expect(nvramFixture.helper.inspect(nvramFixture.input)).resolves.toMatchObject({ ready: false, blockers: expect.arrayContaining(["Libvirt NVRAM inspection is unavailable"]) });
+  });
+
+  // R4S2-1: only the export folder itself was checked. A link on the way to it (<drill>/var -> /var)
+  // had the drill check the host's own export and grant QEMU access along, chown and chmod included,
+  // on whatever the link named.
+  // Linux only: creates directory symlinks and expects POSIX paths.
+  it.skipIf(onWindows)("refuses a restored export reached through a link on the way to it", async () => {
+    const { helper, input, run } = await fixture();
+    const elsewhere = await mkdtemp(path.join(os.tmpdir(), "boxpilot-elsewhere-")); directories.push(elsewhere);
+    const original = run.getMockImplementation();
+    run.mockImplementation(async (binary, args, options) => {
+      const result = await original(binary, args, options);
+      if (binary === "/usr/bin/restic" && args.includes("restore")) {
+        // The export as restic restored it, its first folder moved away and linked back.
+        const target = args[args.indexOf("--target") + 1];
+        const [first] = await readdir(target);
+        await rename(path.join(target, first), path.join(elsewhere, first));
+        await symlink(path.join(elsewhere, first), path.join(target, first));
+      }
+      return result;
+    });
+    await expect(helper.runDrill(input)).rejects.toThrow(/Restored export is not a safe directory/);
+    expect(run.mock.calls.some(([binary]) => binary === "/usr/bin/virt-install")).toBe(false);
   });
 
   // Linux only: expects POSIX paths.

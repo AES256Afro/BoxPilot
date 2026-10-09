@@ -70,6 +70,10 @@ describe("manifest schema", () => {
     expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "not a tz!" } }).errors).toContainEqual(expect.stringContaining("Region/City"));
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/etc/ssl" } }).errors).toContainEqual(expect.stringContaining("protected"));
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/srv/../etc" } }).errors).toContainEqual(expect.stringContaining("clean"));
+    // A folder above a protected one hands the app everything under it: /var holds BoxPilot's own
+    // database and every app's secrets, /opt the code root runs.
+    for (const above of ["/var", "/var/lib", "/opt"]) expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: above } }).errors).toContainEqual(expect.stringContaining("protected"));
+    expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/opt/stacks" } }).errors).toEqual([]);
     expect(resolveValues(manifest, { env: { NEEDED: "y", EXTRA: "1" } }).errors).toContainEqual(expect.stringContaining("EXTRA"));
     // Compose's short volume syntax splits on ":", so "/mnt/media:old" became "/mnt/media:old:/media"
     // - a mount of /mnt/media at "old" with "/media" as its options - and the deploy failed.
@@ -166,6 +170,27 @@ describe("catalog loader", () => {
       const required = manifest.env.filter((entry) => entry.required).map((entry) => `values.env.${entry.name}: is required`);
       expect(resolveValues(manifest, {}).errors.filter((error) => !required.includes(error))).toEqual([]);
     }
+  });
+});
+
+// R5S2-1: an app's default folder inside another app's writable one is a folder that other app can
+// swap for a link, and the next deploy of the first would mount whatever the link names (MeTube's
+// /srv/media/youtube inside the download clients' /srv/media). Each shipped default stands on its own.
+describe("default data folders", () => {
+  it("never puts one app's default folder inside another app's writable one", async () => {
+    const { manifests } = await loadCatalog();
+    const folders = manifests.flatMap((manifest) => [
+      ...manifest.volumes.map((volume) => ({ app: manifest.id, path: volume.hostPath, writable: !volume.readOnly })),
+      ...(manifest.sidecars ?? []).flatMap((sidecar) => sidecar.volumes.map((volume) => ({ app: manifest.id, path: volume.hostPath, writable: false }))),
+    ]).filter((folder) => folder.path);
+    const nested = [];
+    for (const inner of folders) {
+      for (const outer of folders) {
+        if (!outer.writable || outer.app === inner.app) continue;
+        if (inner.path.startsWith(`${outer.path.replace(/\/+$/, "")}/`)) nested.push(`${inner.app} ${inner.path} is inside ${outer.app}'s writable ${outer.path}`);
+      }
+    }
+    expect(nested).toEqual([]);
   });
 });
 
@@ -282,6 +307,38 @@ describe("config files shipped with an app", () => {
     const escape = validateManifest({ ...withFile, files: [{ path: "../etc/evil", container: "/x", content: "x" }] });
     expect(escape.manifest).toBeNull();
     expect(escape.errors.join(" ")).toMatch(/safe relative path/);
+  });
+
+  it("refuses a secret on a command line, where every process on the server can read it", () => {
+    // /proc/<pid>/cmdline is world-readable; the environment is not. Kopia's web password sat in its
+    // command (sweep 1); the image reads it from KOPIA_SERVER_PASSWORD instead.
+    const app = {
+      id: "cmd", name: "Cmd", category: "T", description: "d", schemaVersion: 2,
+      image: { reference: "nginx:1.27" },
+      env: [{ name: "GREETING", default: "hello" }, { name: "TOKEN", type: "password" }, { name: "API_KEY", secret: true }],
+      command: ["serve", "--greeting=${GREETING}", "--port=${PORT_WEB}"],
+      ports: [{ id: "web", container: 80, host: 8080 }],
+    };
+    expect(validateManifest(app).errors).toEqual([]);
+    for (const command of [["serve", "--password=${TOKEN}"], ["serve", "--key", "$API_KEY"], ["sh", "-c", "run --token ${TOKEN:-none}"]]) {
+      const leaky = validateManifest({ ...app, command });
+      expect(leaky.manifest, command.join(" ")).toBeNull();
+      expect(leaky.errors.join(" ")).toMatch(/must not put the secret (TOKEN|API_KEY) on the command line/);
+    }
+    // An escaped $$ is a literal dollar to compose, not a reference.
+    expect(validateManifest({ ...app, command: ["sh", "-c", "echo $$TOKEN"] }).errors).toEqual([]);
+    const sidecar = validateManifest({ ...app, command: undefined, sidecars: [{ id: "db", image: "postgres:17", command: ["postgres", "-c", "password=${TOKEN}"] }] });
+    expect(sidecar.manifest).toBeNull();
+    expect(sidecar.errors.join(" ")).toMatch(/sidecars\[0\]\.command.*must not put the secret TOKEN on the command line/);
+  });
+
+  it("starts Kopia with its web password from the environment, not its command line", async () => {
+    const { manifests, problems } = await loadCatalog();
+    expect(problems).toEqual([]);
+    const manifest = manifests.find((entry) => entry.id === "kopia");
+    expect(manifest.command.join(" ")).not.toContain("KOPIA_SERVER_PASSWORD");
+    const { compose } = renderCompose(manifest, resolveValues(manifest, {}).values, { lanAddress: "0.0.0.0" });
+    expect(compose.services.kopia.environment.KOPIA_SERVER_PASSWORD).toBe("${KOPIA_SERVER_PASSWORD}");
   });
 
   it("mounts a sidecar host bind read-only, and refuses a writable one", () => {
@@ -426,5 +483,18 @@ describe("NVIDIA GPU", () => {
     const { manifests } = await loadCatalog();
     expect(manifests.find((m) => m.id === "ollama").gpu).toBe("optional");
     expect(manifests.find((m) => m.id === "open-webui").sidecars.find((s) => s.id === "ollama").gpu).toBe("optional");
+  });
+});
+
+describe("the tier of installing an app", () => {
+  it("is the manifest's own, from the catalog as shipped", async () => {
+    const { createCatalogService, installRiskLookup } = await import("./index.mjs");
+    const lookup = installRiskLookup(createCatalogService());
+    expect(await lookup({ id: "pi-hole" })).toBe("high");
+    expect(await lookup({ id: "wg-easy" })).toBe("high");
+    expect(await lookup({ id: "jellyfin" })).toBe("medium");
+    expect(await lookup({ id: "actual" })).toBe("low");
+    expect(await lookup({ id: "no-such-app" })).toBeNull();
+    expect(await lookup({})).toBeNull();
   });
 });

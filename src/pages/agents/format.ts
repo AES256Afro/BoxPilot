@@ -106,11 +106,13 @@ export function processorWords(quotaPercent: number): string {
 
 /**
  * The runner's caps in words, from what the server reports ("four processors at most, idle
- * priority, 8 GiB"), or in general terms while they have not been read.
+ * priority, 8 GiB"; since M40 "four processors at most, eight while you wait, ..."), or in general
+ * terms while they have not been read.
  */
-export function capsWords(caps: { cpuQuotaPercent?: number | null; memoryMaxBytes?: number | null } | null | undefined): string {
+export function capsWords(caps: { cpuQuotaPercent?: number | null; waitingQuotaPercent?: number | null; memoryMaxBytes?: number | null } | null | undefined): string {
   if (!caps?.cpuQuotaPercent) return "capped processors and memory, idle priority";
-  return `${processorWords(caps.cpuQuotaPercent)} at most, idle priority${caps.memoryMaxBytes ? `, ${gibibytes(caps.memoryMaxBytes)}` : ""}`;
+  const waiting = caps.waitingQuotaPercent && caps.waitingQuotaPercent > caps.cpuQuotaPercent ? `, ${processorWords(caps.waitingQuotaPercent).replace(/ processors?$/, "")} while you wait` : "";
+  return `${processorWords(caps.cpuQuotaPercent)} at most${waiting}, idle priority${caps.memoryMaxBytes ? `, ${gibibytes(caps.memoryMaxBytes)}` : ""}`;
 }
 
 /** "8 GB", "650 MB": sizes as the owner reads them, in powers of 1000 like a disk's label. */
@@ -126,6 +128,12 @@ export function gibibytes(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   const gib = value / 1024 ** 3;
   return gib >= 1 ? `${Number.isInteger(gib) ? gib : gib.toFixed(1)} GiB` : `${Math.round(value / 1024 ** 2)} MiB`;
+}
+
+/** What a run cost on Claude: "$0.0042" under a dime, "$1.25" above (M45.4). */
+export function usd(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `$${value < 0.1 ? value.toFixed(4) : value.toFixed(2)}`;
 }
 
 /** "42 s", "3 min 5 s". */

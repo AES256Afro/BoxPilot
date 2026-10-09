@@ -18,8 +18,8 @@ export const historyMaxAgeMs = 30 * 24 * 60 * 60_000;
 const settingKey = "notificationHistory";
 const seenKey = "notificationsSeen";
 
-/** Kinds: a condition turning bad, one-off news, and a failed job's push. */
-export const historyKinds = Object.freeze(["alert", "notice", "job"]);
+/** Kinds: a condition turning bad, one-off news, a failed job's push, and a job waiting for approval (M25.2). */
+export const historyKinds = Object.freeze(["alert", "notice", "job", "approval"]);
 
 const text = (value, maximum) => (typeof value === "string" ? value.slice(0, maximum) : null);
 
@@ -45,20 +45,23 @@ export function createNotificationHistory({ store, now = () => new Date(), limit
   /**
    * Something was said, or tried. `delivered` false with `reason` "no-target" or "failed" when it did
    * not arrive. The same key said again before it arrived updates that entry; once it has arrived,
-   * or cleared, saying it again is a new entry.
+   * or cleared, saying it again is a new entry. `actorId`, when given, is whose run the words describe
+   * (an automation's, sweep 3); it goes with the words, so newer words take their own or none.
    */
-  function record({ key, kind, title, message = null, priority = "default", delivered, reason = null }) {
+  function record({ key, kind, title, message = null, priority = "default", delivered, reason = null, actorId }) {
     if (typeof key !== "string" || !historyKinds.includes(kind)) return null;
+    const ranBy = actorId === undefined ? {} : { actorId: typeof actorId === "string" ? actorId : null };
     try {
       const entries = read();
       const at = now().toISOString();
       const open = latest(entries, key, kind);
       if (open && !open.delivered && !open.resolvedAt) {
-        Object.assign(open, { title: text(title, 300) ?? open.title, message: text(message, 1000) ?? open.message, delivered: Boolean(delivered), reason: delivered ? null : reason, ...(delivered ? { deliveredAt: at } : {}) });
+        delete open.actorId;
+        Object.assign(open, { title: text(title, 300) ?? open.title, message: text(message, 1000) ?? open.message, delivered: Boolean(delivered), reason: delivered ? null : reason, ...(delivered ? { deliveredAt: at } : {}), ...ranBy });
         write(entries);
         return open;
       }
-      const entry = { id: randomUUID(), key: key.slice(0, 200), kind, title: text(title, 300) ?? key, message: text(message, 1000), priority, at, delivered: Boolean(delivered), reason: delivered ? null : reason, ...(delivered ? { deliveredAt: at } : {}) };
+      const entry = { id: randomUUID(), key: key.slice(0, 200), kind, title: text(title, 300) ?? key, message: text(message, 1000), priority, at, delivered: Boolean(delivered), reason: delivered ? null : reason, ...(delivered ? { deliveredAt: at } : {}), ...ranBy };
       write([...entries, entry]);
       return entry;
     } catch {

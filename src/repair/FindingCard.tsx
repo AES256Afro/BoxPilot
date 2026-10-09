@@ -1,7 +1,10 @@
 import { useId, type ReactNode } from "react";
+import type { ViewName } from "../data";
 import { JobLogView } from "../JobLogView";
+import { formatDuration, mayStillBeRunning, moreTimeOffered } from "../JobTimeout";
+import { adviseRetry } from "../retryAdvice";
 import { Button, StatusChip, type Status } from "../ui";
-import { mayStart } from "../ui/operationRisk";
+import { mayStart, riskOf } from "../ui/operationRisk";
 import { cx } from "../ui/types";
 import { tierOf, type FixRun } from "./useRepairFixes";
 import { fixesOf, type Finding, type RepairFix, type Severity } from "./types";
@@ -16,15 +19,20 @@ export const severityStatus: Record<Severity, Status> = { critical: "danger", wa
 export const severityWords: Record<Severity, string> = { critical: "Critical", warning: "Warning", info: "Suggestion" };
 
 const when = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString() : "");
+/** The tier of the operation a last try ran: its fix's, as the scan gave it, or the UI's own table. */
+const tierOfAttempt = (finding: Finding, operationId: string) => {
+  const fix = fixesOf(finding).find((entry) => entry.operationId === operationId);
+  return fix ? tierOf(fix) : riskOf(operationId);
+};
 
 /** The fix buttons, each with its tier; a role that may not start one does not see it. */
-export function FixButtons({ finding, role, onFix, disabled = false, retrying = false }: { finding: Finding; role: string | null | undefined; onFix: (fix: RepairFix) => void; disabled?: boolean; retrying?: boolean }) {
+export function FixButtons({ finding, role, onFix, disabled = false, retrying = false, secondary = false }: { finding: Finding; role: string | null | undefined; onFix: (fix: RepairFix) => void; disabled?: boolean; retrying?: boolean; /** Another button leads, so none of these is primary. */ secondary?: boolean }) {
   const fixes = fixesOf(finding).filter((fix) => mayStart(role, fix.operationId));
   if (!fixes.length) return null;
   return (
     <>
       {fixes.map((fix, index) => (
-        <Button key={`${fix.operationId}:${fix.label}`} variant={index === 0 ? "primary" : "secondary"} risk={tierOf(fix)} disabled={disabled}
+        <Button key={`${fix.operationId}:${fix.label}`} variant={index === 0 && !secondary ? "primary" : "secondary"} risk={tierOf(fix)} disabled={disabled}
           aria-label={`${index === 0 && retrying ? `Try again: ${fix.label}` : fix.label}: ${finding.title}`} onClick={() => onFix(fix)}>
           {index === 0 && retrying ? `Try again: ${fix.label}` : fix.label}
         </Button>
@@ -74,16 +82,35 @@ export interface FindingCardProps {
   extra?: ReactNode;
   /** Gone from the scan since it was fixed here: shown once, as fixed. */
   gone?: boolean;
+  /** Opens the page a failed try's error names as the fix ("Install the drive check tools from Repair first"). */
+  onOpen?: (view: ViewName, options?: { tab?: string }) => void;
+  /** Lets the last try go (M36's mark on its job), when it may still be running: the fix is then offered again. */
+  onDismissTry?: () => void;
+  /** Stages the last try again with the more time the server offered it (M30.3), as Activity does. */
+  onMoreTime?: () => void;
 }
 
-export function FindingCard({ finding, role, run, onFix, onDismiss, onRestore, extra, gone = false }: FindingCardProps) {
+export function FindingCard({ finding, role, run, onFix, onDismiss, onRestore, extra, gone = false, onOpen, onDismissTry, onMoreTime }: FindingCardProps) {
   const headingId = useId();
   const running = run && (run.phase === "queued" || run.phase === "running" || run.phase === "checking");
   const attempt = finding.lastAttempt ?? null;
-  // A failed try not already shown by a run on this page: said on the card, and the fix says "Try again".
+  // A failed try not already shown by a run on this page: said on the card, and the fix says "Try again"
+  // when the same fix can work again. One whose error names a fix elsewhere offers that place instead.
   const failedBefore = !run && attempt?.state === "failed";
+  // One that ran out of time and may still be running on the server is offered nothing that would
+  // start a second copy beside it (sweep 4), until it can no longer be running - 12 hours on - or is
+  // let go: its log says how far it has got, and Dismiss this try lets it go, even on a critical
+  // finding, which cannot itself be dismissed (sweep 5).
+  const leftRunning = mayStillBeRunning(attempt);
+  const advice = failedBefore && !leftRunning ? adviseRetry(attempt?.error) : null;
+  // The card is on Repair: a fix the error places on Repair is on this page already.
+  const elsewhere = advice?.next && advice.next.view !== "repairs" ? advice.next : null;
   const canAct = role === "owner" || role === "operator";
-  const hasFixes = fixesOf(finding).some((fix) => mayStart(role, fix.operationId));
+  const hasFixes = !leftRunning && fixesOf(finding).some((fix) => mayStart(role, fix.operationId));
+  // More time where the server offered it, as Activity offers it: only where the helper keeps the two runs apart.
+  const moreTime = failedBefore && attempt ? moreTimeOffered(attempt) : null;
+  const offerMoreTime = Boolean(onMoreTime && moreTime !== null && attempt && !finding.dismissal && mayStart(role, attempt.operationId));
+  const offerLetGo = Boolean(onDismissTry && leftRunning && canAct && !finding.dismissal);
   return (
     <article className={cx("rp-finding", gone && "rp-finding--gone")} data-severity={finding.severity} aria-labelledby={headingId}>
       <header className="rp-finding__head">
@@ -98,21 +125,29 @@ export function FindingCard({ finding, role, run, onFix, onDismiss, onRestore, e
         <p className="rp-finding__note">Dismissed {when(finding.dismissal.at)}: “{finding.dismissal.reason}”. It comes back by itself if it changes.</p>
       )}
       {failedBefore && attempt && (
-        <p className="rp-finding__note rp-finding__note--failed"><strong>Last try failed</strong> ({attempt.title}, {when(attempt.at)}): {attempt.error ?? "no error was recorded"}</p>
+        <p className="rp-finding__note rp-finding__note--failed"><strong>Last try failed</strong> ({attempt.title}, {when(attempt.at)}): {attempt.error ?? "no error was recorded"}
+          {advice && !advice.retry && <> <strong>Trying again would stop the same way</strong>{advice.next ? `; ${elsewhere ? "the fix it names comes first" : "the fix it names is on this page"}.` : "."}</>}
+          {leftRunning && (offerMoreTime
+            ? <> <strong>It may still be running on the server.</strong> Trying again gives it {formatDuration(moreTime!)}, and asks for approval like any other job. Its log below says how far it has got.</>
+            : <> <strong>It may still be running on the server, so it is not offered again until it has finished.</strong> Its log below says how far it has got.</>)}</p>
       )}
+      {failedBefore && attempt && leftRunning && <details className="rp-log"><summary>Job log</summary><JobLogView jobId={attempt.jobId} title={attempt.title} /></details>}
       {!gone && finding.evidence.length > 0 && (
         <details className="rp-evidence"><summary>Evidence</summary><ul>{finding.evidence.map((line) => <li key={line}>{line}</li>)}</ul></details>
       )}
-      {!gone && (hasFixes || (onDismiss && canAct && finding.severity !== "critical") || onRestore) && (
+      {!gone && (hasFixes || (onDismiss && canAct && finding.severity !== "critical") || onRestore || offerMoreTime || offerLetGo) && (
         <div className="rp-finding__actions">
-          {!finding.dismissal && <FixButtons finding={finding} role={role} onFix={onFix} disabled={Boolean(running)} retrying={failedBefore} />}
+          {!finding.dismissal && elsewhere && onOpen && canAct && <Button variant="primary" onClick={() => onOpen(elsewhere.view, elsewhere.tab ? { tab: elsewhere.tab } : undefined)} aria-label={`${elsewhere.label}: ${finding.title}`}>{elsewhere.label}</Button>}
+          {offerMoreTime && attempt && <Button variant={elsewhere && onOpen && canAct ? "secondary" : "primary"} risk={tierOfAttempt(finding, attempt.operationId)} disabled={Boolean(running)} onClick={onMoreTime} aria-label={`Try again with more time: ${finding.title}`}>Try again with more time</Button>}
+          {!finding.dismissal && !leftRunning && <FixButtons finding={finding} role={role} onFix={onFix} disabled={Boolean(running)} retrying={failedBefore && Boolean(advice?.retry)} secondary={Boolean((elsewhere && onOpen && canAct) || offerMoreTime)} />}
+          {offerLetGo && <Button variant="ghost" disabled={Boolean(running)} onClick={onDismissTry} aria-label={`Dismiss this try: ${finding.title}`}>Dismiss this try</Button>}
           {onDismiss && canAct && finding.severity !== "critical" && !finding.dismissal && <Button variant="ghost" className="rp-dismiss" disabled={Boolean(running)} onClick={onDismiss} aria-label={`Dismiss: ${finding.title}`}>Dismiss</Button>}
           {onRestore && canAct && finding.dismissal && <Button variant="ghost" onClick={onRestore} aria-label={`Bring back: ${finding.title}`}>Bring back</Button>}
         </div>
       )}
       {!gone && extra}
       {finding.manual && !gone && <p className="rp-finding__manual"><strong>{hasFixes ? "If that does not do it:" : "What to do:"}</strong> {finding.manual}</p>}
-      {!hasFixes && !finding.manual && !gone && canAct && <p className="rp-finding__manual">Your role cannot start this fix; the owner can.</p>}
+      {!hasFixes && !leftRunning && !finding.manual && !gone && canAct && <p className="rp-finding__manual">Your role cannot start this fix; the owner can.</p>}
       {run && <FixProgress run={run} title={finding.title} />}
     </article>
   );

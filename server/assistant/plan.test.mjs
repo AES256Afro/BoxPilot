@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { createRegistry, defineOperation } from "../ops/index.mjs";
+import { createRegistry, defineOperation, operationModules } from "../ops/index.mjs";
+import { createCatalogService, installRiskLookup } from "../catalog/index.mjs";
 import { extractPlan, maxPlanSteps, refusalFor, validatePlan } from "./plan.mjs";
 
 const run = () => ({});
@@ -9,6 +10,7 @@ const registry = createRegistry([[
   defineOperation({ id: "app.restart", title: "Restart an application", risk: "low", parameters: { fields: { id: idField } }, run }),
   defineOperation({ id: "app.update", title: "Update an application", risk: "medium", parameters: { fields: { id: idField } }, run }),
   defineOperation({ id: "app.purge", title: "Uninstall application and delete its data", risk: "high", confirm: (parameters) => parameters.id, parameters: { fields: { id: idField } }, run }),
+  defineOperation({ id: "app.backup.restore", title: "Restore application data from a backup", risk: "high", confirm: (parameters) => (parameters.allowCompose ? `allow ${parameters.id}` : null), confirmWhen: "it starts a backup's own compose file as it was archived", parameters: { fields: { id: idField, backup: { type: "string" }, allowCompose: { type: "string", optional: true } } }, run }),
   defineOperation({ id: "credentials.remove", title: "Remove a credential", risk: "medium", minimumRole: "owner", parameters: { fields: { name: { type: "string" } } }, run }),
   defineOperation({ id: "credentials.set", title: "Save a credential", risk: "medium", minimumRole: "owner", parameters: { fields: { name: { type: "string" }, value: { type: "string", secret: true } } }, run }),
   defineOperation({ id: "app.install", title: "Install an application", risk: "medium", parameters: { fields: { id: idField, values: { type: "object", optional: true, secretEnvOf: "id" } } }, run }),
@@ -95,6 +97,14 @@ describe("validatePlan", () => {
     expect(steps[0]).toMatchObject({ risk: "high", approval: "The owner's password and a typed confirmation", typedConfirmation: true });
   });
 
+  // Sweep 4: a restore asks for typed text only when it allows a backup's own compose file.
+  it("says a typed confirmation only for a step that will ask for one", async () => {
+    const plain = await validatePlan([{ operationId: "app.backup.restore", parameters: { id: "jellyfin", backup: "20260101T000000Z.tar.gz" } }], { registry, role: "owner" });
+    expect(plain.steps[0]).toMatchObject({ risk: "high", approval: "The owner's password", typedConfirmation: false });
+    const allowing = await validatePlan([{ operationId: "app.backup.restore", parameters: { id: "jellyfin", backup: "20260101T000000Z.tar.gz", allowCompose: "e".repeat(64) } }], { registry, role: "owner" });
+    expect(allowing.steps[0]).toMatchObject({ risk: "high", approval: "The owner's password and a typed confirmation", typedConfirmation: true });
+  });
+
   it("never carries a secret, top-level or inside an app's settings", async () => {
     const { steps, dropped } = await validatePlan([
       { operationId: "credentials.set", parameters: { name: "ntfy", value: "hunter22" } },
@@ -119,5 +129,40 @@ describe("validatePlan", () => {
     expect(steps).toHaveLength(maxPlanSteps - 1);
     expect(dropped[0]).toMatchObject({ index: 1, reason: "It repeats step 1" });
     expect(dropped.at(-1).reason).toBe(`A plan has at most ${maxPlanSteps} steps`);
+  });
+});
+
+describe("the tier a card shows is the one the job will be staged at (sweep 3)", () => {
+  // The real registry and the real catalog, with the hook the web process gives the job layer.
+  const real = createRegistry(operationModules).useRiskHooks({ "app.install": installRiskLookup(createCatalogService()) });
+
+  it("shows installing the house's DNS or VPN as high, with the owner's password, as the job layer stages it", async () => {
+    for (const id of ["pi-hole", "adguard-home", "technitium-dns", "wg-easy"]) {
+      const { steps, dropped } = await validatePlan([{ operationId: "app.install", parameters: { id }, why: "Block ads." }], { registry: real, role: "owner" });
+      expect(dropped, id).toEqual([]);
+      expect(steps[0], id).toMatchObject({ operationId: "app.install", risk: "high", approval: "The owner's password", typedConfirmation: false });
+      expect(await real.effectiveRisk("app.install", { id }), id).toBe("high");
+    }
+    const { steps } = await validatePlan([{ operationId: "app.install", parameters: { id: "jellyfin" } }], { registry: real, role: "owner" });
+    expect(steps[0]).toMatchObject({ risk: "medium", approval: "One confirmation, with a preview" });
+  });
+
+  it("does not put a step the job layer would stage high on an operator's card", async () => {
+    const { steps, dropped } = await validatePlan([
+      { operationId: "app.install", parameters: { id: "pi-hole" } },
+      { operationId: "app.install", parameters: { id: "jellyfin" } },
+    ], { registry: real, role: "operator" });
+    expect(steps.map((step) => step.parameters.id)).toEqual(["jellyfin"]);
+    expect(dropped).toEqual([{ index: 0, operationId: "app.install", reason: "Only the owner can approve high-risk operations, and Install application is high risk here" }]);
+  });
+
+  it("takes the effective tier from whoever builds the card, when it is given", async () => {
+    const { steps } = await validatePlan([{ operationId: "app.update", parameters: { id: "jellyfin" } }], { registry, role: "owner", effectiveRisk: async () => "high" });
+    expect(steps[0]).toMatchObject({ risk: "high", approval: "The owner's password" });
+    // A lower answer never lowers the operation's own tier, and a lookup that fails drops the step.
+    expect((await validatePlan([{ operationId: "app.purge", parameters: { id: "jellyfin" } }], { registry, role: "owner", effectiveRisk: async () => "low" })).steps[0].risk).toBe("high");
+    const failed = await validatePlan([{ operationId: "app.update", parameters: { id: "jellyfin" } }], { registry, role: "owner", effectiveRisk: async () => { throw new Error("catalog unreadable"); } });
+    expect(failed.steps).toEqual([]);
+    expect(failed.dropped[0].reason).toMatch(/could not tell how risky/);
   });
 });

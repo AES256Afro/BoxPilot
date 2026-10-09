@@ -5,6 +5,8 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY index.html tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts ./
 COPY src ./src
+# The manifest and the home-screen icons (M25.1), copied into dist by the build.
+COPY public ./public
 # The bundle does not import the catalog, but the build counts it for one line of copy.
 COPY catalog ./catalog
 COPY scripts/precompress-assets.mjs ./scripts/precompress-assets.mjs
@@ -23,6 +25,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY server ./server
+COPY packages ./packages
 COPY scripts ./scripts
 COPY --from=build /app/dist ./dist
 

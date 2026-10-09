@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import {chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {chmod, lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { onWindows } from "../test/platform.mjs";
+import { onWindows, testTar } from "../test/platform.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
+import { hostBackupOperations } from "./ops/host-backup.mjs";
 
 const directories = [];
 const snapshotId = "11111111-1111-4111-8111-111111111111";
@@ -86,6 +87,7 @@ async function fixture({ mounted = true } = {}) {
     ...paths,
     virshBinary: "/usr/bin/virsh",
     findmntBinary: "/usr/bin/findmnt",
+    tarBinary: testTar,
     requireIndependentDevice: false,
     keep: 2,
     now: () => new Date("2026-08-21T02:00:00.000Z"),
@@ -96,6 +98,25 @@ async function fixture({ mounted = true } = {}) {
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
+
+/**
+ * A snapshot archive laid out the way create() lays one out, written with a real tar: what an older
+ * release left on disk. `files` are the members besides manifest.json, which lists them.
+ */
+async function archiveSnapshot(root, artifact, { apps, files }) {
+  const staging = await mkdtemp(path.join(os.tmpdir(), "boxpilot-old-snapshot-"));
+  directories.push(staging);
+  for (const [relative, body] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(staging, relative)), { recursive: true });
+    await writeFile(path.join(staging, relative), body);
+  }
+  const inventory = Object.entries(files).map(([relative, body]) => ({ path: relative, sha256: createHash("sha256").update(body).digest("hex") }));
+  await writeFile(path.join(staging, "manifest.json"), JSON.stringify({ schemaVersion: 1, createdAt: "2026-08-20T02:00:00.000Z", contents: { apps, system: null, vms: null }, files: inventory }));
+  await mkdir(root, { recursive: true });
+  const made = await fixedRun(testTar, ["-czf", path.join(root, artifact), "-C", staging, "."]);
+  if (!made.ok) throw new Error(made.stderr);
+  await writeFile(path.join(root, `${artifact}.meta.json`), JSON.stringify({ artifact, createdAt: "2026-08-20T02:00:00.000Z", checksumSha256: createHash("sha256").update(await readFile(path.join(root, artifact))).digest("hex") }));
+}
 
 describe("machine snapshot helper", () => {
   // Linux only: needs /usr/bin/tar.
@@ -174,11 +195,48 @@ describe("machine snapshot helper", () => {
     expect(await readdir(path.join(result.destination, "machine-snapshots"))).toEqual([name, `${name}.meta.json`]);
   });
 
+  it("leaves an app backup still being written out of the mirror", async () => {
+    // A backup writes `<stamp>.tar.gz.partial` and renames it once whole. Copied mid-write it was kept
+    // forever, a truncated archive beside the real one; renamed or grown mid-copy, the sync died.
+    const { helper, paths } = await fixture();
+    const partial = path.join(paths.applicationBackupRoot, "uptime-kuma", "20260821T015959Z.tar.gz.partial");
+    await writeFile(partial, "half an archive");
+    const result = await helper.sync();
+    expect(await readdir(path.join(result.destination, "application-backups", "uptime-kuma"))).toEqual(["20260816T030000Z.tar.gz"]);
+  });
+
   it("refuses to sync when the destination is not an independent mount", async () => {
     const { helper } = await fixture({ mounted: false });
     await expect(helper.sync()).rejects.toThrow("Mount an independent filesystem");
     const inspection = await helper.inspect();
     expect(inspection.sync.mount).toMatchObject({ mounted: false, independentFilesystem: false });
+  });
+
+  // R4S2-1: the mirror is on a drive, only as trustworthy as whoever last held it. Root copied each
+  // backup through a link at its partial name and wrote the sync record through one at its name.
+  // Symbolic links an unprivileged user may create.
+  it.skipIf(onWindows)("never writes through a link someone left on the backup drive", async () => {
+    const { helper, paths } = await fixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "boxpilot-outside-")); directories.push(outside);
+    const victim = path.join(outside, "victim");
+    await writeFile(victim, "untouched");
+    const mirror = path.join(paths.mountRoot, "boxpilot-local-mirror");
+    const backups = path.join(mirror, "application-backups", "uptime-kuma");
+    await mkdir(backups, { recursive: true });
+    await symlink(victim, path.join(mirror, ".boxpilot-sync.json"));
+    await symlink(victim, path.join(backups, "20260816T030000Z.tar.gz.boxpilot-partial"));
+    // A link where the copy belongs is no copy: it is replaced, never written through.
+    await symlink(victim, path.join(backups, "20260816T030000Z.tar.gz"));
+    const result = await helper.sync();
+    expect(await readFile(victim, "utf8")).toBe("untouched");
+    expect((await lstat(path.join(backups, "20260816T030000Z.tar.gz"))).isFile()).toBe(true);
+    expect(await readFile(path.join(backups, "20260816T030000Z.tar.gz"), "utf8")).toBe("app-backup-bytes");
+    expect((await helper.inspect()).sync.lastSync).toMatchObject({ completedAt: result.completedAt });
+    // A link on the way to a copy refuses the sync rather than writing where it points.
+    await rm(path.join(mirror, "application-backups"), { recursive: true });
+    await symlink(outside, path.join(mirror, "application-backups"));
+    await expect(helper.sync()).rejects.toMatchObject({ code: "ELOOP" });
+    expect(await readdir(outside)).toEqual(["victim"]);
   });
 });
 
@@ -225,6 +283,36 @@ describe("restoring from a machine snapshot", () => {
     expect(apps.install).not.toHaveBeenCalled();
   });
 
+  // R4S2-1: everything after the unpack reads and copies out of the snapshot as root. A `system`
+  // link to /etc had every file under /etc copied into the review folder, which the browser shows;
+  // an app's `.env` as a link had root's copy of any file put in the app's folder.
+  // Symbolic links an unprivileged user may create.
+  it.skipIf(onWindows)("refuses a snapshot that holds a link, before reading or copying anything out of it", async () => {
+    const { paths, controllerBackups } = await fixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "boxpilot-outside-")); directories.push(outside);
+    await writeFile(path.join(outside, "shadow"), "root:secret");
+    const artifact = "machine-snapshot-20260821T020000Z-11111111.tar.gz";
+    await mkdir(paths.snapshotRoot, { recursive: true });
+    await writeFile(path.join(paths.snapshotRoot, artifact), "crafted");
+    await writeFile(path.join(paths.snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ checksumSha256: createHash("sha256").update("crafted").digest("hex") }));
+    // What GNU tar leaves once it has finished: the links the archive names, made last.
+    const run = vi.fn(async (_binary, args) => {
+      if (args[0] !== "-xzf" || !args.includes("-C")) return { ok: false, stdout: "", stderr: "unexpected" };
+      const into = args[args.indexOf("-C") + 1];
+      await writeFile(path.join(into, "manifest.json"), JSON.stringify({ contents: { apps: [{ id: "uptime-kuma", installed: true }] }, files: [] }));
+      await symlink(outside, path.join(into, "system"));
+      await mkdir(path.join(into, "apps", "uptime-kuma"), { recursive: true });
+      await symlink(path.join(outside, "shadow"), path.join(into, "apps", "uptime-kuma", ".env"));
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const helper = createMachineSnapshotHelper({ run, controllerBackups, ...paths, requireIndependentDevice: false, now: () => new Date("2026-08-21T02:00:00.000Z") });
+    const apps = { internals: { readState: vi.fn(async () => null) }, install: vi.fn(async () => {}), restoreAppBackup: vi.fn(async () => {}) };
+    await expect(helper.restore({ source: "local", artifact }, { apps })).rejects.toThrow("The snapshot holds apps/uptime-kuma/.env, system, links or special files, which a snapshot BoxPilot made never does. Nothing was changed.");
+    expect(apps.install).not.toHaveBeenCalled();
+    await expect(stat(path.join(paths.snapshotRoot, "restored"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(path.join(paths.catalogRoot, "uptime-kuma", ".env"), "utf8")).toBe("ADMIN_TOKEN=do-not-lose\n");
+  });
+
   // Linux only: needs /usr/bin/tar.
   it.skipIf(onWindows)("picks up where an interrupted restore stopped instead of starting over", async () => {
     const { helper, paths } = await fixture();
@@ -242,6 +330,223 @@ describe("restoring from a machine snapshot", () => {
     const again = await helper.restore({ source: "local", artifact: created.artifact }, { apps });
     expect(again.apps[0]).toMatchObject({ installed: true, alreadyRestored: true, dataRestored: true });
     expect(apps.calls).toEqual({ install: 0, restoreData: 1 });
+  });
+
+  // R3B3-1: a restore that failed, or whose safety copy did, leaves `<id>.replaced` beside the app
+  // with a boxpilot.json in it, and every snapshot since listed that as an installed app. The Restore
+  // tab ticks every installed app, and the restore was then refused for a name that is no app id.
+  it("leaves a restore's leftover folders out of a snapshot, and stops offering them from an older one", async () => {
+    const { helper, paths } = await fixture();
+    for (const leftover of ["uptime-kuma.replaced", "uptime-kuma.restoring"]) {
+      await mkdir(path.join(paths.catalogRoot, leftover), { recursive: true });
+      await writeFile(path.join(paths.catalogRoot, leftover, "boxpilot.json"), JSON.stringify({ id: "uptime-kuma", installed: true }));
+    }
+    const created = await helper.create({ snapshotId });
+    expect(created.contents.apps.map((app) => app.id)).toEqual(["uptime-kuma"]);
+
+    // One an earlier release took, with the leftover in it as an installed app.
+    const older = "machine-snapshot-20260820T020000Z-abcdef12.tar.gz";
+    const state = JSON.stringify({ id: "uptime-kuma", installed: true, values: { ports: {}, env: {}, volumes: {} } });
+    await archiveSnapshot(paths.snapshotRoot, older, {
+      apps: [{ id: "uptime-kuma", installed: true, projectFiles: 2, backups: 1 }, { id: "uptime-kuma.replaced", installed: true, projectFiles: 1, backups: 0 }],
+      files: {
+        "apps/uptime-kuma/boxpilot.json": state,
+        "apps/uptime-kuma/.env": "ADMIN_TOKEN=do-not-lose\n",
+        "apps/uptime-kuma/backups.json": JSON.stringify({ id: "uptime-kuma", backups: [{ artifact: "20260816T030000Z.tar.gz" }] }),
+        "apps/uptime-kuma.replaced/boxpilot.json": state,
+        "apps/uptime-kuma.replaced/backups.json": JSON.stringify({ id: "uptime-kuma.replaced", backups: [] }),
+      },
+    });
+    const described = await helper.describe({ source: "local", artifact: older });
+    expect(described.apps.map((app) => app.id)).toEqual(["uptime-kuma"]);
+
+    // What the Restore tab sends, every installed app the snapshot describes, is what the operation takes.
+    const chosen = described.apps.filter((app) => app.installed).map((app) => app.id);
+    const operation = hostBackupOperations().find((entry) => entry.id === "host.snapshot.restore");
+    expect(operation.parameters.fields.apps.validate(chosen)).toBeNull();
+    await writeFile(path.join(paths.catalogRoot, "uptime-kuma", "boxpilot.json"), JSON.stringify({ id: "uptime-kuma", installed: false }));
+    const restored = await helper.restore({ source: "local", artifact: older, apps: chosen, restoreData: false }, { apps: deployer(paths) });
+    expect(restored).toMatchObject({ restored: 1, failed: 0, apps: [{ id: "uptime-kuma", installed: true, error: null }] });
+    expect(await readFile(path.join(paths.catalogRoot, "uptime-kuma", ".env"), "utf8")).toBe("ADMIN_TOKEN=do-not-lose\n");
+  });
+
+  /** A deployer that records which data archive it was asked to restore. */
+  const recordingDeployer = (paths) => {
+    const restoredFrom = [];
+    return {
+      restoredFrom,
+      internals: { readState: async (id) => readFile(path.join(paths.catalogRoot, id, "boxpilot.json"), "utf8").then(JSON.parse).catch(() => null) },
+      install: async ({ id }) => { await writeFile(path.join(paths.catalogRoot, id, "boxpilot.json"), JSON.stringify({ id, installed: true })); return { installed: true, id, exposure: "lan", hostPorts: [] }; },
+      restoreAppBackup: async ({ id, backup }) => { restoredFrom.push(`${id}/${backup}`); return { restored: true, id, backup }; },
+    };
+  };
+
+  // R3B3-5: a server rebuilt from an old backup drive found the snapshot there, and looked for each
+  // app's data only in its own (empty) store and the mirror it no longer had configured: every app
+  // came back empty, with the archives sitting beside the snapshot on the same drive.
+  it("takes each app's data from beside a snapshot found on a drive", async () => {
+    const { helper, paths } = await fixture({ mounted: false });
+    const created = await helper.create({ snapshotId });
+    const drive = path.join(paths.rescueRoot, "boxpilot-local-mirror");
+    for (const name of [created.artifact, `${created.artifact}.meta.json`]) await writeFile(path.join(drive, "machine-snapshots", name), await readFile(path.join(paths.snapshotRoot, name)));
+    await mkdir(path.join(drive, "application-backups", "uptime-kuma"), { recursive: true });
+    await writeFile(path.join(drive, "application-backups", "uptime-kuma", "20260816T030000Z.tar.gz"), "app-backup-bytes");
+    // The rebuilt server: none of this machine's own snapshots or backups, and the app not installed.
+    await rm(paths.snapshotRoot, { recursive: true, force: true });
+    await rm(paths.applicationBackupRoot, { recursive: true, force: true });
+    await rm(path.join(paths.catalogRoot, "uptime-kuma"), { recursive: true, force: true });
+
+    const { locations } = await helper.discover();
+    const found = locations.find((location) => location.root === path.resolve(drive, "machine-snapshots"));
+    expect(found).toBeTruthy();
+    const described = await helper.describe({ source: "discovered", root: found.root, artifact: created.artifact });
+    expect(described.apps).toEqual([expect.objectContaining({ id: "uptime-kuma", newestBackup: "20260816T030000Z.tar.gz", dataAvailable: true, dataLocation: "drive" })]);
+
+    const apps = recordingDeployer(paths);
+    const result = await helper.restore({ source: "discovered", root: found.root, artifact: created.artifact, apps: ["uptime-kuma"] }, { apps });
+    expect(result.apps).toEqual([expect.objectContaining({ id: "uptime-kuma", installed: true, dataRestored: true, error: null })]);
+    expect(apps.restoredFrom).toEqual(["uptime-kuma/20260816T030000Z.tar.gz"]);
+    // Copied into this server's own store first, where the deployer restores from.
+    expect(await readFile(path.join(paths.applicationBackupRoot, "uptime-kuma", "20260816T030000Z.tar.gz"), "utf8")).toBe("app-backup-bytes");
+  });
+
+  // R3B3-8: an app backup's keep-N pruning removed the archive a snapshot restores from.
+  // R4B3-4: the stand-in was then the newest archive there was, newer than the snapshot too: the
+  // safety copy a failed attempt took of an app installed empty, restored as "its data". Only an
+  // archive the snapshot itself lists, taken before it, stands in, in the order it lists them.
+  const olderSnapshot = "machine-snapshot-20260820T020000Z-abcdef12.tar.gz";
+  async function snapshotListing(paths, backups) {
+    await archiveSnapshot(paths.snapshotRoot, olderSnapshot, {
+      apps: [{ id: "uptime-kuma", installed: true, projectFiles: 2, backups: backups.length }],
+      files: {
+        "apps/uptime-kuma/boxpilot.json": JSON.stringify({ id: "uptime-kuma", installed: true, values: {} }),
+        "apps/uptime-kuma/.env": "ADMIN_TOKEN=do-not-lose\n",
+        "apps/uptime-kuma/backups.json": JSON.stringify({ id: "uptime-kuma", backups: backups.map((artifact) => ({ artifact })) }),
+      },
+    });
+    await writeFile(path.join(paths.catalogRoot, "uptime-kuma", "boxpilot.json"), JSON.stringify({ id: "uptime-kuma", installed: false }));
+  }
+
+  it("stands in an older archive the snapshot lists when the one it names is gone, never a newer one, and says which", async () => {
+    const { helper, paths } = await fixture();
+    const store = path.join(paths.applicationBackupRoot, "uptime-kuma");
+    // Listed newest first, as a snapshot lists them; the one dated after the snapshot is never one it saw.
+    await snapshotListing(paths, ["20260816T030000Z.tar.gz", "20260825T000000Z.tar.gz", "20260815T030000Z.tar.gz", "20260814T030000Z.tar.gz"]);
+    await rm(path.join(store, "20260816T030000Z.tar.gz"));
+    for (const name of ["20260825T000000Z.tar.gz", "20260815T030000Z.tar.gz", "20260814T030000Z.tar.gz", "20260817T030000Z.tar.gz", "20260822T010000Z.tar.gz"]) await writeFile(path.join(store, name), name);
+
+    const described = await helper.describe({ source: "local", artifact: olderSnapshot });
+    expect(described.apps[0]).toMatchObject({ newestBackup: "20260816T030000Z.tar.gz", dataAvailable: true, dataArchive: "20260815T030000Z.tar.gz" });
+    const apps = recordingDeployer(paths);
+    const result = await helper.restore({ source: "local", artifact: olderSnapshot }, { apps });
+    expect(apps.restoredFrom).toEqual(["uptime-kuma/20260815T030000Z.tar.gz"]);
+    const warning = "The data archive this snapshot names, 20260816T030000Z.tar.gz, is no longer there, so its data came from 20260815T030000Z.tar.gz, an older backup the snapshot also lists.";
+    expect(result.apps[0]).toMatchObject({ dataRestored: true, error: null, warnings: [warning] });
+    expect(result.warnings).toEqual([`uptime-kuma: ${warning}`]);
+  });
+
+  it("restores no data when none of the archives the snapshot lists is left, and says so", async () => {
+    const { helper, paths } = await fixture();
+    const store = path.join(paths.applicationBackupRoot, "uptime-kuma");
+    await snapshotListing(paths, ["20260816T030000Z.tar.gz"]);
+    await rm(path.join(store, "20260816T030000Z.tar.gz"));
+    // A failed attempt's safety copy of the app as it then was: installed, and empty.
+    await writeFile(path.join(store, "20260822T010000Z.tar.gz"), "an empty app");
+
+    const described = await helper.describe({ source: "local", artifact: olderSnapshot });
+    expect(described.apps[0]).toMatchObject({ newestBackup: "20260816T030000Z.tar.gz", dataAvailable: false, dataArchive: null });
+    const apps = recordingDeployer(paths);
+    const result = await helper.restore({ source: "local", artifact: olderSnapshot }, { apps });
+    expect(apps.restoredFrom).toEqual([]);
+    const warning = "The data archive this snapshot names, 20260816T030000Z.tar.gz, is no longer there, nor is any older one it lists, so the app was installed without its data. A backup taken after the snapshot is not used in its place.";
+    expect(result.apps[0]).toMatchObject({ installed: true, dataRestored: false, error: null, warnings: [warning] });
+    expect(result.warnings).toEqual([`uptime-kuma: ${warning}`]);
+  });
+
+  // R5B4-2: an app whose data restore was refused (or that could not be installed) was said only in
+  // its own line of the result, which the job's page does not show, and the job read "Completed."
+  // in green. Said on the job's warnings too, first, so it reads "Completed with notice".
+  it("says on the job which apps were not restored, and why", async () => {
+    const { helper, paths } = await fixture();
+    await snapshotListing(paths, ["20260816T030000Z.tar.gz"]);
+    const refusal = "Uptime Kuma was not restored; nothing was changed. Port 3001 is taken on every address by process node (pid 4242).";
+    const apps = { ...recordingDeployer(paths), restoreAppBackup: async () => { throw new Error(refusal); } };
+    const result = await helper.restore({ source: "local", artifact: olderSnapshot }, { apps });
+    expect(result).toMatchObject({ restored: 1, failed: 1 });
+    expect(result.apps[0]).toMatchObject({ installed: true, dataRestored: false, error: refusal });
+    expect(result.warnings).toEqual([`uptime-kuma: ${refusal}`]);
+  });
+
+  // R4B3-7: for a snapshot loose at the top of a drive, its archives were looked for beside the
+  // folder the drive is mounted on: outside the drive, where another drive's archives could be.
+  it("takes each app's data from the drive a snapshot lies loose on, never from beside the drive", async () => {
+    const { helper, paths } = await fixture({ mounted: false });
+    const created = await helper.create({ snapshotId });
+    const drive = paths.rescueRoot;
+    for (const name of [created.artifact, `${created.artifact}.meta.json`]) await writeFile(path.join(drive, name), await readFile(path.join(paths.snapshotRoot, name)));
+    await mkdir(path.join(drive, "application-backups", "uptime-kuma"), { recursive: true });
+    await writeFile(path.join(drive, "application-backups", "uptime-kuma", "20260816T030000Z.tar.gz"), "on the drive");
+    // Beside the folder the drive is mounted on, outside it.
+    await mkdir(path.join(path.dirname(drive), "application-backups", "uptime-kuma"), { recursive: true });
+    await writeFile(path.join(path.dirname(drive), "application-backups", "uptime-kuma", "20260816T030000Z.tar.gz"), "outside the drive");
+    await rm(paths.snapshotRoot, { recursive: true, force: true });
+    await rm(paths.applicationBackupRoot, { recursive: true, force: true });
+    await rm(path.join(paths.catalogRoot, "uptime-kuma"), { recursive: true, force: true });
+
+    const { locations } = await helper.discover();
+    const found = locations.find((location) => location.root === path.resolve(drive));
+    expect(found, `looked for ${drive} in ${locations.map((l) => l.root).join(", ")}`).toBeTruthy();
+    const described = await helper.describe({ source: "discovered", root: found.root, artifact: created.artifact });
+    expect(described.apps).toEqual([expect.objectContaining({ id: "uptime-kuma", dataAvailable: true, dataLocation: "drive" })]);
+    const apps = recordingDeployer(paths);
+    const result = await helper.restore({ source: "discovered", root: found.root, artifact: created.artifact, apps: ["uptime-kuma"] }, { apps });
+    expect(result.apps).toEqual([expect.objectContaining({ id: "uptime-kuma", dataRestored: true, error: null })]);
+    expect(await readFile(path.join(paths.applicationBackupRoot, "uptime-kuma", "20260816T030000Z.tar.gz"), "utf8")).toBe("on the drive");
+  });
+
+  it("does not look beside the drive when the drive has no archives for a loose snapshot", async () => {
+    const { helper, paths } = await fixture({ mounted: false });
+    const created = await helper.create({ snapshotId });
+    const drive = paths.rescueRoot;
+    for (const name of [created.artifact, `${created.artifact}.meta.json`]) await writeFile(path.join(drive, name), await readFile(path.join(paths.snapshotRoot, name)));
+    await mkdir(path.join(path.dirname(drive), "application-backups", "uptime-kuma"), { recursive: true });
+    await writeFile(path.join(path.dirname(drive), "application-backups", "uptime-kuma", "20260816T030000Z.tar.gz"), "outside the drive");
+    await rm(paths.applicationBackupRoot, { recursive: true, force: true });
+    const { locations } = await helper.discover();
+    const found = locations.find((location) => location.root === path.resolve(drive));
+    const described = await helper.describe({ source: "discovered", root: found.root, artifact: created.artifact });
+    expect(described.apps).toEqual([expect.objectContaining({ id: "uptime-kuma", dataAvailable: false, dataLocation: null })]);
+  });
+
+  // R3B3-4: only the app.install operation published a tailnet-only app with Tailscale Serve; a
+  // snapshot restore called the deployer directly, so Zulip came back "installed" and unreachable.
+  it("publishes a tailnet-only app it brings back with Tailscale Serve, as an install does", async () => {
+    const { helper, paths } = await fixture();
+    const created = await helper.create({ snapshotId });
+    const notInstalled = () => writeFile(path.join(paths.catalogRoot, "uptime-kuma", "boxpilot.json"), JSON.stringify({ id: "uptime-kuma", installed: false }));
+    await notInstalled();
+    const apps = {
+      ...recordingDeployer(paths),
+      install: async ({ id }) => {
+        await writeFile(path.join(paths.catalogRoot, id, "boxpilot.json"), JSON.stringify({ id, installed: true }));
+        return { installed: true, id, name: "Uptime Kuma", exposure: "tailnet", hostPorts: [{ id: "web", host: 3001, protocol: "tcp", exposure: "loopback", tailnet: "serve" }] };
+      },
+    };
+    const serving = JSON.stringify({ Web: { "homebox.tail1234.ts.net:3001": { Handlers: { "/": { Proxy: "http://127.0.0.1:3001" } } } } });
+    const run = vi.fn(async (_binary, args) => (args[1] === "status" ? { ok: true, stdout: serving, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    const operation = hostBackupOperations().find((entry) => entry.id === "host.snapshot.restore");
+    const parameters = { source: "local", artifact: created.artifact, apps: ["uptime-kuma"], restoreData: false };
+    const result = await operation.run(parameters, { machineSnapshot: helper, apps, run, progress: () => {} });
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["serve", "--bg", "--yes", "--https=3001", "http://127.0.0.1:3001"], expect.anything());
+    expect(result.apps[0]).toMatchObject({ installed: true, error: null, urls: ["https://homebox.tail1234.ts.net:3001"], warnings: [] });
+    expect(result.warnings).toBeUndefined();
+
+    // Serve failing leaves the app restored, and the job says how to publish it.
+    await notInstalled();
+    run.mockImplementation(async (_binary, args) => (args[1] === "--bg" ? { ok: false, stdout: "", stderr: "serve: Tailscale is stopped" } : { ok: true, stdout: "{}", stderr: "" }));
+    const again = await operation.run(parameters, { machineSnapshot: helper, apps, run, progress: () => {} });
+    expect(again.apps[0]).toMatchObject({ installed: true, error: null });
+    expect(again.warnings).toEqual([expect.stringMatching(/^uptime-kuma: Uptime Kuma is installed for your tailnet only, but publishing it with Tailscale Serve failed \(3001: serve: Tailscale is stopped\)\..*choose Publish on the tailnet\.$/)]);
   });
 });
 
@@ -357,5 +662,285 @@ describe("restoring from a discovered drive", () => {
     await writeFile(path.join(mirror, "machine-snapshot-20260820T020000Z-abcdef12.tar.gz"), "archive-bytes");
     const resolved = await helper.internals.resolveDiscovered(mirror, "machine-snapshot-20260820T020000Z-abcdef12.tar.gz");
     expect(resolved.artifactPath).toBe(path.join(path.resolve(mirror), "machine-snapshot-20260820T020000Z-abcdef12.tar.gz"));
+  });
+});
+
+// R2B3-6: tar wrote straight to the snapshot's own name, so a disk that filled part-way left half an
+// archive that was listed, mirrored off the box, and took one of the retention slots.
+describe("a machine snapshot archive while it is being written", () => {
+  const fakeTar = (run, { fail = false } = {}) => {
+    const original = run.getMockImplementation();
+    const written = [];
+    run.mockImplementation(async (binary, args, options) => {
+      if (args[0] !== "-czf") return original(binary, args, options);
+      written.push(args[1]);
+      await writeFile(args[1], fail ? "half an archive" : "a whole archive");
+      return fail ? { ok: false, stdout: "", stderr: "tar: Cannot write: No space left on device" } : { ok: true, stdout: "", stderr: "" };
+    });
+    return written;
+  };
+
+  it("leaves nothing behind when it cannot be finished", async () => {
+    const { helper, paths, run } = await fixture();
+    const written = fakeTar(run, { fail: true });
+    await expect(helper.create({ snapshotId })).rejects.toThrow("No space left on device");
+    expect(written).toEqual([path.join(paths.snapshotRoot, "machine-snapshot-20260821T020000Z-11111111.tar.gz.partial")]);
+    expect(await readdir(paths.snapshotRoot)).toEqual([]);
+    expect((await helper.inspect()).snapshots).toEqual([]);
+  });
+
+  it("takes its name only once it is whole and described", async () => {
+    const { helper, paths, run } = await fixture();
+    fakeTar(run);
+    const result = await helper.create({ snapshotId });
+    expect(result.artifactPath).toBe(path.join(paths.snapshotRoot, "machine-snapshot-20260821T020000Z-11111111.tar.gz"));
+    expect(await readFile(result.artifactPath, "utf8")).toBe("a whole archive");
+    expect(result.checksumSha256).toBe(createHash("sha256").update("a whole archive").digest("hex"));
+    expect((await readdir(paths.snapshotRoot)).sort()).toEqual([result.artifact, `${result.artifact}.meta.json`]);
+    expect((await helper.inspect()).snapshots).toEqual([expect.objectContaining({ artifact: result.artifact, checksumSha256: result.checksumSha256 })]);
+  });
+
+  // R3B3-7: a power cut during a snapshot or a restore left the half-written archive, the folder it
+  // was assembled in and the one a restore unpacked into, for good: an unencrypted copy of the
+  // controller database and every app's .env that nothing ever read again.
+  it("is swept away when the helper starts after a snapshot or a restore was cut off", async () => {
+    const { helper, paths } = await fixture();
+    const whole = "machine-snapshot-20260820T020000Z-22222222.tar.gz";
+    const cut = "machine-snapshot-20260821T020000Z-11111111.tar.gz";
+    const restoreId = "33333333-3333-4333-8333-333333333333";
+    for (const [relative, body] of [
+      [whole, "a whole archive"], [`${whole}.meta.json`, "{}"],
+      [`${cut}.partial`, "half an archive"], [`${cut}.meta.json`, "{}"],
+      [`.staging-${snapshotId}/controller/boxpilot.sqlite3`, "sqlite"],
+      [`.staging-${snapshotId}/apps/uptime-kuma/.env`, "ADMIN_TOKEN=do-not-lose\n"],
+      [`.restore-${restoreId}/apps/uptime-kuma/.env`, "ADMIN_TOKEN=do-not-lose\n"],
+      ["restored/20260821T030000Z/system/fstab", "# fstab\n"],
+    ]) {
+      await mkdir(path.dirname(path.join(paths.snapshotRoot, relative)), { recursive: true });
+      await writeFile(path.join(paths.snapshotRoot, relative), body);
+    }
+    const swept = await helper.sweepInterrupted();
+    expect(swept.removed.sort()).toEqual([`.restore-${restoreId}`, `.staging-${snapshotId}`, `${cut}.meta.json`, `${cut}.partial`].sort());
+    // A finished snapshot and what a finished restore staged for review stay.
+    expect((await readdir(paths.snapshotRoot)).sort()).toEqual([whole, `${whole}.meta.json`, "restored"]);
+    await expect(helper.sweepInterrupted()).resolves.toEqual({ removed: [] });
+  });
+});
+// R4B3-2: an archive copied in from the mirror or a drive for a restore was written straight to its
+// own name. A restart mid-copy left half an archive there: the restore preferred it (tar: unexpected
+// EOF), and the next sync, seeing a different size, copied it over the mirror's whole one.
+describe("an app's data archive copied in for a restore", () => {
+  const sha = (text) => createHash("sha256").update(text).digest("hex");
+  const name = "20260816T030000Z.tar.gz";
+  const record = name.replace(/\.tar\.gz$/, ".json");
+
+  /** The snapshot, with the app's archive only on the mirror; `mirrored` is what the mirror holds. */
+  async function onlyOnTheMirror({ mirrored = "app-backup-bytes", recorded = "app-backup-bytes" } = {}) {
+    const harness = await fixture();
+    const created = await harness.helper.create({ snapshotId });
+    const mirror = path.join(harness.paths.mountRoot, "boxpilot-local-mirror", "application-backups", "uptime-kuma");
+    await mkdir(mirror, { recursive: true });
+    await writeFile(path.join(mirror, name), mirrored);
+    if (recorded !== null) await writeFile(path.join(mirror, record), JSON.stringify({ artifact: name, checksumSha256: sha(recorded), sizeBytes: Buffer.byteLength(recorded) }));
+    await rm(path.join(harness.paths.applicationBackupRoot, "uptime-kuma", name));
+    await writeFile(path.join(harness.paths.catalogRoot, "uptime-kuma", "boxpilot.json"), JSON.stringify({ id: "uptime-kuma", installed: false }));
+    return { ...harness, created, mirror, store: path.join(harness.paths.applicationBackupRoot, "uptime-kuma") };
+  }
+
+  /** A deployer that records what the local store held when it was asked to restore. */
+  const watchingDeployer = (paths, store) => {
+    const seen = [];
+    return {
+      seen,
+      internals: { readState: async (id) => readFile(path.join(paths.catalogRoot, id, "boxpilot.json"), "utf8").then(JSON.parse).catch(() => null) },
+      install: async ({ id }) => { await writeFile(path.join(paths.catalogRoot, id, "boxpilot.json"), JSON.stringify({ id, installed: true })); return { installed: true, id }; },
+      restoreAppBackup: async ({ backup }) => { seen.push({ backup, store: (await readdir(store)).sort(), bytes: await readFile(path.join(store, backup), "utf8") }); return { restored: true }; },
+    };
+  };
+
+  it("takes its name only once it matches its record, with the record beside it", async () => {
+    const { helper, paths, created, store } = await onlyOnTheMirror();
+    const apps = watchingDeployer(paths, store);
+    const result = await helper.restore({ source: "local", artifact: created.artifact }, { apps });
+    expect(result.apps[0]).toMatchObject({ dataRestored: true, error: null });
+    expect(apps.seen).toEqual([{ backup: name, store: [record, name].sort(), bytes: "app-backup-bytes" }]);
+  });
+
+  it("refuses a copy that does not match its record, and leaves nothing under the archive's name", async () => {
+    const { helper, paths, created, store } = await onlyOnTheMirror({ mirrored: "app-backup" });
+    const apps = watchingDeployer(paths, store);
+    const result = await helper.restore({ source: "local", artifact: created.artifact }, { apps });
+    expect(result.apps[0]).toMatchObject({ installed: true, dataRestored: false, error: `The copy of ${name} does not match the checksum recorded when it was written, so it was not used.` });
+    expect(apps.seen).toEqual([]);
+    expect(await readdir(store)).toEqual([]);
+  });
+
+  it("checks a copy without a record against the original's size", async () => {
+    const { helper, paths, created, store } = await onlyOnTheMirror({ recorded: null });
+    const apps = watchingDeployer(paths, store);
+    const result = await helper.restore({ source: "local", artifact: created.artifact }, { apps });
+    expect(result.apps[0]).toMatchObject({ dataRestored: true, error: null });
+    expect(apps.seen).toEqual([{ backup: name, store: [name], bytes: "app-backup-bytes" }]);
+  });
+
+  // Linux only: creates file symlinks, which need a privilege on Windows.
+  it.skipIf(onWindows)("never copies through a link, at the copy's name or as the archive on the mirror", async () => {
+    const outside = path.join(os.tmpdir(), `boxpilot-outside-${process.pid}-${Date.now()}`);
+    directories.push(outside);
+    await mkdir(outside);
+    await writeFile(path.join(outside, "victim"), "untouched");
+
+    // A link left where the copy is written goes; what it points at is never written.
+    const first = await onlyOnTheMirror();
+    await symlink(path.join(outside, "victim"), path.join(first.store, `${name}.partial`));
+    const restored = await first.helper.restore({ source: "local", artifact: first.created.artifact }, { apps: watchingDeployer(first.paths, first.store) });
+    expect(restored.apps[0]).toMatchObject({ dataRestored: true, error: null });
+    expect(await readFile(path.join(outside, "victim"), "utf8")).toBe("untouched");
+    expect((await lstat(path.join(first.store, name))).isFile()).toBe(true);
+
+    // An archive on the mirror that is a link to a file elsewhere is not copied in.
+    const second = await onlyOnTheMirror();
+    await rm(path.join(second.mirror, name));
+    await symlink(path.join(outside, "victim"), path.join(second.mirror, name));
+    const refused = await second.helper.restore({ source: "local", artifact: second.created.artifact }, { apps: watchingDeployer(second.paths, second.store) });
+    expect(refused.apps[0]).toMatchObject({ dataRestored: false, error: expect.stringContaining("is a symbolic link") });
+    expect(await readdir(second.store)).toEqual([]);
+  });
+
+  it("is swept away when the helper starts after a restart cut the copy off", async () => {
+    const { helper, paths } = await fixture();
+    const store = path.join(paths.applicationBackupRoot, "uptime-kuma");
+    await writeFile(path.join(store, "20260817T030000Z.tar.gz.partial"), "half an archive");
+    await writeFile(path.join(store, "notes.partial"), "not an archive this writes");
+    const swept = await helper.sweepInterrupted();
+    expect(swept.removed).toEqual(["uptime-kuma/20260817T030000Z.tar.gz.partial"]);
+    expect((await readdir(store)).sort()).toEqual([name, "notes.partial"]);
+  });
+
+  it("never replaces the mirror's copy with a local one that does not match its record", async () => {
+    const { helper, paths } = await fixture();
+    const store = path.join(paths.applicationBackupRoot, "uptime-kuma");
+    const first = await helper.sync();
+    const mirrored = path.join(first.destination, "application-backups", "uptime-kuma", name);
+    expect(await readFile(mirrored, "utf8")).toBe("app-backup-bytes");
+    // Half the archive under its own name, with the record of the whole one.
+    await writeFile(path.join(store, name), "app-backup");
+    await writeFile(path.join(store, record), JSON.stringify({ artifact: name, checksumSha256: sha("app-backup-bytes") }));
+    const second = await helper.sync();
+    expect(await readFile(mirrored, "utf8")).toBe("app-backup-bytes");
+    expect(second.warnings).toEqual([`application-backups/uptime-kuma/${name} was not copied: it does not match the checksum recorded when it was written, so it may be damaged.`]);
+    // Nor one with no record to say it is whole.
+    await rm(path.join(store, record));
+    const third = await helper.sync();
+    expect(await readFile(mirrored, "utf8")).toBe("app-backup-bytes");
+    expect(third.warnings).toEqual([`application-backups/uptime-kuma/${name} was not copied: it has no record to check it against, and the copy on the backup drive differs from it.`]);
+  });
+
+  // R5B4-7: what a sync left out was said only in its job, and the drive's sync record kept just the
+  // counts, so the Off-box tab and Home showed "Last synced ... N files" with nothing amiss.
+  it("keeps what a sync left out in the drive's sync record, and clears it once all is copied", async () => {
+    const { helper, paths } = await fixture();
+    const store = path.join(paths.applicationBackupRoot, "uptime-kuma");
+    await helper.sync();
+    await writeFile(path.join(store, name), "app-backup");
+    await writeFile(path.join(store, record), JSON.stringify({ artifact: name, checksumSha256: sha("app-backup-bytes") }));
+    const skipped = await helper.sync();
+    const said = `application-backups/uptime-kuma/${name} was not copied: it does not match the checksum recorded when it was written, so it may be damaged.`;
+    expect(skipped.warnings).toEqual([said]);
+    expect((await helper.inspect()).sync.lastSync).toMatchObject({ completedAt: skipped.completedAt, skippedCount: 1, skipped: [said] });
+    await writeFile(path.join(store, name), "app-backup-bytes");
+    await helper.sync();
+    expect((await helper.inspect()).sync.lastSync).toMatchObject({ skippedCount: 0, skipped: [] });
+  });
+
+  it("still copies one that matches its record over a mirror copy that differs", async () => {
+    const { helper, paths } = await fixture();
+    const store = path.join(paths.applicationBackupRoot, "uptime-kuma");
+    const first = await helper.sync();
+    const mirrored = path.join(first.destination, "application-backups", "uptime-kuma", name);
+    await writeFile(mirrored, "stale");
+    await writeFile(path.join(store, record), JSON.stringify({ artifact: name, checksumSha256: sha("app-backup-bytes") }));
+    const again = await helper.sync();
+    expect(await readFile(mirrored, "utf8")).toBe("app-backup-bytes");
+    expect(again.warnings).toBeUndefined();
+  });
+});
+
+// Sweep 4: a snapshot restore asks the deployer what each app's data archive would start, and the
+// data folders its settings name, and refuses before it changes anything when an archive's compose
+// file needs allowing and was not, or cannot be allowed at all. The data restore checks again what
+// it actually unpacks (app-helper composeGate).
+describe("what a snapshot restore's data archives would start", () => {
+  const hash = "b".repeat(64);
+  const powerful = { id: "uptime-kuma", verbatim: true, reason: "edited", findings: [{ service: "uptime-kuma", setting: "privileged", value: "true", detail: "runs privileged: every device and capability, no confinement - root on this server", system: true }], refusals: [], sha256: hash, sameAsRunning: false, needsAllow: true };
+  function reviewing(paths, review, { problems = [] } = {}) {
+    const calls = { install: 0, restored: [], reviewed: [], folders: [] };
+    return {
+      calls,
+      internals: { readState: async (id) => readFile(path.join(paths.catalogRoot, id, "boxpilot.json"), "utf8").then(JSON.parse).catch(() => null) },
+      reviewArchive: async ({ id, archive }) => { calls.reviewed.push([id, path.basename(archive)]); return review; },
+      dataFoldersRefused: async ({ id, values }) => { calls.folders.push([id, values]); return problems; },
+      install: async ({ id }) => { calls.install += 1; await writeFile(path.join(paths.catalogRoot, id, "boxpilot.json"), JSON.stringify({ id, installed: true })); return { installed: true, id }; },
+      restoreAppBackup: async (parameters) => { calls.restored.push(parameters); return { restored: true }; },
+    };
+  }
+  /** A snapshot of the fixture's app with one data archive, restored onto a server without the app. */
+  async function snapshotted() {
+    const { helper, paths } = await fixture();
+    const created = await helper.create({ snapshotId });
+    await rm(path.join(paths.catalogRoot, "uptime-kuma"), { recursive: true, force: true });
+    return { helper, paths, artifact: created.artifact };
+  }
+
+  it("says, per app, what its data archive would start", async () => {
+    const { helper, paths, artifact } = await snapshotted();
+    const apps = reviewing(paths, powerful);
+    const described = await helper.describe({ source: "local", artifact }, { apps });
+    expect(described.apps).toEqual([expect.objectContaining({ id: "uptime-kuma", dataArchive: "20260816T030000Z.tar.gz", compose: powerful })]);
+    expect(apps.calls.reviewed).toEqual([["uptime-kuma", "20260816T030000Z.tar.gz"]]);
+    // Without a deployer to ask, as before.
+    expect((await helper.describe({ source: "local", artifact })).apps[0].compose).toBeUndefined();
+  });
+
+  it("refuses before it changes anything when an archive's compose file was not allowed", async () => {
+    for (const allowCompose of [null, { "uptime-kuma": "c".repeat(64) }]) {
+      const { helper, paths, artifact } = await snapshotted();
+      const apps = reviewing(paths, powerful);
+      await expect(helper.restore({ source: "local", artifact, apps: ["uptime-kuma"], ...(allowCompose ? { allowCompose } : {}) }, { apps }))
+        .rejects.toThrow(`The snapshot was not restored; nothing was changed. uptime-kuma: its data archive's compose file would be started exactly as it was backed up, and gives it more than the catalog does: uptime-kuma: runs privileged: every device and capability, no confinement - root on this server (compose sha256 ${hash}). Allow these settings in the restore dialog`);
+      expect(apps.calls.install).toBe(0);
+      await expect(stat(path.join(paths.catalogRoot, "uptime-kuma"))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
+
+  it("restores with exactly the file allowed, and hands the allowance to the data restore", async () => {
+    const { helper, paths, artifact } = await snapshotted();
+    const apps = reviewing(paths, powerful);
+    const result = await helper.restore({ source: "local", artifact, apps: ["uptime-kuma"], allowCompose: { "uptime-kuma": hash } }, { apps });
+    expect(result.apps).toEqual([expect.objectContaining({ id: "uptime-kuma", installed: true, dataRestored: true, error: null })]);
+    expect(apps.calls.restored).toEqual([{ id: "uptime-kuma", backup: "20260816T030000Z.tar.gz", allowCompose: hash }]);
+  });
+
+  it("refuses what cannot be allowed at all, and data folders an install would refuse", async () => {
+    for (const [review, problems, words] of [
+      [{ ...powerful, needsAllow: false, findings: [], refusals: ["the file pulls in other compose files, whose settings BoxPilot cannot see from here"] }, [], "uptime-kuma: the file pulls in other compose files"],
+      [{ ...powerful, needsAllow: false, findings: [] }, ["Media folder is set to \"/etc\", which points at a protected system location"], "uptime-kuma: its settings point it at data folders an install would refuse: Media folder is set to \"/etc\""],
+    ]) {
+      const { helper, paths, artifact } = await snapshotted();
+      const apps = reviewing(paths, review, { problems });
+      await expect(helper.restore({ source: "local", artifact, apps: ["uptime-kuma"], allowCompose: { "uptime-kuma": hash } }, { apps })).rejects.toThrow(words);
+      expect(apps.calls.install).toBe(0);
+    }
+  });
+
+  it("asks nothing of an archive that is written again from the catalog, or of a restore without data", async () => {
+    const { helper, paths, artifact } = await snapshotted();
+    const apps = reviewing(paths, { ...powerful, verbatim: false, needsAllow: false, sha256: null, findings: [] });
+    await helper.restore({ source: "local", artifact, apps: ["uptime-kuma"] }, { apps });
+    expect(apps.calls.restored).toEqual([{ id: "uptime-kuma", backup: "20260816T030000Z.tar.gz" }]);
+    const again = await snapshotted();
+    const without = reviewing(again.paths, powerful);
+    await expect(again.helper.restore({ source: "local", artifact: again.artifact, apps: ["uptime-kuma"], restoreData: false }, { apps: without })).resolves.toMatchObject({ restored: 1 });
+    expect(without.calls.reviewed).toEqual([]);
   });
 });

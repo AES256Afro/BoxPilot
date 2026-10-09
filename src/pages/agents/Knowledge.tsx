@@ -19,12 +19,21 @@ export interface KnowledgeProps {
   role: string;
   now: number;
   onStart: (operation: PendingOperation) => void;
+  /** Bumped when a job ends: the library is read again. */
+  refreshKey?: number;
 }
 
 type ConnectorDraft = { folderEnabled: boolean; folderPath: string; webEnabled: boolean; webEndpoint: string; notionEnabled: boolean; notionCredential: string; slackEnabled: boolean; slackCredential: string; slackChannels: string };
 const sourceWords: Record<string, string> = { upload: "pasted or uploaded", pdf: "PDF", folder: "folder", notion: "Notion", slack: "Slack", zulip: "Zulip #agent-files" };
 
-export function Knowledge({ csrfToken, role, now, onStart }: KnowledgeProps) {
+/** Whether the model can see the images from #agent-files, as its server last said (M40.6). */
+function visionWords(vision: KnowledgeState["vision"]): string {
+  if (!vision) return "described by the model in quiet hours; whether it can see is known after its first try";
+  if (vision.vision) return "described by the model in quiet hours: it can see them";
+  return `waiting: the model cannot see them (${vision.reason ?? "no vision projector"})`;
+}
+
+export function Knowledge({ csrfToken, role, now, onStart, refreshKey = 0 }: KnowledgeProps) {
   const [state, setState] = useState<KnowledgeState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -40,7 +49,8 @@ export function Knowledge({ csrfToken, role, now, onStart }: KnowledgeProps) {
   const read = useCallback(async () => {
     try { setState(await agentsApi.knowledge()); setError(null); } catch (requestError) { setError(errorText(requestError, "The library could not be read")); }
   }, []);
-  useEffect(() => { void read(); }, [read]);
+  // Read again whenever a job ends (refreshKey): an approved sync changes what the library holds.
+  useEffect(() => { void read(); }, [read, refreshKey]);
   useEffect(() => {
     if (!state || connectors) return;
     setConnectors({
@@ -52,7 +62,8 @@ export function Knowledge({ csrfToken, role, now, onStart }: KnowledgeProps) {
   }, [state, connectors]);
 
   const act = async (work: () => Promise<unknown>, done: string, failed: string) => {
-    try { await work(); setNotice(done); setError(null); await read(); } catch (requestError) { setError(errorText(requestError, failed)); }
+    // An empty `done` leaves the notice the work set itself (an upload says what it added).
+    try { await work(); if (done) setNotice(done); setError(null); await read(); } catch (requestError) { setError(errorText(requestError, failed)); }
   };
 
   if (!state) {
@@ -93,6 +104,8 @@ export function Knowledge({ csrfToken, role, now, onStart }: KnowledgeProps) {
     },
   ];
   const enabledSources = state.sources.filter((source) => source.enabled).length;
+  const images = state.documents.filter((document) => document.mediaType).length;
+  const waitingImages = state.documents.filter((document) => document.mediaType && !document.describedAt && document.enabled).length;
   const sync = (connector: "notion" | "slack") => onStart({
     operationId: "agents.connector.sync",
     title: `Bring documents in from ${connector === "notion" ? "Notion" : "Slack"}`,
@@ -116,8 +129,15 @@ export function Knowledge({ csrfToken, role, now, onStart }: KnowledgeProps) {
           { id: "kind", label: "Search", value: state.search.kind, mono: true },
           { id: "meaning", label: "Meaning search", value: state.search.embeddings },
           { id: "quiet", label: "Learning and indexing run in", value: `quiet hours, ${state.learning.quietHours.start}–${state.learning.quietHours.end}`, mono: true },
+          ...(images || state.vision ? [{ id: "images", label: "Images", value: visionWords(state.vision) }] : []),
         ]} />
       </Panel>
+
+      {state.vision?.vision === false && waitingImages > 0 && (
+        <Notice tone="warning" title={`${waitingImages === 1 ? "An image waits" : `${waitingImages} images wait`} for a model that can see`}>
+          The model server said it cannot see images: {state.vision.reason ?? "it was started without its vision projector"}. Nothing is sent to it; BoxPilot asks again a day later, or as soon as the model or its runtime changes, and describes the {waitingImages === 1 ? "image" : "images"} then.
+        </Notice>
+      )}
 
       <Panel className="agents-documents" title="Your documents" count={state.documents.length}
         actions={owner ? <>

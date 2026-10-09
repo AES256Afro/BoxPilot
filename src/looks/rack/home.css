@@ -1,0 +1,202 @@
+/*
+ * Home as a rack of equipment (M41): the study's units at the study's sizes, in its em (one
+ * seventy-fourth of the screen's width, less the rail). Every selector starts with .rack-.
+ */
+
+.rack-home {
+  --metal: repeating-linear-gradient(90deg, #cdd0d4 0 2px, #c1c5ca 2px 3px, #d6d9dc 3px 5px);
+  display: grid;
+  align-content: start;
+  gap: 0.6em;
+  color: #26282c;
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-size: clamp(12px, calc((100vw - 68px) / 70.4), 20px);
+  line-height: 1.3;
+}
+.rack-home :where(button) { padding: 0; border: 0; color: inherit; background: none; font: inherit; letter-spacing: inherit; text-align: inherit; text-transform: inherit; cursor: pointer; }
+.rack-home :where(h2, p, ul, ol) { margin: 0; padding: 0; list-style: none; }
+.rack-quiet { display: flex; align-items: center; justify-content: space-between; gap: 1em; padding: 0.4em 0; color: #3b3e43; font-size: 0.9em; font-weight: 600; }
+
+/* A unit: brushed aluminium, a lit top edge, a screw in each ear. */
+.rack-u {
+  position: relative;
+  padding: 0.85em 3.3em;
+  border-radius: 0.25em;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 30%, rgba(0, 0, 0, 0.1)), var(--metal);
+  box-shadow: inset 0 1px 0 #ffffff, inset 0 -1px 0 #7f8389, 0 0.3em 0.7em rgba(0, 0, 0, 0.6);
+}
+.rack-u::before,
+.rack-u::after {
+  position: absolute;
+  top: 50%;
+  width: 1em;
+  height: 1em;
+  margin-top: -0.5em;
+  border-radius: 50%;
+  background: linear-gradient(45deg, transparent 44%, #55595e 44% 56%, transparent 56%), radial-gradient(circle at 35% 35%, #fafafa, #9a9ea4 60%, #5f6368);
+  box-shadow: 0 0 0 0.15em rgba(0, 0, 0, 0.25);
+  content: "";
+}
+.rack-u::before { left: 1.15em; }
+.rack-u::after { right: 1.15em; }
+.rack-eng { color: #3b3e43; font: 700 0.72em/1 "Barlow Condensed", sans-serif; letter-spacing: 0.18em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); text-transform: uppercase; }
+
+.rack-led { display: inline-block; flex: none; width: 0.7em; height: 0.7em; border-radius: 50%; background: #2c3a2f; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5); vertical-align: middle; }
+.rack-led[data-led="green"] { background: radial-gradient(circle at 40% 35%, #d8ffd9, #2ee65a 55%, #13862f); box-shadow: 0 0 0.5em #2ee65a; }
+.rack-led[data-led="amber"] { background: radial-gradient(circle at 40% 35%, #fff1c9, #ffb20f 55%, #b56a00); box-shadow: 0 0 0.5em #ffb20f; }
+.rack-led[data-led="red"] { background: radial-gradient(circle at 40% 35%, #ffd0cc, #ff3b2f 55%, #a01b12); box-shadow: 0 0 0.5em #ff3b2f; }
+
+/* ── The head unit: on a wide screen, the lower part of a 2U panel whose top row is the shell's bar ── */
+.rack-head { display: flex; align-items: center; gap: 1.4em; }
+@media (min-width: 761px) {
+  .rack-head {
+    margin-top: -8px;
+    padding-top: 0.3em;
+    border-radius: 0 0 0.25em 0.25em;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 0 #7f8389, 0 0.3em 0.7em rgba(0, 0, 0, 0.6);
+  }
+}
+.rack-name { display: grid; flex: none; gap: 0.35em; }
+.rack-name b { display: block; font: 700 1.9em/1 "Barlow Condensed", sans-serif; letter-spacing: 0.12em; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); text-transform: uppercase; }
+.rack-leds { display: grid; flex: none; gap: 0.4em; }
+.rack-leds .rack-led { margin-right: 0.9em; }
+.rack-lamp {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 10em;
+  height: 4.6em;
+  border-radius: 0.3em;
+  color: #e0cc94;
+  background: radial-gradient(circle, #5d4a1c, #3a2c0c 70%);
+  box-shadow: inset 0 0 0 0.15em #2a1f06;
+  font: 700 0.62em/1.1 "Barlow Condensed", sans-serif;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+.rack-lamp[data-lit] { color: #2a1a00; background: radial-gradient(circle, #ffe08a, #ffb20f 70%); box-shadow: 0 0 1em rgba(255, 178, 15, 0.7), inset 0 0 0 0.15em #7a4b00; }
+.rack-segs { display: flex; flex: none; gap: 0.7em; margin-left: auto; }
+.rack-seg { display: grid; justify-items: center; gap: 0.3em; }
+.rack-seg b {
+  padding: 0.15em 0.35em;
+  border-radius: 0.1em;
+  color: #ff3b2f;
+  background: #140404;
+  box-shadow: inset 0 0 0 0.12em #000000;
+  font: 400 1.7em/1 "Share Tech Mono", ui-monospace, monospace;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 0.35em rgba(255, 59, 47, 0.8);
+}
+.rack-seg:hover b { box-shadow: inset 0 0 0 0.12em #000000, 0 0 0 0.12em #ffb20f; }
+
+/* ── The apps: dark recessed modules ── */
+.rack-mods { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.55em; }
+.rack-mod {
+  display: grid;
+  gap: 0.45em;
+  width: 100%;
+  padding: 0.55em 0.5em 0.5em;
+  border-radius: 0.2em;
+  background: linear-gradient(#2a2c30, #1d1f22);
+  box-shadow: inset 0 0.1em 0.3em rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.7);
+  text-align: left;
+}
+.rack-mod:hover { background: linear-gradient(#323438, #222428); }
+.rack-mod__top { display: flex; align-items: center; justify-content: space-between; }
+.rack-mod__top .rack-led { margin-left: 0.1em; }
+.rack-sw { width: 0.7em; height: 1.4em; border-radius: 0.35em; background: linear-gradient(90deg, #8d9197, #e9eaec 50%, #8d9197); box-shadow: 0 0.15em 0 #000000; transform: rotate(180deg); opacity: 0.7; }
+.rack-sw[data-on] { transform: none; opacity: 1; }
+.rack-tape { overflow: hidden; padding: 0.35em 0.4em; border-radius: 0.1em; color: #f4f4f4; background: #111111; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15); font: 600 0.66em/1 "Barlow Condensed", sans-serif; letter-spacing: 0.08em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.rack-note { overflow: hidden; color: #b8bcc2; font: 400 0.6em/1.2 "Share Tech Mono", monospace; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.rack-note[data-tone="amber"] { color: #ffb20f; }
+
+/* ── Needs you and can wait: a green LCD and a key for each fix ── */
+.rack-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 1em; }
+.rack-side { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+.rack-lcd {
+  min-width: 0;
+  padding: 0.45em 0.8em;
+  border-radius: 0.2em;
+  color: #1b2a0c;
+  background: linear-gradient(#b3cc72, #9db75d);
+  box-shadow: inset 0 0 0 0.25em #2b2d30, inset 0 0.45em 0.6em rgba(0, 0, 0, 0.25);
+  font: 400 1em/1.25 "Share Tech Mono", monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rack-lcd ol { max-height: 5.4em; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a5a2a transparent; }
+/* A line a need, as the drawing's LCD prints it: fixed columns, one space after the number, no ellipsis. */
+.rack-lcd__line { display: block; width: 100%; padding: 0; overflow: hidden; font-size: 0.86em; line-height: 1.25; text-align: left; white-space: pre; }
+.rack-lcd__line:hover .rack-lcd__text { text-decoration: underline; }
+.rack-lcd__run { display: block; padding-left: 2ch; font-size: 0.7em; text-transform: none; }
+.rack-keys { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.6em; max-width: 30em; }
+.rack-home .rack-key.ui-button {
+  display: grid;
+  font-size: inherit;
+  letter-spacing: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  box-shadow: none;
+  transform: none;
+}
+.rack-home .rack-key.ui-button::before { display: none; }
+.rack-key .ui-button__label { display: grid; justify-items: center; gap: 0.35em; }
+.rack-key i {
+  display: grid;
+  width: 4.25em;
+  height: 2.375em;
+  place-items: center;
+  border-radius: 0.375em;
+  color: rgba(42, 26, 0, 0.55);
+  background: linear-gradient(#ffcf5a, #e39a00);
+  box-shadow: 0 0.2em 0 #6e4600, inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  font: 700 0.8em/1 "Share Tech Mono", monospace;
+  font-style: normal;
+  transition: transform 80ms ease, box-shadow 80ms ease;
+}
+.rack-key[data-tone="grey"] i { color: rgba(38, 40, 44, 0.55); background: linear-gradient(#f2f3f4, #b8bcc1); box-shadow: 0 0.2em 0 #55595e, inset 0 1px 0 #ffffff; }
+.rack-key[data-tone="green"] i { color: rgba(10, 40, 20, 0.6); background: linear-gradient(#8ef0a6, #2ca84a); box-shadow: 0 0.2em 0 #1a5a29, inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+.rack-key[data-tone="red"] i { color: rgba(60, 5, 0, 0.6); background: linear-gradient(#ff8a80, #d8342a); box-shadow: 0 0.2em 0 #6e1410, inset 0 1px 0 rgba(255, 255, 255, 0.6); }
+.rack-key:hover:not(:disabled) i { filter: brightness(1.06); }
+.rack-key:active:not(:disabled) i { box-shadow: 0 0.05em 0 #6e4600, inset 0 1px 0 rgba(255, 255, 255, 0.7); transform: translateY(0.15em); }
+.rack-key .rack-eng { max-width: 9em; overflow: hidden; font-size: 0.72em; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── The UPS ── */
+.rack-ups { display: flex; align-items: center; gap: 1.4em; padding-block: 0.7em; }
+.rack-ups__state { display: inline-flex; align-items: center; gap: 0.9em; }
+.rack-ups__state:hover { color: #000000; }
+.rack-cells { display: flex; flex: none; gap: 0.2em; }
+.rack-cells i { width: 0.9em; height: 1.1em; background: #16301d; box-shadow: inset 0 0 0 1px #0b1a0f; }
+.rack-cells i[data-lit] { background: #2ee65a; box-shadow: 0 0 0.35em #2ee65a, inset 0 0 0 1px #13862f; }
+.rack-vent { flex: 1; align-self: stretch; min-height: 1.2em; border-radius: 0.2em; background: radial-gradient(circle, #1b1c1e 0 0.22em, transparent 0.25em) 0 0 / 0.8em 0.8em; opacity: 0.8; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rack-key i { transition: none; }
+}
+
+/* ── A narrower screen: the head unit wraps, the modules three to a row, the keys under the LCD ── */
+@media (max-width: 1100px) {
+  .rack-head { flex-wrap: wrap; }
+  .rack-segs { margin-left: 0; }
+  .rack-mods { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .rack-home { font-size: 14px; }
+  .rack-u { padding: 0.85em 2.4em; }
+  .rack-u::before { left: 0.7em; }
+  .rack-u::after { right: 0.7em; }
+  .rack-name b { font-size: 1.6em; }
+  .rack-segs { flex-wrap: wrap; gap: 0.5em; }
+  .rack-seg b { font-size: 1.4em; }
+  .rack-mods { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rack-row { grid-template-columns: minmax(0, 1fr); }
+  .rack-side { writing-mode: horizontal-tb; transform: none; }
+  .rack-keys { justify-content: flex-start; max-width: none; }
+  .rack-key i { width: 5em; height: 3em; }
+  .rack-ups { flex-wrap: wrap; gap: 0.8em 1.4em; }
+  .rack-vent { flex-basis: 100%; }
+}

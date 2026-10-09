@@ -66,14 +66,19 @@ describe("Setup", () => {
     expect(onDone).toHaveBeenCalled();
   });
 
-  it("asks for the owner password once when approval demands it, then continues", async () => {
-    let approvals = 0;
+  it("asks for the owner password once when approval demands it, withdraws the job it staged, then continues", async () => {
+    // The approve route answers a missing password with 409 and the server's own words, not 401:
+    // the form never appeared, and each try left another staged job waiting in Activity.
+    const calls: string[] = [];
+    let staged = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
+      calls.push(`${init?.method ?? "GET"} ${url}`);
       if (url.endsWith("/api/v1/setup")) return json(setupState);
-      if (url.endsWith("/operations/app.install/jobs")) return json({ job: { id: "job-1" } }, 201);
-      if (url.endsWith("/jobs/job-1/approve")) { approvals += 1; const body = JSON.parse(String(init?.body)); return body.password ? json({ job: { id: "job-1" } }, 202) : json({ error: "Enter the owner password to run this" }, 401); }
-      if (url.endsWith("/jobs/job-1")) return json({ job: { id: "job-1", state: "completed", error: null } });
+      if (url.endsWith("/operations/app.install/jobs")) { staged += 1; return json({ job: { id: `job-${staged}` } }, 201); }
+      if (/\/jobs\/job-\d\/approve$/.test(url)) { const body = JSON.parse(String(init?.body)); return body.password ? json({ job: { id: "job-2" } }, 202) : json({ error: "Enter the owner password: medium-risk job needs the owner password", code: "job_approval_failed" }, 409); }
+      if (url.endsWith("/jobs/job-1") && init?.method === "DELETE") return json({ job: { id: "job-1", state: "cancelled" } });
+      if (url.endsWith("/jobs/job-2")) return json({ job: { id: "job-2", state: "completed", error: null } });
       if (url.endsWith("/api/v1/schedules")) return json({ schedule: { id: "s1" } }, 201);
       return json({ error: `unexpected ${url}` }, 500);
     }));
@@ -82,10 +87,41 @@ describe("Setup", () => {
     fireEvent.click(screen.getByRole("button", { name: /Install everything \(2\)/ }));
     const passwordInput = await screen.findByLabelText(/Owner password/);
     expect(passwordInput.getAttribute("type")).toBe("password");
+    expect(screen.queryByText("A step failed")).toBeNull();
+    expect(calls).toContain("DELETE /api/v1/jobs/job-1");
     fireEvent.change(passwordInput, { target: { value: "correct horse battery" } });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("All done")).toBeTruthy();
-    expect(approvals).toBe(2);
+    expect(calls.filter((call) => call.endsWith("/approve"))).toEqual(["POST /api/v1/jobs/job-1/approve", "POST /api/v1/jobs/job-2/approve"]);
+    expect(calls.filter((call) => call.startsWith("DELETE"))).toEqual(["DELETE /api/v1/jobs/job-1"]);
+  });
+
+  it("asks again after a wrong password, and withdraws a step's job when its approval fails", async () => {
+    // A wrong password held for the run made every retry fail the same way, with no way to fix it.
+    const calls: string[] = [];
+    let staged = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith("/api/v1/setup")) return json(setupState);
+      if (url.endsWith("/operations/app.install/jobs")) { staged += 1; return json({ job: { id: `job-${staged}` } }, 201); }
+      if (url.endsWith("/jobs/job-1/approve")) return json({ error: "Enter the owner password: medium-risk job needs the owner password" }, 409);
+      if (url.endsWith("/jobs/job-2/approve")) return json({ error: "Wrong password" }, 409);
+      if (url.endsWith("/jobs/job-3/approve")) return json({ error: "Viewers cannot approve jobs" }, 403);
+      if (init?.method === "DELETE") return json({ job: { state: "cancelled" } });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Install everything \(2\)/ }));
+    fireEvent.change(await screen.findByLabelText(/Owner password/), { target: { value: "not it" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Wrong password")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Owner password/), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("A step failed")).toBeTruthy();
+    expect(screen.getByText("Viewers cannot approve jobs")).toBeTruthy();
+    expect(calls.filter((call) => call.startsWith("DELETE"))).toEqual(["DELETE /api/v1/jobs/job-1", "DELETE /api/v1/jobs/job-2", "DELETE /api/v1/jobs/job-3"]);
   });
 
   it("says when a step fails, and offers to retry or skip it", async () => {
@@ -104,6 +140,69 @@ describe("Setup", () => {
     expect(screen.getByRole("button", { name: "Skip and continue" })).toBeTruthy();
   });
 
+  it("tags an app step, and the batch, with the tier its manifest raises it to", async () => {
+    const dns = { ...setupState, profiles: [{ ...setupState.profiles[0], steps: [
+      { id: "app-adguard-home", kind: "app", title: "Install AdGuard Home", status: "ready", detail: "with default settings", risk: "high", job: { operationId: "app.install", parameters: { id: "adguard-home", values: {} } } },
+      setupState.profiles[0].steps[1],
+    ] }, setupState.profiles[1]] };
+    vi.stubGlobal("fetch", vi.fn(async () => json(dns)));
+    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    expect((screen.getByText("Install AdGuard Home").closest("li") as HTMLElement).querySelector(".ui-tag--tier")?.textContent).toBe("High risk");
+    expect((screen.getByText("Install Jellyfin").closest("li") as HTMLElement).querySelector(".ui-tag--tier")?.textContent).toBe("Med risk");
+    expect(screen.getByRole("button", { name: /Install everything/ }).getAttribute("data-risk")).toBe("high");
+  });
+
+  it("reads the server again before a retry, so a step that finished meanwhile is not run twice", async () => {
+    let reads = 0;
+    let installs = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/setup")) {
+        reads += 1;
+        // By the retry, the install that "failed" here had finished on the server.
+        if (reads < 2) return json(setupState);
+        return json({ ...setupState, profiles: [{ ...setupState.profiles[0], steps: setupState.profiles[0].steps.map((step) => (step.id === "app-jellyfin" ? { ...step, status: "done" } : step)) }, setupState.profiles[1]] });
+      }
+      if (url.endsWith("/operations/app.install/jobs")) { installs += 1; return json({ error: "The catalog is not reachable" }, 503); }
+      if (url.endsWith("/api/v1/schedules")) return json({ schedule: { id: "s1" } }, 201);
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Install everything/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("All done")).toBeTruthy();
+    expect(installs).toBe(1);
+  });
+
+  it("offers only Skip when the failure names something that has to happen first, and says what was skipped", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/setup")) return json(setupState);
+      if (url.endsWith("/operations/app.install/jobs")) return json({ error: "Docker Engine is not available; install it from Repair Center first" }, 409);
+      if (url.endsWith("/api/v1/schedules")) return json({ schedule: { id: "s1" } }, 201);
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Install everything/ }));
+    expect(await screen.findByText(/Running it again would stop the same way/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Skip and continue" }));
+    expect(await screen.findByText("Done, with 1 step skipped")).toBeTruthy();
+    expect(screen.queryByText("All done")).toBeNull();
+  });
+
+  it("moves focus to the chosen profile's plan, and back to its square on the way out", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(setupState)));
+    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Home server: its steps");
+    fireEvent.click(screen.getByRole("button", { name: "← All profiles" }));
+    expect(document.activeElement?.getAttribute("data-profile")).toBe("home-server");
+  });
+
   it("lets a viewer read the profiles and run nothing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(setupState)));
     render(<SetupPage csrfToken="csrf" role="viewer" onDone={vi.fn()} />);
@@ -118,6 +217,34 @@ describe("Setup", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "Prepare a new server" }));
     expect(window.location.search).toBe("?mode=new");
     expect(screen.getByText("For another machine")).toBeTruthy();
+  });
+
+  it("starts nothing more once the page is left, though the step already running goes on", async () => {
+    // The run is the page's own loop. Left running after the owner went to another page, it went
+    // on staging and approving each later step with the password it held, where nobody could see
+    // or stop it, and coming back offered to start the same steps again beside it.
+    let finished = false;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith("/api/v1/setup")) return json(setupState);
+      if (url.endsWith("/operations/app.install/jobs")) return json({ job: { id: "job-1" } }, 201);
+      if (url.endsWith("/jobs/job-1/approve")) return json({ job: { id: "job-1", state: "applying" } }, 202);
+      if (url.endsWith("/jobs/job-1")) return json({ job: { id: "job-1", state: finished ? "completed" : "applying", error: null } });
+      if (url.endsWith("/api/v1/schedules")) return json({ schedule: { id: "s1" } }, 201);
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    const view = render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Install everything \(2\)/ }));
+    await vi.waitFor(() => expect(calls).toContain("GET /api/v1/jobs/job-1"));
+    view.unmount();
+    finished = true;
+    const before = calls.length;
+    // One of the loop's two-second waits, and a little more.
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(calls.slice(before)).toEqual([]);
   });
 });
 

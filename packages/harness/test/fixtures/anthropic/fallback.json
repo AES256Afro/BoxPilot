@@ -1,0 +1,23 @@
+{
+  "id": "msg_fallback",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5-5",
+  "content": [
+    { "type": "thinking", "thinking": "", "signature": "sig-declined-0005" },
+    { "type": "text", "text": "Looking at the firewall " },
+    { "type": "tool_use", "id": "toolu_declined", "name": "firewall_rules", "input": {} },
+    { "type": "fallback", "from": { "model": "claude-opus-5-5" }, "to": { "model": "claude-opus-5" }, "trigger": { "type": "refusal", "category": "cyber" } },
+    { "type": "thinking", "thinking": "", "signature": "sig-fallback-0006" },
+    { "type": "text", "text": "rules: port 22 is open to the LAN only." }
+  ],
+  "stop_reason": "end_turn",
+  "stop_details": null,
+  "usage": {
+    "input_tokens": 500, "output_tokens": 80, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+    "iterations": [
+      { "type": "message", "model": "claude-opus-5-5", "input_tokens": 500, "output_tokens": 30, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0 },
+      { "type": "fallback_message", "model": "claude-opus-5", "input_tokens": 500, "output_tokens": 80, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0 }
+    ]
+  }
+}

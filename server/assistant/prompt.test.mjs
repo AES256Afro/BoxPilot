@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createRedactor } from "../redaction.mjs";
 import { buildPrompt, fallbackAnswer, finalRedaction, systemPrompt, verifyCitations } from "./prompt.mjs";
@@ -39,6 +40,41 @@ describe("buildPrompt", () => {
     // Longer than the redactor takes at once, and still redacted to the end.
     const long = `${"line of text\n".repeat(600)}password=hunter22`;
     expect(finalRedaction(long, createRedactor())).not.toContain("hunter22");
+  });
+});
+
+describe("finalRedaction and a private key across its chunks (sweep 3)", () => {
+  // An obviously fake key, made here from random bytes in a key's shape: never a real one.
+  const fakeKey = (lines) => {
+    const body = Array.from({ length: lines }, (_, index) => `FAKE${String(index).padStart(2, "0")}${randomBytes(48).toString("base64")}`.slice(0, 64));
+    return { text: `-----BEGIN OPENSSH PRIVATE KEY-----\n${body.join("\n")}\n-----END OPENSSH PRIVATE KEY-----`, body };
+  };
+  const logs = Array.from({ length: 58 },(_, index) => `2026-10-05T12:00:${String(index).padStart(2, "0")}Z app[42]: GET /health 200 in ${index} ms`).join("\n");
+  const survivors = (output, body) => body.filter((line) => output.includes(line.slice(6, 40)));
+
+  it("redacts a key that starts in one chunk and ends in the next", () => {
+    const key = fakeKey(31);
+    expect(logs.length).toBeGreaterThan(3_000);
+    expect(logs.length + key.text.length).toBeGreaterThan(3_500);
+    const output = finalRedaction(`${logs}\n${key.text}\nafter the key`, createRedactor());
+    expect(survivors(output, key.body)).toEqual([]);
+    expect(output).toBe(`${logs}\n[REDACTED_PRIVATE_KEY]\nafter the key`);
+  });
+
+  it("redacts a key clipped before its END, across chunks, to the end of the text", () => {
+    const key = fakeKey(31);
+    const clipped = `${logs}\n${key.text.slice(0, key.text.indexOf(key.body[25]))}`;
+    const output = finalRedaction(clipped, createRedactor());
+    expect(survivors(output, key.body)).toEqual([]);
+    expect(output).toBe(`${logs}\n[REDACTED_PRIVATE_KEY]`);
+  });
+
+  it("redacts a log tail that starts inside a key, before it reaches the model", () => {
+    const key = fakeKey(31);
+    const tail = { kind: "log", title: "Last lines of the log of job x", ref: { jobId: "x" }, text: `${key.text.slice(key.text.indexOf(key.body[3]))}\n${logs}` };
+    const prompt = buildPrompt({ question: "Why did it fail?", sources: [tail], role: "owner", redactor: createRedactor() });
+    expect(survivors(prompt.messages[1].content, key.body)).toEqual([]);
+    expect(prompt.messages[1].content).toContain("[REDACTED_PRIVATE_KEY]\n2026-10-05T12:00:00Z app[42]");
   });
 });
 

@@ -3,7 +3,8 @@
  * (which has network access, unlike the helper). Each task validates its own parameters
  * again — the spec file is written by the helper, but defense in depth is cheap.
  */
-import { access, writeFile } from "node:fs/promises";
+import { access } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { parseNeedrestart } from "../needrestart.mjs";
 import { inspectPackageHealth } from "../package-health.mjs";
@@ -12,7 +13,6 @@ export const packageNamePattern = /^[a-z0-9][a-z0-9+.-]{0,99}$/;
 const aptGet = "/usr/bin/apt-get";
 const needrestartBinary = "/usr/sbin/needrestart";
 const systemctl = "/usr/bin/systemctl";
-const systemdRun = "/usr/bin/systemd-run";
 /**
  * apt runs with needrestart's hook suspended (NEEDRESTART_SUSPEND is its documented off switch).
  *
@@ -24,19 +24,19 @@ const systemdRun = "/usr/bin/systemd-run";
  * one second after the service waiting for it was stopped.
  *
  * Suspending the hook does not mean skipping the restarts. The task takes them over after apt is
- * done: everything else immediately, BoxPilot itself on a short detached timer, so its restart
- * lands after the job's result has been recorded instead of in the middle of it.
+ * done: everything else immediately, BoxPilot itself by the helper once the job's result has been
+ * recorded and the work beside it has finished, instead of in the middle of either.
  */
 const aptEnvironment = { NEEDRESTART_SUSPEND: "1", DEBIAN_FRONTEND: "noninteractive" };
 
-/** Restart what the upgrade left stale: everything now, BoxPilot itself after the job has landed. */
+/** Restart what the upgrade left stale: everything now, and name BoxPilot's own units for the helper. */
 async function restartStaleServices(run, log = null) {
   const present = await run(needrestartBinary, ["--help"], { timeout: 15_000 }).then((result) => result.ok, () => false);
-  if (!present) return { servicesNeedingRestart: null, servicesRestarted: [], selfRestartScheduled: false };
+  if (!present) return { servicesNeedingRestart: null, servicesRestarted: [], selfRestartNeeded: [] };
   const scan = await run(needrestartBinary, ["-b"], { timeout: 120_000, maxBuffer: 2 * 1024 * 1024 });
-  if (!scan.ok) return { servicesNeedingRestart: null, servicesRestarted: [], selfRestartScheduled: false };
+  if (!scan.ok) return { servicesNeedingRestart: null, servicesRestarted: [], selfRestartNeeded: [] };
   const listed = parseNeedrestart(scan.stdout);
-  const own = listed.filter((unit) => /^boxpilot(-helper)?\.service$/.test(unit));
+  const own = ["boxpilot.service", "boxpilot-helper.service"].filter((unit) => listed.includes(unit));
   const others = listed.filter((unit) => !own.includes(unit));
   const restarted = [];
   for (const unit of others) {
@@ -51,17 +51,11 @@ async function restartStaleServices(run, log = null) {
     if (result.ok) { restarted.push(unit); log?.(`Restarted ${unit}, which was running pre-upgrade libraries`, "stdout"); }
     else log?.(`Could not restart ${unit}: ${result.stderr.split("\n").slice(-1)[0]}`, "stderr");
   }
-  let selfRestartScheduled = false;
-  if (own.length) {
-    // Detached on purpose: this restart must land after the job has recorded its result, and the
-    // transient timer survives everything between here and there.
-    const schedule = await run(systemdRun, ["--on-active=30", "--unit=boxpilot-restart-after-upgrade", "--description=Restart BoxPilot to pick up upgraded libraries (scheduled by the upgrade job it would otherwise have interrupted)", systemctl, "restart", ...own], { timeout: 30_000 });
-    selfRestartScheduled = schedule.ok;
-    log?.(schedule.ok
-      ? "BoxPilot itself is running pre-upgrade libraries; it restarts in 30 seconds, after this job has finished recording."
-      : `BoxPilot needs a restart to pick up upgraded libraries, and scheduling one failed: ${schedule.stderr.split("\n").slice(-1)[0]}. Restart it from the System page.`, schedule.ok ? "stdout" : "stderr");
-  }
-  return { servicesNeedingRestart: listed, servicesRestarted: restarted, selfRestartScheduled };
+  // BoxPilot's own units are named, not restarted: the helper restarts them once this job and the
+  // work beside it have finished, and holds back anything new until it has (self-restart.mjs). A
+  // timer here, 30 seconds out, killed whatever had started behind the job in the meantime.
+  if (own.length) log?.(`BoxPilot itself (${own.join(", ")}) is running pre-upgrade libraries and needs a restart.`, "stdout");
+  return { servicesNeedingRestart: listed, servicesRestarted: restarted, selfRestartNeeded: own };
 }
 const dpkgQuery = "/usr/bin/dpkg-query";
 const rebootRequiredPath = "/run/reboot-required";

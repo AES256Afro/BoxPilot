@@ -17,6 +17,11 @@
 /* A name with a line under it: an agent and its purpose, a run and how it started. */
 .agents-name { display: grid; gap: 1px; min-width: 0; padding-block: 5px; white-space: normal; }
 .agents-name__purpose { color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.3; }
+/* The Agents list: every other cell stays on one line, so the name and purpose were the only thing
+   that could give, down to a word a line. They keep room to be read, and what starts an agent wraps. */
+.agents-agent-cell .agents-name { min-width: 14rem; }
+.agents-page td.agents-starts-cell { white-space: normal; }
+.agents-starts-cell .agents-dim { display: inline-block; min-width: 9rem; }
 /* A table that scrolls sideways keeps its visually hidden headers inside it, not past the page's edge. */
 .agents-page .ui-table-wrap { position: relative; }
 /* A row's status mark sits beside a two-line first cell, not on a line of its own above it. */
@@ -45,6 +50,8 @@
 .agents-card__step-title { color: var(--text-strong); font-size: 13.5px; font-weight: 600; }
 .agents-card__op { color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; }
 .agents-card__why { color: var(--text-muted); font-size: 12.5px; line-height: 1.35; }
+.agents-card__params { display: grid; gap: 1px; margin-top: 2px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-strong); overflow-wrap: anywhere; }
+.agents-card__param code { color: var(--text-muted); font-size: inherit; }
 .agents-card__dropped { margin: 0; color: var(--text-muted); font-size: 12.5px; }
 .agents-card__foot { display: flex; justify-content: flex-end; }
 
@@ -53,8 +60,16 @@
 .agents-run__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .agents-run__what { color: var(--text-strong); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .agents-run__reason { margin: 0; color: var(--text-muted); font-size: 13px; }
-.agents-answer { padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--text); font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The check before answering (M40): one line under the answer. */
+.agents-run__check { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.4; }
+.agents-answer { padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--text); font-size: 14px; line-height: 1.55; white-space: normal; overflow-wrap: anywhere; }
 .agents-answer__cite { padding: 0 3px; border-radius: 2px; color: var(--accent); background: var(--accent-faint); font-family: var(--font-mono); font-size: 11.5px; }
+/* An agent's words as prose (M44, Prose.tsx): paragraphs, lists, bold and italics, nothing more. */
+.agents-prose { display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.agents-prose > p, .agents-prose > ul, .agents-prose > ol { margin: 0; }
+.agents-prose > ul, .agents-prose > ol { display: grid; gap: 2px; padding-left: 20px; }
+.agents-prose strong { color: var(--text-strong); font-weight: 600; }
+.agents-prose code:not(.agents-answer__cite) { padding: 0 3px; border-radius: 2px; background: var(--surface-muted); font-family: var(--font-mono); font-size: 0.9em; }
 .agents-trace { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border-subtle); }
 .agents-step { display: flex; align-items: flex-start; gap: 8px; min-width: 0; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
 .agents-step > .ui-mark { flex: none; width: 8px; height: 8px; margin-top: 7px; }
@@ -90,6 +105,17 @@
 .agents-form__row > .ui-field { flex: 1 1 10rem; min-width: 0; }
 .agents-form__checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 6px 16px; }
 .agents-form__check { align-self: center; }
+/* M45.6: a plan the run made, its steps one under another. */
+.agents-plan { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.agents-plan__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.agents-plan__title { flex: 1 1 12rem; min-width: 0; color: var(--text-strong); font-weight: 600; overflow-wrap: anywhere; }
+.agents-plan__steps { display: grid; gap: 4px; margin: 0; padding-inline-start: 1.4em; }
+.agents-plan__step { overflow-wrap: anywhere; }
+.agents-plan__note { display: block; color: var(--text-muted); font-size: 12.5px; }
+/* M45.5: what it carries out itself, one operation a row: its name, its leave, and taking it away. */
+.agents-grants { display: grid; gap: 8px; }
+.agents-grants__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.agents-grants__what { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
 .agents-form__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr)); gap: 8px 12px; }
 .agents-tool { display: grid; gap: 2px; min-width: 0; padding-block: 5px; white-space: normal; }
 .agents-tool__name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
@@ -148,7 +174,8 @@
 .agents-glance--ops { grid-column: span 12; }
 .agents-glance__body { display: grid; gap: 6px; min-width: 0; }
 .agents-glance__meta { margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; }
-.agents-glance__digest { display: -webkit-box; margin: 0; overflow: hidden; color: var(--text); font-size: 13.5px; line-height: 1.45; white-space: pre-line; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
+/* About five lines of the digest, whatever its paragraphs and lists. */
+.agents-glance__digest { gap: 3px; max-height: calc(1.45em * 5); margin: 0; overflow: hidden; color: var(--text); font-size: 13.5px; line-height: 1.45; }
 .agents-glance__cards, .agents-glance__runner { margin: 0; color: var(--text); font-size: 13px; }
 .agents-glance__cards b, .agents-glance__runner b { color: var(--accent); font-family: var(--font-mono); }
 .agents-glance__runner { font-weight: 600; }
@@ -169,8 +196,8 @@
 .agents-tree__item[data-current="true"] .agents-link { color: var(--accent); }
 .agents-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .agents-feedback__ask { color: var(--text-muted); font-size: 13px; }
-.agents-feedback__note { display: flex; flex: 1 1 18rem; gap: 6px; min-width: 0; }
-.agents-feedback__note .ui-input { flex: 1 1 auto; min-width: 0; }
+.agents-feedback__note { display: flex; flex-wrap: wrap; flex: 1 1 18rem; gap: 6px; min-width: 0; }
+.agents-feedback__note .ui-input { flex: 1 1 12rem; min-width: 0; }
 
 /* ---- cards of three kinds ---- */
 .agents-card[data-kind="question"] { border-left-color: var(--status-neutral); }
@@ -192,17 +219,37 @@
 .agents-turn[data-role="user"] { border-left: 2px solid var(--accent); }
 .agents-turn__who { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
 .agents-turn__text { color: var(--text); font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agents-prose.agents-turn__text, .agents-prose.agents-note__body { gap: 3px; white-space: normal; }
 .agents-connector { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border-subtle); }
 .agents-connector:first-child { padding-top: 0; border-top: 0; }
 .agents-criteria__list { display: grid; gap: 4px; margin: 0; padding-left: 18px; color: var(--text); font-size: 13.5px; }
 .agents-accuracy__score { display: grid; grid-template-columns: minmax(5rem, 9rem) auto; align-items: center; gap: 8px; }
+/* Accuracy over time (M40): a bar an evaluation, the 80% mark ruled across. */
+.agents-accuracy__chart { display: grid; gap: 4px; padding: 10px 12px 4px; }
+.agents-accuracy-chart { display: block; width: 100%; max-width: 48rem; height: 64px; }
+.agents-accuracy-chart__rule { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.agents-accuracy-chart__bar { fill: var(--status-good); }
+.agents-accuracy-chart__bar[data-status="warning"] { fill: var(--status-warning); }
+.agents-accuracy-chart__bar[data-status="danger"] { fill: var(--status-danger); }
+.agents-builtin__list { display: grid; gap: 0; margin: 0 0 8px; padding: 0; list-style: none; }
+.agents-builtin__item { padding: 2px 0; border-top: 1px solid var(--border-subtle); }
+.agents-builtin__item:first-child { border-top: 0; }
 .agents-budget--all { padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
 
 /* ---- the team chat (M38) ---- */
 .agents-zulip__body { display: grid; gap: 10px; min-width: 0; }
+/* Claude for the agents (M45.3): the key's form, the cap and the month so far. */
+.agents-cloud__body { display: grid; gap: 10px; min-width: 0; }
+.agents-cloud__form { display: grid; gap: 8px; min-width: 0; }
 .agents-zulip__channels { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .agents-zulip__channel { display: grid; grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr); align-items: baseline; gap: 2px 12px; min-width: 0; }
 .agents-zulip__channel code { color: var(--text-strong); font-size: 12.5px; overflow-wrap: anywhere; }
+/* Asking in Zulip (M40.5): who asks as which account, and who asked without being set up. */
+.agents-zulip__asking { display: grid; gap: 8px; min-width: 0; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.agents-zulip__heading { margin: 0; color: var(--text-strong); font-size: 14px; font-weight: 600; }
+.agents-zulip__askers { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.agents-zulip__asker { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; min-width: 0; padding: 6px 8px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.agents-zulip__asker .agents-name { flex: 1 1 14rem; }
 .agents-chat { display: grid; gap: 6px; min-width: 0; }
 .agents-chat__row { display: grid; grid-template-columns: minmax(8rem, 12rem) auto minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 6px 10px; padding: 6px 0; border-top: 1px solid var(--border-subtle); }
 .agents-chat__row:first-child { border-top: 0; }

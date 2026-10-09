@@ -7,7 +7,7 @@ import { Button, CodeBlock, EmptyState, KeyValue, Notice, PageHeader, Panel, She
 import type { RiskTier } from "../../ui/types";
 import { FlowBuilder } from "./FlowBuilder";
 import SchedulesPanel, { lastRunOf, useSchedules } from "./SchedulesPanel";
-import { cadenceLabel, flowFailed, flowTierWords, type Flow, type PaletteStep, type ShelfItem } from "./flows";
+import { cadenceLabel, flowFailed, flowTierWords, humanize, settingText, type Flow, type OwnerStepToKeep, type PaletteStep, type ShelfItem } from "./flows";
 import "./automations.css";
 
 /*
@@ -41,6 +41,10 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
   const [confirming, setConfirming] = useState<{ flowId: string; action: "remove" | "regenerate" } | null>(null);
   // A new webhook URL exists only here, so it stays on screen until the owner dismisses it.
   const [webhook, setWebhook] = useState<{ flowId: string; name: string; url: string } | null>(null);
+  // Which automation the latest message is about. It is said in that automation's card, beside the
+  // button that caused it: said at the top of the page, a Run now, a schedule change and the webhook
+  // URL that is shown only once all landed out of sight of a card further down.
+  const [about, setAbout] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const [runOf, setRunOf] = useState<string | null>(null);
   const [timezone, setTimezone] = useState<string | null>(null);
@@ -109,16 +113,17 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
   };
 
   const installFromShelf = async (item: ShelfItem) => {
-    setError(null); setNotice(null);
+    setError(null); setNotice(null); setAbout(null);
     try {
       await post("/api/v1/flows", { name: item.name, steps: item.steps });
-      setNotice(`${item.name} is on your list of automations. Open it any time; it is yours to edit.`);
+      // A ready-made flow has no schedule: added, it runs only when someone runs it.
+      setNotice(`${item.name} is on your list of automations. It does not run until you run it or give it a schedule; it is yours to edit.`);
       await refresh();
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not add the automation"); }
   };
 
   const runFlow = (flow: Flow) => {
-    setError(null); setNotice(`${flow.name} is running; each step appears in Activity as its own job.`);
+    setAbout(flow.id); setError(null); setNotice(`${flow.name} is running; each step appears in Activity as its own job.`);
     setFlows((current) => (current ?? []).map((entry) => (entry.id === flow.id ? { ...entry, running: true } : entry)));
     post(`/api/v1/flows/${encodeURIComponent(flow.id)}/run`)
       .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "The run was refused"))
@@ -126,13 +131,26 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
   };
 
   const change = async (flow: Flow, body: Record<string, unknown>, failure: string) => {
-    setError(null); setNotice(null);
+    setAbout(flow.id); setError(null); setNotice(null);
     try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, body, "PUT"); await refresh(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : failure); }
   };
 
+  // The owner keeps a step only they may run that someone else put in the flow: that one step, by its
+  // number, as it is stored. Sending every step back used to keep every owner-only step in it, shown
+  // or not (sweep 4). The page cannot edit an existing flow's steps, so this is the way to do what the
+  // run's refusal asks.
+  const keepStep = async (flow: Flow, unkept: OwnerStepToKeep) => {
+    setAbout(flow.id); setError(null); setNotice(null);
+    try {
+      await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, { keepStep: unkept.step }, "PUT");
+      setNotice(`Step ${unkept.step} is kept: ${flow.name} runs it as it is.`);
+      await refresh();
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not keep the step"); }
+  };
+
   const mintWebhook = async (flow: Flow) => {
-    setError(null); setNotice(null);
+    setAbout(flow.id); setError(null); setNotice(null);
     try {
       const response = await fetch(`/api/v1/flows/${encodeURIComponent(flow.id)}/webhook`, { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } });
       const body = (await response.json()) as { token?: string; path?: string; error?: string };
@@ -144,19 +162,20 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
   };
 
   const removeWebhook = async (flow: Flow) => {
-    setError(null); setNotice(null);
+    setAbout(flow.id); setError(null); setNotice(null);
     try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}/webhook`, undefined, "DELETE"); setWebhook((current) => (current?.flowId === flow.id ? null : current)); setNotice(`${flow.name}'s webhook no longer works.`); await refresh(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not remove the webhook"); }
   };
 
   const removeFlow = async (flow: Flow) => {
-    setError(null); setNotice(null);
-    try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, undefined, "DELETE"); setWebhook((current) => (current?.flowId === flow.id ? null : current)); await refresh(); }
+    setAbout(flow.id); setError(null); setNotice(null);
+    // Gone from the list once removed, so what is said about it is said at the top.
+    try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, undefined, "DELETE"); setWebhook((current) => (current?.flowId === flow.id ? null : current)); setAbout(null); setNotice(`${flow.name} is removed.`); await refresh(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not remove it"); }
   };
 
   const saveDraft = async (draft: { name: string; steps: Array<Record<string, unknown>>; triggerFlowId?: string }) => {
-    setError(null); setNotice(null);
+    setAbout(null); setError(null); setNotice(null);
     await post("/api/v1/flows", draft);
     setBuilding(false);
     setNotice(`${draft.name} is saved. Run it now, or give it a schedule.`);
@@ -249,6 +268,30 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
                     {mayManage && flow.webhookEnabled && <Button variant="ghost" onClick={() => void removeWebhook(flow)}>Remove the webhook</Button>}
                     {mayManage && <Button variant="ghost" disabled={flow.running} onClick={() => setConfirming({ flowId: flow.id, action: "remove" })}>Remove</Button>}
                   </div>
+                  {role === "owner" && (flow.ownerToKeep ?? []).map((unkept) => {
+                    // What keeping it agrees to: the step's own settings (secrets masked, as everywhere
+                    // on this page), when it runs, and whose results it uses.
+                    const step = flow.steps[unkept.step - 1];
+                    const settings: KeyValueItem[] = Object.entries(step?.parameters ?? {}).map(([name, value]) => ({ id: name, label: humanize(name), value: settingText(value), mono: true }));
+                    if (step?.when) settings.push({ id: "when", label: "Runs only when", value: `${step.when.value}${step.when.equals !== undefined ? ` is ${settingText(step.when.equals)}` : ""}`, mono: true });
+                    return (
+                      <div key={unkept.step} role="group" aria-label={`Step ${unkept.step}, waiting for you to keep it`}>
+                        <Notice tone="warning" title="Not run until you keep a step" action={<Button variant="primary" disabled={flow.running} onClick={() => void keepStep(flow, unkept)}>Keep step {unkept.step}</Button>}>
+                          <p>Step {unkept.step} ({unkept.title}) is one only you may run, and someone else put it in this automation. It runs as whoever starts the automation, so it waits for you to keep it as it is:</p>
+                          {settings.length ? <KeyValue items={settings} /> : <p>It has no settings.</p>}
+                          {unkept.reads?.length ? <p>It uses what {unkept.reads.join(", ")} found.</p> : null}
+                        </Notice>
+                      </div>
+                    );
+                  })}
+                  {about === flow.id && error && <Notice tone="danger" live title="That did not work" onDismiss={() => setError(null)}>{error}</Notice>}
+                  {about === flow.id && notice && !error && <Notice tone="success" live onDismiss={() => setNotice(null)}>{notice}</Notice>}
+                  {webhook?.flowId === flow.id && (
+                    <Notice tone="info" live title={`New webhook for ${webhook.name}`} onDismiss={() => setWebhook(null)} className="automations-webhook">
+                      <p>A POST to this URL runs the flow. Copy it now: only its fingerprint is kept, so it cannot be shown again.</p>
+                      <CodeBlock label="Webhook URL">{webhook.url}</CodeBlock>
+                    </Notice>
+                  )}
                   {confirming?.flowId === flow.id && (
                     <div role="group" aria-label={confirming.action === "remove" ? `Confirm removing ${flow.name}` : `Confirm regenerating the webhook for ${flow.name}`}>
                       <Notice
@@ -316,14 +359,8 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
       />
 
       {loadError && <Notice tone="danger" live title="The automations could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{loadError}</Notice>}
-      {error && <Notice tone="danger" live title="That did not work" onDismiss={() => setError(null)}>{error}</Notice>}
-      {notice && !error && <Notice tone="success" live onDismiss={() => setNotice(null)}>{notice}</Notice>}
-      {webhook && (
-        <Notice tone="info" live title={`New webhook for ${webhook.name}`} onDismiss={() => setWebhook(null)} className="automations-webhook">
-          <p>A POST to this URL runs the flow. Copy it now: only its fingerprint is kept, so it cannot be shown again.</p>
-          <CodeBlock label="Webhook URL">{webhook.url}</CodeBlock>
-        </Notice>
-      )}
+      {error && (about === null || !list.some((flow) => flow.id === about)) && <Notice tone="danger" live title="That did not work" onDismiss={() => setError(null)}>{error}</Notice>}
+      {notice && !error && (about === null || !list.some((flow) => flow.id === about)) && <Notice tone="success" live onDismiss={() => setNotice(null)}>{notice}</Notice>}
 
       <Tabs<Tab>
         label="Automations"

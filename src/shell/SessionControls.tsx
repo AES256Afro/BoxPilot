@@ -1,19 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { dropElevation, forgetSession, logoutOwner, type AuthStatus, type SignedOutReason } from "../auth";
+import { turnOffThisDevice } from "../pwa/push";
 import "./bar.css";
+
+/** Signs out of this browser, and stops this device's approval pushes (M25.2) while the session can still say so. */
+export function signOut(csrfToken: string, onSignedOut: (reason: SignedOutReason | null) => void) {
+  forgetSession();
+  void turnOffThisDevice(csrfToken).catch(() => undefined)
+    .then(() => logoutOwner(csrfToken)).then(() => onSignedOut(null)).catch(() => onSignedOut(null));
+}
 
 /**
  * Who is signed in, at the end of the top bar (M33.13): the role when it is not the owner's, the
  * elevated session's lock (or, when there is none, that approvals are tiered), the person, and
  * Sign out. The lock shows until when high-risk approvals skip the password; a press locks it now.
  */
-export function SessionControls({ authStatus, csrfToken, onRefresh, onSignedOut }: {
+export function SessionControls({ authStatus, csrfToken, onRefresh, onSignedOut, user }: {
   authStatus: AuthStatus;
   csrfToken: string;
   /** Read the session again (after locking it). */
   onRefresh: () => void;
   /** Signing out is done: go to the sign-in page. */
   onSignedOut: (reason: SignedOutReason | null) => void;
+  /** What stands for the person in the bar: the account menu under their name, from App. The plain name otherwise. */
+  user?: ReactNode;
 }) {
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
@@ -37,11 +47,11 @@ export function SessionControls({ authStatus, csrfToken, onRefresh, onSignedOut 
           </button>
         )
         : <span className="bar-label bar-tiers">Tiered approvals</span>}
-      <span className="signed-in-user" title={username}>
+      {user ?? <span className="signed-in-user" title={username}>
         {username && <span className="signed-in-user__avatar" aria-hidden="true">{username.slice(0, 1).toUpperCase()}</span>}
         <span className="signed-in-user__name">{username}</span>
-      </span>
-      <button className="bar-button" type="button" onClick={() => { forgetSession(); void logoutOwner(csrfToken).then(() => onSignedOut(null)).catch(() => onSignedOut(null)); }}>Sign out</button>
+      </span>}
+      <button className="bar-button bar-sign-out" type="button" onClick={() => signOut(csrfToken, onSignedOut)}>Sign out</button>
     </>
   );
 }

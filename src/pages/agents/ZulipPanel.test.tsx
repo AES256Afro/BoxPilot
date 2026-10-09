@@ -66,7 +66,7 @@ describe("the team chat panel", () => {
     expect(within(table).getByText("**Server Keeper** · answered a question")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Connect again" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Disconnect" }).getAttribute("data-risk")).toBe("low");
-    fireEvent.click(screen.getByRole("button", { name: "Check #agent-files now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check Zulip now" }));
     expect(await screen.findByText("Read 2 new messages; 1 added to Knowledge.")).toBeTruthy();
     expect(polled).toBe(true);
     expect(calls.filter((call) => call.url === "/api/v1/agents/zulip")).toHaveLength(2);
@@ -79,6 +79,35 @@ describe("the team chat panel", () => {
     expect(screen.getByText("Zulip refused the bot's key; connect Zulip again")).toBeTruthy();
     expect(screen.getByText("Waiting while Agents are off or paused")).toBeTruthy();
     expect(screen.getByText(/#agent-files was already there and public/)).toBeTruthy();
+  });
+
+  it("lets the owner say who may ask in Zulip, as which account, with the password (M40.5)", async () => {
+    const accounts = [{ id: "acc-owner", username: "alex", role: "owner" }, { id: "acc-viewer", username: "rosa", role: "viewer" }];
+    const asking = {
+      on: true, lastPollAt: ago(1), lastError: null, lastAsk: null, defaultAgentId: null,
+      people: [{ zulipId: 11, zulipEmail: "alex@example.com", zulipName: "Alex", boxpilotId: "acc-owner" }],
+      askers: [{ zulipId: 21, zulipEmail: "rosa@example.com", zulipName: "Rosa", lastAt: ago(5), count: 2 }], accounts,
+    };
+    let body: Record<string, unknown> | null = null;
+    serve({ ...connected, asking }, (url, init) => (url === "/api/v1/agents/zulip/people" && init?.method === "PUT"
+      ? (body = JSON.parse(String(init.body)), json({ ...connected, asking: { ...asking, askers: [], people: (body as { people: unknown[] }).people } }))
+      : undefined));
+    const agents = [{ id: "keeper", name: "Server Keeper" }, { id: "helper", name: "IT Support helper" }] as unknown as Parameters<typeof ZulipPanel>[0]["agents"];
+    render(<ZulipPanel csrfToken="csrf" role="owner" now={now} onStart={() => {}} refreshKey={0} agents={agents} />);
+    const section = await screen.findByRole("region", { name: "Asking in Zulip" });
+    const people = within(section).getByRole("table", { name: "Who may ask in Zulip" });
+    expect(within(people).getAllByRole("row")[1].textContent).toContain("alex · owner");
+    // Rosa asked twice without being set up: one choice lets her ask as the viewer account.
+    expect(within(section).getByText("Rosa asked 2 times")).toBeTruthy();
+    fireEvent.change(within(section).getByRole("combobox", { name: "Let Rosa ask as" }), { target: { value: "acc-viewer" } });
+    fireEvent.change(within(section).getByRole("combobox", { name: "Asked when a message names no agent" }), { target: { value: "helper" } });
+    fireEvent.click(within(section).getByRole("button", { name: "Save who may ask" }));
+    fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "right" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(body).toEqual({
+      password: "right", twoWay: true, defaultAgentId: "helper",
+      people: [asking.people[0], { zulipId: 21, zulipEmail: "rosa@example.com", zulipName: "Rosa", boxpilotId: "acc-viewer" }],
+    }));
   });
 
   it("gives an operator the connection and no buttons", async () => {

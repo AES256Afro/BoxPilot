@@ -47,6 +47,17 @@ async function sync(relative = "") {
 }
 
 await sync();
+
+// The looks' mockups (M41), served at /mockups/ beside the app: the study page and the four
+// pictures of today's interface it shows. The reference pictures under refs/ are look-check's, not
+// the page's, and stay behind.
+const study = path.join(root, "docs", "design-directions");
+const mockups = path.join(to, "mockups");
+await mkdir(path.join(mockups, "05-looks"), { recursive: true });
+await copyFile(path.join(study, "05-looks.html"), path.join(mockups, "index.html"));
+for (const name of await readdir(path.join(study, "05-looks"))) {
+  if (/^today-.*\.jpg$/.test(name)) await copyFile(path.join(study, "05-looks", name), path.join(mockups, "05-looks", name));
+}
 // The entry chunk, now that pages are their own chunks: "first .js" would name whichever page
 // sorts first, which is not what anyone reading the log wants to know.
 const names = await readdir(path.join(to, "assets"));

@@ -107,4 +107,14 @@
   .approve-dialog { width: 100%; max-height: 94vh; border-width: 1px 0 0; border-radius: 8px 8px 0 0; }
   .approve-title { font-size: 18px; }
   .approve-foot .ui-button { flex: 1 1 auto; }
+  /* On a phone it rises from the bottom edge (M25): the buttons stay above the home indicator. */
+  .approve-foot { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* A finger, not a pointer (M25): Close, Cancel and Approve at least 44 px to tap, and the password
+   and typed confirmation fields as tall. */
+@media (pointer: coarse) {
+  .approve-close { width: 44px; height: 44px; }
+  .approve-foot .ui-button { min-height: 44px; }
+  .approve-form .ui-input { min-height: 44px; }
 }

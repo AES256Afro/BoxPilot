@@ -22,6 +22,7 @@ export const healthConditions = Object.freeze({
   "power.ups": "UPS on battery or low",
   "system.services": "System services have failed",
   "system.reboot": "A reboot is required",
+  "boxpilot.restart": "BoxPilot needs a restart it could not make itself",
   "docker.unhealthy": "A container is unhealthy",
   "docker.restarting": "A container keeps restarting (crash-looping)",
   "schedule.overdue": "A scheduled task (such as a backup) has stopped running",
@@ -80,6 +81,8 @@ export const noticeMaxAgeMs = 30 * 24 * 60 * 60_000;
  * limit, are counted from the newer of the two, so replaced news is not dropped as a month old.
  */
 const toldAt = (entry) => entry?.renewedAt ?? entry?.since ?? "";
+/** Whose run a raised condition's words describe, as kept on its entry: only when the raiser said. */
+const ranBy = (actorId) => (actorId === undefined ? {} : { actorId: typeof actorId === "string" ? actorId : null });
 
 /** One notice per operation and subject: the same backup cut off twice is one entry, not two. */
 export function jobNoticeKey(kind, job) {
@@ -102,8 +105,11 @@ export function tellInterrupted({ alerts, store, interrupted = [], owned = new S
     const subject = job.parameters?.id ?? job.parameters?.name ?? null;
     return alerts.tell({
       key: jobNoticeKey("job.interrupted", job),
-      title: `${job.title ?? "A job"}${typeof subject === "string" && subject ? ` (${subject.slice(0, 64)})` : ""} was interrupted`,
-      message: "BoxPilot restarted while it was running, so it is marked failed. The operation may still have finished on its own; check what it changed before retrying.",
+      // One BoxPilot restarted before it began (still queued in the helper) changed nothing.
+      title: `${job.title ?? "A job"}${typeof subject === "string" && subject ? ` (${subject.slice(0, 64)})` : ""} ${interruptedJob.neverStarted ? "did not start" : "was interrupted"}`,
+      message: interruptedJob.neverStarted
+        ? "BoxPilot restarted before it began, so nothing was changed. Run it again when you are ready."
+        : "BoxPilot restarted while it was running, so it is marked failed. The operation may still have finished on its own; check what it changed before retrying.",
       priority: "high",
     }).catch(() => ({ notified: false }));
   });
@@ -178,6 +184,17 @@ export function evaluateHealth(inventory) {
   if (maintenance?.reboot?.required) {
     alerts.push({ key: "system.reboot", priority: "default", title: "A reboot is required", message: "Updates were installed that need a restart. Reboot from the System page when convenient." });
   }
+  // BoxPilot's own restart after an update or a KVM install that gave up (the server was never idle
+  // for hours) or failed: it used to be said only in the journal (sweep 5). Which units, from the
+  // helper's runtime read; the web unit drops out once this process has restarted (inventory.mjs).
+  const owed = inventory?.boxpilot?.restart;
+  if (Array.isArray(owed?.units) && owed.units.length) {
+    const units = owed.units.join(" and ");
+    const why = owed.outcome === "gave-up"
+      ? `after it was asked to (${owed.reason}): the server was never idle long enough, so nothing was stopped.`
+      : `(${owed.reason}): ${asSentence(owed.error || "the restart failed")}`;
+    alerts.push({ key: "boxpilot.restart", priority: "default", title: "BoxPilot needs a restart", message: `BoxPilot could not restart ${units} ${why} Restart ${owed.units.length === 1 ? "it" : "them"} from Services when nothing is running; the Updates page lists what still runs old libraries.` });
+  }
   for (const container of inventory?.docker?.containers ?? []) {
     // Crash-looping is worse than unhealthy and unambiguous: a running container is "running", so
     // "restarting"/"dead" means Docker keeps trying to start something that keeps dying. A stopped
@@ -207,6 +224,7 @@ export function collectorAvailability(inventory) {
     "power.ups": inventory?.power?.ups?.available === true,
     "system.services": maintenance?.available !== false && Number.isFinite(maintenance?.system?.failedServiceCount),
     "system.reboot": maintenance?.available !== false && typeof maintenance?.reboot?.required === "boolean",
+    "boxpilot.restart": inventory?.boxpilot?.available === true,
     "docker.unhealthy": inventory?.docker?.available !== false && Array.isArray(inventory?.docker?.containers),
     "docker.restarting": inventory?.docker?.available !== false && Array.isArray(inventory?.docker?.containers),
   };
@@ -236,8 +254,8 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
    * Send one announcement: true when the target took it, false when there is none or it failed.
    * Either way the notification centre records what was said and whether it arrived (M36).
    */
-  async function announce(key, { title, message, priority = "default" }, kind = "alert") {
-    const said = (delivered, reason = null) => history?.record({ key, kind, title, message, priority, delivered, reason });
+  async function announce(key, { title, message, priority = "default", actorId }, kind = "alert") {
+    const said = (delivered, reason = null) => history?.record({ key, kind, title, message, priority, delivered, reason, actorId });
     if (!notifications.getTarget()) { said(false, "no-target"); return false; }
     try {
       await notifications.send({ title: `BoxPilot: ${title}`, message, priority });
@@ -299,9 +317,9 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
         // One not yet announced gets another try, so a target set today still hears about yesterday.
         if (isReported(key)) {
           const retry = entry?.notified === false && target
-            ? await announce(key, { title: entry.title ?? key, message: entry.message ?? entry.title ?? key, priority: entry.priority ?? "high" })
+            ? await announce(key, { title: entry.title ?? key, message: entry.message ?? entry.title ?? key, priority: entry.priority ?? "high", actorId: entry.actorId })
             : false;
-          nextState[key] = retry ? { since: entry.since ?? null, title: entry.title ?? key, notified: true } : entry;
+          nextState[key] = retry ? { since: entry.since ?? null, title: entry.title ?? key, notified: true, ...ranBy(entry.actorId) } : entry;
           if (retry) sent.push(key);
           continue;
         }
@@ -334,16 +352,18 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
    * A reported condition turned bad: announce it once, or keep it as not announced. Raising it again
    * while it stands announced does nothing, so a schedule failing every hour is one push, not one an
    * hour. Not announced keeps the words, so the round that finds a target later can send them.
+   * `actorId` is whose run the words describe (an automation's, sweep 3). It is kept with them, here
+   * and in the notification centre, so who may read them follows that run and not a later one.
    */
-  function raise({ key, title, message, priority = "high" }) {
+  function raise({ key, title, message, priority = "high", actorId }) {
     return exclusive(async () => {
       const state = readState();
       const seen = state[key];
       if (seen && seen.notified !== false) return { key, notified: true, sent: false };
       const since = seen?.since ?? now().toISOString();
       const text = String(message ?? title).slice(0, 500);
-      const notified = await announce(key, { title, message: text, priority });
-      state[key] = notified ? { since, title, notified } : { since, title, message: text, priority, notified };
+      const notified = await announce(key, { title, message: text, priority, actorId });
+      state[key] = notified ? { since, title, notified, ...ranBy(actorId) } : { since, title, message: text, priority, notified, ...ranBy(actorId) };
       writeState(state);
       return { key, notified, sent: notified };
     });

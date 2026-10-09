@@ -135,6 +135,33 @@ describe("App catalog: the page", () => {
     expect(await within(sheet).findByText("stack says hello")).toBeTruthy();
   });
 
+  // Logs that answered late went into whatever sheet was open then: another stack's, or a closed one.
+  it("never shows a stack's late logs in a closed sheet or another stack's", async () => {
+    const answers = new Map<string, () => void>();
+    serve(catalogOf([]), (url, init) => {
+      if (url === "/api/v1/operations/compose.projects.inspect/inspect") return json({ operation: "compose.projects.inspect", result: { available: true, projects: [{ name: "old-wordpress", status: "exited(2)", configFiles: ["/opt/wordpress/docker-compose.yml"] }, { name: "handmade", status: "running(3)", configFiles: ["/home/user/compose.yaml"] }] } });
+      if (url.endsWith("/operations/compose.project.logs/run")) {
+        const name = (JSON.parse(String(init?.body)) as { parameters: { name: string } }).parameters.name;
+        return new Promise<Response>((resolve) => { answers.set(name, () => resolve(json({ result: { name, lines: [`logs of ${name}`] } }))); });
+      }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Other stacks/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Logs of handmade" }));
+    fireEvent.keyDown(await screen.findByRole("dialog", { name: "handmade" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Logs of old-wordpress" }));
+    const sheet = await screen.findByRole("dialog", { name: "old-wordpress" });
+    await waitFor(() => expect(answers.size).toBe(2));
+    answers.get("handmade")!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByRole("dialog", { name: "old-wordpress" }).textContent).not.toContain("logs of handmade");
+    fireEvent.keyDown(sheet, { key: "Escape" });
+    answers.get("old-wordpress")!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("opens straight at an app's sheet from a link, and leaves the address when it closes", async () => {
     window.history.replaceState(null, "", "/?view=catalog&app=jellyfin");
     serve(catalogOf([{ manifest, live: absent("jellyfin") }, { manifest: dockge, live: dockgeLive }]));
@@ -225,6 +252,53 @@ describe("App catalog: installing", () => {
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Jellyfin" })).toBeNull();
     expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { id: "jellyfin", values: { ports: { web: 8097 }, env: {}, volumes: { media: "/mnt/media" } } } });
+  });
+
+  it("marks Install with the tier the server will approve it at: the manifest's, when higher", async () => {
+    // Installing a DNS server the house leans on is high since the security audit; the button said medium.
+    serve(catalogOf([{ manifest: { ...dnsManifest, risk: "high" }, live: absent("pi-hole") }, { manifest, live: absent("jellyfin") }]), (url) => (url.endsWith("/precheck") ? json({ ok: true, errors: [], conflicts: [] }) : undefined));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Catalog/ }));
+    expect((await screen.findByRole("button", { name: "Install Pi-hole" })).getAttribute("data-risk")).toBe("high");
+    expect(screen.getByRole("button", { name: "Install Jellyfin" }).getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(screen.getByRole("button", { name: "Install Pi-hole" }));
+    const sheet = await screen.findByRole("dialog", { name: "Pi-hole" });
+    expect(within(sheet).getByRole("button", { name: /Continue to install/ }).getAttribute("data-risk")).toBe("high");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Cancel" }));
+    // The app's own sheet says the same.
+    fireEvent.click(await screen.findByRole("button", { name: /^Pi-hole: / }));
+    const app = await screen.findByRole("dialog", { name: "Pi-hole" });
+    expect(within(app).getByRole("button", { name: "Install" }).getAttribute("data-risk")).toBe("high");
+  });
+
+  it("opens the app on the Installed tab once its install has finished, rather than leaving it to vanish from the list", async () => {
+    let installed = false;
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) return stagedJob("app.install");
+      if (url.endsWith("/jobs/job-app.install/approve")) return json({ job: { id: "job-app.install", state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/jobs/job-app.install")) { installed = true; return json({ job: { id: "job-app.install", type: "op:app.install", title: "Install Jellyfin", state: "completed", risk: "medium", error: null, result: {}, steps: [], approvals: [] } }); }
+      if (url === "/api/v1/catalog" && installed) return json(catalogOf([{ manifest, live: running("jellyfin") }]));
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
+    expect(new URLSearchParams(window.location.search).get("tab")).not.toBe("browse");
+    expect(screen.getByRole("tab", { name: /Installed|On this server/ }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("goes back to the app's sheet when an action started there is approved or cancelled", async () => {
+    serve(catalogOf([{ manifest, live: running("jellyfin") }]), (url) => (url.includes("/jobs") ? stagedJob("app.action") : undefined));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Restart/ }));
+    expect(screen.queryByRole("dialog", { name: "Jellyfin" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
   });
 
   it("says what the precheck found, and stages nothing", async () => {
@@ -336,6 +410,54 @@ describe("App catalog: installing", () => {
     await waitFor(() => expect(staged).toBeDefined());
     expect(checked).toEqual({ ports: changed === "port" ? {} : { web: 5002 }, env: { PUBLIC_URL: changed === "port" ? origin : `${origin}/new` }, volumes: {} });
     expect(JSON.parse(staged!).parameters.values).toEqual({ ports: changed === "port" ? { web: 5001 } : {}, env: changed === "port" ? {} : { PUBLIC_URL: `${origin}/new` }, volumes: {} });
+  });
+
+  it("puts the install form back as it was filled in when its approval is cancelled", async () => {
+    // The form closed before the approval opened, and cancelling the approval opened only the app's
+    // sheet: everything typed into the form was gone.
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) return stagedJob("app.install");
+      if (url.endsWith("/jobs/job-app.install")) return json({ job: { id: "job-app.install", state: "cancelled" } });
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Jellyfin");
+    fireEvent.change(within(sheet).getByLabelText("Web UI port"), { target: { value: "8097" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const form = await screen.findByRole("dialog", { name: "Jellyfin" });
+    expect(within(form).getByText("Install", { selector: ".ui-sheet__kicker" })).toBeTruthy();
+    expect((within(form).getByLabelText("Web UI port") as HTMLInputElement).value).toBe("8097");
+  });
+
+  it("puts the settings form back as it was when the job fails, and the app's sheet once one succeeds", async () => {
+    let outcome = "failed";
+    serve(catalogOf([{ manifest: dockge, live: dockgeLive }]), (url) => {
+      if (url.endsWith("/catalog/dockge/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.reconfigure/jobs")) return stagedJob("app.reconfigure");
+      if (url.endsWith("/jobs/job-app.reconfigure/approve")) return json({ job: { id: "job-app.reconfigure", state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/jobs/job-app.reconfigure")) return json({ job: { id: "job-app.reconfigure", type: "op:app.reconfigure", title: "Change Dockge settings", state: outcome, risk: "medium", error: outcome === "failed" ? "port 5002 is taken" : null, result: {}, steps: [], approvals: [] } });
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Dockge");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Settings" }));
+    let form = await screen.findByRole("dialog", { name: "Dockge" });
+    fireEvent.change(within(form).getByLabelText("Web UI port"), { target: { value: "5002" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Apply settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    form = await screen.findByRole("dialog", { name: "Dockge" });
+    expect(within(form).getByText("Settings", { selector: ".ui-sheet__kicker" })).toBeTruthy();
+    expect((within(form).getByLabelText("Web UI port") as HTMLInputElement).value).toBe("5002");
+    outcome = "completed";
+    fireEvent.click(within(form).getByRole("button", { name: "Apply settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    const back = await screen.findByRole("dialog", { name: "Dockge" });
+    expect(within(back).getByRole("tab", { name: "Overview" })).toBeTruthy();
   });
 
   it("goes back to the app's sheet when its settings are cancelled", async () => {
@@ -557,6 +679,16 @@ describe("App catalog: an installed app's sheet", () => {
     expect(await within(sheet).findByText("tunnel up")).toBeTruthy();
     expect(bodies).toEqual([{ id: "jellyfin", lines: 200 }, { id: "jellyfin", lines: 200, container: "vpn" }]);
   });
+
+  it("says an app with no container has no logs, rather than failing a read that Read again would fail the same way", async () => {
+    const fetchMock = serve(catalogOf([{ manifest, live: running("jellyfin", 8096, { container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null } }) }]));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Logs" }));
+    expect(await within(sheet).findByText("Jellyfin has no container right now")).toBeTruthy();
+    expect(within(sheet).queryByRole("button", { name: "Read again" })).toBeNull();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/operations/app.logs/run"))).toBe(false);
+  });
 });
 
 describe("App catalog: reach", () => {
@@ -721,6 +853,31 @@ describe("App catalog: backups", () => {
     expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: "20260816T030000Z.tar.gz", path: "config/system.xml" } });
   });
 
+  // R5B3-6: only the first 5000 names reached the dialog, and its filter searched only those: a file
+  // further into a large backup could not be found to restore. A capped list is filtered by the server.
+  it("asks the server to filter a listing too long to send whole", async () => {
+    const asked: Array<Record<string, unknown>> = [];
+    withBackups([backup], (url, init) => {
+      if (url.endsWith("/operations/app.backup.files/run")) {
+        const parameters = (JSON.parse(String(init?.body)) as { parameters: Record<string, unknown> }).parameters;
+        asked.push(parameters);
+        return parameters.filter === "users"
+          ? json({ operation: "app.backup.files", result: { id: "jellyfin", backup: backup.artifact, files: [{ path: "config/deep/users.db", sizeBytes: 40960, type: "file" }], truncated: false, matched: 1, filter: "users" } })
+          : json({ operation: "app.backup.files", result: { id: "jellyfin", backup: backup.artifact, files: [{ path: "config/system.xml", sizeBytes: 2048, type: "file" }], truncated: true, matched: 120_000 } });
+      }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Backups" }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: /^Browse / }));
+    expect(await within(sheet).findByText("config/system.xml")).toBeTruthy();
+    expect(within(sheet).getByText(/120,000 files/)).toBeTruthy();
+    fireEvent.change(within(sheet).getByRole("searchbox", { name: "Filter files" }), { target: { value: "users" } });
+    expect(await within(sheet).findByText("config/deep/users.db", undefined, { timeout: 3000 })).toBeTruthy();
+    expect(asked.at(-1)).toEqual({ id: "jellyfin", backup: backup.artifact, filter: "users" });
+  });
+
   it("puts a whole restore behind the password, and a delete and a rehearsal behind a preview", async () => {
     withBackups([backup]);
     render(<CatalogPage csrfToken="csrf-token" />);
@@ -730,6 +887,69 @@ describe("App catalog: backups", () => {
     expect(within(sheet).getByRole("button", { name: /^Restore / }).getAttribute("data-risk")).toBe("high");
     expect(within(sheet).getByRole("button", { name: /^Rehearse restoring / }).getAttribute("data-risk")).toBe("medium");
     expect(within(sheet).getByRole("button", { name: /^Delete / }).getAttribute("data-risk")).toBe("medium");
+  });
+
+  // Sweep 4: a whole restore asks the server first what the backup would start. A compose file
+  // started exactly as it was backed up, giving the app more than the catalog does, is listed in the
+  // dialog and staged allowing exactly that file, with the typed confirmation the server asks for;
+  // one that cannot be restored at all says why, and nothing is staged.
+  it("shows what a backup's compose file would hand the app, and stages the restore allowing exactly it", async () => {
+    const hash = "d".repeat(64);
+    const review = { id: "jellyfin", backup: backup.artifact, verbatim: true, reason: "edited", findings: [{ service: "jellyfin", setting: "privileged", value: "true", detail: "runs privileged: every device and capability, no confinement - root on this server", system: true }], refusals: [], sha256: hash, sameAsRunning: false, needsAllow: true };
+    const staged: string[] = [];
+    withBackups([backup], (url, init) => {
+      if (url.endsWith("/operations/app.backup.review/run")) return json({ operation: "app.backup.review", result: review });
+      if (url.endsWith("/operations/app.backup.restore/jobs")) {
+        staged.push(init?.body as string);
+        return json({ job: { id: "job-restore", type: "op:app.backup.restore", title: "restore", state: "awaiting_approval", risk: "high", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high", confirmText: "allow jellyfin" } }, 201);
+      }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Backups" }));
+    await within(sheet).findByText("under a second");
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Restore / }));
+    expect(await screen.findByText("Jellyfin's compose file would start exactly as it was backed up")).toBeTruthy();
+    expect(screen.getByText(/runs privileged: every device and capability/)).toBeTruthy();
+    expect(await screen.findByText("Typed confirmation")).toBeTruthy();
+    expect(screen.getByText("allow jellyfin")).toBeTruthy();
+    expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: "20260816T030000Z.tar.gz", allowCompose: hash } });
+  });
+
+  it("says why a backup cannot be restored, and stages nothing", async () => {
+    const review = { id: "jellyfin", backup: backup.artifact, verbatim: true, reason: "edited", findings: [], refusals: ["Media folder is set to \"/etc\", which points at a protected system location"], sha256: null, sameAsRunning: false, needsAllow: false };
+    const staged: string[] = [];
+    withBackups([backup], (url, init) => {
+      if (url.endsWith("/operations/app.backup.review/run")) return json({ operation: "app.backup.review", result: review });
+      if (url.endsWith("/operations/app.backup.restore/jobs")) { staged.push(init?.body as string); return stagedJob("app.backup.restore", "high", true); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Backups" }));
+    await within(sheet).findByText("under a second");
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Restore / }));
+    expect(await within(sheet).findByText(/^Jellyfin cannot be restored from /)).toBeTruthy();
+    expect(within(sheet).getByText(/points at a protected system location/)).toBeTruthy();
+    expect(staged).toEqual([]);
+  });
+
+  it("restores as before when the backup's compose file is written again from the catalog", async () => {
+    const staged: string[] = [];
+    withBackups([backup], (url, init) => {
+      if (url.endsWith("/operations/app.backup.review/run")) return json({ operation: "app.backup.review", result: { id: "jellyfin", verbatim: false, reason: null, findings: [], refusals: [], sha256: null, sameAsRunning: false, needsAllow: false } });
+      if (url.endsWith("/operations/app.backup.restore/jobs")) { staged.push(init?.body as string); return stagedJob("app.backup.restore", "high", true); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Backups" }));
+    await within(sheet).findByText("under a second");
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Restore / }));
+    expect(await screen.findByText("High risk")).toBeTruthy();
+    expect(screen.queryByText(/compose file would start exactly as it was backed up/)).toBeNull();
+    expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: "20260816T030000Z.tar.gz" } });
   });
 
   it("reports a refused rehearsal schedule and blocks a second click while it is out", async () => {
@@ -785,6 +1005,44 @@ describe("App catalog: configuration", () => {
     fireEvent.click(within(sheet).getByRole("button", { name: "Edit raw" }));
     expect((within(sheet).getByLabelText("Compose file") as HTMLTextAreaElement).value).toBe(compose);
     expect(within(sheet).getByRole("button", { name: "Apply" }).getAttribute("data-risk")).toBe("high");
+  });
+
+  it("keeps an edited Compose file when applying it is cancelled", async () => {
+    const compose = "services:\n  dockge:\n    image: louislam/dockge:1.5.0\n";
+    withConfig((url) => {
+      if (url.includes("app.config.inspect")) return json({ result: { id: "dockge", name: "Dockge", env: [] } });
+      if (url.includes("app.compose.inspect")) return json({ result: { compose } });
+      if (url.endsWith("/operations/app.compose.edit/jobs")) return stagedJob("app.compose.edit", "high", true);
+      if (url.includes("/jobs/")) return json({ job: { id: "job-app.compose.edit", state: "cancelled" } });
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Dockge");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: "Read Compose file" }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: "Edit raw" }));
+    const edited = `${compose}    restart: always\n`;
+    fireEvent.change(within(sheet).getByLabelText("Compose file"), { target: { value: edited } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Apply" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    const back = await screen.findByRole("dialog", { name: "Dockge" });
+    expect(within(back).getByRole("tab", { name: "Config" }).getAttribute("aria-selected")).toBe("true");
+    expect((await within(back).findByLabelText("Compose file") as HTMLTextAreaElement).value).toBe(edited);
+  });
+
+  it("offers to read the configuration again when the first read fails", async () => {
+    let reads = 0;
+    withConfig((url) => {
+      if (url.includes("app.config.inspect")) { reads += 1; return reads === 1 ? json({ error: "The helper did not answer" }, 503) : json({ result: { id: "dockge", name: "Dockge", directory: "/opt/boxpilot/apps/dockge", env: [] } }); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Dockge");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    expect(await within(sheet).findByText("The helper did not answer")).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(within(sheet).queryByText("The helper did not answer")).toBeNull());
+    expect(reads).toBe(2);
   });
 
   it("keeps a raw Compose read that starts before the opened tab's effects have run", async () => {

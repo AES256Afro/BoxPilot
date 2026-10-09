@@ -5,7 +5,8 @@
  * boxpilot-heartbeat.service, the very unit the timer starts, so a test proves the real path: the
  * unit's sandbox, its credential read and its request.
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { defaultStatusFile, dropInDirectory, dropInName, heartbeatService, heartbeatTimer, intervalChoices, readStatus, renderDropIn } from "../heartbeat.mjs";

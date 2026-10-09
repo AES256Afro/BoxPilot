@@ -82,6 +82,27 @@ describe("Users & SSH page", () => {
     await waitFor(() => expect(staged["users.add"]).toEqual({ parameters: { username: "sam" } }));
   });
 
+  it("keeps the new user's name when adding it fails, so the sheet opens again with it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/users.inspect/inspect")) return json({ operation: "users.inspect", result: report });
+      if (url.endsWith("/operations/users.add/jobs")) return json({ ...job("users.add", "medium"), approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201);
+      if (url.endsWith("/jobs/job-users.add/approve")) return json({ job: { id: "job-users.add", state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/jobs/job-users.add")) return json({ job: { id: "job-users.add", type: "op:users.add", title: "Add sam", state: "failed", risk: "medium", error: "useradd: user 'sam' already exists", result: null, steps: [], approvals: [] } });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<UsersPage csrfToken="csrf" />);
+    await screen.findByText("Password login on");
+    fireEvent.click(screen.getByRole("button", { name: "Add a user…" }));
+    fireEvent.change(within(await screen.findByRole("dialog", { name: "Add a user" })).getByLabelText(/Username/), { target: { value: "sam" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add user" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByText(/already exists/, {}, { timeout: 4000 })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a user…" }));
+    expect((within(await screen.findByRole("dialog", { name: "Add a user" })).getByLabelText(/Username/) as HTMLInputElement).value).toBe("sam");
+  });
+
   it("stages turning password login off as high risk, and will not while nobody has a key", async () => {
     const staged: Record<string, unknown> = {};
     mockFetch(report, staged);

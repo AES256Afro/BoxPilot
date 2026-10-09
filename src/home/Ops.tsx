@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { openActivity, openNotifications } from "../activityEvents";
+import { useCheckAgain } from "./useCheckAgain";
 import { useNeedActions } from "./useNeedActions";
 import { countOf, sentenceList, type ViewName } from "../data";
-import { readJson } from "../http";
+import { useJobHistory, useMergedJobs } from "./jobHistory";
 import { inspectOperation, type Job } from "../operations";
 import { Button, KeyValue, MetricStrip, MetricTile, PageHeader, Panel, Sparkline, StatusChip, Table, type RiskTier, type Status, type TableColumn } from "../ui";
 import { useFacts, valuesOf, type ServiceFact, type SmartDiskFact } from "./facts";
@@ -32,7 +33,7 @@ import { backupMatrix, jobState, jobTarget, performanceFrom, pushSample, sampleF
 export interface OpsProps {
   csrfToken: string;
   role: string;
-  onNavigate: (view: ViewName, options?: { app?: string }) => void;
+  onNavigate: (view: ViewName, options?: { app?: string; tab?: string }) => void;
   now?: () => number;
   /** How often the metric strip is read again while Ops is open. */
   pollMs?: number;
@@ -44,7 +45,7 @@ type PerformanceAnswer = unknown;
  * Live CPU and memory, read again every few seconds while the page is open and visible, with the
  * reads so far kept for the sparklines (a rolling buffer that lives as long as the page does).
  */
-function usePerformance(pollMs: number, now: () => number): { value: Performance | null; failed: boolean; samples: Sample[] } {
+export function usePerformance(pollMs: number, now: () => number): { value: Performance | null; failed: boolean; samples: Sample[] } {
   const [state, setState] = useState<{ value: Performance | null; failed: boolean; samples: Sample[] }>({ value: null, failed: false, samples: [] });
   // The clock is read when a sample lands, not a reason to start polling over.
   const clock = useRef(now);
@@ -70,25 +71,12 @@ function usePerformance(pollMs: number, now: () => number): { value: Performance
   return state;
 }
 
-/** More of the job history than the live feed keeps, for the backup matrix: read once. */
-function useJobHistory(): Job[] {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  useEffect(() => {
-    let live = true;
-    fetch("/api/v1/jobs?limit=200").then((response) => readJson<{ jobs?: Job[] }>(response))
-      .then((body) => { if (live && Array.isArray(body?.jobs)) setJobs(body.jobs); })
-      .catch(() => undefined);
-    return () => { live = false; };
-  }, []);
-  return jobs;
-}
-
 const tierHeading: Record<RiskTier, string> = { high: "Password and typed confirmation", medium: "Preview, then confirm", low: "One click" };
 
 const runWords: Record<RunState, string> = { ok: "Completed", failed: "Failed", running: "Running", waiting: "Waiting for approval" };
 
 /** "27.4%" as the figure and its unit, so the unit can be drawn smaller; words stay as they are. */
-function figure(text: string): ReactNode {
+export function figure(text: string): ReactNode {
   const match = /^(-?[\d.,]+)(\s?\S.*)$/.exec(text);
   return match ? <>{match[1]}<small>{match[2]}</small></> : text;
 }
@@ -101,10 +89,12 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   const needs = buildNeeds(values, { now: clock, role });
   const tiers = groupByTier(needs);
   const performance = usePerformance(pollMs, now);
-  const history = useJobHistory();
+  // More of the history than the live feed keeps, for the backup matrix (shared with Today, M25.3).
+  const { jobs: history } = useJobHistory();
   // Every button in the alerts and the inbox, Repair's fixes included, run as Repair runs them (M35).
-  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept });
+  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
   const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
+  const again = useCheckAgain(refresh);
 
   const inventory = values.inventory;
   const hostname = inventory?.hostname ?? "This server";
@@ -130,11 +120,8 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   const apps = values.catalog?.apps ?? [];
   const rows = workloads(apps, perf, values.vms, shortReach);
   const liveJobs = values.jobs ?? [];
-  const jobs = useMemo(() => {
-    // The live feed is newer than the one-off read, so its copy of a job wins.
-    const byId = new Map<string, Job>([...history, ...liveJobs].map((job) => [job.id, job]));
-    return [...byId.values()].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
-  }, [history, liveJobs]);
+  // The live feed is newer than the one-off read, so its copy of a job wins.
+  const jobs = useMergedJobs(history, liveJobs);
   const queue = jobs.slice(0, 8);
   const running = jobs.filter((job) => job.state === "applying" || job.state === "verifying").length;
   const waiting = jobs.filter((job) => job.state === "awaiting_approval").length;
@@ -155,7 +142,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
 
   const jobColumns: Array<TableColumn<Job>> = [
     { id: "job", header: "Job", hideOnPhone: true, cell: (job) => <span className="ops-mono">#{job.id.slice(0, 6)}</span> },
-    { id: "operation", header: "Operation", cell: (job) => <button type="button" className="ops-link ops-link--mono" onClick={() => onNavigate("repairs")} title={job.title}>{job.type.replace(/^op:/, "")}</button> },
+    { id: "operation", header: "Operation", cell: (job) => <button type="button" className="ops-link ops-link--mono" onClick={() => openActivity(job.id)} title={job.title} aria-label={`${job.type.replace(/^op:/, "")}: open its log`}>{job.type.replace(/^op:/, "")}</button> },
     { id: "target", header: "Target", className: "ops-mono-cell", cell: (job) => jobTarget(job) },
     { id: "state", header: "State", cell: (job) => { const state = jobState(job); return <StatusChip status={state.status}>{state.label}</StatusChip>; } },
     { id: "started", header: "Started", numeric: true, cell: (job) => shortAge(job.createdAt, clock) ?? "—" },
@@ -218,10 +205,10 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
         host={inventory?.hostname ?? null}
         status={{ status: verdict.status, label: verdict.label }}
         summary={verdict.sentence}
-        actions={<Button variant="ghost" onClick={() => refresh()}>Read again</Button>}
+        actions={<>{again.said}<Button variant="ghost" busy={again.checking} onClick={again.run}>{again.checking ? "Reading…" : "Read again"}</Button></>}
         barFacts={inventory
-          ? <>{inventory.operatingSystem} · up <b>{uptime(inventory.uptimeSeconds)}</b> · kernel <b>{inventory.kernel}</b> · boxpilot <b>{__BOXPILOT_VERSION__}</b></>
-          : <>boxpilot <b>{__BOXPILOT_VERSION__}</b></>}
+          ? <>{inventory.operatingSystem} · up <b>{uptime(inventory.uptimeSeconds)}</b> · kernel <b>{inventory.kernel}</b><span className="cc-kv__version"> · boxpilot <b>{__BOXPILOT_VERSION__}</b></span></>
+          : <span className="cc-kv__version">boxpilot <b>{__BOXPILOT_VERSION__}</b></span>}
       />
 
       <MetricStrip label="Load, memory, disks and network" className="ops-strip">
@@ -330,7 +317,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
                           <span className="ops-checklist__detail">{item.known === false ? "Could not be checked just now." : item.detail}</span>
                         </span>
                         <span className="ops-checklist__state">{state === "done" ? "done" : state === "unchecked" ? "not checked" : "to do"}</span>
-                        {!item.done && item.known !== false && <Button variant="ghost" aria-label={`Open: ${item.title}`} onClick={() => onNavigate(item.view)}>Open</Button>}
+                        {!item.done && item.known !== false && <Button variant="ghost" aria-label={`Open: ${item.title}`} onClick={() => (item.id === "tailscale" ? onNavigate(item.view, { tab: "tailnet" }) : onNavigate(item.view))}>Open</Button>}
                       </li>
                     );
                   })}

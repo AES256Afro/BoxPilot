@@ -39,7 +39,8 @@ const server = http.createServer(async (request, response) => {
   try { body = raw ? JSON.parse(raw) : {}; } catch { body = {}; }
   const path = request.url.split("?")[0];
   if (path === "/control/state") return json(response, 200, state);
-  if (path === "/control/start") { state.armed = true; return json(response, 200, { armed: true }); }
+  // Each start arms one more run (the M40 section asks for a second, while someone waits).
+  if (path === "/control/start") { Object.assign(state, { armed: true, claimed: false, finished: false, outcome: null }); return json(response, 200, { armed: true }); }
   if (!path.startsWith("/api/v1/agent-runner/")) return json(response, 404, { error: "not found" });
   if (request.headers.authorization !== `Bearer ${token}`) { state.refused += 1; return json(response, 401, { error: "wrong key" }); }
   if (body.usage) state.usage = body.usage;

@@ -68,6 +68,24 @@ describe("approval dialog", () => {
     expect(calls.find((call) => call.url.endsWith("/once"))?.method).toBe("POST");
   });
 
+  // An agent's or the assistant's step: its reason is the model's own words, which text the model
+  // read can steer, so what the operation is actually given is shown in full, not folded away.
+  it("shows everything a suggested step is given, and says whose reason it is", async () => {
+    stubApi({ confirmText: "" });
+    const answered = vi.mocked(fetch).getMockImplementation()!;
+    const suggested = { ...stagedJob, type: "op:users.add", title: "Add a user", risk: "medium", parameters: { username: "backup", githubUser: "someone-else" } };
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (input.toString().endsWith("/jobs") && init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ job: suggested, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", confirmText: null, expiresAt: null, expired: false } }), { status: 201, headers: { "Content-Type": "application/json" } }));
+      }
+      return answered(input, init);
+    });
+    render(<ApproveDialog operationId="users.add" title="Add a user" parameters={{ username: "backup", githubUser: "someone-else" }} preview={<span>A service account for the nightly backup</span>} proposedBy="Server Keeper" csrfToken="csrf" onClose={() => {}} />);
+    await screen.findByRole("button", { name: "Confirm and run" });
+    expect(screen.getByText("someone-else").closest("details")).toBeNull();
+    expect(screen.getByText(/Server Keeper's reason, in its own words/)).toBeTruthy();
+  });
+
   it("contains keyboard focus and returns it to the opener", async () => {
     stubApi({ confirmText: "" });
     const opener = document.createElement("button"); document.body.append(opener); opener.focus();
@@ -174,6 +192,68 @@ describe("approval dialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.url.includes("/jobs/job-1"))).toBe(true));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  // An agent's card was decided when its job was staged: cancelling withdrew the job, and the card
+  // stayed decided with nothing run. A page that needs to know the job will run is told on approval.
+  it("tells a page its job was approved once it is accepted, and never when it is withdrawn", async () => {
+    stubApi({ confirmText: "" });
+    const approved = vi.fn();
+    const { unmount } = render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onApproved={approved} />);
+    await screen.findByRole("button", { name: "Confirm and run" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(approved).not.toHaveBeenCalled();
+    unmount();
+    render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onApproved={approved} />);
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    await waitFor(() => expect(run.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(run);
+    await waitFor(() => expect(approved).toHaveBeenCalledTimes(1));
+    expect(approved).toHaveBeenCalledWith(expect.objectContaining({ id: "job-1" }));
+    await screen.findByText("Completed.");
+    expect(approved).toHaveBeenCalledTimes(1);
+  });
+
+  // An agent's card reads itself again once its step's job is withdrawn (sweep 3): before the cancel
+  // landed it would still read the job as waiting.
+  it("tells a page once the job it withdrew has been cancelled, and never for a job that ran", async () => {
+    const calls = stubApi({ confirmText: "" });
+    const withdrawn = vi.fn((_jobId: string) => calls.map((call) => call.method));
+    const { unmount } = render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onWithdrawn={withdrawn} />);
+    await screen.findByRole("button", { name: "Confirm and run" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(withdrawn).toHaveBeenCalledWith("job-1"));
+    expect(withdrawn.mock.results[0].value).toContain("DELETE");
+    unmount();
+    withdrawn.mockClear();
+    render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onWithdrawn={withdrawn} />);
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    await waitFor(() => expect(run.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(run);
+    await screen.findByText("Completed.");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(withdrawn).not.toHaveBeenCalled();
+  });
+
+  // A form closes before its approval opens; the page puts it back unless the job completed.
+  it("tells a page how the job ended when the dialog is closed: nothing when it was cancelled", async () => {
+    stubApi({ confirmText: "" });
+    const closed = vi.fn();
+    const { unmount } = render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onClosed={closed} />);
+    await screen.findByRole("button", { name: "Confirm and run" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(closed).toHaveBeenCalledWith(null);
+    unmount();
+    closed.mockClear();
+    render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} onClosed={closed} />);
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    await waitFor(() => expect(run.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(run);
+    await screen.findByText("Completed.");
+    expect(closed).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(closed).toHaveBeenCalledWith(expect.objectContaining({ id: "job-1", state: "completed" }));
   });
 });
 

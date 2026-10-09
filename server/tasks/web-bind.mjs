@@ -15,7 +15,9 @@
  * scheduled a few seconds out so this task can report success before the web process it belongs to
  * goes down and comes back on the new bind.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
+import { setEnvValue, webListenFromEnv } from "../env-file.mjs";
 import { fixedRun } from "../exec.mjs";
 
 const envPath = process.env.BOXPILOT_ENV_FILE ?? "/etc/boxpilot/boxpilot.env";
@@ -25,24 +27,14 @@ const ufw = "/usr/sbin/ufw";
 const loopback = "127.0.0.1";
 const allInterfaces = "0.0.0.0";
 
-/** Set or replace one KEY=value line in an env file's text, appending if absent. */
-export function setEnvValue(text, key, value) {
-  const line = `${key}=${value}`;
-  const pattern = new RegExp(`^${key}=.*$`, "m");
-  if (pattern.test(text)) return text.replace(pattern, line);
-  return `${text}${text.length && !text.endsWith("\n") ? "\n" : ""}${line}\n`;
-}
-
-/** The port the control plane listens on, from the env file or the default. */
-function portFromEnv(text) {
-  const match = /^BOXPILOT_PORT=(\d{1,5})$/m.exec(text);
-  return match ? match[1] : "8787";
-}
+// Read and written as systemd reads the file (server/env-file.mjs): the first `^KEY=` line taken
+// literally opened a port the service was not on, and rewrote a BOXPILOT_HOST line a later one overrode.
+export { setEnvValue };
 
 export async function webBindSet({ scope } = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
   if (!["lan", "loopback"].includes(scope)) throw new Error("scope must be lan or loopback");
   const before = await files.readFile(envPath, "utf8").catch(() => "");
-  const port = portFromEnv(before);
+  const port = String(webListenFromEnv(before).webPort);
   const host = scope === "lan" ? allInterfaces : loopback;
   const after = setEnvValue(before, "BOXPILOT_HOST", host);
   log?.(`Setting the control plane to listen on ${host}:${port}`, "stdout");

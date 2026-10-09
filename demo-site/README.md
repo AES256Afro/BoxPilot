@@ -13,11 +13,24 @@ review.
 
 Nothing here belongs to anybody. Every value is invented, and no request reaches a real machine.
 
+The looks' mockups (`docs/design-directions/05-looks.html`) are served beside the app at
+`/mockups/`.
+
+## The password
+
+Everything here, the app, its API, the frozen data and the mockups, is behind one password so
+scrapers and AI crawlers get a form and nothing else (`gate.js`). It is the Worker's secret
+`DEMO_PASSWORD`, never a file in this repository, and without it every page stays closed rather than
+opening up. Unlocking keeps a cookie for 30 days; changing the password signs everyone out. For
+`wrangler dev`, put `DEMO_PASSWORD=…` in `demo-site/.dev.vars`, which git ignores.
+
 ## Publishing
 
 ```sh
-npm run demo:publish             # front end, assets, frozen API
-cd demo-site && npx wrangler deploy
+npm run demo:publish                        # front end, mockups, assets, frozen API
+cd demo-site
+npx wrangler secret put DEMO_PASSWORD       # once, or to change it; it asks for the value
+npx wrangler deploy
 ```
 
 `demo:publish` is one command because the copy of the built front end into `public/` used to be a

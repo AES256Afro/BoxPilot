@@ -2523,7 +2523,7 @@ body {
 [data-hue="graphite"] { --app-a: var(--brand-graphite-a); --app-b: var(--brand-graphite-b); }
 
 /* ── Home: the wallpaper, the glass, the ink ─────────────────────────────── */
-.app-shell[data-view="home"] {
+.app-shell[data-view="home"][data-shell="launcher"] {
   position: relative;
   isolation: isolate;
   color: var(--lx-ink);
@@ -2576,7 +2576,7 @@ body {
 
 /* The wallpaper: fixed behind the page, so scrolling moves nothing but the content, and only on
    Home. Nothing blurs it as a whole; the glass panels blur what is behind them. */
-.app-shell[data-view="home"]::before {
+.app-shell[data-view="home"][data-shell="launcher"]::before {
   position: fixed;
   z-index: -1;
   inset: 0;
@@ -2589,20 +2589,20 @@ body {
   pointer-events: none;
 }
 
-.app-shell[data-view="home"] :is(button, a, input, select, textarea, summary):focus-visible {
+.app-shell[data-view="home"][data-shell="launcher"] :is(button, a, input, select, textarea, summary):focus-visible {
   outline: 2px solid var(--lx-focus);
   outline-offset: 2px;
 }
 
 /* The bar floats over the wallpaper: no fill, no line, no blur. */
-.app-shell[data-view="home"] .topbar {
+.app-shell[data-view="home"][data-shell="launcher"] .topbar {
   position: relative;
   min-height: 60px;
   border-bottom-color: transparent;
   background: transparent;
   backdrop-filter: none;
 }
-.app-shell[data-view="home"] .brand { display: none; }
+.app-shell[data-view="home"][data-shell="launcher"] .brand { display: none; }
 
 .lx-host { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--lx-ink); font-size: 13px; white-space: nowrap; }
 .lx-host strong { font-size: 14px; font-weight: 700; }
@@ -2610,25 +2610,25 @@ body {
 .lx-host[data-status="good"] .lx-host__mark { box-shadow: 0 0 0 3px color-mix(in srgb, var(--lx-good) 24%, transparent); }
 .lx-host__facts { min-width: 0; overflow: hidden; color: var(--lx-ink-muted); text-overflow: ellipsis; }
 
-.app-shell[data-view="home"] .view-switch,
-.app-shell[data-view="home"] .ui-theme-switch {
+.app-shell[data-view="home"][data-shell="launcher"] .view-switch,
+.app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch {
   border-color: var(--lx-glass-border);
   background: var(--lx-glass);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   backdrop-filter: blur(20px) saturate(140%);
 }
-.app-shell[data-view="home"] .view-switch__option,
-.app-shell[data-view="home"] .ui-theme-switch__option { color: var(--lx-ink-muted); }
-.app-shell[data-view="home"] .view-switch__option:hover,
-.app-shell[data-view="home"] .ui-theme-switch__option:hover { color: var(--lx-ink); }
-.app-shell[data-view="home"] .view-switch__option[aria-current="page"],
-.app-shell[data-view="home"] .ui-theme-switch__option[aria-checked="true"] {
+.app-shell[data-view="home"][data-shell="launcher"] .view-switch__option,
+.app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch__option { color: var(--lx-ink-muted); }
+.app-shell[data-view="home"][data-shell="launcher"] .view-switch__option:hover,
+.app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch__option:hover { color: var(--lx-ink); }
+.app-shell[data-view="home"][data-shell="launcher"] .view-switch__option[aria-current="page"],
+.app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch__option[aria-checked="true"] {
   border-color: transparent;
   color: var(--lx-pill-ink);
   background: var(--lx-pill);
   box-shadow: none;
 }
-.app-shell[data-view="home"] .command-trigger {
+.app-shell[data-view="home"][data-shell="launcher"] .command-trigger {
   max-width: 26rem;
   min-height: 36px;
   border-color: var(--lx-glass-border);
@@ -2637,15 +2637,15 @@ body {
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   backdrop-filter: blur(20px) saturate(140%);
 }
-.app-shell[data-view="home"] .command-trigger:hover { color: var(--lx-ink); }
-.app-shell[data-view="home"] .command-trigger__keys { border-color: transparent; color: var(--lx-ink); background: var(--lx-glass-raised); }
-.app-shell[data-view="home"] .connection-pill {
+.app-shell[data-view="home"][data-shell="launcher"] .command-trigger:hover { color: var(--lx-ink); }
+.app-shell[data-view="home"][data-shell="launcher"] .command-trigger__keys { border-color: transparent; color: var(--lx-ink); background: var(--lx-glass-raised); }
+.app-shell[data-view="home"][data-shell="launcher"] .connection-pill {
   border-color: transparent;
   color: var(--lx-ink);
   background: var(--lx-glass-raised);
 }
-.app-shell[data-view="home"] .connection-pill::before { background: var(--lx-good); }
-.app-shell[data-view="home"] .signed-in-user { color: var(--lx-ink); }
+.app-shell[data-view="home"][data-shell="launcher"] .connection-pill::before { background: var(--lx-good); }
+.app-shell[data-view="home"][data-shell="launcher"] .signed-in-user { color: var(--lx-ink); }
 
 /* The page: the glass panels down the left, the greeting and the apps on the right. */
 .lx {
@@ -2815,7 +2815,7 @@ body {
 .lx-wait .need:first-child { padding: 0; border-top: 0; }
 
 /* The dock over the wallpaper: glass, with each area on a tile of its own. */
-.app-shell[data-view="home"] .ui-dock.shell-dock ul {
+.app-shell[data-view="home"][data-shell="launcher"] .ui-dock.shell-dock ul {
   border-color: var(--lx-glass-border);
   border-radius: 24px;
   background: var(--lx-glass);
@@ -2823,26 +2823,26 @@ body {
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   backdrop-filter: blur(20px) saturate(140%);
 }
-.app-shell[data-view="home"] .shell-dock .ui-dock__icon { border-color: transparent; border-radius: 13px; color: var(--lx-ink); background: var(--lx-glass-raised); }
-.app-shell[data-view="home"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: transparent; color: var(--lx-pill-ink); background: var(--lx-pill); }
-.app-shell[data-view="home"] .ui-dock__badge { color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: 0 0 0 2px var(--lx-badge-ring); }
+.app-shell[data-view="home"][data-shell="launcher"] .shell-dock .ui-dock__icon { border-color: transparent; border-radius: 13px; color: var(--lx-ink); background: var(--lx-glass-raised); }
+.app-shell[data-view="home"][data-shell="launcher"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: transparent; color: var(--lx-pill-ink); background: var(--lx-pill); }
+.app-shell[data-view="home"][data-shell="launcher"] .ui-dock__badge { color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: 0 0 0 2px var(--lx-badge-ring); }
 
 /* Glass needs a backdrop filter to be glass. Without one, and for anyone who asked for less
    transparency, every glass surface is drawn solid. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .lx-panel,
-  .app-shell[data-view="home"] .ui-dock.shell-dock ul,
-  .app-shell[data-view="home"] .view-switch,
-  .app-shell[data-view="home"] .ui-theme-switch,
-  .app-shell[data-view="home"] .command-trigger { background: var(--lx-glass-solid); }
+  .app-shell[data-view="home"][data-shell="launcher"] .ui-dock.shell-dock ul,
+  .app-shell[data-view="home"][data-shell="launcher"] .view-switch,
+  .app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch,
+  .app-shell[data-view="home"][data-shell="launcher"] .command-trigger { background: var(--lx-glass-solid); }
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .lx-panel,
-  .app-shell[data-view="home"] .ui-dock.shell-dock ul,
-  .app-shell[data-view="home"] .view-switch,
-  .app-shell[data-view="home"] .ui-theme-switch,
-  .app-shell[data-view="home"] .command-trigger {
+  .app-shell[data-view="home"][data-shell="launcher"] .ui-dock.shell-dock ul,
+  .app-shell[data-view="home"][data-shell="launcher"] .view-switch,
+  .app-shell[data-view="home"][data-shell="launcher"] .ui-theme-switch,
+  .app-shell[data-view="home"][data-shell="launcher"] .command-trigger {
     background: var(--lx-glass-solid);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -2861,7 +2861,7 @@ body {
 }
 
 @media (max-width: 620px) {
-  .app-shell[data-view="home"] .topbar-slot { display: none; }
+  .app-shell[data-view="home"][data-shell="launcher"] .topbar-slot { display: none; }
   .lx-hello { grid-template-columns: minmax(0, 1fr); }
   .lx-again { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 6px; }
   .lx-tiles { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 14px 4px; }
@@ -3172,7 +3172,7 @@ body {
 /* Tables: mono figures and names, small-capital headings, a coloured word for each state. */
 :root[data-shell="console"] .ui-table { font-size: 13px; }
 :root[data-shell="console"] .ui-table th { height: 30px; padding: 0 7px; border-bottom-color: var(--cc-line); color: var(--cc-muted); background: var(--cc-panel); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; }
-:root[data-shell="console"] .ui-table td { height: 30px; padding: 0 7px; border-bottom-color: var(--cc-hairline); color: var(--cc-text); font-family: var(--font-mono); font-size: 12.5px; }
+:root[data-shell="console"] .ui-table td { height: 30px; padding: 4px 7px; border-bottom-color: var(--cc-hairline); color: var(--cc-text); font-family: var(--font-mono); font-size: 12.5px; }
 :root[data-shell="console"] .ui-table :is(th, td):first-child { padding-left: 11px; }
 :root[data-shell="console"] .ui-table :is(th, td):last-child { padding-right: 11px; }
 :root[data-shell="console"] .ui-table tbody tr:hover td { background: var(--cc-raised); }
@@ -3273,7 +3273,7 @@ body {
   :root[data-shell="console"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: var(--cc-amber); color: var(--cc-amber-ink); background: var(--cc-amber); }
   :root[data-shell="console"] .ui-dock__badge { color: var(--cc-amber-ink); background: var(--cc-amber); box-shadow: 0 0 0 2px var(--cc-topbar); }
   /* The rule that sets the areas apart from Ops on the rail has nothing to set apart in the dock. */
-  .shell-dock--rail .ui-dock__separator[data-before="updates"] { display: none; }
+  .shell-dock--rail .ui-dock__separator[data-before="today"] { display: none; }
 }
 
 /* The compact bar gives the host's facts the room: how this browser connected is on Home's bar,
@@ -3394,10 +3394,13 @@ body {
 .ui-check__input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .ui-check__mark { display: grid; width: 16px; height: 16px; place-items: center; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--surface-muted); pointer-events: none; }
 .ui-check__mark::after { width: 8px; height: 4px; border: solid var(--accent-text-on); border-width: 0 0 2px 2px; content: ""; opacity: 0; transform: translateY(-1px) rotate(-45deg); }
-.ui-check__input:checked + .ui-check__mark,
-.ui-check__input:indeterminate + .ui-check__mark { border-color: var(--accent); background: var(--accent); }
-.ui-check__input:checked + .ui-check__mark::after { opacity: 1; }
-.ui-check__input:indeterminate + .ui-check__mark::after { width: 8px; height: 0; border-width: 0 0 2px; opacity: 1; transform: none; }
+/* Ticked and half-ticked outrank a look's plain box (:root[data-look] .ui-check__mark), which
+   would otherwise keep a ticked box looking empty; a look that draws its own ticked box says so
+   with :checked, and wins. */
+:root .ui-check__input:checked + .ui-check__mark,
+:root .ui-check__input:indeterminate + .ui-check__mark { border-color: var(--accent); background: var(--accent); }
+:root .ui-check__input:checked + .ui-check__mark::after { opacity: 1; }
+:root .ui-check__input:indeterminate + .ui-check__mark::after { width: 8px; height: 0; border-width: 0 0 2px; opacity: 1; transform: none; }
 .ui-check__input:hover:not(:disabled) + .ui-check__mark { border-color: var(--text-muted); }
 .ui-check__input:focus-visible + .ui-check__mark { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ui-check__text { display: grid; gap: 2px; min-width: 0; }
@@ -3470,6 +3473,8 @@ body {
 .ui-notice--danger .ui-notice__title { color: var(--status-danger-text); }
 .ui-notice__text { color: var(--text); font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
 .ui-notice__text p { margin: 0; }
+.ui-notice__text ul { margin: 4px 0; padding-left: 18px; }
+.ui-notice__text li + li { margin-top: 3px; }
 .ui-notice__action { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
 .ui-notice__dismiss { display: grid; flex: none; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: 3px; color: var(--text-muted); background: none; cursor: pointer; }
 .ui-notice__dismiss:hover { color: var(--text-strong); background: var(--surface-raised); }
@@ -3602,7 +3607,9 @@ body {
 
 /* Home and Ops: the buttons a need offers, and a fix's progress under its words (M35). Last in
    the file, so they win ties with Home's .lx need rules. */
-.need__acts { display: inline-flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
+/* It may shrink to its row and wrap its buttons there: at flex: none two long fixes in Ops' inbox
+   ("Serve Uptime Kuma only through Tailscale", "Stop serving it on the tailnet") ran off the panel. */
+.need__acts { display: inline-flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; max-width: 100%; margin-left: auto; }
 .need__acts .need__act { margin-left: 0; }
 .need__run { color: var(--text-muted); font-size: var(--font-size-sm); line-height: 1.4; overflow-wrap: anywhere; }
 .lx-fixed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 0 0; color: var(--text); font-size: 13.5px; line-height: 1.4; }
@@ -3614,4 +3621,104 @@ body {
 
 @media (max-width: 620px) {
   .need__acts { flex: 1 1 100%; justify-content: flex-start; margin-left: 0; }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════ */
+/*  In the hand (M25): the installed app on a phone or a tablet. Last in the  */
+/*  file, so these win ties with the rules above for the same controls.      */
+/* ═════════════════════════════════════════════════════════════════════════ */
+
+/* Opened from the home screen the page runs under the status bar and past the home indicator
+   (viewport-fit=cover, black-translucent). The page keeps clear of both, the rounded corners and
+   a landscape notch, and in the console the bar's colour runs up behind the status bar. A browser
+   tab reports every inset as 0, so nothing moves there. */
+.app-shell {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+.topbar { top: env(safe-area-inset-top, 0px); }
+:root[data-shell="console"] .app-shell::before {
+  position: fixed;
+  z-index: 11;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--cc-topbar);
+  content: "";
+}
+main { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.shell-dock { bottom: calc(var(--shell-bottom-inset, 0px) + 12px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 761px) {
+  .app-shell[data-shell="console"] { padding-left: calc(56px + env(safe-area-inset-left, 0px)); }
+  .shell-dock.shell-dock--rail {
+    bottom: calc(var(--shell-bottom-inset, 0px) + env(safe-area-inset-bottom, 0px));
+    width: calc(56px + env(safe-area-inset-left, 0px));
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+}
+/* Sheets: a drawer's top clears the status bar, and every sheet's foot the home indicator. */
+.ui-sheet { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.ui-sheet--right { padding-top: env(safe-area-inset-top, 0px); }
+@media (max-width: 640px) {
+  .ui-sheet--right { padding-top: 0; }
+  /* Rising from the bottom edge, a sheet shows a grip, so it reads as something that closes. */
+  .ui-sheet__head { position: relative; padding-top: 18px; }
+  .ui-sheet__head::before {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-strong);
+    content: "";
+    transform: translateX(-50%);
+  }
+}
+
+/* A finger, not a pointer: the shell's controls and the kit's buttons at least 44 px to tap (Apple's
+   and Android's guidance), and text fields at 16 px so iOS does not zoom the page on focus. Only on
+   a touch screen: a desktop keeps the console's density. */
+@media (pointer: coarse) {
+  .view-switch__option,
+  :root[data-shell="console"] .view-switch__option { min-height: 44px; }
+  .command-trigger,
+  :root[data-shell="console"] .command-trigger { min-height: 44px; }
+  .ui-theme-switch__option,
+  :root[data-shell="console"] .ui-theme-switch--compact .ui-theme-switch__option { min-width: 44px; min-height: 44px; }
+  .ui-sheet__close { width: 44px; height: 44px; }
+  .ui-button,
+  :root[data-shell="console"] .ui-button { min-height: 44px; }
+  .ui-info-toggle { width: 44px; height: 44px; }
+  .ui-control,
+  .ui-input,
+  .ui-textarea { min-height: 44px; font-size: 16px; }
+  .shell-dock .ui-dock__item { min-height: 56px; }
+  .areas-sheet__grid .ui-dock__item { min-height: 72px; }
+  /* The rest of the kit's controls, which a sweep of every page at 375 px found at 15-34 px: a tab,
+     a segment, a switch, Show on a password, Copy on a block of text, a disclosure's summary. */
+  .ui-tabs__tab,
+  .ui-segmented__option,
+  .ui-switch__control { min-height: 44px; }
+  .ui-code__copy { min-width: 44px; min-height: 44px; }
+  details > summary { padding-block: 15px; }
+  /* Home's Launcher draws its buttons and its search as pills of its own, at 32 and 36 px. */
+  .lx .ui-button,
+  .app-shell[data-view="home"][data-shell="launcher"] .command-trigger { min-height: 44px; }
+  /* Text that is a button in a row (a need's title on Home and Ops, a name in Ops' tables): the
+     target grows around the words by its padding, and the row keeps its height by the margin. */
+  .need__title,
+  .ops-link { padding-block: 14px; margin-block: -14px; }
+}
+@media (pointer: coarse) and (max-width: 620px) {
+  :root[data-shell="console"] .command-trigger { flex: 0 0 44px; width: 44px; min-width: 44px; }
+  .command-trigger { flex: 0 0 44px; width: 44px; min-width: 44px; }
+}
+/* On a phone the bar keeps what is used from it - search, Refresh, the bell, Activity, Sign out -
+   on one row under the page's name. The theme follows the phone, and Settings still sets it. */
+@media (max-width: 620px) {
+  .topbar .ui-theme-switch { display: none; }
 }

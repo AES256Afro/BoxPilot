@@ -100,6 +100,16 @@ describe("a connector's sync", () => {
     await expect(agentsConnectorSync({ connector: "notion", credentialName: "missing" }, { credentials, fetcher })).rejects.toThrow(/No credential is named missing/);
     await expect(agentsConnectorSync({ connector: "dropbox", credentialName: "notion-token" }, { credentials, fetcher })).rejects.toThrow(/notion or slack/);
   });
+
+  it("never reads a credential BoxPilot keeps for itself, whatever reached the task", async () => {
+    const read = [];
+    const credentials = { read: async (name) => { read.push(name); return "secret-value"; } };
+    const fetcher = async () => { throw new Error("nothing should be fetched"); };
+    for (const name of ["cloudflare-api-token", "cloudflare-tunnel-token", "heartbeat-url", "zulip-agents-bot"]) {
+      await expect(agentsConnectorSync({ connector: "notion", credentialName: name }, { credentials, fetcher }), name).rejects.toThrow(/BoxPilot keeps .* for itself/);
+    }
+    expect(read).toEqual([]);
+  });
 });
 
 describe("the runner unit", () => {
@@ -130,6 +140,9 @@ describe("installing Unsloth", () => {
     expect(result).toMatchObject({ installed: true, tested: true, testedVersion: testedUnslothVersion, installerSha256: createHash("sha256").update(script).digest("hex") });
     const apt = calls.find((call) => call.binary === "apt-get");
     expect(apt.args).toContain("libgomp1");
+    // needrestart's hook stays off, as for every package change (tasks/apt.mjs): an outdated curl brings
+    // a new openssl, and in automatic mode needrestart restarted BoxPilot mid-install.
+    expect(apt.options.env).toMatchObject({ NEEDRESTART_SUSPEND: "1" });
     const installer = calls.find((call) => call.binary === "runuser" && call.args.includes("/bin/sh"));
     expect(installer.args.slice(0, 5)).toEqual(["-u", "boxpilot-agents", "--", "/usr/bin/env", "-i"]);
     expect(installer.args).toEqual(expect.arrayContaining(["UNSLOTH_NO_TORCH=1", "UNSLOTH_SKIP_AUTOSTART=1", `UNSLOTH_STUDIO_HOME=${paths.runtime}`, `HOME=${paths.state}`]));

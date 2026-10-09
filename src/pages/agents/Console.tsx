@@ -30,13 +30,26 @@ export interface ConsoleProps {
   onRunFinished: () => void;
 }
 
-/** "Was this right?": one person's verdict on an answer, which the evaluation counts. */
-function Feedback({ run, csrfToken, onGiven }: { run: Run; csrfToken: string; onGiven: (feedback: NonNullable<Run["feedback"]>) => void }) {
+/**
+ * "Was this right?": one person's verdict on an answer, which the evaluation counts. Whoever may
+ * change the agent can also say what the right answer holds: the question then joins its golden
+ * questions, and every evaluation asks it again (M40).
+ */
+function Feedback({ run, csrfToken, canAddQuestion, onGiven }: { run: Run; csrfToken: string; canAddQuestion: boolean; onGiven: (feedback: NonNullable<Run["feedback"]>) => void }) {
   const [note, setNote] = useState("");
+  const [words, setWords] = useState("");
   const [wrong, setWrong] = useState(false);
+  const [added, setAdded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const give = async (verdict: "up" | "down") => {
-    try { onGiven(await agentsApi.feedback(csrfToken, run.id, verdict, verdict === "down" ? note : undefined)); setError(null); setWrong(false); } catch (requestError) { setError(errorText(requestError, "That was not saved")); }
+    try {
+      const expect = verdict === "down" && canAddQuestion ? words.split(",").map((word) => word.trim()).filter(Boolean) : [];
+      const given = await agentsApi.feedback(csrfToken, run.id, verdict, verdict === "down" ? note : undefined, expect);
+      onGiven(given);
+      setAdded(Boolean(given.addedToEvaluation));
+      setError(null);
+      setWrong(false);
+    } catch (requestError) { setError(errorText(requestError, "That was not saved")); }
   };
   return (
     <div className="agents-feedback" role="group" aria-label="Was this right?">
@@ -47,9 +60,11 @@ function Feedback({ run, csrfToken, onGiven }: { run: Run; csrfToken: string; on
       {wrong && (
         <span className="agents-feedback__note">
           <TextInput aria-label="What was wrong" value={note} maxLength={300} placeholder="What was wrong (optional)" onValueChange={setNote} />
+          {canAddQuestion && <TextInput aria-label="Words the right answer holds" value={words} maxLength={200} placeholder="Words a right answer holds, by commas: adds it to the evaluation" onValueChange={setWords} />}
           <Button onClick={() => void give("down")}>Send</Button>
         </span>
       )}
+      {added && <Notice tone="success" live onDismiss={() => setAdded(false)}>The question is one of its golden questions now: every evaluation asks it again.</Notice>}
       {error && <Notice tone="danger" live>{error}</Notice>}
     </div>
   );
@@ -70,9 +85,16 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   const finishedCallback = useRef(onRunFinished);
   useEffect(() => { finishedCallback.current = onRunFinished; }, [onRunFinished]);
 
+  // Which agent's runs the list is for: an answer for the agent chosen before is dropped, or it would
+  // list that agent's runs under this one's name, and open its latest run here.
+  const historyFor = useRef<string | null>(null);
   const readHistory = useCallback(async (id: string) => {
+    historyFor.current = id;
     if (!staff) { setHistory([]); return; }
-    try { setHistory((await agentsApi.runs(id)).runs); } catch { setHistory(null); }
+    try {
+      const { runs } = await agentsApi.runs(id);
+      if (historyFor.current === id) setHistory(runs);
+    } catch { if (historyFor.current === id) setHistory(null); }
   }, [staff]);
 
   const follow = useCallback((id: string) => {
@@ -93,11 +115,16 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   const currentId = agent?.id ?? null;
   useEffect(() => { if (currentId) { setHistory(null); void readHistory(currentId); } }, [currentId, readHistory]);
   useEffect(() => { if (runId) follow(runId); }, [runId, follow]);
-  // With nothing chosen, the agent's latest run opens, so the console never starts blank.
-  const latest = history?.[0]?.id ?? null;
+  // With nothing chosen, the agent's latest run opens, so the console never starts blank: once for
+  // each agent chosen. It used to follow the latest again whenever the run on show was another
+  // agent's, so opening a delegate's run from "One request, N runs" snapped straight back.
+  const latest = history?.[0] && history[0].agentId === currentId ? history[0].id : null;
   const showing = run?.agentId ?? null;
+  const openedLatestFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!runId && latest && showing !== currentId) follow(latest);
+    if (runId || !latest || !currentId || openedLatestFor.current === currentId) return;
+    openedLatestFor.current = currentId;
+    if (showing !== currentId) follow(latest);
   }, [runId, latest, showing, currentId, follow]);
 
   const start = async (kind: "ask" | "test") => {
@@ -118,7 +145,18 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   };
   const cancel = async () => {
     if (!run) return;
-    try { setRun(await agentsApi.cancel(csrfToken, run.id)); } catch (requestError) { setError(errorText(requestError, "The run could not be stopped")); }
+    try {
+      // The reply carries no trace and no tree: merged, so stopping does not empty what was shown.
+      const stopped = await agentsApi.cancel(csrfToken, run.id);
+      setRun((current) => (current?.id === stopped.id ? { ...current, ...stopped, steps: stopped.steps ?? current.steps, tree: stopped.tree ?? current.tree } : stopped));
+    } catch (requestError) { setError(errorText(requestError, "The run could not be stopped")); }
+  };
+  // M45.6: stopping a plan this run made; what waits on a person is withdrawn.
+  const stopPlan = async (planId: string) => {
+    try {
+      const plan = await agentsApi.cancelPlan(csrfToken, planId);
+      setRun((current) => (current?.plan?.id === plan.id ? { ...current, plan } : current));
+    } catch (requestError) { setError(errorText(requestError, "The plan could not be stopped")); }
   };
   // Opening an earlier run shows it in the Run panel above, which is out of sight from the list.
   const open = (id: string) => {
@@ -186,8 +224,11 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
                   </ol>
                 </nav>
               )}
-              <RunView run={run} />
-              {finishedRunStates.has(run.state) && run.kind !== "index" && <Feedback run={run} csrfToken={csrfToken} onGiven={(feedback) => setRun((current) => (current ? { ...current, feedback } : current))} />}
+              <RunView run={run} onStopPlan={role === "viewer" ? undefined : (planId) => void stopPlan(planId)} />
+              {/* Keyed by run: an open "Wrong" belongs to the run it was opened on. */}
+              {finishedRunStates.has(run.state) && run.kind !== "index" && <Feedback key={run.id} run={run} csrfToken={csrfToken}
+                canAddQuestion={Boolean(run.question) && run.kind !== "eval" && Boolean(agents.find((entry) => entry.id === run.agentId)?.canEdit)}
+                onGiven={(feedback) => setRun((current) => (current ? { ...current, feedback } : current))} />}
               {run.proposals.length > 0 && (
                 <div className="agents-cards__list">
                   {run.proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} csrfToken={csrfToken} role={role} onStage={onStage} onDecided={decided} />)}
