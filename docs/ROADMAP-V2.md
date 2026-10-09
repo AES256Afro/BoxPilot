@@ -3109,7 +3109,10 @@ Each item is its own pull request, released and deployed when green.
   backups.status, "Which app is eating the most memory?" against server.facts, "How much space
   would a clean-up free?" against storage.health, "Do I need to reboot the server?" against
   alerts.active), graded on the fact and the tool; twelve in all, which the Monday bench measures on
-  the real model.
+  the real model. First real-model run (2026-10-09, main at 1.174.0, run 37967892445): 11 of 12
+  right, the right tool 12 of 12; the miss was the grader's ("No reboot is currently required ...
+  does not need a reboot" read as yes for "need a reboot"), fixed to take the words of no out
+  before looking for yes.
 - ✅ **M47.7 The weekly bench** (unreleased, `feat/weekly-bench`, #432). The real-model bench was
   manual, so its numbers were a memory. Every Monday at 05:20 UTC `agents-bench.yml` runs the
   built-in and the boundary sets on main at the shipped four threads, the job summary the week's
