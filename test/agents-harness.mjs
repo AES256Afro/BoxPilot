@@ -42,6 +42,30 @@ export function defaultHelperAnswers() {
     "fail2ban.inspect": () => ({ installed: true, running: true, configured: true, config: { managed: true, maxRetry: 5, findTimeMinutes: 10, banTimeMinutes: 60, ignoreLan: true }, currentlyBanned: 1, totalBanned: 14 }),
     "users.inspect": () => ({ users: [{ name: "root", uid: 0, shell: "/bin/bash", sudo: true, keyCount: 1 }, { name: "owner", uid: 1000, shell: "/bin/bash", sudo: true, keyCount: 2 }], sshd: { passwordAuthentication: false, keyboardInteractive: false, pubkeyAuthentication: true, permitRootLogin: "prohibit-password", port: 22 }, sshActive: true }),
     "cloudflare.tunnel.inspect": () => ({ connected: true, tunnel: { id: "t-1", name: "boxpilot-testbox" }, routes: [{ hostname: "photos.example.org", appId: "immich", hostPort: 2283, publishedAt: "2026-10-01T00:00:00.000Z" }] }),
+    // M47.6: the reads behind apps.usage, backups.coverage and space.reclaimable: Jellyfin busy, Nextcloud
+    // never backed up, 2.5 GB the clean-up would free.
+    "system.performance.inspect": () => ({ generatedAt: "2026-09-29T10:00:00.000Z", cpu: { model: "Intel N100", cores: 4, usagePercent: 12.4, perCore: [10, 14, 12, 13], load1: 0.42, load5: 0.5, load15: 0.61, loadPercent: 10 }, memory: { totalBytes: 16e9, usedBytes: 6e9, availableBytes: 10e9, usedPercent: 38 }, swap: { totalBytes: 2e9, usedBytes: 0, usedPercent: 0 }, uptimeSeconds: 86_400, temps: [], disks: [], statsAvailable: true, apps: [
+      { id: "pi-hole", state: "running", running: true, cpuPercent: 1.2, memBytes: 120e6, containers: 1 },
+      { id: "jellyfin", state: "running", running: true, cpuPercent: 48.6, memBytes: 1.3e9, containers: 2 },
+      { id: "nextcloud", state: "exited", running: false, cpuPercent: 0, memBytes: 0, containers: 0 },
+    ] }),
+    "app.backup.protection": () => ({ available: true, generatedAt: "2026-09-29T10:00:00.000Z", apps: [
+      { id: "pi-hole", name: "Pi-hole", protectable: true, backups: 3, newestAt: "2026-09-27T03:00:00.000Z" },
+      { id: "jellyfin", name: "Jellyfin", protectable: false, backups: 0, newestAt: null },
+      { id: "nextcloud", name: "Nextcloud", protectable: true, backups: 0, newestAt: null },
+    ] }),
+    "housekeeping.inspect": () => ({ generatedAt: "2026-09-29T10:00:00.000Z", categories: [
+      { id: "boxpilot-versions", title: "Previous BoxPilot releases", items: 2, bytes: 410e6, humanBytes: "410 MB", detail: [], keeping: [], safe: true },
+      { id: "docker-unused", title: "Docker images no app uses", items: 3, bytes: 2.1e9, humanBytes: "2.1 GB", detail: [], keeping: [], safe: true },
+      { id: "restore-leftovers", title: "Unfinished restores", items: 1, bytes: 50e6, humanBytes: "50 MB", detail: [], keeping: [], safe: false, unavailable: "Recovery evidence. General cleanup cannot remove these folders." },
+      { id: "job-logs", title: "Logs for jobs no longer listed", items: 0, bytes: 0, humanBytes: "0 B", detail: [], keeping: [], safe: true },
+    ], totalBytes: 2.51e9, totalHumanBytes: "2.5 GB" }),
+    "docker.disk.inspect": () => ({ available: true, rows: [
+      { type: "Images", total: 12, active: 9, size: "6.2GB", reclaimable: "2.1GB (33%)" },
+      { type: "Containers", total: 9, active: 8, size: "120MB", reclaimable: "0B (0%)" },
+      { type: "Local Volumes", total: 7, active: 7, size: "3.4GB", reclaimable: "0B (0%)" },
+      { type: "Build Cache", total: 0, active: 0, size: "0B", reclaimable: "0B" },
+    ], logging: { configured: false, logDriver: null, maxSize: null, liveRestore: false } }),
     // M40: the runner's processors, set at each run as the root helper does (server/agents/cpu.mjs).
     "agents.runtime.cpu": (parameters) => ({ processors: parameters.processors, background: parameters.background, quotaPercent: parameters.processors * 100, perSecond: `${parameters.processors}s`, resetAt: parameters.processors > parameters.background ? "2026-09-29T10:30:00.000Z" : null }),
   };

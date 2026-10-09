@@ -4130,7 +4130,7 @@ export function createAgentService({
     // Each read within its time, or unknown: an inventory whose df or docker never answered held the
     // nightly evaluation, and with it every later tick, for good (2026-10 sweep 2).
     const read = (fn) => inTime(fn, limits.factsTimeoutMs, new Error("It did not answer in time")).catch(() => null);
-    const [snapshot, apps, pihole, placed, services, firewall] = await Promise.all([
+    const [snapshot, apps, pihole, placed, services, firewall, protection, updates] = await Promise.all([
       read(() => inventory?.inspect()),
       read(() => tools.readApps()),
       // An operator read (ADR-003); an evaluation is started by the owner or an operator anyway.
@@ -4140,6 +4140,9 @@ export function createAgentService({
       read(() => (helper ? helper.request("service.list", {}, { timeoutMs: 30_000 }) : null)),
       // M47: the read firewall.status makes, open to every role.
       read(() => (helper ? helper.request("firewall.inspect", {}, { timeoutMs: 30_000 }) : null)),
+      // M47.6: the reads backups.coverage and updates.status make, open to every role.
+      read(() => (helper ? helper.request("app.backup.protection", {}, { timeoutMs: 30_000 }) : null)),
+      read(() => (helper ? helper.request("apt.upgradable.inspect", {}, { timeoutMs: 30_000 }) : null)),
     ]);
     const applications = Array.isArray(apps?.applications) ? apps.applications : null;
     return {
@@ -4158,6 +4161,10 @@ export function createAgentService({
       failedServices: failedServicesOf(services?.units ?? null),
       // M47: on, off, or absent when ufw is not installed.
       firewallEnabled: firewall ? (firewall.installed === false ? "absent" : firewall.enabled === true ? "on" : firewall.enabled === false ? "off" : null) : null,
+      // M47.6: the apps that hold data worth keeping with no backup at all (unknown when the backup
+      // folder could not be read: zero would call every app unprotected), and whether apt wants a reboot.
+      neverBackedUp: protection?.available && Array.isArray(protection.apps) ? protection.apps.filter((app) => app.protectable && !(app.backups > 0)).map((app) => app.id) : null,
+      rebootRequired: updates ? (updates.rebootRequired === true ? "yes" : updates.rebootRequired === false ? "no" : null) : null,
     };
   }
 
@@ -4561,6 +4568,60 @@ export function createAgentService({
       next.surveyWide = { at: now().toISOString(), widened, seeded };
       changed += widened + seeded;
     }
+    // M47.6: the templates said three things their tools could not see (what takes the space, how
+    // many packages wait, which apps have no backup); now they can (the Scout keeps its ten: a call
+    // that acts carries ten, and its survey fills them). Agents made from a template get
+    // the tools it gained, once; a rule or a step of the template's old wording becomes the new one
+    // (a rule or step the maker rewrote is left alone); the Backup Auditor, Storage Watch and the
+    // Update Planner get the budget their longer work takes; and every templated agent gets the seeds
+    // its template gained.
+    if (!done.eyesMore) {
+      const more = ["apps.usage", "backups.coverage", "space.reclaimable", "updates.status"];
+      const reworded = new Map([
+        ["Your tools cannot see what takes up the space, what Docker could free or how old the snapshots are: point to the Storage page for those.", "storage-watch"],
+        ["Your tools cannot see how many system packages are waiting: say so, and point to the Updates page. Add apt.refresh and apt.upgrade only when no schedule or automation already installs them.", "update-planner"],
+        ["Propose system.reboot only when alerts.active says a reboot is required, as a card of its own.", "update-planner"],
+      ]);
+      const newRuleFor = (template, oldRule) => {
+        const starts = { "Your tools cannot see what takes up": "space.reclaimable says", "Your tools cannot see how many system packages": "updates.status says", "Propose system.reboot only when": "Propose system.reboot only when updates.status" };
+        const start = Object.keys(starts).find((key) => oldRule.startsWith(key));
+        return start ? template.spec.prompt.rules.find((rule) => rule.startsWith(starts[start]) && rule !== oldRule) ?? null : null;
+      };
+      const oldSteps = {
+        "backup-auditor": "Use apps.list for the apps installed, then backups.status and jobs.recent.",
+        "update-planner": "Use apps.list for apps with an update available, and alerts.active for a reboot required or news of a BoxPilot release.",
+      };
+      const storageStepOne = "Use storage.health for the drives, the filesystems and their health, and alerts.active for storage alerts.";
+      let given = 0;
+      let seeded = 0;
+      for (const agent of store.listAgents()) {
+        const template = agent.template ? templateById(agent.template) : null;
+        if (!template) continue;
+        const tools = { ...agent.spec.tools };
+        const added = more.filter((id) => template.spec.tools[id] === "auto" && (tools[id] ?? "off") === "off");
+        for (const id of added) tools[id] = "auto";
+        const rules = (agent.spec.prompt?.rules ?? []).map((rule) => (reworded.get(rule) === agent.template ? newRuleFor(template, rule) ?? rule : rule));
+        // The Backup Auditor gained a rule (an app of caches needs no backup): after the one it follows in the template.
+        const auditorRule = agent.template === "backup-auditor" ? template.spec.prompt.rules.find((rule) => rule.startsWith("An app backups.coverage says")) ?? null : null;
+        const finding = "A backup job that failed, or an app never backed up, is a finding.";
+        if (auditorRule && !rules.includes(auditorRule) && rules.includes(finding) && rules.length < 12) rules.splice(rules.indexOf(finding) + 1, 0, auditorRule);
+        let steps = [...(agent.spec.prompt?.steps ?? [])];
+        if (oldSteps[agent.template] && steps.includes(oldSteps[agent.template])) steps = steps.map((step) => (step === oldSteps[agent.template] ? template.spec.prompt.steps[0] : step));
+        if (agent.template === "storage-watch" && steps[0] === storageStepOne && steps.length === 3 && !steps.some((step) => step.includes("space.reclaimable"))) steps = template.spec.prompt.steps;
+        const budget = { ...agent.spec.budget };
+        if (["backup-auditor", "storage-watch", "update-planner"].includes(agent.template)) for (const field of ["modelSecondsPerDay", "stepsPerRun", "tokensPerRun", "runSeconds"]) if ((budget[field] ?? 0) < template.spec.budget[field]) budget[field] = template.spec.budget[field];
+        const differs = added.length > 0 || rules.some((rule, index) => rule !== (agent.spec.prompt?.rules ?? [])[index]) || steps.join("\n") !== (agent.spec.prompt?.steps ?? []).join("\n") || Object.keys(budget).some((field) => budget[field] !== agent.spec.budget?.[field]);
+        if (differs) {
+          let spec;
+          try { spec = normalizeSpec({ ...agent.spec, tools, prompt: { ...agent.spec.prompt, rules, steps }, budget, sharing: sharingFor(agent) }); } catch { spec = null; }
+          const note = added.length ? `BoxPilot gave it eyes on ${added.map((id) => toolById(id)?.title.toLowerCase() ?? id).join(", ")}` : "BoxPilot reworded its steps for the reads it has now";
+          if (spec && save(agent, spec, note, [...added.map((id) => `tools.${id}`), "prompt"])) given += 1;
+        }
+        seeded += seedAgentExamples(store.getAgent(agent.id) ?? agent);
+      }
+      next.eyesMore = { at: now().toISOString(), given, seeded };
+      changed += given + seeded;
+    }
     // M46: agents made before the example book get their template's examples, once.
     if (!done.examples) {
       let seeded = 0;
@@ -4568,7 +4629,7 @@ export function createAgentService({
       next.examples = { at: now().toISOString(), seeded };
       changed += seeded;
     }
-    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.surveyWide !== done.surveyWide) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
+    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.surveyWide !== done.surveyWide || next.eyesMore !== done.eyesMore) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
     return changed;
   }
 

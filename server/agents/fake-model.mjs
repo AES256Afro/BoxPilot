@@ -51,6 +51,12 @@ export function letterVector(text) {
 }
 
 const topics = [
+  // M47.6: the three reads the templates once said they could not make, and package updates, before
+  // the broader words (memory, backup, space) that would point at the whole-machine tools.
+  [/\b(using the most|uses the most|most (cpu|memory|ram|processor)|hogging|slow(ness|ly)?|sluggish|busiest|heaviest|resource use|swap)\b/i, ["apps.usage"]],
+  [/never (been )?backed up|no backups?\b|without (a )?backup|unprotected|backup coverage|backup schedule|not backed up/i, ["backups.coverage"]],
+  [/reclaim|free up|clean ?up|prune|dangling|taking up|takes up|docker('s)? disk/i, ["space.reclaimable"]],
+  [/\b(reboot|package updates?|system updates?|security updates?|upgradable)\b/i, ["updates.status"]],
   [/\b(called|named|hostname|operating system|kernel|memory|processor|cpu|uptime|address)\b/i, ["server.facts"]],
   [/pi-?hole|dns|block|ads?\b|gravity/i, ["pihole.stats", "where.runs"]],
   [/where|which (container|host)|runs? (on|in)|native/i, ["where.runs"]],

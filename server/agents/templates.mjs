@@ -7,8 +7,9 @@
  *
  * M43 added the Environment Scout (the owner's ask: a weekly survey that ranks where to focus),
  * the App Doctor, the Update Planner, Storage Watch and the House Guide. Each uses only the read
- * tools the runtime has, and says plainly what those tools cannot see - the firewall, open ports,
- * system package updates, Repair's findings - rather than guessing at it. Each one's routine work
+ * tools the runtime has, and says plainly what those tools cannot see rather than guessing at it
+ * (M47 gave them eyes on most of what they once named: the firewall, package updates, Repair's
+ * findings, each app's backups and resource use, the space a clean-up would free). Each one's routine work
  * names at most eight tools in its steps, because a plan holds eight steps (M47.2) and a call that acts
  * carries only the plan's tools and the always-on ones (intent.mjs, actToolIds); its own notes come
  * with every request, so none spends a step reading them. Each one's budget holds its own nightly
@@ -54,7 +55,7 @@ export const agentTemplates = Object.freeze([
       },
       instructions: "",
       audience: ["owner", "operator"],
-      tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "logs.query": "ask", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "jobs.recent": "auto", "records.query": "auto", "alerts.active": "auto", "backups.status": "auto", "pihole.stats": "ask", "where.runs": "auto", "firewall.status": "auto", "updates.status": "auto", "repair.findings": "auto", "protection.status": "auto", "plan.propose": "auto", "notify.owner": "auto", "agents.handoff": "auto" },
+      tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "logs.query": "ask", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "jobs.recent": "auto", "records.query": "auto", "alerts.active": "auto", "backups.status": "auto", "pihole.stats": "ask", "where.runs": "auto", "firewall.status": "auto", "updates.status": "auto", "repair.findings": "auto", "protection.status": "auto", "apps.usage": "auto", "backups.coverage": "auto", "space.reclaimable": "auto", "plan.propose": "auto", "notify.owner": "auto", "agents.handoff": "auto" },
       triggers: { ask: true, schedule: { every: "daily", hour: 5, minute: 30, quietHours: true }, events: ["health.alert", "drive.dropped"] },
       // An hour of model time a day: its 24 runs (questions, the digest, alerts, learning) take a few
       // minutes each on a CPU, and half an hour ran out after three questions on a small machine.
@@ -178,19 +179,23 @@ export const agentTemplates = Object.freeze([
         "Says when the off-box copy is older than two days.",
       ],
       prompt: {
-        rules: ["A backup job that failed, or an app never backed up, is a finding.", "Work out ages with time.calc."],
-        steps: ["Use apps.list for the apps installed, then backups.status and jobs.recent.", "For each app: when it was last backed up, whether its restore check passed, whether there is an off-box copy newer than two days.", "Keep a note of which apps you have seen, so you notice a new app with no backup."],
+        rules: ["A backup job that failed, or an app never backed up, is a finding.", "An app backups.coverage says keeps no data worth backing up needs no backup: say so in a word, and propose nothing for it.", "Work out ages with time.calc."],
+        // Since M47.6 backups.coverage answers "never backed up" and "no schedule" for every app;
+        // backups.status keeps the restore checks and the copy off this server.
+        steps: ["Use apps.list for the apps installed, then backups.coverage for which hold data with no backup or no schedule, backups.status for the recent backups, their restore checks and the copy off this server, and jobs.recent for failed backup jobs.", "For each app: when it was last backed up, whether its restore check passed, whether there is an off-box copy newer than two days.", "Keep a note of which apps you have seen, so you notice a new app with no backup."],
         output: { format: "text", style: "The gaps first, one line each; then what is fine, in one line." },
         escalate: ["An app that holds passwords or documents with no backup at all."],
       },
       instructions: "",
       audience: ["owner", "operator"],
-      tools: { ...off, ...exact, "apps.list": "auto", "backups.status": "auto", "jobs.recent": "auto", "records.query": "auto", "storage.health": "auto", "alerts.active": "auto", "docs.search": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "plan.propose": "auto", "notify.owner": "auto" },
+      tools: { ...off, ...exact, "apps.list": "auto", "backups.status": "auto", "backups.coverage": "auto", "jobs.recent": "auto", "records.query": "auto", "storage.health": "auto", "alerts.active": "auto", "docs.search": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "plan.propose": "auto", "notify.owner": "auto" },
       triggers: { ask: true, schedule: { every: "daily", hour: 3, minute: 45, quietHours: true }, events: ["job.failed"] },
       // apps.list since M43: without it the auditor could not see which apps are installed, nor
       // answer its own golden question. 1,200 s, not 600: its four evaluation questions need 960 s
       // with half the day left for people, so at 600 its nightly evaluation was always skipped.
-      budget: { runsPerDay: 6, modelSecondsPerDay: 1_200, stepsPerRun: 5, tokensPerRun: 8_000, runSeconds: 400 },
+      // M47.6: four reads, a note and the answer are six steps; coverage lists every app, so 12,000
+      // tokens; a fifth golden question, so 1,500 s a day.
+      budget: { runsPerDay: 6, modelSecondsPerDay: 1_500, stepsPerRun: 7, tokensPerRun: 12_000, runSeconds: 600 },
       outputs: { notes: true, digest: false, notify: "important", proposals: true },
       memory: { enabled: true, freshDays: 14, maxNotes: 40, share: true },
       allow: { apps: "*", operations: ["app.backup", "app.backup.many", "backup.sync", "backup.remote.sync", "backup.cloud.sync"] },
@@ -260,11 +265,12 @@ export const agentTemplates = Object.freeze([
           "Use storage.health's own numbers. Work out growth and days until full with calc and time.calc, never in your head.",
           "Keep one note titled \"Readings\": each filesystem's used space, with today's date. Your notes come with the request; compare with it, then write it again.",
           "A drive spun down to save power (asleep) is normal and not a fault: say when it was last read, and leave it asleep.",
-          "Your tools cannot see what takes up the space, what Docker could free or how old the snapshots are: point to the Storage page for those.",
+          "space.reclaimable says what takes up room that nothing needs and what the Storage page's clean-up would free, and Docker's own disk use; how old the snapshots are it does not: point to the Storage page for those.",
         ],
         steps: [
           "Use storage.health for the drives, the filesystems and their health, and alerts.active for storage alerts.",
           "Work out each filesystem's growth since your last readings, and the days until it is full at that rate, with calc and time.calc.",
+          "When a filesystem is above 80% or will be full within 30 days, read space.reclaimable for what the clean-up would free, and propose housekeeping.reclaim or docker.prune for it.",
           "Write today's readings with notes.write, then answer.",
         ],
         output: { format: "text", style: "First the filesystem that fills first and roughly when; then any drive whose health is slipping; then one line per other filesystem." },
@@ -272,10 +278,11 @@ export const agentTemplates = Object.freeze([
       },
       instructions: "",
       audience: ["owner", "operator"],
-      tools: { ...off, calc: "auto", "time.calc": "auto", "storage.health": "auto", "alerts.active": "auto", "notes.write": "auto", "plan.propose": "auto", "notify.owner": "auto" },
+      tools: { ...off, calc: "auto", "time.calc": "auto", "storage.health": "auto", "alerts.active": "auto", "space.reclaimable": "auto", "notes.write": "auto", "plan.propose": "auto", "notify.owner": "auto" },
       // One cheap read a night makes the trend; a dropped drive starts it at once.
       triggers: { ask: true, schedule: { every: "daily", hour: 2, minute: 50, quietHours: true }, events: ["drive.dropped"] },
-      budget: { runsPerDay: 4, modelSecondsPerDay: 1_200, stepsPerRun: 6, tokensPerRun: 8_000, runSeconds: 480 },
+      // M47.6: a step for the clean-up's read when a filesystem is filling, and its lines in the tokens.
+      budget: { runsPerDay: 4, modelSecondsPerDay: 1_200, stepsPerRun: 7, tokensPerRun: 10_000, runSeconds: 480 },
       outputs: { notes: true, digest: false, notify: "important", proposals: true },
       memory: { enabled: true, freshDays: 30, maxNotes: 10, share: true },
       allow: { apps: "*", operations: ["docker.prune", "housekeeping.reclaim", "storage.check", "storage.lvm.extend", "storage.remount"] },
@@ -291,7 +298,7 @@ export const agentTemplates = Object.freeze([
       job: "Say which updates are waiting and what each needs, then propose one card to do them at a quiet time.",
       successCriteria: [
         "Names every app with an update available, or says none is waiting.",
-        "Says whether the live alerts call for a reboot or tell of a new BoxPilot release.",
+        "Says how many system packages wait and whether a reboot is required, and whether the live alerts tell of a new BoxPilot release.",
         "Says whether a schedule or automation already installs updates, and whether an update job failed.",
         "Proposes the updates as one card, a backup before them, and never runs them.",
       ],
@@ -299,11 +306,11 @@ export const agentTemplates = Object.freeze([
         rules: [
           "Updating an app restarts it for a minute or two: suggest approving the card when nobody is using it, such as late in the evening.",
           "Back up the apps that hold data first: one app.backup.many step for them, then app.update for each. A card holds at most eight steps; name any apps that did not fit.",
-          "Your tools cannot see how many system packages are waiting: say so, and point to the Updates page. Add apt.refresh and apt.upgrade only when no schedule or automation already installs them.",
-          "Propose system.reboot only when alerts.active says a reboot is required, as a card of its own.",
+          "updates.status says how many system packages are waiting, how many of them are security updates, and whether a reboot is required: read it, and propose apt.refresh and apt.upgrade for them only when no schedule or automation already installs them.",
+          "Propose system.reboot only when updates.status or alerts.active says a reboot is required, as a card of its own.",
         ],
         steps: [
-          "Use apps.list for apps with an update available, and alerts.active for a reboot required or news of a BoxPilot release.",
+          "Use apps.list for apps with an update available, updates.status for waiting system packages and a reboot required, and alerts.active for news of a BoxPilot release.",
           "Use records.query (schedules, then flows) for what already installs updates, and jobs.recent for update jobs that failed.",
           "Say what is new since last week (in what you remember), then propose the card with plan.propose.",
         ],
@@ -312,10 +319,11 @@ export const agentTemplates = Object.freeze([
       },
       instructions: "",
       audience: ["owner", "operator"],
-      tools: { ...off, "apps.list": "auto", "alerts.active": "auto", "records.query": "auto", "jobs.recent": "auto", "plan.propose": "auto" },
+      tools: { ...off, "apps.list": "auto", "alerts.active": "auto", "updates.status": "auto", "records.query": "auto", "jobs.recent": "auto", "plan.propose": "auto" },
       // Friday before dawn, so the plan is waiting for the weekend.
       triggers: { ask: true, schedule: { every: "weekly", weekday: 5, hour: 3, minute: 30, quietHours: true }, events: [] },
-      budget: { runsPerDay: 4, modelSecondsPerDay: 1_200, stepsPerRun: 8, tokensPerRun: 12_000, runSeconds: 900 },
+      // M47.6: a sixth golden question (the reboot), so 1,800 s a day keeps half for people.
+      budget: { runsPerDay: 4, modelSecondsPerDay: 1_800, stepsPerRun: 8, tokensPerRun: 12_000, runSeconds: 900 },
       // No notes of its own: last week's plan is remembered as it ran.
       outputs: { notes: false, digest: false, notify: "never", proposals: true },
       memory: { enabled: true, freshDays: 14, maxNotes: 10 },
@@ -339,7 +347,7 @@ export const agentTemplates = Object.freeze([
       },
       instructions: "",
       audience: ["owner", "operator", "viewer"],
-      tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "alerts.active": "auto", "where.runs": "auto", "firewall.status": "auto", "updates.status": "auto", "repair.findings": "auto" },
+      tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "alerts.active": "auto", "where.runs": "auto", "firewall.status": "auto", "updates.status": "auto", "repair.findings": "auto", "apps.usage": "auto" },
       triggers: { ask: true, schedule: null, events: [] },
       // 1,800 s, not 1,200: its seven evaluation questions need 1,680 s with half the day left for
       // people, so at 1,200 its nightly evaluation was always skipped (M43).
@@ -473,7 +481,7 @@ export const templateById = (id) => agentTemplates.find((template) => template.i
  * report: read the way apps.list and services.status read them, so an agent is checked against
  * what its own tool said.
  */
-export const evaluationFacts = Object.freeze(["hostname", "operatingSystem", "installedApps", "rootDiskPercent", "piholePlacement", "piholeBlocking", "drives", "stoppedApps", "unhealthyApps", "appUpdates", "failedServices", "firewallEnabled"]);
+export const evaluationFacts = Object.freeze(["hostname", "operatingSystem", "installedApps", "rootDiskPercent", "piholePlacement", "piholeBlocking", "drives", "stoppedApps", "unhealthyApps", "appUpdates", "failedServices", "firewallEnabled", "neverBackedUp", "rebootRequired"]);
 
 /**
  * The built-in evaluation (M40): real questions with answers BoxPilot can check, each asked only of
@@ -512,6 +520,9 @@ export const templateExamples = Object.freeze({
     { id: "updates", request: "Are there system updates waiting, or a reboot?", tools: ["updates.status"] },
     { id: "repair", request: "What does Repair want fixed?", tools: ["repair.findings"] },
     { id: "banned", request: "Has fail2ban banned anyone lately?", tools: ["protection.status"] },
+    { id: "busiest", request: "Which app is using the most memory?", tools: ["apps.usage"] },
+    { id: "never-backed-up", request: "Which apps have never been backed up?", tools: ["backups.coverage"] },
+    { id: "reclaim", request: "How much disk space could be cleaned up?", tools: ["space.reclaimable"] },
   ],
   "environment-scout": [
     { id: "unhealthy", request: "Which BoxPilot apps are unhealthy or keep restarting?", tools: ["apps.list"] },
@@ -532,6 +543,8 @@ export const templateExamples = Object.freeze({
     { id: "missing", request: "Which apps have no recent backup?", tools: ["backups.status", "apps.list"] },
     { id: "failed-job", request: "Did last night's backup job fail?", tools: ["jobs.recent"] },
     { id: "room", request: "Is there room left on the backup drive?", tools: ["storage.health"] },
+    { id: "never", request: "Which apps have never been backed up?", tools: ["backups.coverage"] },
+    { id: "unscheduled", request: "Which apps have no backup schedule?", tools: ["backups.coverage"] },
   ],
   "app-doctor": [
     { id: "stopped", request: "Which BoxPilot apps are stopped?", tools: ["apps.list"] },
@@ -544,11 +557,15 @@ export const templateExamples = Object.freeze({
     { id: "root", request: "How full is the root filesystem, as a percentage?", tools: ["storage.health"] },
     { id: "smart", request: "Is any drive failing its SMART checks?", tools: ["storage.health"] },
     { id: "days-left", request: "How many days until the root disk is full at this rate?", tools: ["storage.health", "calc"] },
+    { id: "reclaim", request: "What could be cleaned up to free space on the root disk?", tools: ["space.reclaimable"] },
+    { id: "docker-disk", request: "How much disk is Docker using?", tools: ["space.reclaimable"] },
   ],
   "update-planner": [
     { id: "updates", request: "Which BoxPilot apps have an update available?", tools: ["apps.list"] },
     { id: "last-update", request: "Did the last update job succeed?", tools: ["jobs.recent"] },
     { id: "count", request: "How many BoxPilot apps are installed?", tools: ["apps.list"] },
+    { id: "packages", request: "How many system packages have updates waiting?", tools: ["updates.status"] },
+    { id: "reboot", request: "Does the server need a reboot?", tools: ["updates.status"] },
   ],
   "it-support": [
     { id: "restore", request: "How do I restore an app from a backup?", tools: ["docs.search"] },
@@ -558,6 +575,7 @@ export const templateExamples = Object.freeze({
     { id: "unreachable", request: "Why can't I reach the dashboard?", tools: ["apps.list", "alerts.active"] },
     { id: "firewall", request: "Is the firewall on?", tools: ["firewall.status"] },
     { id: "reboot", request: "Does the server need a reboot?", tools: ["updates.status"] },
+    { id: "slow", request: "Why is the server slow right now?", tools: ["apps.usage"] },
   ],
   "security-reviewer": [
     { id: "firewall", request: "Is the firewall on, and which ports does it allow?", tools: ["firewall.status"] },
@@ -605,6 +623,8 @@ export const templateQuestions = Object.freeze({
   ],
   "backup-auditor": [
     { id: "apps", question: "How many BoxPilot apps are installed?", expect: { fact: "installedApps" } },
+    // M47.6: its own question, read from the backup folder as the Backups page reads it.
+    { id: "never", question: "Which apps have never been backed up?", expect: { fact: "neverBackedUp" } },
   ],
   "it-support": [
     { id: "hostname", question: "What is this server called?", expect: { fact: "hostname" } },
@@ -631,6 +651,8 @@ export const templateQuestions = Object.freeze({
   "update-planner": [
     { id: "app-updates", question: "Which BoxPilot apps have an update available?", expect: { fact: "appUpdates" } },
     { id: "apps", question: "How many BoxPilot apps are installed?", expect: { fact: "installedApps" } },
+    // M47.6: read from apt as the Updates page reads it.
+    { id: "reboot", question: "Does the server need a reboot?", expect: { fact: "rebootRequired" } },
   ],
   "security-reviewer": [
     { id: "firewall", question: "Is the firewall turned on?", expect: { fact: "firewallEnabled" } },
