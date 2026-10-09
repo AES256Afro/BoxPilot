@@ -40,6 +40,7 @@ import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outpu
 import { digestToken, finishedStates } from "./store.mjs";
 import { agentTemplates, builtInQuestions, evaluationFacts, seedExamples, templateById, templateQuestions } from "./templates.mjs";
 import { preferencePairs, toJsonl, trainingRecords } from "./examples-export.mjs";
+import { actingRecords } from "./acting-export.mjs";
 import { appUpdatesOf, drivesOf, failedServicesOf, placementOf, stoppedAppsOf, unhealthyAppsOf } from "./tool-text.mjs";
 import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolCategories } from "./tool-catalog.mjs";
 import { ToolError, createToolRunner, readableSources } from "./tools.mjs";
@@ -1304,7 +1305,8 @@ export function createAgentService({
         signal: example.signal, seed: example.seed, runId: example.seed ? null : example.source, route: example.route, readRole: example.readRole, createdAt: example.createdAt, embedded: vectors.has(`example:${example.id}`),
       })),
       // M46.6: how many thumbs down have an approved neighbour with another plan: the pairs an export would carry.
-      counts: { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0), pairs: pairsFor(agent).length },
+      // M46.7: how many approved runs rebuild as a whole conversation the answer can be learned from.
+      counts: { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0), pairs: pairsFor(agent).length, acting: actingFor(agent).length },
     };
   }
 
@@ -1346,12 +1348,34 @@ export function createAgentService({
 
   const pairsFor = (agent) => preferencePairs({ agent: { name: agent.name, spec: agent.spec }, examples: examplesWithVectors(agent.id), rejected: rejectedRuns(agent.id), names: houseNamesFor() });
 
-  function exportExamples(caller, agentId, { cover = null, seeds = true, pairs = false } = {}) {
+  /**
+   * The approved runs behind the book's examples (M46.7), each with its steps and the spec it ran as,
+   * for the acting conversation's records. Seeds have no run.
+   */
+  function approvedRuns(agentId) {
+    const runs = [];
+    for (const example of store.listExamples(agentId, { limit: 1_000 })) {
+      if (example.seed) continue;
+      const run = store.getRun(example.source);
+      if (!run) continue;
+      runs.push({ run, steps: store.listSteps(run.id), spec: store.getVersion(run.agentId, run.version)?.spec ?? null, signal: example.signal });
+    }
+    return runs;
+  }
+  const actingFor = (agent) => actingRecords({ agent: { name: agent.name, spec: agent.spec }, runs: approvedRuns(agent.id), names: houseNamesFor() });
+
+  function exportExamples(caller, agentId, { cover = null, seeds = true, pairs = false, acting = false } = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
     if (person.role !== "owner") refuse(403, "Only the owner exports examples: they leave this server", "forbidden");
     const slug = String(agent.name).replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "agent";
     const date = now().toISOString().slice(0, 10);
+    // M46.7: the acting conversations instead, when asked: each approved run's tool outputs and answer.
+    if (acting === true || acting === "true" || acting === "1") {
+      const records = actingFor(agent);
+      audit("agents.examples.exported", { actorId: person.id, subjectId: agent.id, details: { acting: records.length } });
+      return { filename: `boxpilot-acting-${slug}-${date}.jsonl`, records: records.length, jsonl: toJsonl(records) };
+    }
     // M46.6: the preference pairs instead, when asked: each thumbs down beside the approved plan it should have had.
     if (pairs === true || pairs === "true" || pairs === "1") {
       const records = pairsFor(agent);
