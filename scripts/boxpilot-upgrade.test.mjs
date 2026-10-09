@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 
 const script = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
 const copyProgram = /\nDB_COPY_JS='\n([\s\S]*?)\n'\n/.exec(script)?.[1];
@@ -108,6 +109,18 @@ describe("where the copy sits in the upgrade", () => {
     expect(script).toContain('AS_OWNER="runuser -u ${DB_OWNER} --"');
   });
 
+  // It said "previous tree restored" whether or not the move back worked, and never asked the
+  // restarted service anything.
+  it("says the old tree is back only once it is, and asks the restarted service before it says how it went", () => {
+    const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
+    expect(rollback).toContain('elif ! mv "$PREVIOUS" "$INSTALL_DIR"; then');
+    const asked = rollback.indexOf('case "$(curl -fsS --max-time 2 "$HEALTH_URL" 2>/dev/null)" in');
+    expect(asked).toBeGreaterThan(rollback.indexOf("systemctl restart boxpilot.service"));
+    expect(asked).toBeGreaterThan(rollback.indexOf('if [ "$RESTORED" -ne 1 ]; then'));
+    expect(asked).toBeLessThan(rollback.indexOf('fail "upgrade failed; previous tree restored, ${back}'));
+    expect(rollback).toMatch(/while \[ -z "\$back" \] && \[ "\$attempt" -lt 10 \]; do/);
+  });
+
   it("names the copy that matches the old code when it rolls back", () => {
     const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
     expect(rollback).toContain('log "the database as ${OLD_VERSION} left it is ${DB_COPY}"');
@@ -131,7 +144,112 @@ describe("where the copy sits in the upgrade", () => {
     expect(script).not.toMatch(/exec 9>"\$UPGRADE_LOCK"/);
   });
 
+  // An upgrade stopped during its build, or killed outright, left /opt/boxpilot.staging.<stamp> for good.
+  it("clears staging trees earlier runs left once it holds the lock, and its own when stopped while building", () => {
+    const cleared = at('for leftover in "${INSTALL_DIR}".staging.*; do');
+    expect(cleared).toBeGreaterThan(at("if ! flock -n 9; then"));
+    expect(cleared).toBeLessThan(at('mkdir -p "$STAGING"'));
+    const armed = at("trap stopped_building HUP INT TERM PIPE");
+    expect(armed).toBeLessThan(at('mkdir -p "$STAGING"'));
+    expect(armed).toBeLessThan(at("trap 'exit 1' HUP INT TERM PIPE\n"));
+    const handler = script.slice(at("stopped_building() {"), armed);
+    expect(handler.indexOf("trap '' HUP INT TERM PIPE")).toBeLessThan(handler.indexOf("cleanup_staging"));
+  });
+
+  it("rolls back when the new helper does not stay up, not only when the web service fails its check", () => {
+    // boxpilot-helper is Type=simple: `systemctl restart` exits 0 once it forks, and /api/v1/health
+    // is answered by the web service alone, so a helper failing at start passed as a good upgrade.
+    const up = script.slice(at("helper_up() {"), at("rollback() {"));
+    expect(up).toContain('systemctl is-active --quiet boxpilot-helper.service && [ -S "$HELPER_SOCKET" ]');
+    const web = at('if [ "$HEALTHY" -ne 1 ]; then');
+    const helper = at("if ! helper_up 90; then");
+    // The last disarm, where the upgrade is judged good (rollback() disarms it too, first).
+    const disarmed = script.lastIndexOf("\ntrap - EXIT\n");
+    expect(web).toBeLessThan(helper);
+    expect(helper).toBeLessThan(disarmed);
+    expect(script.slice(helper, disarmed)).toMatch(/if \[ "\$HAD_PREVIOUS" -eq 1 \]; then rollback; else fail "helper unhealthy"; fi/);
+  });
+
+  // The web service only Wants= the helper, so it answers with the helper down: a rollback that
+  // asked the web service alone said the old version was back while every host operation failed.
+  it("asks the helper after a rollback too, and says when it is not up", () => {
+    const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
+    expect(rollback).toContain('helper_up 10 || helper_down="boxpilot-helper is not up with its socket at ${HELPER_SOCKET}"');
+    expect(rollback.indexOf("helper_up 10")).toBeGreaterThan(rollback.indexOf('curl -fsS --max-time 2 "$HEALTH_URL"'));
+  });
+
   it("keeps saying the new version is live last, which the System page reads", () => {
     expect(script.trimEnd().split("\n").at(-1)).toMatch(/^log "BoxPilot \$\{NEW_VERSION\} \(\$\{REF\}\) is live;/);
   });
+
+  // dash, Ubuntu's sh, runs no EXIT trap for a signal that kills it: an upgrade stopped after the
+  // service was (an SSH drop during curl | sh, the update unit stopped) left both services down.
+  it("rolls back on HUP, INT, TERM and PIPE as well as on exit, and a second signal cannot stop the rollback", () => {
+    const armed = at("trap 'rollback' EXIT");
+    expect(at("trap 'exit 1' HUP INT TERM PIPE\n")).toBeGreaterThan(armed);
+    expect(at("trap 'exit 1' HUP INT TERM PIPE\n")).toBeLessThan(at("systemctl stop boxpilot.service 2>/dev/null || true\n  mv \"$INSTALL_DIR\" \"$PREVIOUS\""));
+    const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
+    // Before its first line is written: a terminal or pipe that has gone cannot end it there.
+    const firstLine = rollback.indexOf('log "rolling back to previous tree"');
+    for (const shield of ["\n  set +e\n", "\n  trap '' HUP INT TERM PIPE\n"]) {
+      expect(rollback.indexOf(shield), shield).toBeGreaterThan(0);
+      expect(rollback.indexOf(shield), shield).toBeLessThan(firstLine);
+    }
+    // Once the upgrade is judged good, a signal is only a signal again.
+    expect(script).toContain("\ntrap - EXIT\ntrap - HUP INT TERM PIPE\n");
+  });
+
+  // The rollback died on its own first line when nobody read the output any more (SIGPIPE, or a
+  // failed printf under set -e), after `trap - EXIT`: both services stopped on the unchecked tree.
+  it("writes its output best effort, so a write that fails never ends a step", () => {
+    expect(script).toContain("log() { printf '[boxpilot-upgrade] %s\\n' \"$*\" 2>/dev/null || true; }");
+    expect(script).toMatch(/fail\(\) \{ printf '\[boxpilot-upgrade\] ERROR: %s\\n' "\$\*" >&2 2>\/dev\/null \|\| true; exit 1; \}/);
+    // Other programs' output goes through log(), not a pipeline set -e ends the upgrade on.
+    expect(script).not.toMatch(/\| sed 's\/\^\/\[boxpilot-upgrade\] \/'/);
+    const relay = script.slice(at("relay() {"), at("ENV_FILE=/etc/boxpilot/boxpilot.env"));
+    expect(relay).toContain('do [ -z "$line" ] || log "$line"; done <<RELAY');
+  });
+
+  it("knows what to undo of the backup-destination move before it writes anything about it", () => {
+    const step = script.slice(at('if moved="$("$NODE_BIN" "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" 2>&1)"; then'), at("# 7. Restart and verify"));
+    expect(step.indexOf("BACKUP_MOUNT_UNDO=")).toBeGreaterThan(0);
+    expect(step.indexOf("BACKUP_MOUNT_UNDO=")).toBeLessThan(step.indexOf('relay "$moved"'));
+    // The undo's own output is captured too, not written to wherever stdout went.
+    const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
+    expect(rollback).toContain('if undone="$("$NODE_BIN" "${INSTALL_DIR}/scripts/boxpilot-backup-mount-move.mjs" undo "$BACKUP_MOUNT_UNDO" 2>&1)"; then');
+  });
+
+  it("health-checks the port and address the service's env file gives, not 8787", () => {
+    expect(script).not.toContain("BOXPILOT_HEALTH_URL:-http://127.0.0.1:8787");
+    expect(script).toContain('HEALTH_URL="${BOXPILOT_HEALTH_URL:-http://${WEB_HOST}:${WEB_PORT}/api/v1/health}"');
+    // With parseInt's reading, as the service takes it: `9000   # moved off 8787` is 9000.
+    expect(script).toContain('WEB_PORT="$(port_of "$(env_value BOXPILOT_PORT)")"');
+  });
+
+  // The installer and the doctor read the env file with the same parser, so the three agree with
+  // each other as well as with systemd (tests/ubuntu/env-file-parity.sh).
+  it("reads the env file with the same parser as the installer and the doctor", async () => {
+    const body = (text, name) => new RegExp(`^${name}\\(\\) \\{\\n([\\s\\S]*?)\\n\\}$`, "m").exec(text)?.[1];
+    const install = (await readFile("scripts/boxpilot-install.sh", "utf8")).replaceAll("\r\n", "\n");
+    const doctor = (await readFile("scripts/boxpilot-doctor.sh", "utf8")).replaceAll("\r\n", "\n");
+    expect(body(script, "env_file_value")).toContain("awk -v want=");
+    expect(body(install, "env_file_value")).toBe(body(script, "env_file_value"));
+    expect(body(doctor, "boxpilot_env_file_value")).toBe(body(script, "env_file_value"));
+    expect(body(install, "port_of")).toBe(body(script, "port_of"));
+    expect(body(doctor, "boxpilot_port_of")).toBe(body(script, "port_of"));
+  });
+});
+
+// The scripts run for real by sh (dash on Ubuntu), with stub commands and their paths moved under a
+// scratch directory: health on the env file's port (read as systemd reads it), rollback on TERM and
+// HUP and with nobody reading the output, a re-run installer keeping the port and access, a new
+// --port checked and put back, ufw, the backup mount point left alone, and the doctor's port. Also
+// under bash, which the scripts are sometimes run with by hand. Needs POSIX sh, perl for a Unix
+// socket, mkfifo, and tar: Linux CI runs it; Windows skips it.
+describe("the install and upgrade scripts, run with stub commands", () => {
+  it.skipIf(onWindows).each(["sh", "bash"])("pass tests/ubuntu/install-upgrade-stubbed.sh under %s", (shell) => {
+    const result = spawnSync("bash", ["tests/ubuntu/install-upgrade-stubbed.sh"], { encoding: "utf8", env: { ...process.env, SH: shell }, timeout: 180_000 });
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain("all checks passed");
+  }, 210_000);
 });

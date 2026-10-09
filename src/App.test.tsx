@@ -5,10 +5,19 @@ import { navItems, viewLabel } from "./data";
 import { viewCopy } from "./pageCopy";
 import { dockAreas } from "./shell/ShellNav";
 import { connectionLabel } from "./appLinks";
+import { reloadLookChoice } from "./looks/useLook";
+
+/** Chooses a look as Settings → Appearance keeps it, before App reads it. */
+function chooseLook(entries: Record<string, string>) {
+  for (const [key, value] of Object.entries(entries)) window.localStorage.setItem(key, value);
+  reloadLookChoice();
+}
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  for (const key of ["boxpilot-look", "boxpilot-look-scope"]) window.localStorage.removeItem(key);
+  reloadLookChoice();
   // A test that fails half way must not leave the next one on its page.
   window.history.replaceState(null, "", "/");
 });
@@ -40,6 +49,8 @@ describe("BoxPilot console", () => {
   const dock = () => screen.getByRole("navigation", { name: "Admin areas" });
 
   it("lands on Home, and opens every other area inside the console", async () => {
+    // Today's arrangement as a look (M41): the Command Center everywhere but Home, which keeps the Launcher.
+    chooseLook({ "boxpilot-look": "console", "boxpilot-look-scope": "not-home" });
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
     const { container } = render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
@@ -62,9 +73,61 @@ describe("BoxPilot console", () => {
     fireEvent.click(within(screen.getByRole("navigation", { name: "Views" })).getByRole("button", { name: "Home" }));
     expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
     expect(document.documentElement.dataset.shell).toBe("launcher");
+    expect(document.documentElement.dataset.look).toBe("launcher");
+  });
+
+  it("draws every page in the chosen look, Home included, and goes around the look's way (M41)", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    const { container } = render(<App />);
+    // The default look is Home + Ops: Home is inside the console too, and the areas are in the sidebar.
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+    expect(document.documentElement.dataset.look).toBe("blend");
+    expect(container.querySelector(".app-shell")?.getAttribute("data-shell")).toBe("console");
+    expect(container.querySelector(".app-shell")?.getAttribute("data-nav")).toBe("sidebar");
+    const sidebar = screen.getByRole("navigation", { name: "Areas" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Storage" }));
+    await screen.findByRole("heading", { level: 1, name: "Storage" });
+    expect(within(sidebar).getByRole("button", { name: "Storage" }).getAttribute("aria-current")).toBe("page");
+    // Settings → Appearance: while Settings is open the sidebar lists its sections, as the drawing
+    // does, and "All areas" brings the areas back without leaving the page.
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
+    const sections = await screen.findByRole("navigation", { name: "Settings sections" });
+    fireEvent.click(within(sections).getByRole("button", { name: "Appearance" }));
+    // Settings is its own chunk, fetched the first time it opens.
+    expect(await screen.findByRole("heading", { level: 1, name: "Appearance" }, { timeout: 5000 })).toBeTruthy();
+    expect(window.location.search).toContain("tab=appearance");
+    expect(screen.queryByRole("tab", { name: "Appearance" })).toBeNull();
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Look" })).getByRole("radio", { name: /^Phosphor/ }));
+    expect(document.documentElement.dataset.look).toBe("phosphor");
+    expect(window.localStorage.getItem("boxpilot-look")).toBe("phosphor");
+    expect(container.querySelector(".app-shell")?.getAttribute("data-nav")).toBe("rail");
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(document.documentElement.dataset.look).toBe("blend");
+    expect(window.localStorage.getItem("boxpilot-look")).toBeNull();
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("button", { name: "All areas" }));
+    expect(within(screen.getByRole("navigation", { name: "Areas" })).getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  // Settings chosen again from Appearance dropped the section from the address but left Appearance on
+  // show, until any later render jumped to Account, in the middle of trying a look.
+  it("opens Settings at its first section when chosen again from another section", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+    const menu = () => screen.getAllByRole("button", { name: "Account: operator" })[0];
+    fireEvent.click(menu());
+    fireEvent.click(screen.getByRole("menuitem", { name: "Appearance" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Appearance" }, { timeout: 5000 })).toBeTruthy();
+    fireEvent.click(menu());
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    expect(window.location.search).not.toContain("tab=");
+    expect(await screen.findByRole("heading", { level: 1, name: "Account & sign-in" })).toBeTruthy();
   });
 
   it("never draws the old frame: no page header, no feature strip, the description behind the info toggle", async () => {
+    // Every page in the Command Center, where each page's own name is its title in the bar; Home
+    // keeps the Launcher it greets from.
+    chooseLook({ "boxpilot-look": "console", "boxpilot-look-scope": "not-home" });
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
     const { container } = render(<App />);
     await screen.findByRole("heading", { level: 1, name: greeting });
@@ -190,6 +253,32 @@ describe("BoxPilot console", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("opens an app's sheet from the command bar again, when the catalog was first opened at that same app", async () => {
+    // The page is keyed by the app it opens at: asked for the same app again, nothing remounted and
+    // the sheet, once closed, never came back.
+    const jellyfin = {
+      id: "jellyfin", name: "Jellyfin", category: "Media", description: "Media server", website: null, icon: null, risk: "medium", notes: null,
+      image: { reference: "jellyfin/jellyfin:10.10.7", version: "10.10.7", digestPinned: false },
+      ports: [{ id: "web", label: "Web UI", container: 8096, host: 8096, protocol: "tcp", exposure: "lan", fixed: false }], volumes: [], env: [],
+      health: { kind: "healthcheck", stableSeconds: 10, timeoutSeconds: 240 }, sha256: "abc",
+    };
+    const catalog = { applications: [{ manifest: jellyfin, live: { id: "jellyfin", installed: false, dataPresent: false, state: null, container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: [] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => (input.toString().startsWith("/api/v1/catalog")
+      ? Promise.resolve(new Response(JSON.stringify(catalog), { status: 200, headers: { "Content-Type": "application/json" } }))
+      : authenticatedFetch(input))));
+    window.history.replaceState(null, "", "/?view=catalog&app=jellyfin");
+    render(<App />);
+    const sheet = await screen.findByRole("dialog", { name: "Jellyfin" });
+    fireEvent.click(within(sheet).getByRole("button", { name: /^Close/ }));
+    await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "Jellyfin" })).toBeNull());
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const input = within(screen.getByRole("dialog", { name: "Search BoxPilot" })).getByRole("combobox");
+    fireEvent.change(input, { target: { value: "Install Jellyfin" } });
+    await screen.findByRole("option", { name: /Install Jellyfin/ });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
+  });
+
   it("opens the design system gallery only when the server is the demo", async () => {
     // The gallery (M33.1) is for reviewing components; a real BoxPilot ignores ?gallery.
     const demoFetch = (input: RequestInfo | URL) => input.toString().endsWith("/api/v1/health")
@@ -217,5 +306,63 @@ describe("BoxPilot console", () => {
     const theme = screen.getByRole("radiogroup", { name: "Theme" });
     expect(theme.closest(".topbar")).not.toBeNull();
     expect(within(theme).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["System", "Light", "Dark"]);
+  });
+
+  describe("opened from the home screen (M25)", () => {
+    const phone = (matches: boolean) => vi.stubGlobal("matchMedia", (query: string) => ({ matches: matches && query.includes("max-width"), media: query, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, onchange: null, dispatchEvent: () => false }));
+
+    it("starts a phone on Today, and leaves the address as a link to it", async () => {
+      phone(true);
+      vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+      window.history.replaceState(null, "", "/?launch=pwa");
+      render(<App />);
+      expect(await screen.findByRole("heading", { level: 1, name: "Today" })).toBeTruthy();
+      expect(window.location.search).toBe("?view=today");
+      expect(within(dock()).getByRole("button", { name: /^Today/ }).getAttribute("aria-current")).toBe("page");
+    });
+
+    it("starts anything wider on Home", async () => {
+      phone(false);
+      vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+      window.history.replaceState(null, "", "/?launch=pwa");
+      render(<App />);
+      expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+      expect(window.location.search).toBe("");
+    });
+
+    it("opens offline as the account this device remembers, saying so, when BoxPilot cannot be reached", async () => {
+      window.localStorage.setItem("boxpilot:signed-in-until", new Date(Date.now() + 3_600_000).toISOString());
+      window.localStorage.setItem("boxpilot:signed-in-as", JSON.stringify({ id: "owner-one", username: "alex", role: "owner" }));
+      vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+      window.history.replaceState(null, "", "/?view=today");
+      render(<App />);
+      expect(await screen.findByRole("heading", { level: 1, name: "Today" })).toBeTruthy();
+      expect(screen.queryByText(/Unable to reach|could not be reached/i, { selector: "h1" })).toBeNull();
+      window.localStorage.clear();
+    });
+
+    it("opens the approval a push named, over Today, in the ordinary dialog (M25.2)", async () => {
+      const id = "0f8b3c1e-1111-4222-8333-444455556666";
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url === `/api/v1/jobs/${id}`) return new Response(JSON.stringify({ job: { id, type: "op:app.update", title: "Update an app", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [], createdAt: "2026-09-29T07:00:00Z" } }), { headers: { "Content-Type": "application/json" } });
+        if (url === `/api/v1/jobs/${id}/approval`) return new Response(JSON.stringify({ tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", confirmText: null }), { headers: { "Content-Type": "application/json" } });
+        return authenticatedFetch(input);
+      }));
+      window.history.replaceState(null, "", `/?approve=${id}`);
+      render(<App />);
+      const dialog = await screen.findByRole("dialog", { name: "Update an app" });
+      expect(await within(dialog).findByText("Medium risk")).toBeTruthy();
+      expect(window.location.search).toBe("?view=today");
+      expect(await screen.findByRole("heading", { level: 1, name: "Today" })).toBeTruthy();
+    });
+
+    it("shows the sign-in problem, as before, when no session was remembered", async () => {
+      window.localStorage.clear();
+      vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+      render(<App />);
+      await vi.waitFor(() => expect(screen.queryByRole("heading", { level: 1, name: "Today" })).toBeNull());
+      expect(await screen.findByText(/Failed to fetch/)).toBeTruthy();
+    });
   });
 });

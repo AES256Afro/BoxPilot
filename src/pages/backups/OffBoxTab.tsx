@@ -60,6 +60,8 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   const [cloudForm, setCloudForm] = useState<{ provider: string; values: Record<string, string> } | null>(null);
 
   const mounted = Boolean(machine?.sync.mount.mounted);
+  // What the last sync to the drive left out (R5B4-7): recent, and still not every backup.
+  const driveSkipped = machine?.sync.lastSync?.skippedCount ?? 0;
   const destination = remoteSettings?.destination ?? null;
   const pinned = (remote?.hostKeysPinned ?? 0) > 0;
 
@@ -94,13 +96,16 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   };
   const saveCloud = () => {
     if (!cloudForm || !complete || !cloud?.rcloneInstalled) return;
-    const { provider, values } = cloudForm;
+    const kept = cloudForm;
+    const { provider, values } = kept;
     setCloudForm(null);
     start({
       operationId: "backup.cloud.setup",
       title: `Save the ${spec?.label ?? provider} backup destination`,
       parameters: { provider, ...Object.fromEntries([...fields, ...secrets].map((field) => [field, (values[field] ?? "").trim()]).filter(([, value]) => value)) },
       preview: <span>Writes the rclone remote to <code>/etc/boxpilot/secrets/rclone.conf</code> (root only). The {secrets.map((field) => fieldLabels[field] ?? field).join(" and ")} stays in memory until this job runs and is never stored in BoxPilot's database. Test the connection afterwards.</span>,
+      // The sheet closes for the approval, and comes back as it was filled in unless the job completed.
+      onClosed: (job) => { if (job?.state !== "completed") setCloudForm(kept); },
     });
   };
 
@@ -139,11 +144,19 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           ? <p className="backups-pad backups-dim">The backup drive's state could not be read.</p>
           : mounted
             ? (
-              <KeyValue items={[
-                { id: "to", label: "Copies to", value: machine.sync.destination, mono: true },
-                { id: "free", label: "Free", value: formatBytes(machine.sync.mount.freeBytes ?? null), mono: true },
-                { id: "last", label: "Last synced", value: machine.sync.lastSync ? `${when(machine.sync.lastSync.completedAt)} · ${countOf(machine.sync.lastSync.copiedCount, "file")}` : "never", mono: true, status: machine.sync.lastSync ? undefined : "warning" },
-              ]} />
+              <>
+                <KeyValue items={[
+                  { id: "to", label: "Copies to", value: machine.sync.destination, mono: true },
+                  { id: "free", label: "Free", value: formatBytes(machine.sync.mount.freeBytes ?? null), mono: true },
+                  { id: "last", label: "Last synced", value: machine.sync.lastSync ? `${when(machine.sync.lastSync.completedAt)} · ${countOf(machine.sync.lastSync.copiedCount, "file")}${driveSkipped ? ` · ${driveSkipped} not copied` : ""}` : "never", mono: true, status: !machine.sync.lastSync || driveSkipped ? "warning" : undefined },
+                ]} />
+                {driveSkipped > 0 && (
+                  <Notice tone="warning" className="backups-inset" title={`The last sync left ${countOf(driveSkipped, "file")} out`}>
+                    <ul>{(machine.sync.lastSync?.skipped ?? []).map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                    {driveSkipped > (machine.sync.lastSync?.skipped ?? []).length && <p>The job of that sync lists the rest.</p>}
+                  </Notice>
+                )}
+              </>
             )
             : (
               <EmptyState title="No backup drive is mounted" action={onNavigate ? <Button onClick={() => onNavigate("storage")}>Open Storage</Button> : undefined}>
@@ -187,7 +200,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           {savedCloud && may("backup.cloud.sync") && <Button variant="primary" risk={riskOf("backup.cloud.sync")} onClick={() => start({ operationId: "backup.cloud.sync", title: "Mirror backups to the cloud", parameters: {}, preview: <span><code>rclone copy --checksum</code> of the controller backups, app backups, and machine snapshots to the destination. Files already there are verified, not re-uploaded; nothing is ever deleted at the destination.</span> })}>Mirror now</Button>}
         </>}
       >
-        {cloudError && <Notice tone="danger" live title="The cloud destination could not be read">{cloudError}</Notice>}
+        {cloudError && <Notice tone="danger" live title="The cloud destination could not be read" action={<Button onClick={onChanged}>Try again</Button>}>{cloudError}</Notice>}
         <KeyValue items={[
           { id: "provider", label: "Provider", value: savedCloud ? cloud?.providers?.[savedCloud.provider]?.label ?? savedCloud.provider : "not set" },
           ...(savedCloud?.bucket ? [{ id: "bucket", label: "Bucket", value: savedCloud.bucket, mono: true }] : []),

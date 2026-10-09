@@ -37,6 +37,10 @@ export interface JobTimeout {
   step: string | null;
   lastOutput: string | null;
   moreTimeMs: number | null;
+  /** True when the step that ran out was left running on the server (a root task past its own limit). */
+  stillRunning?: boolean;
+  /** On a finding's last try: what it may have left running can no longer be (12 hours on, or let go). */
+  settled?: boolean;
 }
 
 export interface Job {
@@ -91,6 +95,24 @@ export function approveJob(jobId: string, csrfToken: string, password?: string, 
     headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
     body: JSON.stringify({ ...(password ? { password } : {}), ...(confirmText ? { confirmText } : {}) }),
   }).then((response) => readJson(response));
+}
+
+/**
+ * What a finished job showed once (its operation's oneTimeFields, M38: Zulip's organization link):
+ * the server hands it to the person who ran the job the first time they ask, and never again.
+ */
+export function takeOneTimeResult(jobId: string, csrfToken: string): Promise<{ jobId: string; value: Record<string, unknown> }> {
+  return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}/once`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: "{}",
+  }).then((response) => readJson(response));
+}
+
+/** The result fields a finished job showed once, from its stored result. */
+export function oneTimeFields(result: unknown): string[] {
+  if (!result || typeof result !== "object" || !("oneTime" in result) || !Array.isArray(result.oneTime)) return [];
+  return result.oneTime.filter((field): field is string => typeof field === "string").slice(0, 4);
 }
 
 /** What approving a staged job needs right now (elevation can lapse after staging). */

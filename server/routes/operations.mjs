@@ -5,6 +5,7 @@
  */
 import { Router } from "express";
 import { registry, riskTiers } from "../ops/index.mjs";
+import { internalRefusal } from "../ops/registry.mjs";
 import { callerId, seesEveryAccount } from "./access.mjs";
 
 export function createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }) {
@@ -17,6 +18,8 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
   // Read-only registered operations run immediately (no job, no approval); parameter-free only for now.
   /** Read-only operations may still be limited to a role (the journal) or to an elevated session (secrets). */
   function refuseRead(request, response, operation) {
+    // BoxPilot's own plumbing (the agents' Zulip reads) runs when BoxPilot calls it, not from here (sweep 3).
+    if (operation.internal) { response.status(403).json({ error: internalRefusal(operation), code: "operation_internal" }); return true; }
     const role = request.boxpilotSession?.owner?.role ?? "owner";
     if (operation.minimumRole === "owner" && role !== "owner") { response.status(403).json({ error: "Only the owner can read this", code: "forbidden" }); return true; }
     // Name what was refused. This used to say "not read raw system logs" for every operator-gated
@@ -71,6 +74,7 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
       const job = await jobs.createOperationJob(request.params.id, request.body?.parameters ?? {}, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
       return response.status(201).json({ job, approval: jobs.describeApproval(job.id, request.boxpilotSession) });
     } catch (error) {
+      if (error.code === "operation_internal") return response.status(403).json({ error: error.message, code: "operation_internal" });
       const status = error.message === "Operation not found" ? 404 : error.message.includes("Read-only") ? 405 : error.message.includes("Only the owner") || error.message.includes("Viewers cannot") ? 403 : 400;
       return response.status(status).json({ error: error.message, code: "operation_job_rejected" });
     }

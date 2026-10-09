@@ -198,9 +198,15 @@ describe("the builder", () => {
     expect(screen.getByRole("radiogroup", { name: "Logs: permission" })).toBeTruthy();
     expect(screen.getByRole("table", { name: "Tools and their permissions" }).textContent).toContain("operator");
     fireEvent.change(name, { target: { value: "Keeper" } });
+    // M45.3: Claude, with what may leave the server; the local model's thinking stays as it was.
+    expect(screen.queryByLabelText("What may leave this server")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude" } });
+    fireEvent.change(screen.getByLabelText("What may leave this server"), { target: { value: "as-is" } });
     fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
     expect(await screen.findByText("Saved as version 3.")).toBeTruthy();
-    expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec.name).toBe("Keeper");
+    const saved = (calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec;
+    expect(saved.name).toBe("Keeper");
+    expect(saved.model).toMatchObject({ route: "claude", dataPolicy: "as-is", thinking: spec.model.thinking });
 
     fireEvent.click(screen.getByRole("button", { name: "Compare version 1" }));
     const sheet = await screen.findByRole("dialog", { name: "Version 1" });
@@ -208,6 +214,30 @@ describe("the builder", () => {
     expect(within(sheet).getByText("+ Look first.", { exact: false })).toBeTruthy();
     fireEvent.click(within(sheet).getByRole("button", { name: "Roll back to version 1" }));
     await waitFor(() => expect(calls.find((call) => call.path.endsWith("/rollback"))?.body).toEqual({ version: 1 }));
+  });
+});
+
+describe("the builder's team chat (M38)", () => {
+  it("has every output on by default for an agent saved before it, and saves the channel, topic and switches the owner sets", async () => {
+    const calls = serve(base({
+      "POST /api/v1/agents": detail(1),
+      [`GET /api/v1/agents/${keeperId}`]: detail(2),
+      [`PUT /api/v1/agents/${keeperId}`]: (init: RequestInit | undefined) => json(detail(3, JSON.parse(String(init?.body)).spec.name)),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Build" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Make a Server Keeper" }));
+    const channel = await screen.findByLabelText("Findings channel");
+    expect((channel as HTMLInputElement).placeholder).toBe("agent-findings");
+    expect(screen.getByRole("switch", { name: "Post logs" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.change(channel, { target: { value: "#house" } });
+    fireEvent.change(screen.getByLabelText("Findings topic"), { target: { value: "Keeper answers" } });
+    fireEvent.click(screen.getByRole("switch", { name: "Post logs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+    expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec.outputs.chat).toEqual({
+      findings: { enabled: true, channel: "house", topic: "Keeper answers" }, logs: { enabled: false, channel: null, topic: null }, knowledge: { enabled: true, channel: null, topic: null },
+    });
   });
 });
 
@@ -236,18 +266,75 @@ describe("the builder's steps", () => {
     expect(await within(webhook).findByText("Copy it now")).toBeTruthy();
     expect(webhook.textContent).toContain(`/api/v1/hooks/agents/${keeperId}/`);
   });
+
+  it("keeps what is being edited when its webhook URL is made", async () => {
+    // Making the URL reads the agent again, and that used to put the saved spec back over the form.
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    const hooked = { ...detail(2), webhook: { enabled: true, minted: false }, spec: { ...spec, triggers: { ...spec.triggers, webhook: true } } };
+    let reads = 0;
+    serve(base({
+      [`GET /api/v1/agents/${keeperId}`]: () => { reads += 1; return json(reads > 1 ? { ...hooked, webhook: { enabled: true, minted: true } } : hooked); },
+      [`POST /api/v1/agents/${keeperId}/webhook`]: { token: "t".repeat(43), path: `/api/v1/hooks/agents/${keeperId}/${"t".repeat(43)}` },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const job = await screen.findByLabelText("Its one job") as HTMLTextAreaElement | HTMLInputElement;
+    fireEvent.change(job, { target: { value: "Watch the backups and say when one is late." } });
+    fireEvent.click(within(screen.getByRole("region", { name: "Webhook" })).getByRole("button", { name: "Make its URL" }));
+    await waitFor(() => expect(reads).toBe(2));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Webhook" })).getByRole("button", { name: "Make a new URL" })).toBeTruthy());
+    expect((screen.getByLabelText("Its one job") as HTMLTextAreaElement | HTMLInputElement).value).toBe("Watch the backups and say when one is late.");
+  });
+
+  // "Test it" with unsaved changes opened the Test tab on the saved version, and the changes were gone.
+  it("asks before testing with unsaved changes, and saves them first when told to", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}`]: detail(2),
+      [`PUT /api/v1/agents/${keeperId}`]: (init: RequestInit | undefined) => json(detail(3, JSON.parse(String(init?.body)).spec.name)),
+      [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [] },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Keeper" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test it" }));
+    // Still on Build, the change still there, and the choice said.
+    expect(screen.getByRole("tab", { name: "Build" }).getAttribute("aria-selected")).toBe("true");
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Keeper");
+    expect(screen.getByText(/runs the saved version, v2/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.queryByText(/runs the saved version, v2/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Test it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save, then test" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Test" }).getAttribute("aria-selected")).toBe("true"));
+    expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec.name).toBe("Keeper");
+  });
+
+  it("goes straight to testing when nothing is unsaved", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    serve(base({ [`GET /api/v1/agents/${keeperId}`]: detail(2), [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [] } }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    await screen.findByLabelText("Name");
+    fireEvent.click(screen.getByRole("button", { name: "Test it" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Test" }).getAttribute("aria-selected")).toBe("true"));
+  });
 });
 
 describe("the test console", () => {
   it("runs an agent once, follows its trace to the answer, and stages a card's step through the approval dialog", async () => {
     window.history.replaceState(null, "", `/?view=agents&tab=test&agent=${keeperId}`);
     let reads = 0;
+    let approved = false;
     const calls = serve(base({
       [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [] },
       [`POST /api/v1/agents/${keeperId}/runs`]: () => json({ ...finishedRun, state: "queued", steps: [], answer: null, proposals: [] }, 202),
       [`GET /api/v1/agents/runs/${finishedRun.id}`]: () => { reads += 1; return json(reads > 1 ? finishedRun : { ...finishedRun, state: "running", answer: null, proposals: [], steps: finishedRun.steps?.slice(0, 2) }); },
       "POST /api/v1/operations/app.backup/jobs": () => json({ job: { id: "55555555-5555-4555-8555-555555555555", type: "op:app.backup", title: "Back up application data", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201),
-      [`POST /api/v1/agents/proposals/${proposal.id}/decide`]: { ...proposal, state: "staged", jobIds: ["55555555-5555-4555-8555-555555555555"] },
+      // The server keeps which job the step was staged as, and decides the card once it is approved.
+      [`POST /api/v1/agents/proposals/${proposal.id}/steps/0/job`]: () => json(approved
+        ? { ...proposal, state: "staged", jobIds: ["55555555-5555-4555-8555-555555555555"], steps: proposal.steps.map((step) => ({ ...step, jobId: "55555555-5555-4555-8555-555555555555", jobState: "applying", status: "approved" })) }
+        : { ...proposal, steps: proposal.steps.map((step) => ({ ...step, jobId: "55555555-5555-4555-8555-555555555555", jobState: "awaiting_approval", status: "waiting" })) }),
+      "POST /api/v1/jobs/55555555-5555-4555-8555-555555555555/approve": () => { approved = true; return json({ job: { id: "55555555-5555-4555-8555-555555555555", state: "applying" }, elevatedUntil: null }, 202); },
+      "GET /api/v1/jobs/55555555-5555-4555-8555-555555555555": { job: { id: "55555555-5555-4555-8555-555555555555", type: "op:app.backup", title: "Back up application data", state: "completed", risk: "medium", error: null, result: {}, steps: [], approvals: [] } },
+      "GET /api/v1/jobs/55555555-5555-4555-8555-555555555555/output": { jobId: "55555555-5555-4555-8555-555555555555", state: "completed", output: "", live: false },
     }));
     vi.stubGlobal("EventSource", undefined);
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
@@ -263,8 +350,15 @@ describe("the test console", () => {
     const card = screen.getByRole("article", { name: "Card: Back up Vaultwarden" });
     fireEvent.click(within(card).getByRole("button", { name: "Stage Back up application data" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
-    await waitFor(() => expect(calls.find((call) => call.path.endsWith("/decide"))?.body).toEqual({ decision: "staged", jobIds: ["55555555-5555-4555-8555-555555555555"] }));
     expect(calls.find((call) => call.path === "/api/v1/operations/app.backup/jobs")?.body).toEqual({ parameters: { id: "vaultwarden" } });
+    // Staged: the server is told which job the step is, so the card knows wherever it is drawn.
+    await waitFor(() => expect(calls.filter((call) => call.path.endsWith("/steps/0/job")).map((call) => call.body)).toEqual([{ jobId: "55555555-5555-4555-8555-555555555555" }]));
+    expect(within(card).queryByRole("button", { name: "Stage Back up application data" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    // Approved: told again, and the server, not the page, decides the card.
+    await waitFor(() => expect(calls.filter((call) => call.path.endsWith("/steps/0/job"))).toHaveLength(2));
+    await waitFor(() => expect(card.getAttribute("data-state")).toBe("staged"));
+    expect(calls.find((call) => call.path.endsWith("/decide"))).toBeUndefined();
   }, 15_000);
 });
 
@@ -569,6 +663,29 @@ describe("a runner that is not running", () => {
     expect(document.querySelector(".ui-page-header__about")?.textContent).toContain("(four processors at most, idle priority, 8 GiB, this machine only)");
   });
 
+  it("shows the processors while someone waits and in the background, and saves the owner's two numbers (M40)", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=usage");
+    const cores = { waiting: 8, background: 4, ceiling: 8, processors: 16, physical: 8, limits: { min: 2, max: 8, keepFree: 2 }, now: { processors: 8, burst: true, at: ago(1), resetAt: ago(-15), error: null } };
+    const raised = { ...usage, runner: { ...runner, usage: { ...runner.usage, cpuQuotaPercent: 800 } }, caps: { ...caps, cpuQuotaPercent: 400, waitingQuotaPercent: 800 }, module: { ...usage.module, cores } };
+    const calls = serve(base({
+      "GET /api/v1/agents/usage": raised,
+      "GET /api/v1/agents/runtime": { ...runtime, caps: { ...caps, cpuQuotaPercent: 400, waitingQuotaPercent: 800 } },
+      "PUT /api/v1/settings/agents": { module: { ...usage.module, cores } },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect(await screen.findByText("of a 800% cap (eight processors, while someone waits)")).toBeTruthy();
+    const hard = screen.getByRole("region", { name: "Hard caps" });
+    expect(hard.textContent).toContain("4 in the background · 8 while you wait");
+    expect(hard.textContent).toContain("800% · raised while someone waits");
+    const waiting = await screen.findByRole("spinbutton", { name: "Processors while you wait" });
+    expect(waiting.getAttribute("max")).toBe("8");
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Processors in the background" }), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "right" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT" && call.path === "/api/v1/settings/agents")?.body).toMatchObject({ password: "right", cores: { waiting: 8, background: 3 } }));
+  });
+
   it("goes on from downloading the model on Usage to starting the runner", async () => {
     window.history.replaceState(null, "", "/?view=agents&tab=usage");
     const calls = serve(base({
@@ -654,6 +771,54 @@ describe("the learning library", () => {
     // A connector's sync is a registered operation, shown with its tier.
     expect(within(outside).getByRole("button", { name: "Sync Notion" }).getAttribute("data-risk")).toBe("low");
   });
+
+  // The library was read once, when the tab opened: after an approved sync it still showed the
+  // documents from before, until the page was opened again.
+  it("reads the library again once an approved sync finishes", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=knowledge");
+    let synced = false;
+    const library = (titles: string[]) => ({
+      sources: [{ id: "documents", title: "Your documents", enabled: true, items: titles.length, size: 900, unit: "characters", indexedAt: ago(300) }],
+      documents: titles.map((title, index) => ({ id: `7777777${index}-7777-4777-8777-777777777777`, title, enabled: true, createdAt: ago(300), characters: 900, source: "notion", externalId: null, pinned: false })),
+      search: { kind: "words (BM25)", embeddings: "off", pending: 0, vectors: 0, enabled: false },
+      learning: { quietHours: { start: "02:00", end: "06:00" }, agents: [] }, canChange: true,
+      connectors: { notion: { enabled: true, credential: "notion-token" }, slack: { enabled: false, credential: null, channels: [] } },
+      folder: { enabled: false, path: null }, webSearch: { enabled: false, endpoint: null },
+    });
+    const job = (state: string) => ({ id: "job-sync", type: "op:agents.connector.sync", title: "Sync Notion", state, risk: "low", error: null, result: {}, steps: [], approvals: [] });
+    serve(base({
+      "GET /api/v1/agents/knowledge": () => json(library(synced ? ["Runbook", "Network plan"] : ["Runbook"])),
+      "POST /api/v1/operations/agents.connector.sync/jobs": () => json({ job: job("awaiting_approval"), approval: { tier: "low", passwordRequired: false, elevated: false, mode: "tiered", confirmText: null } }, 201),
+      "POST /api/v1/jobs/job-sync/approve": () => { synced = true; return json({ job: job("applying"), elevatedUntil: null }, 202); },
+      "GET /api/v1/jobs/job-sync": () => json({ job: job("completed") }),
+      "GET /api/v1/jobs/job-sync/output": { jobId: "job-sync", state: "completed", output: "", live: false },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const documents = await screen.findByRole("table", { name: "Documents you gave the agents" });
+    expect(within(documents).queryByText("Network plan")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Sync Notion" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+    await screen.findByText("Completed.", {}, { timeout: 4000 });
+    expect(await within(screen.getByRole("table", { name: "Documents you gave the agents" })).findByText("Network plan")).toBeTruthy();
+  });
+
+  it("says when images wait because the model server cannot see (M40.6)", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=knowledge");
+    serve(base({
+      "GET /api/v1/agents/knowledge": {
+        sources: [{ id: "documents", title: "Your documents", enabled: true, items: 1, size: 120, unit: "characters", indexedAt: null }],
+        documents: [{ id: "99999999-9999-4999-8999-999999999999", title: "Image: rack", enabled: true, createdAt: ago(300), characters: 120, source: "zulip", externalId: "302:/user_uploads/rack.png", pinned: false, mediaType: "image/png", describedAt: null }],
+        search: { kind: "words (BM25)", embeddings: "off", pending: 0, vectors: 0, enabled: false },
+        learning: { quietHours: { start: "02:00", end: "06:00" }, agents: [] },
+        canChange: true,
+        vision: { vision: false, reason: "it started without its vision projector (mmproj load failed)", at: ago(60) },
+      },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect(await screen.findByText("An image waits for a model that can see")).toBeTruthy();
+    expect(screen.getByText(/The model server said it cannot see images: it started without its vision projector \(mmproj load failed\)\. Nothing is sent to it/)).toBeTruthy();
+    expect(screen.getByRole("region", { name: "How agents search" }).textContent).toContain("waiting: the model cannot see them (it started without its vision projector (mmproj load failed))");
+  });
 });
 
 describe("memory", () => {
@@ -688,6 +853,199 @@ describe("memory", () => {
     fireEvent.click(screen.getByRole("button", { name: "Index now" }));
     await waitFor(() => expect(calls.filter((call) => call.method === "DELETE").map((call) => call.path.split("/memory/")[1])).toEqual([`notes/${fact.id}`, "episodes/e1", "thread"]));
     await waitFor(() => expect(calls.some((call) => call.path.endsWith("/reindex"))).toBe(true));
+    // Only a fact kept after suspicious tool output can be trusted as it is (sweep 3).
+    expect(within(facts).queryByRole("button", { name: "Trust the fact The server" })).toBeNull();
+  });
+
+  it("lists the examples the planner is shown, says why each was kept, forgets one, and offers the owner the export (M46)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: { facts: [], shared: [], episodes: [], thread: null, settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 }, search: { byMeaning: false, model: "none", pending: 0, vectors: 0 } },
+      [`GET /api/v1/agents/${keeperId}/examples`]: { counts: { total: 2, seeds: 1 }, examples: [
+        { id: "x1", request: "Which BoxPilot apps are stopped?", tools: ["apps.list"], plan: [{ step: "Read apps", tool: "apps.list" }], answer: "None.", signal: "thumbs-up", seed: false, runId: "run-1", route: "local", readRole: "owner", createdAt: ago(120), embedded: true },
+        { id: "x2", request: "Where does Pi-hole run on this server?", tools: ["where.runs"], plan: [{ step: "Read where.runs", tool: "where.runs" }], answer: null, signal: "seed", seed: true, runId: null, route: null, readRole: "viewer", createdAt: ago(600), embedded: false },
+      ] },
+      [`DELETE /api/v1/agents/${keeperId}/examples/x1`]: { deleted: true },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const book = await screen.findByRole("table", { name: "Examples Server Keeper plans from" });
+    expect(book.textContent).toContain("Which BoxPilot apps are stopped?");
+    expect(book.textContent).toContain("plans apps.list · indexed");
+    expect(book.textContent).toContain("a thumbs up");
+    expect(book.textContent).toContain("from the template");
+    expect(screen.getByRole("button", { name: "Export as training data" })).toBeTruthy();
+    fireEvent.click(within(book).getByRole("button", { name: "Forget the example Which BoxPilot apps are stopped?" }));
+    await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.path.endsWith("/examples/x1"))).toBe(true));
+  });
+
+  it("lets the owner trust a fact kept after suspicious tool output, as it is (sweep 3)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const fact = { id: "99999999-9999-4999-8999-999999999999", title: "Sign-in", body: "The app asked for a sign-in.", source: { by: "agent", tools: ["logs.query"], injection: true }, createdAt: ago(600), updatedAt: ago(600), freshUntil: ago(-6000), stale: false, pinned: false, shared: false, readRole: "owner", indexed: false };
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        facts: [fact], shared: [], episodes: [], thread: null,
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`PUT /api/v1/agents/${keeperId}/memory/notes/${fact.id}`]: { ...fact, source: { ...fact.source, injection: false } },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const facts = await screen.findByRole("table", { name: "Facts Server Keeper learned" });
+    expect(facts.textContent).toContain("after suspicious tool output");
+    fireEvent.click(within(facts).getByRole("button", { name: "Trust the fact Sign-in" }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT")?.body).toEqual({ trusted: true }));
+  });
+
+  it("saves only what was changed in an edit, so a new freshness never trusts a flagged fact (sweep 4, R4B4-1)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const fact = { id: "99999999-9999-4999-8999-999999999998", title: "Sign-in", body: "The app asked for a sign-in.", source: { by: "agent", tools: ["logs.query"], injection: true }, createdAt: ago(600), updatedAt: ago(600), freshUntil: ago(-6000), stale: false, pinned: false, shared: false, readRole: "owner", indexed: false };
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        facts: [fact], shared: [], episodes: [], thread: null,
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`PUT /api/v1/agents/${keeperId}/memory/notes/${fact.id}`]: fact,
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const facts = await screen.findByRole("table", { name: "Facts Server Keeper learned" });
+    const edit = async (change: () => void) => {
+      fireEvent.click(within(facts).getByRole("button", { name: "Edit the fact Sign-in" }));
+      await screen.findByRole("combobox", { name: /Stays fresh/ });
+      change();
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    };
+    await edit(() => fireEvent.change(screen.getByRole("combobox", { name: /Stays fresh/ }), { target: { value: "7" } }));
+    await waitFor(() => expect(calls.filter((call) => call.method === "PUT").map((call) => call.body)).toEqual([{ freshDays: 7 }]));
+    await edit(() => fireEvent.change(screen.getByRole("textbox", { name: "Title" }), { target: { value: "Sign-in prompts" } }));
+    await waitFor(() => expect(calls.filter((call) => call.method === "PUT").map((call) => call.body).at(-1)).toEqual({ title: "Sign-in prompts" }));
+    await edit(() => fireEvent.change(screen.getByRole("textbox", { name: "What it remembers" }), { target: { value: "Nothing needs a sign-in." } }));
+    await waitFor(() => expect(calls.filter((call) => call.method === "PUT").map((call) => call.body).at(-1)).toEqual({ body: "Nothing needs a sign-in." }));
+  });
+
+  it("says when a fact's words are another account's, and lets the owner trust them (sweep 4, R4B1-2)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const fact = { id: "99999999-9999-4999-8999-999999999997", title: "Fans", body: "The case fan spins up at night.", source: { by: "agent", wordsBy: { id: "acc-operator", role: "operator" } }, createdAt: ago(600), updatedAt: ago(600), freshUntil: ago(-6000), stale: false, pinned: false, shared: true, readRole: "operator", indexed: false, othersWords: true };
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        facts: [fact], shared: [], episodes: [], thread: null,
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`PUT /api/v1/agents/${keeperId}/memory/notes/${fact.id}`]: { ...fact, othersWords: false },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const facts = await screen.findByRole("table", { name: "Facts Server Keeper learned" });
+    expect(facts.textContent).toContain("another account's words");
+    fireEvent.click(within(facts).getByRole("button", { name: "Trust the fact Fans" }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT")?.body).toEqual({ trusted: true }));
+  });
+
+  it("marks another agent's shared fact that is another account's words, and trusts it on that agent (sweep 5, R5B4-6)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const shared = (id: string, extra: Record<string, unknown>) => ({ id, agentId: helperId, title: "Drive readings", body: "sda is 42% full.", from: "IT Support helper", updatedAt: ago(60), stale: false, injection: false, othersWords: true, canTrust: true, ...extra });
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        facts: [], episodes: [], thread: null,
+        shared: [shared("n-1", {}), shared("n-2", { title: "Fan speed", othersWords: false }), shared("n-3", { title: "Not mine to trust", canTrust: false })],
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80 },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`PUT /api/v1/agents/${helperId}/memory/notes/n-1`]: { id: "n-1", othersWords: false },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const table = await screen.findByRole("table", { name: "Facts other agents share" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows[0].textContent).toContain("another account's words");
+    expect(rows[1].textContent).not.toContain("another account's words");
+    expect(within(table).queryByRole("button", { name: "Trust the shared fact Fan speed" })).toBeNull();
+    expect(within(table).queryByRole("button", { name: "Trust the shared fact Not mine to trust" })).toBeNull();
+    fireEvent.click(within(table).getByRole("button", { name: "Trust the shared fact Drive readings" }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT")).toMatchObject({ path: `/api/v1/agents/${helperId}/memory/notes/n-1`, body: { trusted: true } }));
+  });
+});
+
+describe("findings (M44)", () => {
+  it("shows both switches on the Build tab, on for an agent saved before them, and saves the owner's choice", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}`]: detail(2),
+      [`PUT /api/v1/agents/${keeperId}`]: (init: RequestInit | undefined) => json({ ...detail(3), spec: JSON.parse(String(init?.body)).spec }),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const share = await screen.findByRole("switch", { name: "Shares its findings with the other agents" });
+    const use = screen.getByRole("switch", { name: "Uses the other agents' findings" });
+    expect([share.getAttribute("aria-checked"), use.getAttribute("aria-checked")]).toEqual(["true", "true"]);
+    // Each with a line of what it does, in the Team step.
+    const team = screen.getByRole("heading", { name: /Team/ }).closest("section") as HTMLElement;
+    expect(team.textContent).toContain("so the other agents need not look again");
+    expect(team.textContent).toContain("when you ask it to check now");
+    // Where to raise a run that keeps running out of time.
+    expect(screen.getByText(/If its runs end with a card saying it ran out of time or reached a limit, raise the longest run, its steps or its tokens here\./)).toBeTruthy();
+    fireEvent.click(use);
+    fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
+    await waitFor(() => expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec } | undefined)?.spec.sharing).toEqual({ shareFindings: true, useFindings: false }));
+  });
+
+  it("has an IT Support helper saved before them use findings and share none", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    serve(base({ [`GET /api/v1/agents/${keeperId}`]: { ...detail(2, "IT Support helper"), template: "it-support" } }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    expect((await screen.findByRole("switch", { name: "Shares its findings with the other agents" })).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("switch", { name: "Uses the other agents' findings" }).getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("lists on the Memory tab what it shared and what it can use, with their age and freshness, and forgets one it shared", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const finding = (id: string, extra: Record<string, unknown>) => ({ id, kind: "routine", title: "Keep a picture of this server.", body: "**All well**: no alerts.", from: "Server Keeper", agentId: keeperId, updatedAt: ago(180), freshUntil: ago(-60 * 23), stale: false, readRole: "owner", runId: "run-1", unsure: false, partial: false, ...extra });
+    const shared = finding("f-1", {});
+    const usable = finding("f-2", { title: "Survey this server", body: "Where to focus\n1. sdb is failing.", from: "Environment Scout", agentId: helperId, updatedAt: ago(60 * 26), freshUntil: ago(-60 * 24 * 6), unsure: true });
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        findings: { shared: [shared, { ...finding("f-3", { kind: "answer", title: "Asked: Is it fine?", stale: true, freshUntil: ago(10) }) }], usable: [usable] },
+        facts: [], shared: [], episodes: [], thread: null,
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80, shareFindings: true, useFindings: true },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`DELETE /api/v1/agents/${keeperId}/memory/notes/f-1`]: { forgotten: true },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const mine = await screen.findByRole("table", { name: "Findings Server Keeper shared" });
+    const rows = within(mine).getAllByRole("row").slice(1);
+    expect(rows[0].textContent).toContain("3 hours ago");
+    expect(rows[0].textContent).toContain("for 23 hours more");
+    // Its words drawn as prose, never as stars.
+    expect(rows[0].querySelector("strong")?.textContent).toBe("All well");
+    expect(rows[0].textContent).not.toContain("**");
+    expect(rows[1].textContent).toContain("went stale 10 minutes ago");
+    const theirs = screen.getByRole("table", { name: "Other agents' findings Server Keeper can use" });
+    expect(theirs.textContent).toContain("from Environment Scout");
+    expect(theirs.textContent).toContain("26 hours ago");
+    expect(theirs.textContent).toContain("not sure");
+    expect(screen.getByRole("region", { name: "How it recalls" }).textContent).toContain("Shares its findings");
+    fireEvent.click(within(mine).getByRole("button", { name: "Forget the finding Keep a picture of this server." }));
+    await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.path.endsWith("/memory/notes/f-1"))).toBe(true));
+  });
+
+  it("says on Usage how many runs findings saved this week", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=usage");
+    serve(base({ "GET /api/v1/agents/usage": { ...usage, findings: { days: 7, runsSaved: 3, answers: 5 } }, "GET /api/v1/agents/runtime": runtime }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const today = await screen.findByRole("region", { name: "Today" });
+    expect(today.textContent).toContain("Runs saved by using findings this week");
+    expect(today.textContent).toMatch(/Runs saved by using findings this week\s*3/);
+    expect(today.textContent).toMatch(/Answers that used another agent's findings\s*5/);
+  });
+
+  it("draws the latest digest's markdown as prose on the Agents tab, with its script kept as text", async () => {
+    serve(base({ "GET /api/v1/agents/glance": { enabled: true, paused: false, runnerOnline: true, digest: { agentId: keeperId, agentName: "Server Keeper", runId: finishedRun.id, at: ago(240), excerpt: "**Daily digest complete.**\n- No alerts [T1].\n- <script>alert(1)</script>", state: "completed" }, cardsWaiting: 1 } }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const digest = await screen.findByRole("region", { name: "Latest digest" });
+    await waitFor(() => expect(digest.querySelector("strong")?.textContent).toBe("Daily digest complete."));
+    expect(digest.textContent).not.toContain("**");
+    expect(digest.querySelectorAll("li")).toHaveLength(2);
+    expect(digest.querySelector("script")).toBeNull();
+    expect(digest.textContent).toContain("<script>alert(1)</script>");
   });
 });
 
@@ -712,7 +1070,42 @@ describe("the evaluation", () => {
     expect(rows[0].getAttribute("data-status")).toBeNull();
     expect(rows[1].getAttribute("data-status")).toBe("danger");
     expect(screen.getByRole("region", { name: "Latest result" }).textContent).toContain("1 of 2 right");
-    fireEvent.click(screen.getByRole("button", { name: "Run the evaluation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run the evaluation now" }));
     await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.path.endsWith("/evaluation/run"))).toBe(true));
+  });
+
+  it("lists the built-in questions, follows accuracy over time and flags a drop (M40)", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=evaluation&agent=${keeperId}`);
+    const point = (id: string, hoursAgo: number, score: number, version: number) => ({ id, at: ago(hoursAgo * 60), score, version, model: "unsloth/Qwen3.5-4B-GGUF", nightly: true, right: Math.round(score * 5), questions: 5 });
+    serve(base({
+      [`GET /api/v1/agents/${keeperId}/evaluation`]: {
+        builtIn: [
+          { id: "builtin-drives", question: "Which drives are connected to this server?", expect: { fact: "drives" }, tool: "storage.health", builtIn: true },
+          { id: "builtin-pihole", question: "Where does Pi-hole run on this server?", expect: { fact: "piholePlacement" }, tool: "where.runs", builtIn: true },
+        ],
+        questions: [],
+        runs: [{ id: "e3", version: 3, state: "done", score: 0.6, createdAt: ago(60), finishedAt: ago(55), createdBy: null, results: [
+          { questionId: "builtin-drives", question: "Which drives are connected to this server?", expected: { fact: "drives", value: [{ device: "/dev/nvme0n1", transport: "nvme", system: true }, { device: "/dev/sda", transport: "usb", system: false }] }, runId: finishedRun.id, passed: false, found: "Wrong: calls /dev/sda the system disk" },
+        ] }],
+        canEdit: true,
+        history: [point("e1", 50, 1, 2), point("e2", 26, 1, 2), point("e3", 1, 0.6, 3)],
+        drop: { from: 1, to: 0.6, previous: 1, at: ago(55), evalId: "e3", version: 3, previousVersion: 2, model: "unsloth/Qwen3.5-4B-GGUF", previousModel: "unsloth/Qwen3.5-4B-GGUF" },
+        people: [{ day: "2026-09-29", up: 2, down: 1 }],
+        nightly: { quietHours: { start: "02:00", end: "06:00" }, next: "tonight" },
+      },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const drop = await screen.findByText("Accuracy dropped to 60%");
+    expect(drop.closest("[role]")?.textContent ?? drop.parentElement?.textContent).toMatch(/against 100% before\. Its instructions changed in between \(v2 to v3\)/);
+    const builtIn = screen.getByRole("region", { name: "Built-in questions" });
+    expect(builtIn.textContent).toContain("Which drives are connected to this server?");
+    expect(builtIn.textContent).toContain("asked every night, 02:00 to 06:00");
+    expect(within(screen.getByRole("table", { name: "The latest evaluation's answers" })).getAllByRole("row")[1].textContent).toContain("Which drives are connected: /dev/nvme0n1 (system), /dev/sda");
+    const accuracy = screen.getByRole("region", { name: "Accuracy over time" });
+    expect(accuracy.textContent).toContain("From 100% to 60% over 3 evaluations.");
+    expect(accuracy.textContent).toContain("people said 2 right and 1 wrong this month");
+    const rows = within(within(accuracy).getByRole("table", { name: "Each evaluation's score" })).getAllByRole("row").slice(1);
+    expect(rows[0].getAttribute("data-status")).toBe("warning");
+    expect(rows[0].textContent).toContain("60% · 3/5");
   });
 });

@@ -2,6 +2,7 @@
  * What the Storage page reads (M33.9): the server's answers, typed once for the page and its tabs,
  * and the small rules the old page carried (names, filesystems, sizes).
  */
+import { mayServe } from "../../servedFolder";
 
 export interface DeviceRow {
   path: string | null; type: string | null; sizeBytes: number | null; fstype: string | null; uuid: string | null; label: string | null; model: string | null; transport: string | null;
@@ -73,9 +74,13 @@ export function managedMounts(report: StorageReport | null): Map<string, string>
   return new Map((report?.fstab ?? []).filter((row) => row.managedName && !row.managedName.startsWith("share-")).map((row) => [row.mountpoint, row.managedName as string]));
 }
 
-/** The folders worth offering when sharing one: mounted shares, BoxPilot's drives, /srv and /mnt. */
+/**
+ * The folders worth offering when sharing one: mounted shares, BoxPilot's drives and /srv, less any
+ * the file servers refuse. /mnt was offered too, but it holds the backup destination (/mnt/boxpilot),
+ * so neither server will serve it, nor anything under /mnt/boxpilot.
+ */
 export function shareableFolders(report: StorageReport | null): string[] {
-  return [...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv", "/mnt"])];
+  return [...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv"])].filter(mayServe);
 }
 
 /** A date and time as this browser writes them, or a dash. */

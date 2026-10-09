@@ -91,8 +91,20 @@ export function validateParameters(spec, parameters, title = "Operation") {
   return null;
 }
 
+/** Why an internal operation is not staged, scheduled, put in a flow or run from the operations route. */
+export const internalRefusal = (operation) => `${operation.title} is BoxPilot's own plumbing: BoxPilot runs it itself when it needs it`;
+
+/** The text a job of `operation` with these parameters must be confirmed with by typing it, or null. */
+export function confirmTextFor(operation, parameters = {}) {
+  if (typeof operation?.confirm !== "function") return null;
+  try {
+    const text = operation.confirm(parameters ?? {});
+    return typeof text === "string" && text ? text : null;
+  } catch { return null; }
+}
+
 export function defineOperation(definition) {
-  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false, supersededWhen = null } = definition ?? {};
+  const { id, title, risk, readOnly = false, elevatedOnly = false, internal = false, timeoutMs = defaultTimeoutMs, maxTimeoutMs = null, rerunAfterInterrupt = false, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, confirmWhen = null, restartsService = false, supersededWhen = null, oneTimeFields = [], runsRootTask = false } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
   if (typeof title !== "string" || !title.trim()) throw new Error(`Operation ${id} needs a title`);
   if (!riskTiers.includes(risk)) throw new Error(`Operation ${id} risk must be one of ${riskTiers.join(", ")}`);
@@ -101,7 +113,12 @@ export function defineOperation(definition) {
   if (readOnly && risk !== "low") throw new Error(`Operation ${id} is read-only and must be low risk`);
   if (minimumRole !== null && !["owner", "operator"].includes(minimumRole)) throw new Error(`Operation ${id} minimumRole must be owner or operator`);
   if (confirm !== null && typeof confirm !== "function") throw new Error(`Operation ${id} confirm must be a function of the parameters returning the text to type`);
+  // confirmWhen: for an operation whose confirm asks for typed text only for some requests (and
+  // returns null for the rest), the clause that says when, for words written without a request to
+  // hand: "it starts a backup's own compose file as it was archived".
+  if (confirmWhen !== null && (confirm === null || typeof confirmWhen !== "string" || !confirmWhen.trim() || confirmWhen.length > 120)) throw new Error(`Operation ${id} confirmWhen is a short clause, and only for an operation with a confirm`);
   if (supersededWhen !== null && (typeof supersededWhen !== "function" || readOnly)) throw new Error(`Operation ${id} supersededWhen must be a function, and only a staged job can be superseded`);
+  if (![true, false, "drained"].includes(restartsService)) throw new Error(`Operation ${id} restartsService must be true, false or "drained"`);
   for (const [name, field] of Object.entries(parameters?.fields ?? {})) {
     if (field?.secretEnvOf === undefined) continue;
     if (field.type !== "object" || field.secret) throw new Error(`Operation ${id} parameter ${name}: secretEnvOf belongs on an object field that is not itself secret`);
@@ -122,19 +139,57 @@ export function defineOperation(definition) {
     if (confirm !== null || restartsService) throw new Error(`Operation ${id} asks for a typed confirmation or restarts BoxPilot, so it cannot run again on its own`);
     if (Object.values(parameters?.fields ?? {}).some((field) => field?.secret === true || field?.secretEnvOf !== undefined)) throw new Error(`Operation ${id} takes secrets, which do not survive a restart, so it cannot run again on its own`);
   }
+  // oneTimeFields: fields of the result that are shown to the person who ran the job once, and never
+  // stored with it (Zulip's single-use organization link). The job's record says which were given.
+  if (!Array.isArray(oneTimeFields) || oneTimeFields.length > 4 || oneTimeFields.some((field) => typeof field !== "string" || !/^[a-z][A-Za-z0-9]{0,31}$/.test(field))) throw new Error(`Operation ${id} oneTimeFields must be up to 4 result field names`);
+  if (oneTimeFields.length && readOnly) throw new Error(`Operation ${id} is read-only; its result is never stored, so nothing needs to be shown once`);
   // minimumRole: who may stage/approve regardless of tier (e.g. anything that sends data off the box is owner-only).
   // confirm(parameters): text the approver must type for destructive jobs; checked server-side at approval.
   // restartsService: the operation restarts (or reboots) the BoxPilot service, so approving it while
   // another job runs would interrupt that job. The job service refuses the approval when so.
+  // "drained": it may restart BoxPilot when what it did calls for it (a package change that replaced
+  // libc, KVM installed), through the helper's drained restart (self-restart.mjs), which waits for
+  // the helper's work running beside it to finish first, so it is not refused beside other jobs. That
+  // is only work the helper holds: a change sent while the restart is under way (an automation's next
+  // step) is turned away unstarted, and the job layer sends it again once BoxPilot is back, and an
+  // automation the web side's own restart stopped between two steps goes on from the step that had not
+  // begun (flows.mjs recover).
   // supersededWhen(parameters, { version }): why a job of this operation, staged and still waiting,
   // no longer has anything to do (an update to a version already running), or null. The job service
   // cancels such a job with that reason rather than let it wait for an approval that would do harm
   // or nothing (M36).
-  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, restartsService: Boolean(restartsService), supersededWhen });
+  // runsRootTask: its work is a root task (boxpilot-run@), which runs on past its own limit when that
+  // runs out. A job of it whose whole budget ran out may still have that task running, so it is not
+  // given more time beside it (jobs.mjs). Declared where more time is offered; a test keeps it so.
+  // internal: BoxPilot's own plumbing, run by BoxPilot itself (the agents' Zulip posts and reads):
+  // never a step an agent or the assistant may propose (validatePlan drops it).
+  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), internal: Boolean(internal), timeoutMs, maxTimeoutMs, rerunAfterInterrupt: Boolean(rerunAfterInterrupt), parameters, run, minimumRole, confirm, confirmWhen, restartsService, supersededWhen, oneTimeFields: Object.freeze([...oneTimeFields]), runsRootTask: Boolean(runsRootTask) });
 }
 
 export class OperationRegistry {
   #operations = new Map();
+  #riskHooks = {};
+
+  /**
+   * What raises an operation's tier for what it acts on: installing an app its manifest calls high
+   * risk. The web process gives these the same hooks it gives the job layer, so a card an agent or
+   * the assistant builds says the tier the job will be staged at (sweep 3).
+   */
+  useRiskHooks(hooks = {}) {
+    this.#riskHooks = { ...(hooks ?? {}) };
+    return this;
+  }
+
+  /** The tier a job for this operation and these parameters is staged at; null for an unknown operation. */
+  async effectiveRisk(id, parameters = {}) {
+    const operation = this.#operations.get(id);
+    if (!operation) return null;
+    const hook = this.#riskHooks[id];
+    if (typeof hook !== "function") return operation.risk;
+    // It can raise the tier, never lower it; an answer that is not a tier counts for nothing.
+    const raised = await hook(parameters ?? {});
+    return riskTiers.indexOf(raised) > riskTiers.indexOf(operation.risk) ? raised : operation.risk;
+  }
 
   register(definition) {
     const operation = Object.isFrozen(definition) && definition.run ? definition : defineOperation(definition);

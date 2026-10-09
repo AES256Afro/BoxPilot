@@ -87,6 +87,24 @@ describe("Firewall page", () => {
     await waitFor(() => expect(staged["firewall.rule.delete"]).toEqual({ parameters: { action: "allow", port: 8096, protocol: "tcp" } }));
   });
 
+  // Delete sends only action, port and protocol, which ufw reads as an incoming rule from anywhere:
+  // offered on an outgoing or source-restricted rule, it deleted another rule or failed.
+  it("offers Delete only on an incoming rule from anywhere, the rule it would delete", async () => {
+    window.history.replaceState(null, "", "/?view=firewall&tab=rules");
+    mockFetch(overview({ report: { ...report, rules: [
+      ...report.rules,
+      { action: "deny", protocol: "tcp", port: 25, app: null, direction: "out", interface: null, comment: "No outgoing mail", family: "both" },
+      { action: "allow", protocol: "tcp", port: 9000, app: null, direction: "in", interface: null, source: "192.168.1.0/24", comment: "LAN only", family: "v4" },
+    ] } }));
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    const table = await screen.findByRole("table", { name: "Firewall rules from ufw" });
+    await within(table).findByText("No outgoing mail");
+    const rows = within(table).getAllByRole("row");
+    expect(within(rows.find((row) => row.textContent?.includes("No outgoing mail")) as HTMLElement).queryByRole("button", { name: /Delete/ })).toBeNull();
+    expect(within(rows.find((row) => row.textContent?.includes("LAN only")) as HTMLElement).queryByRole("button", { name: /Delete/ })).toBeNull();
+    expect(within(table).getByRole("button", { name: "Delete allow 8096/tcp" })).toBeTruthy();
+  });
+
   it("adds a rule from a sheet, and refuses a deny on a port that stays open", async () => {
     const staged: Record<string, unknown> = {};
     window.history.replaceState(null, "", "/?view=firewall&tab=rules");
@@ -123,6 +141,30 @@ describe("Firewall page", () => {
     expect(await screen.findByText("High risk")).toBeTruthy();
     expect(screen.getByText("Keep SSH reachable (22/tcp)", { exact: false })).toBeTruthy();
     await waitFor(() => expect(staged["firewall.profile.apply"]).toEqual({ parameters: { profile: "home-server", services: ["dns"], replace: false, sshRateLimit: true } }));
+  });
+
+  it("offers a profile where an empty, switched-off firewall's rules would be", async () => {
+    window.history.replaceState(null, "", "/?view=firewall&tab=rules");
+    mockFetch(overview({ report: { ...report, rules: [] } }));
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    const rules = await screen.findByRole("region", { name: "Rules" });
+    expect(await within(rules).findByText(/The firewall is off\. A profile turns it on/)).toBeTruthy();
+    fireEvent.click(within(rules).getByRole("button", { name: "Choose a profile…" }));
+    expect(await screen.findByRole("dialog", { name: "Choose a firewall profile" })).toBeTruthy();
+  });
+
+  it("says why the plan could not be built in the sheet, where the owner is, not on the page under it", async () => {
+    const fetchMock = mockFetch(overview());
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => (input.toString().startsWith("/api/v1/firewall/plan?") ? json({ error: "ufw is not installed" }, 409) : answer(input, init)));
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Choose a profile…" }));
+    const sheet = await screen.findByRole("dialog", { name: "Choose a firewall profile" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Review and apply" }));
+    expect(await within(sheet).findByText("ufw is not installed")).toBeTruthy();
+    expect(within(sheet).getByRole("alert")).toBeTruthy();
+    // Said once: not again on the page the sheet covers.
+    expect(screen.getAllByText("ufw is not installed")).toHaveLength(1);
   });
 
   it("drops the services for a profile that opens nothing, and moves between profiles with the arrow keys", async () => {

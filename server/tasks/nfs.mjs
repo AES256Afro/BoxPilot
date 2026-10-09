@@ -1,5 +1,7 @@
-import { access, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, realpath, rename, stat } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
+import { cleanServedPath } from "./served-folder.mjs";
 
 /**
  * Root-side NFS server tasks executed by scripts/boxpilot-run.mjs.
@@ -16,7 +18,7 @@ export const nfsConfPath = "/etc/nfs.conf.d/boxpilot.conf";
 export const managedMarker = "# Managed by BoxPilot";
 export const tailscaleRange = "100.64.0.0/10";
 export const scopes = Object.freeze(["tailscale", "lan"]);
-export const exportPathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/nfs"]);
+export const exportPathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/nfs", "/mnt/boxpilot"]);
 export const maxExports = 32;
 
 const binaries = {
@@ -27,10 +29,8 @@ const binaries = {
 };
 
 function cleanPath(value) {
-  if (typeof value !== "string" || !/^\/[^\0\r\n\s"]*$/.test(value) || value.includes("/../") || value.endsWith("/..") || value.length > 512) return null;
-  const normalized = value.replace(/\/+$/, "") || "/";
-  if (normalized === "/" || exportPathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`))) return null;
-  return normalized;
+  // Quoted in the exports file, so no whitespace or quote inside it either.
+  return cleanServedPath(value, exportPathDenyPrefixes, { forbidden: /[\0\r\n\s"]/ });
 }
 
 export function validateNfsConfig({ scope = "tailscale", exports = [] } = {}) {
@@ -94,7 +94,7 @@ async function lanSubnetsFrom(run) {
 const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-3).join(" ");
 
 /** Write exports, validate with exportfs, start the server, verify it listens. */
-export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, mkdir, stat, access } } = {}) {
+export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, mkdir, stat, access, realpath } } = {}) {
   const problem = validateNfsConfig({ scope, exports });
   if (problem) throw new Error(`Invalid configuration: ${problem}`);
   const installed = await files.access(binaries.exportfs).then(() => true, () => false);
@@ -102,6 +102,9 @@ export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run
   const owners = {};
   for (const entry of exports) {
     const path = cleanPath(entry.path);
+    // The kernel exports what the path leads to, links and all.
+    const real = typeof files.realpath === "function" ? await files.realpath(path) : path;
+    if (cleanPath(real) !== real) throw new Error(`export ${path} leads to ${real}, a system location BoxPilot does not export`);
     const info = await files.stat(path);
     if (!info.isDirectory()) throw new Error(`${path} is not a folder`);
     if (info.uid !== 0) owners[path] = { uid: info.uid, gid: info.gid };

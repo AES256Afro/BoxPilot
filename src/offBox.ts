@@ -14,6 +14,8 @@ export interface DestinationState {
   /** A destination has been saved. Says nothing about whether anything reached it. */
   configured: boolean;
   lastSyncAt: string | null;
+  /** Files its last copy left out (an archive that did not match its record); none when not said. */
+  skipped?: number;
 }
 
 export interface OffBoxInputs {
@@ -38,6 +40,8 @@ export interface OffBoxVerdict {
   state: "none" | "never" | "behind" | "stale" | "ok";
   /** How many hours the newest unmirrored local backup has been waiting, when state is "behind". */
   behindHours: number | null;
+  /** Files the newest copy left out (R5B4-7): recent, and still not every backup. */
+  skipped?: number;
 }
 
 const KINDS: Array<[keyof OffBoxInputs, OffBoxVerdict["where"][number]]> = [
@@ -53,6 +57,7 @@ export function offBoxVerdict(
 ): OffBoxVerdict {
   const where: OffBoxVerdict["where"] = [];
   let newest: number | null = null;
+  let skipped = 0;
   for (const [key, label] of KINDS) {
     const destination = inputs[key];
     if (!destination?.configured) continue;
@@ -60,7 +65,8 @@ export function offBoxVerdict(
     const at = destination.lastSyncAt ? Date.parse(destination.lastSyncAt) : Number.NaN;
     // The best copy anywhere is what matters: two destinations do not make you worse off, so the
     // most recent success wins rather than the most neglected destination dragging the answer down.
-    if (Number.isFinite(at) && (newest === null || at > newest)) newest = at;
+    // What that copy left out goes with it.
+    if (Number.isFinite(at) && (newest === null || at > newest)) { newest = at; skipped = destination.skipped ?? 0; }
   }
   const ageDays = newest === null ? null : Math.floor((now - newest) / 86_400_000);
   // A copy can be recent and still behind: a nightly backup that the nightly sync never followed.
@@ -77,15 +83,16 @@ export function offBoxVerdict(
     : (ageDays ?? 0) > staleAfterDays ? "stale"
     : "ok";
   const behindHours = state === "behind" ? Math.floor((now - localAt) / 3_600_000) : null;
-  return { configured: where.length > 0, lastSyncAt: newest === null ? null : new Date(newest).toISOString(), ageDays, where, state, behindHours };
+  return { configured: where.length > 0, lastSyncAt: newest === null ? null : new Date(newest).toISOString(), ageDays, where, state, behindHours, skipped };
 }
 
-/** One sentence for the Overview, or null when a recent copy exists somewhere else. */
+/** One sentence for the Overview, or null when a recent, whole copy exists somewhere else. */
 export function offBoxWarning(verdict: OffBoxVerdict): string | null {
   if (verdict.state === "none") return "Backups are only on this server. A disk failure would take them with it";
   if (verdict.state === "never") return "Backups have never been copied off this server";
   if (verdict.state === "behind") return `Backups newer than the off-box copy have been waiting ${verdict.behindHours} hours; the sync that should have followed them has not run`;
   if (verdict.state === "stale") return `The off-box copy of your backups is ${verdict.ageDays} days old`;
+  if (verdict.skipped) return `The last copy off this server left ${verdict.skipped} file${verdict.skipped === 1 ? "" : "s"} out`;
   return null;
 }
 

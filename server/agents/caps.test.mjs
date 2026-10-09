@@ -13,7 +13,11 @@ const directives = (name) => [...unit.matchAll(new RegExp(`^${name}=(.*)$`, "gm"
 
 describe("the agents runner's unit", () => {
   it("holds the caps caps.mjs describes, once each", () => {
-    for (const [name, value] of Object.entries(unitDirectives(runnerCaps))) expect(directives(name), name).toEqual([value]);
+    for (const [name, value] of Object.entries(unitDirectives(runnerCaps))) {
+      // CPUWeight=idle needs systemd 252. 22.04's systemd 249 ignores it and keeps the lowest weight
+      // set on the line before; newer systemd takes the later line, idle.
+      expect(directives(name), name).toEqual(name === "CPUWeight" ? ["1", value] : [value]);
+    }
     // The owner's four processors: at most a quarter of the 16-thread server this was written for.
     expect(runnerCaps.cpuQuotaPercent).toBe(400);
     expect(unitDirectives(runnerCaps).CPUQuota).toBe("400%");

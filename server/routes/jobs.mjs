@@ -6,6 +6,7 @@ import { Router } from "express";
 import { createEventStream, createStreamBudget } from "../event-stream.mjs";
 import { suggestFlows, suggestionFacts } from "../flow-suggestions.mjs";
 import { callerId, readsThroughHelper, seesEveryAccount } from "./access.mjs";
+import { registry } from "../ops/index.mjs";
 
 /**
  * The part of a job's persisted output the stream has not sent yet, given how many BYTES of the
@@ -19,7 +20,7 @@ export function outputTailFrom(final, sentBytes) {
   return bytes.subarray(sentBytes).toString("utf8");
 }
 
-export function createJobsRouter({ state, jobs, scheduler, flows = null, autoReconnect = null, helper = null, jobLogReader, auth, streamBudget = createStreamBudget() }) {
+export function createJobsRouter({ state, jobs, scheduler, flows = null, autoReconnect = null, helper = null, jobLogReader, auth, streamBudget = createStreamBudget(), streamPingMs = 25_000 }) {
   const router = Router();
   function openStream(request, response) {
     const release = streamBudget.acquire(request.boxpilotSession?.owner?.id ?? "anonymous");
@@ -79,10 +80,16 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
     const persisted = state.getJobOutput(initial.id);
     if (persisted !== null) { await stream.output(persisted); stream.send("state", { state: initial.state, error: initial.error }); stream.end(); return; }
     const started = Date.now();
+    // A job waiting for approval, or one that prints nothing for a while, wrote nothing here, so a
+    // client that went away without closing (a laptop put to sleep) was never noticed: its stream
+    // held one of the account's eight slots for up to three hours. A comment line now and then is
+    // what finds the dead connection, as /events does.
+    let lastWrite = Date.now();
     while (!stream.closed && Date.now() - started < 3 * 60 * 60 * 1000) {
       if (!await stream.ready()) break;
       const chunk = await jobLogReader.read(initial.id, offset).catch(() => ({ text: "", offset, exists: false }));
-      if (chunk.text) { if (!await stream.output(chunk.text)) break; offset = chunk.offset; }
+      if (chunk.text) { if (!await stream.output(chunk.text)) break; offset = chunk.offset; lastWrite = Date.now(); }
+      else if (Date.now() - lastWrite >= streamPingMs) { if (!stream.write(": ping\n\n")) break; lastWrite = Date.now(); }
       const current = state.getJob(initial.id);
       if (!current || ["completed", "failed", "cancelled"].includes(current.state)) {
         const final = state.getJobOutput(initial.id);
@@ -109,12 +116,22 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
     return response.json({ job });
   });
 
+  // What a finished job showed once (its operation's oneTimeFields): to the person who ran it, the
+  // first time they ask, within a quarter of an hour. Never stored, so never shown again.
+  router.post("/jobs/:id/once", auth.requireCsrf, (request, response) => {
+    const job = state.getJob(request.params.id);
+    if (!job || !mayRead(request, job)) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
+    const value = typeof jobs.takeOneTime === "function" ? jobs.takeOneTime(job.id, request.boxpilotSession?.owner?.id ?? null) : null;
+    if (!value) return response.status(410).json({ error: "This was shown once already, or it was for someone else. Run the action again for a new one.", code: "shown_once" });
+    return response.json({ jobId: job.id, value });
+  });
+
   router.post("/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
     try {
       const approval = { password: typeof request.body?.password === "string" ? request.body.password : null, confirmText: typeof request.body?.confirmText === "string" ? request.body.confirmText : null, session: request.boxpilotSession };
       // Every op: job runs in the background; approval returns as soon as execution starts.
       const job = await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, approval);
-      const session = auth.requestSession(request);
+      const session = await auth.requestSession(request);
       response.status(202).json({ job, elevatedUntil: session?.elevatedUntil ?? null });
     } catch (error) {
       const status = error.message === "Job not found" ? 404 : error.message.includes("reauthentication") ? 401 : /^(Only the owner|Viewers cannot)/.test(error.message) ? 403 : 409;
@@ -176,14 +193,65 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
    * are jobs of whoever ran it (M29.4). For anyone but the owner, a last run that was not entirely
    * theirs keeps its outcome and the step it reached, and loses its job ids and the error text those
    * jobs recorded; the flow's creator is named only to the creator.
+   *
+   * A step of an operation only the owner may run keeps its settings to the owner too (sweep 1):
+   * an HTTP request's address can be the secret itself (an ntfy topic, a webhook's path), so it is
+   * cut to where it goes, and everything else such a step carries is left out.
    */
+  const hiddenFromCaller = (step) => {
+    const operation = registry.get(step?.operationId);
+    return !operation || operation.minimumRole === "owner";
+  };
+
+  function stepForCaller(step) {
+    if (!hiddenFromCaller(step)) return step;
+    let origin = null;
+    if (step?.operationId === "http.request" && typeof step.parameters?.url === "string") {
+      try { origin = new URL(step.parameters.url).origin; } catch { origin = null; }
+    }
+    const method = typeof step?.parameters?.method === "string" ? step.parameters.method : null;
+    return { ...step, parameters: origin ? { url: origin, ...(method ? { method } : {}) } : {}, parametersHidden: true };
+  }
+
   function flowForCaller(request, flow) {
     const self = callerId(request);
     const jobIds = Array.isArray(flow.lastJobIds) ? flow.lastJobIds : [];
     const theirs = jobIds.every((jobId) => jobId === null || (self !== null && state.getJob(jobId)?.createdBy === self));
-    const visible = { ...flow, createdBy: flow.createdBy === self ? flow.createdBy : null };
+    const visible = { ...flow, createdBy: flow.createdBy === self ? flow.createdBy : null, ...(Array.isArray(flow.steps) ? { steps: flow.steps.map(stepForCaller) } : {}) };
     if (theirs) return visible;
     return { ...visible, lastJobIds: [], lastResult: typeof flow.lastResult === "string" ? flow.lastResult.split(": ")[0] : flow.lastResult, lastRunElsewhere: true };
+  }
+
+  /** JSON with object keys in one order, so two values compare by what they hold. */
+  const canonicalJson = (value) => JSON.stringify(value ?? null, (_key, entry) => (entry && typeof entry === "object" && !Array.isArray(entry) ? Object.fromEntries(Object.entries(entry).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) : entry));
+  /** What a step does besides its parameters, with the defaults written out. */
+  const stepRules = (step) => ({ name: step?.name ?? null, onFailure: step?.onFailure ?? "stop", retry: step?.retry ?? 0, when: step?.when ? { value: step.when.value, equals: step.when.equals } : null });
+
+  class OwnerOnlyStepError extends Error {}
+
+  /**
+   * The steps a non-owner saves, with each step hidden from them put back as stored (sweep 1).
+   *
+   * Anyone but the owner is shown an owner-only step redacted (stepForCaller), so what comes back for
+   * it is the redaction, and saved as sent it would overwrite the owner's settings. So a hidden step
+   * must come back at the same position, as the same operation, and as it was shown (or as stored);
+   * it is then kept exactly as stored, and the other steps take the edit. A hidden step changed,
+   * moved, removed, or with a step put in front of it is refused: only the owner can change it.
+   */
+  function restoreHiddenSteps(stored, submitted) {
+    if (!Array.isArray(submitted) || !Array.isArray(stored?.steps)) return submitted;
+    const steps = [...submitted];
+    for (const [index, kept] of stored.steps.entries()) {
+      if (!hiddenFromCaller(kept)) continue;
+      const sent = steps[index];
+      const parameters = sent?.parameters ?? {};
+      const untouched = Boolean(sent) && typeof sent === "object" && sent.operationId === kept.operationId
+        && [stepForCaller(kept).parameters, kept.parameters ?? {}].some((known) => canonicalJson(parameters) === canonicalJson(known))
+        && canonicalJson(stepRules(sent)) === canonicalJson(stepRules(kept));
+      if (!untouched) throw new OwnerOnlyStepError(`Only the owner can change, move or remove step ${index + 1} (${registry.get(kept.operationId)?.title ?? kept.operationId}). Leave it where it is, as it is, to save your other changes.`);
+      steps[index] = kept;
+    }
+    return steps;
   }
 
   // Which automation this server in particular should have, and why (M24.1). Nothing is created:
@@ -211,18 +279,25 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
 
   router.post("/flows", auth.requireCsrf, async (request, response) => {
     try {
-      const flow = await flows.create({ name: request.body?.name, steps: request.body?.steps, cadence: request.body?.cadence ?? null, triggerFlowId: typeof request.body?.triggerFlowId === "string" ? request.body.triggerFlowId : null, createdBy: request.boxpilotSession.owner.id });
+      // The creator's role decides which steps they may put in it (an owner-only one is the owner's).
+      const flow = await flows.create({ name: request.body?.name, steps: request.body?.steps, cadence: request.body?.cadence ?? null, triggerFlowId: typeof request.body?.triggerFlowId === "string" ? request.body.triggerFlowId : null, createdBy: request.boxpilotSession.owner.id, role: request.boxpilotSession.owner.role ?? "owner" });
       response.status(201).json({ flow });
     } catch (error) {
+      if (error.code === "flow_step_owner_only") return response.status(403).json({ error: error.message, code: "flow_step_owner_only" });
       response.status(400).json({ error: error.message, code: "flow_rejected" });
     }
   });
 
   router.put("/flows/:id", auth.requireCsrf, async (request, response) => {
     try {
-      const flow = await flows.update(request.params.id, { name: request.body?.name, steps: request.body?.steps, cadence: request.body?.cadence, enabled: request.body?.enabled, triggerFlowId: request.body?.triggerFlowId === undefined ? undefined : (typeof request.body.triggerFlowId === "string" ? request.body.triggerFlowId : null) }, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
-      response.json({ flow });
+      // Only a flow's creator or the owner may change it (flows.update), and only a non-owner was
+      // shown its owner-only steps redacted: those come back as stored, or the save is refused.
+      const stored = state.getFlow(request.params.id);
+      const steps = !seesEveryAccount(request) && stored && stored.createdBy === callerId(request) ? restoreHiddenSteps(stored, request.body?.steps) : request.body?.steps;
+      const flow = await flows.update(request.params.id, { name: request.body?.name, steps, cadence: request.body?.cadence, enabled: request.body?.enabled, triggerFlowId: request.body?.triggerFlowId === undefined ? undefined : (typeof request.body.triggerFlowId === "string" ? request.body.triggerFlowId : null), keepStep: request.body?.keepStep }, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      response.json({ flow: seesEveryAccount(request) ? flow : flowForCaller(request, flow) });
     } catch (error) {
+      if (error instanceof OwnerOnlyStepError || error.code === "flow_step_owner_only") return response.status(403).json({ error: error.message, code: "flow_step_owner_only" });
       response.status(error.message.includes("not found") ? 404 : 400).json({ error: error.message, code: "flow_update_failed" });
     }
   });

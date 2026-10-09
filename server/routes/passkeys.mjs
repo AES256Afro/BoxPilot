@@ -7,12 +7,53 @@
  * weaken or bypass the passkey factor and a session cookie alone should not be enough to do that.
  * Registering and renaming do not: the WebAuthn gesture (a biometric or PIN) is itself the consent,
  * and a passkey you did not intend costs nothing.
+ *
+ * Every ceremony names an origin, and only one BoxPilot is served at is accepted (sweep 1, S1-4):
+ * the one this request reached this listener at, the ones Tailscale Serve publishes it at, and any
+ * listed in BOXPILOT_PUBLIC_ORIGINS. A passkey's RP ID is the host name without the port, so the
+ * page an app serves on another port of the same name could otherwise phish an assertion.
  */
 import { Router } from "express";
 import { createLoginThrottle } from "./../login-throttle.mjs";
+import { canonicalOrigin } from "../passkeys.mjs";
 
-export function createPasskeyRouter({ store, auth, passkeys, identity = null }) {
+/**
+ * BOXPILOT_PUBLIC_ORIGINS: comma-separated addresses BoxPilot is reached at that a request cannot
+ * show by itself, such as a reverse proxy in front or a container's published port.
+ */
+export function configuredPublicOrigins(env = process.env) {
+  return String(env.BOXPILOT_PUBLIC_ORIGINS ?? "").split(",").map((entry) => canonicalOrigin(entry.trim())).filter(Boolean);
+}
+
+/**
+ * The origin a request reached BoxPilot at, from its Host, when that Host names the port this
+ * listener answers on: https on the TLS listener, http on the plain one. A Host naming any other
+ * port is not this listener (a relayed request can put anything there), so it gives nothing.
+ */
+export function listenerOrigin(request) {
+  const host = request.get?.("host");
+  const socket = request.socket;
+  if (typeof host !== "string" || !host || !Number.isInteger(socket?.localPort)) return null;
+  const scheme = socket.encrypted ? "https" : "http";
+  let url;
+  try { url = new URL(`${scheme}://${host}`); } catch { return null; }
+  if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
+  const port = url.port ? Number(url.port) : scheme === "https" ? 443 : 80;
+  return port === socket.localPort ? url.origin : null;
+}
+
+export function createPasskeyRouter({ store, auth, passkeys, identity = null, publicOrigins = configuredPublicOrigins() }) {
   const router = Router();
+
+  /** The origins BoxPilot is served at, as far as this request can tell. */
+  async function ownOrigins(request) {
+    const origins = new Set(publicOrigins.map(canonicalOrigin).filter(Boolean));
+    const listener = listenerOrigin(request);
+    if (listener) origins.add(listener);
+    const served = typeof identity?.servedOrigins === "function" ? await identity.servedOrigins().catch(() => []) : [];
+    for (const origin of served) origins.add(origin);
+    return [...origins];
+  }
   const manage = [auth.requireSession, auth.requireCsrf];
   // A gentle throttle on recovery-code guesses. The codes are ~99 bits, so this is hygiene against
   // request spam more than a real brute-force defence, and it never hard-locks the honest owner for long.
@@ -33,9 +74,9 @@ export function createPasskeyRouter({ store, auth, passkeys, identity = null }) 
   }
 
   // ---- Sign in with a passkey (open) ---------------------------------------------------------
-  router.post("/auth/passkey/options", (request, response) => {
+  router.post("/auth/passkey/options", async (request, response) => {
     try {
-      response.json(passkeys.authenticateOptions({ origin: request.body?.origin }));
+      response.json(passkeys.authenticateOptions({ origin: request.body?.origin, allowedOrigins: await ownOrigins(request) }));
     } catch (error) {
       response.status(400).json({ error: error.message, code: "passkey_unavailable" });
     }
@@ -44,7 +85,7 @@ export function createPasskeyRouter({ store, auth, passkeys, identity = null }) 
   router.post("/auth/passkey/verify", async (request, response) => {
     let result;
     try {
-      result = passkeys.authenticateVerify({ origin: request.body?.origin, response: request.body?.response });
+      result = passkeys.authenticateVerify({ origin: request.body?.origin, allowedOrigins: await ownOrigins(request), response: request.body?.response });
     } catch (error) {
       return response.status(401).json({ error: error.message, code: "passkey_rejected" });
     }
@@ -76,19 +117,19 @@ export function createPasskeyRouter({ store, auth, passkeys, identity = null }) 
     response.json(passkeys.status(request.boxpilotSession.owner.id));
   });
 
-  router.post("/auth/passkey/register/options", auth.requireSession, auth.requireCsrf, (request, response) => {
+  router.post("/auth/passkey/register/options", auth.requireSession, auth.requireCsrf, async (request, response) => {
     const owner = store.findOwnerById(request.boxpilotSession.owner.id);
     try {
-      response.json(passkeys.registerOptions({ owner, origin: request.body?.origin }));
+      response.json(passkeys.registerOptions({ owner, origin: request.body?.origin, allowedOrigins: await ownOrigins(request) }));
     } catch (error) {
       response.status(400).json({ error: error.message, code: "passkey_unavailable" });
     }
   });
 
-  router.post("/auth/passkey/register/verify", auth.requireSession, auth.requireCsrf, (request, response) => {
+  router.post("/auth/passkey/register/verify", auth.requireSession, auth.requireCsrf, async (request, response) => {
     const owner = store.findOwnerById(request.boxpilotSession.owner.id);
     try {
-      const stored = passkeys.registerVerify({ owner, origin: request.body?.origin, credential: request.body?.credential });
+      const stored = passkeys.registerVerify({ owner, origin: request.body?.origin, allowedOrigins: await ownOrigins(request), credential: request.body?.credential });
       response.status(201).json({ registered: true, passkey: { id: stored.id, label: stored.label, rpId: stored.rpId, createdAt: stored.createdAt } });
     } catch (error) {
       response.status(400).json({ error: error.message, code: "passkey_registration_failed" });

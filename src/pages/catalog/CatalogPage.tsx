@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOperation, type PendingOperation } from "../../shell/ApproveDialog";
 import { appUrl } from "../../appLinks";
 import { countOf } from "../../data";
-import { inspectOperation } from "../../operations";
+import { inspectOperation, type Job } from "../../operations";
 import { strandedServes } from "../../strandedServes";
 import { AppIcon, Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, SearchField, Select, Sheet, StatusChip, Table, Tabs, Tag, Tile, Toolbar, appHue, mayStart, riskOf, useUrlParam, type Status, type TableColumn } from "../../ui";
 import { AppSheet, type SheetTab } from "./AppSheet";
 import { ConfigSheet } from "./ConfigSheet";
-import { appStatus, isRunning, runRead, tileDetail } from "./appState";
+import { appStatus, installTier, isRunning, runRead, tileDetail } from "./appState";
 import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, Values } from "./types";
 import "./catalog.css";
 
@@ -32,7 +32,10 @@ export interface CatalogPageProps {
   role?: string;
 }
 
-const sheetTabs: readonly SheetTab[] = ["overview", "reach", "backups", "vpn", "logs", "config", "models", "signin", "secrets"];
+/** The install or settings form, the sheet it came from, and (put back after a job that did not complete) what it held. */
+interface ConfigForm { entry: Entry; mode: "install" | "reconfigure"; back: { id: string; tab?: SheetTab } | null; seed?: Values }
+
+const sheetTabs: readonly SheetTab[] = ["overview", "tunnel", "reach", "backups", "vpn", "logs", "config", "models", "signin", "secrets"];
 
 /**
  * Puts `app` (and the sheet's tab, `sheet`) in the address while its sheet is open, so a reload or
@@ -68,7 +71,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   const [category, setCategory] = useState("");
   const [tab, setTab] = useUrlParam<CatalogTab>("tab", catalogTabs, "installed");
   const [sheet, setSheet] = useState<{ id: string; tab?: SheetTab } | null>(null);
-  const [config, setConfig] = useState<{ entry: Entry; mode: "install" | "reconfigure"; back: { id: string; tab?: SheetTab } | null } | null>(null);
+  const [config, setConfig] = useState<ConfigForm | null>(null);
   const focused = useRef(false);
   const canRead = role === "owner" || role === "operator";
 
@@ -130,10 +133,49 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
       .catch(() => setForeign(null));
   }, []);
 
-  const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
+  // Where an action started from, and how its job ended, so the owner lands back where the result
+  // shows once the approval dialog closes. Every action in an app's sheet used to close the sheet for
+  // good (back to the grid, off the Backups tab they were on), and an install left the owner on the
+  // Catalog tab, which lists only what is not installed: the app they had just installed vanished.
+  const returnTo = useRef<{ id: string; tab?: SheetTab } | null>(null);
+  const ended = useRef<Job | null>(null);
+  // What the form an action came from held, put back when its approval is cancelled or its job does
+  // not complete, as Users does: the form closed before the approval opened, and everything typed
+  // into it (the install form, the settings, an edited Compose file) was gone.
+  const keptForm = useRef<{ config?: ConfigForm; composeDraft?: string } | null>(null);
+  const keptCompose = useRef<{ id: string; draft: string } | null>(null);
+  const { start, dialog } = useOperation(csrfToken, (job) => { ended.current = job; void refresh(); });
   const openSheet = useCallback((id: string, sheetTab?: SheetTab) => { setSheet({ id, tab: sheetTab }); rememberApp(id); }, []);
   const closeSheet = useCallback(() => { setSheet(null); rememberApp(null); }, []);
-  const act = useCallback((operation: PendingOperation) => { closeSheet(); setConfig(null); start(operation); }, [closeSheet, start]);
+  const act = useCallback((operation: PendingOperation, keep?: { config?: ConfigForm; composeDraft?: string }) => {
+    returnTo.current = sheet ?? (config ? config.back ?? { id: config.entry.manifest.id } : null);
+    ended.current = null;
+    keptForm.current = keep ?? null;
+    closeSheet(); setConfig(null); start(operation);
+  }, [closeSheet, config, sheet, start]);
+  const takeComposeDraft = useCallback((appId: string) => {
+    const kept = keptCompose.current?.id === appId ? keptCompose.current.draft : null;
+    keptCompose.current = null;
+    return kept;
+  }, []);
+  const approving = Boolean(dialog);
+  const wasApproving = useRef(false);
+  useEffect(() => {
+    if (approving) { wasApproving.current = true; return; }
+    if (!wasApproving.current) return;
+    wasApproving.current = false;
+    const back = returnTo.current;
+    const job = ended.current;
+    const form = keptForm.current;
+    returnTo.current = null; ended.current = null; keptForm.current = null;
+    const completed = job?.state === "completed";
+    if (!completed && form?.config) { setConfig(form.config); return; }
+    if (!back) return;
+    if (!completed && form?.composeDraft !== undefined) keptCompose.current = { id: back.id, draft: form.composeDraft };
+    // Installed: it is on the Installed tab now; its sheet opens at Overview, with its address.
+    if (job?.type === "op:app.install" && completed) { setTab("installed"); openSheet(back.id); return; }
+    openSheet(back.id, back.tab);
+  }, [approving, openSheet, setTab]);
 
   // Opened at one app: its sheet, once the catalog has answered.
   useEffect(() => {
@@ -172,9 +214,11 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     try {
       const { response, body } = await runRead<{ lines?: string[] }>(csrfToken, "compose.project.logs", { name, lines: 200 });
       if (!response.ok || !body.result) throw new Error(body.error ?? "Could not read the logs");
-      setForeignLogs({ name, lines: body.result.lines ?? [], error: null });
+      const lines = body.result.lines ?? [];
+      // Only into the sheet they were read for: late logs reopened a closed sheet, or filled another stack's.
+      setForeignLogs((current) => (current?.name === name ? { name, lines, error: null } : current));
     } catch (requestError) {
-      setForeignLogs({ name, lines: null, error: requestError instanceof Error ? requestError.message : "Could not read the logs" });
+      setForeignLogs((current) => (current?.name === name ? { name, lines: null, error: requestError instanceof Error ? requestError.message : "Could not read the logs" } : current));
     }
   };
 
@@ -228,6 +272,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
       stopKillswitch: (scheduleId) => changeSchedule(deleteSchedule(scheduleId), "Could not stop the kill-switch check"),
     },
     act,
+    takeComposeDraft,
     openUrl,
     configure: (entry, mode) => { const back = sheet; setSheet(null); setScheduleError(null); setConfig({ entry, mode, back }); },
   } : null;
@@ -370,7 +415,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
                             <p className="catalog-card__description">{manifest.description}</p>
                             <div className="catalog-card__foot">
                               {live?.dataPresent ? <Tag tone="warning" title="Its data is still on this server from before">data kept</Tag> : !live ? <Tag>state unknown</Tag> : <span />}
-                              {mayStart(role, "app.install") && <Button aria-label={`Install ${manifest.name}`} onClick={() => ctx?.configure(entry, "install")}>Install</Button>}
+                              {mayStart(role, "app.install") && <Button aria-label={`Install ${manifest.name}`} risk={installTier(manifest)} onClick={() => ctx?.configure(entry, "install")}>Install</Button>}
                             </div>
                           </li>
                         );
@@ -382,7 +427,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
         )}
       </Tabs>
 
-      {sheetEntry && ctx && <AppSheet key={sheetEntry.manifest.id} entry={sheetEntry} ctx={ctx} tab={sheet?.tab} onTab={(next) => rememberApp(sheetEntry.manifest.id, next)} onClose={closeSheet} />}
+      {sheetEntry && ctx && <AppSheet key={sheetEntry.manifest.id} entry={sheetEntry} ctx={ctx} tab={sheet?.tab} onTab={(next) => { rememberApp(sheetEntry.manifest.id, next); setSheet((current) => (current ? { ...current, tab: next } : current)); }} onClose={closeSheet} />}
 
       {config && (
         <ConfigSheet
@@ -390,11 +435,13 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
           live={config.entry.live}
           mode={config.mode}
           csrfToken={csrfToken}
+          seed={config.seed}
           appNameFor={(id) => applications.find((entry) => entry.manifest.id === id)?.manifest.name ?? null}
           onCancel={() => { const back = config.back; setConfig(null); if (back) setSheet(back); }}
-          onSubmit={(values: Values) => {
+          onSubmit={(values: Values, form: Values) => {
             const { entry: { manifest }, mode } = config;
-            act({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${manifest.image.reference}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> });
+            act({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${manifest.image.reference}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> },
+              { config: { ...config, seed: form } });
           }}
         />
       )}

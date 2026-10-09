@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, TextInput, mayStart, riskOf, type Status } from "../../ui";
@@ -37,8 +37,11 @@ export function FirewallBruteForce({ state, error, role, start, onRetry }: Firew
   // does not manage the jail); when what is in force changes, it starts over from that. Another read
   // that says the same keeps what was typed: a refresh landing after an edit used to wipe it.
   const [draft, setDraft] = useState<{ maxRetry?: string; findTime?: string; banTime?: string; ignoreLan?: boolean }>({});
+  // Started over in the render that shows the new values, not in an effect after it: an effect runs
+  // once the new values are on screen, and wiped anything typed in between.
   const inForce = JSON.stringify(state?.config ?? null);
-  useEffect(() => { setDraft({}); }, [inForce]);
+  const [draftFor, setDraftFor] = useState(inForce);
+  if (draftFor !== inForce) { setDraftFor(inForce); setDraft({}); }
   const managed = state?.config.managed ? state.config : null;
   const maxRetry = draft.maxRetry ?? String(managed?.maxRetry ?? 5);
   const findTime = draft.findTime ?? String(managed?.findTimeMinutes ?? 10);

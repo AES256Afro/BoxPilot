@@ -1,13 +1,15 @@
 /**
  * Ollama's own HTTP API (M34), kept as the legacy way to reach a model: the assistant's default is
  * now the OpenAI-compatible client in model-client.mjs (M37), which Ollama also answers. No cloud
- * endpoint and no API key: the address rules are local-endpoint.mjs's, checked when an address is
- * saved and again before every request, and a redirect is refused rather than followed elsewhere.
+ * endpoint and no API key: the address rules are the harness's local-endpoint.mjs, checked when an
+ * address is saved and again before every request, and a redirect is refused rather than followed
+ * elsewhere.
  */
 import { lookup as dnsLookup } from "node:dns/promises";
-import { createEndpointGuard, isLocalAddress, normalizeEndpoint, readBounded } from "./local-endpoint.mjs";
+import { createEndpointGuard, isLocalAddress, normalizeEndpoint, readBounded } from "../../packages/harness/src/index.mjs";
 
-// The address rules moved to local-endpoint.mjs (M37), where the OpenAI-compatible client shares them.
+// The address rules moved to local-endpoint.mjs (M37), where the OpenAI-compatible client shares
+// them; both live in the harness since M45.8.
 export { isLocalAddress, normalizeEndpoint };
 
 export const ollamaApiPort = 11434;

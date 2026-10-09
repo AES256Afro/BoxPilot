@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, mayStart, riskOf, type KeyValueItem, type Status, type TableColumn } from "../../ui";
-import type { Topology } from "./types";
+import { NetworkResilience } from "./NetworkResilience";
+import type { Resilience, Topology } from "./types";
+
+/** The DNS apps that can be the house's DNS, which the rehearsal can stop and start again (server/dns-resilience.mjs). */
+const dnsAppIds = ["pi-hole", "adguard-home", "technitium-dns"];
 
 /*
  * The Network page's Names & DNS tab (M33.10): whether the DNS blocker here actually works and is
@@ -90,11 +94,26 @@ export interface NetworkDnsProps {
   start: (operation: PendingOperation) => void;
   /** A finished operation bumps this, so the names are read again. */
   refreshKey: number;
+  /** Whether the house keeps its DNS with this server off (M39.2), read by the page. */
+  resilience?: Resilience | null;
+  resilienceError?: string | null;
+  checkingDns?: boolean;
+  onCheckDns?: () => void;
+  now?: number;
 }
 
-export function NetworkDns({ csrfToken, topology, role, start, refreshKey }: NetworkDnsProps) {
+export function NetworkDns({ csrfToken, topology, role, start, refreshKey, resilience = null, resilienceError = null, checkingDns = false, onCheckDns = () => {}, now = Date.now() }: NetworkDnsProps) {
   const lanAddress = topology?.eligibleLanAddresses[0]?.address ?? null;
   const canPlan = role === "owner" || role === "operator";
+
+  // The DNS app running here, for the rehearsal: the catalog's summary says which is installed and running.
+  const [dnsApp, setDnsApp] = useState<{ id: string; name: string } | null>(null);
+  useEffect(() => {
+    fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((data: { applications?: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean } } | null }> } | null) => {
+      const found = (data?.applications ?? []).find((app) => dnsAppIds.includes(app.manifest.id) && app.live?.installed && app.live.container.running);
+      setDnsApp(found ? { id: found.manifest.id, name: found.manifest.name } : null);
+    }).catch(() => {});
+  }, [refreshKey]);
 
   // The blocker check.
   const [report, setReport] = useState<BlockerReport | null>(null);
@@ -147,24 +166,21 @@ export function NetworkDns({ csrfToken, topology, role, start, refreshKey }: Net
   const [submitting, setSubmitting] = useState(false);
   const [selectedTopology, setSelectedTopology] = useState("edge-router-with-access-points");
   const [dnsRole, setDnsRole] = useState("current-external");
-  const [gatewayAddress, setGatewayAddress] = useState("");
-  const [serverAddress, setServerAddress] = useState("");
-  const [dnsServiceAddress, setDnsServiceAddress] = useState("");
-  const [fallbackDnsAddress, setFallbackDnsAddress] = useState("");
   const [routerBackupRecorded, setRouterBackupRecorded] = useState(false);
   const [emergencyResolverTested, setEmergencyResolverTested] = useState(false);
   const [secondDeviceReady, setSecondDeviceReady] = useState(false);
-  const [tailscaleDnsOverride, setTailscaleDnsOverride] = useState(false);
-  /** True once the owner has set the Tailscale answer themselves, so a new read stops overwriting it. */
-  const declarationTouched = useRef(false);
-  useEffect(() => {
-    if (!topology) return;
-    setGatewayAddress((value) => value || topology.defaultRoutes[0]?.gateway || "");
-    setServerAddress((value) => value || topology.eligibleLanAddresses[0]?.address || "");
-    setDnsServiceAddress((value) => value || topology.defaultResolvers[0] || "");
-    setFallbackDnsAddress((value) => value || topology.defaultResolvers[1] || "");
-    setTailscaleDnsOverride((current) => (declarationTouched.current ? current : Boolean(topology.tailscale.defaultDnsObserved)));
-  }, [topology]);
+  // What the owner typed, over what this server reads. Every read of the network used to refill any
+  // field left empty, so a deliberately cleared address came back after each Read again or job.
+  const [draft, setDraft] = useState<{ gatewayAddress?: string; serverAddress?: string; dnsServiceAddress?: string; fallbackDnsAddress?: string; tailscaleDnsOverride?: boolean }>({});
+  const gatewayAddress = draft.gatewayAddress ?? topology?.defaultRoutes[0]?.gateway ?? "";
+  const serverAddress = draft.serverAddress ?? topology?.eligibleLanAddresses[0]?.address ?? "";
+  const dnsServiceAddress = draft.dnsServiceAddress ?? topology?.defaultResolvers[0] ?? "";
+  const fallbackDnsAddress = draft.fallbackDnsAddress ?? topology?.defaultResolvers[1] ?? "";
+  const tailscaleDnsOverride = draft.tailscaleDnsOverride ?? Boolean(topology?.tailscale.defaultDnsObserved);
+  const setGatewayAddress = (value: string) => setDraft((current) => ({ ...current, gatewayAddress: value }));
+  const setServerAddress = (value: string) => setDraft((current) => ({ ...current, serverAddress: value }));
+  const setDnsServiceAddress = (value: string) => setDraft((current) => ({ ...current, dnsServiceAddress: value }));
+  const setFallbackDnsAddress = (value: string) => setDraft((current) => ({ ...current, fallbackDnsAddress: value }));
 
   const addressProblem = (value: string) => (value && !ipv4.test(value.trim()) ? "An IPv4 address, such as 192.168.1.1." : undefined);
   const planReady = [gatewayAddress, serverAddress, dnsServiceAddress, fallbackDnsAddress].every((value) => !addressProblem(value));
@@ -228,6 +244,9 @@ export function NetworkDns({ csrfToken, topology, role, start, refreshKey }: Net
 
   return (
     <>
+      <NetworkResilience resilience={resilience} checking={checkingDns} error={resilienceError} onCheck={onCheckDns} role={role} start={start} dnsApp={dnsApp}
+        lanNames={(names?.records ?? []).some((record) => record.name.endsWith(".lan"))} now={now} />
+
       <Panel
         className="network-blocker"
         title="DNS blocker"
@@ -357,7 +376,7 @@ export function NetworkDns({ csrfToken, topology, role, start, refreshKey }: Net
             <Checkbox label="Router configuration backup or checkpoint recorded" checked={routerBackupRecorded} onChange={setRouterBackupRecorded} />
             <Checkbox label="Emergency resolver tested independently" checked={emergencyResolverTested} onChange={setEmergencyResolverTested} />
             <Checkbox label="Second LAN device ready for DNS testing" checked={secondDeviceReady} onChange={setSecondDeviceReady} />
-            <Checkbox label="Tailscale DNS override is enabled" checked={tailscaleDnsOverride} onChange={(checked) => { declarationTouched.current = true; setTailscaleDnsOverride(checked); }} />
+            <Checkbox label="Tailscale DNS override is enabled" checked={tailscaleDnsOverride} onChange={(checked) => setDraft((current) => ({ ...current, tailscaleDnsOverride: checked }))} />
           </div>
         </Sheet>
       )}

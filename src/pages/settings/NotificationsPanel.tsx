@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Field, KeyValue, Notice, Panel, SecretInput, Select, StatusChip, TextInput } from "../../ui";
+import HeartbeatPanel from "./HeartbeatPanel";
 
 interface NotificationState { configured: boolean; kind: "ntfy" | "gotify" | "webhook" | null; url: string | null; topic: string | null; hasToken: boolean }
 interface WatchCondition { key: string; label: string; active: boolean; details: Array<{ title: string; since: string | null }> }
@@ -157,6 +158,8 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
   const configured = current?.configured === true;
   const form = !configured || editing;
   const offerLocal = Boolean(localServer && form && url !== localServer.sendUrl);
+  // The server keeps the saved token when none is sent for the same service.
+  const keepsToken = Boolean(configured && current?.hasToken && current.kind === kind);
 
   return (
     <>
@@ -205,7 +208,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
                     <TextInput mono placeholder="topic" value={topic} onValueChange={(value) => setTopic(value.trim())} autoComplete="off" spellCheck={false} />
                   </Field>
                 )}
-                <Field label="Token" optional hint={kind === "gotify" ? "The application token." : kind === "ntfy" ? "An access token, if the topic needs one." : "A bearer token, if the webhook needs one."}>
+                <Field label="Token" optional hint={`${kind === "gotify" ? "The application token." : kind === "ntfy" ? "An access token, if the topic needs one." : "A bearer token, if the webhook needs one."}${keepsToken ? " Leave empty to keep the saved token." : ""}`}>
                   <SecretInput value={token} onValueChange={setToken} />
                 </Field>
               </div>
@@ -228,25 +231,28 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
         <WeeklyReport csrfToken={csrfToken} targetConfigured={configured} />
       </div>
 
-      {watch && (
-        <Panel
-          title="What BoxPilot watches"
-          count={{ status: watch.activeCount ? "warning" : "good", label: watch.activeCount ? `${watch.activeCount} needs attention` : "All clear" }}
-          meta={watch.targetConfigured ? "checked every 15 minutes" : "no target: these cannot reach you"}
-          className="settings-panel"
-          footer="A push when one turns bad, and again when it clears. A scheduled task or automation that keeps failing is one push until it works again; anything that could not be sent is listed on Home and Ops."
-        >
-          <ul className="settings-watch" aria-label="Conditions BoxPilot watches for">
-            {watch.conditions.map((condition) => (
-              <li key={condition.key} className="settings-watch__item" title={condition.active ? condition.details.map((detail) => detail.title).join("; ") : "Clear"}>
-                <span>{condition.label}{condition.active && condition.details.length > 1 ? ` (${condition.details.length})` : ""}</span>
-                <StatusChip status={condition.active ? "warning" : "good"}>{condition.active ? "needs a look" : "clear"}</StatusChip>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      )}
-
+      <div className="settings-column">
+        {/* M39.3: something outside this server that notices when it goes quiet. */}
+        <HeartbeatPanel csrfToken={csrfToken} />
+        {watch && (
+          <Panel
+            title="What BoxPilot watches"
+            count={{ status: watch.activeCount ? "warning" : "good", label: watch.activeCount ? `${watch.activeCount} needs attention` : "All clear" }}
+            meta={watch.targetConfigured ? "checked every 15 minutes" : "no target: these cannot reach you"}
+            className="settings-panel"
+            footer="A push when one turns bad, and again when it clears. A scheduled task or automation that keeps failing is one push until it works again; anything that could not be sent is listed on Home and Ops."
+          >
+            <ul className="settings-watch" aria-label="Conditions BoxPilot watches for">
+              {watch.conditions.map((condition) => (
+                <li key={condition.key} className="settings-watch__item" title={condition.active ? condition.details.map((detail) => detail.title).join("; ") : "Clear"}>
+                  <span>{condition.label}{condition.active && condition.details.length > 1 ? ` (${condition.details.length})` : ""}</span>
+                  <StatusChip status={condition.active ? "warning" : "good"}>{condition.active ? "needs a look" : "clear"}</StatusChip>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        )}
+      </div>
     </>
   );
 }

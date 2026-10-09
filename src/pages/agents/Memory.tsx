@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, KeyValue, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, type AgentSummary, type Memory as MemoryState, type MemoryNote } from "./api";
+import { agentsApi, type AgentSummary, type Example, type Examples, type Finding, type Memory as MemoryState, type MemoryNote } from "./api";
 import { errorText } from "./format";
+import { Prose } from "./Prose";
 
 /*
  * What an agent remembers (M37), by tier: the facts it learned (pinned first), what other agents
  * share with it, what its past runs found, and the conversation with the person looking. The owner
  * (or whoever made the agent) edits a fact - its words, how long it stays fresh, pinned, shared - and
  * makes it forget a fact, a run or the conversation. Forgetting deletes it and its embedding.
+ *
+ * M44: the findings it shared with the other agents, and theirs it can use, each with its age and
+ * how long it stays fresh. A finding it shared can be forgotten; the switches are on the Build tab.
+ *
+ * M46: the example book - the requests whose plans a person approved, and the template's own - that
+ * the planner is shown the nearest few of before each plan. One can be forgotten; the owner exports
+ * the book as training data (docs/TRAINING.md), with this house's names replaced.
  */
 
 export interface MemoryProps {
@@ -27,13 +35,24 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<MemoryNote | null>(null);
+  // The example book arrives apart from the rest, and an older server has none to give.
+  const [examples, setExamples] = useState<Examples | null>(null);
   const [draft, setDraft] = useState({ title: "", body: "", freshDays: "" });
   const currentId = agent?.id ?? null;
 
+  // The agent on show: what arrives for the one chosen before is not drawn under this one's name.
+  const shown = useRef(currentId);
   const read = useCallback(async (id: string) => {
-    try { setState(await agentsApi.memory(id)); setError(null); } catch (requestError) { setError(errorText(requestError, "What it remembers could not be read")); }
+    try {
+      const next = await agentsApi.memory(id);
+      if (shown.current === id) { setState(next); setError(null); }
+    } catch (requestError) { if (shown.current === id) setError(errorText(requestError, "What it remembers could not be read")); }
+    try {
+      const book = await agentsApi.examples(id);
+      if (shown.current === id) setExamples(book);
+    } catch { if (shown.current === id) setExamples(null); }
   }, []);
-  useEffect(() => { setState(null); if (currentId) void read(currentId); }, [currentId, read]);
+  useEffect(() => { shown.current = currentId; setState(null); setExamples(null); if (currentId) void read(currentId); }, [currentId, read]);
 
   if (!agent) return <Panel title="Memory" padded><EmptyState title="No agent to look at">Memory is for the agents you may change.</EmptyState></Panel>;
   if (!state) {
@@ -53,7 +72,7 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
         <span className="agents-note">
           <span className="agents-note__title">{note.title}{note.pinned && <Tag tone="accent">pinned</Tag>}{note.shared && <Tag tone="info">shared</Tag>}</span>
           <span className="agents-note__body">{note.body}</span>
-          <span className="agents-name__purpose">{note.source?.tools?.length ? `from ${note.source.tools.join(", ")}` : note.source?.by === "agent" ? "written by the agent" : ""}{note.source?.injection ? " · after suspicious tool output" : ""}{note.indexed ? " · indexed" : ""}</span>
+          <span className="agents-name__purpose">{note.source?.tools?.length ? `from ${note.source.tools.join(", ")}` : note.source?.by === "agent" ? "written by the agent" : ""}{note.source?.injection ? " · after suspicious tool output" : ""}{note.othersWords ? " · another account's words" : ""}{note.indexed ? " · indexed" : ""}</span>
         </span>
       ),
     },
@@ -63,16 +82,64 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "agents-actions-cell", cell: (note) => (
         <span className="agents-actions">
           <Button variant="ghost" onClick={() => openEdit(note)} aria-label={`Edit the fact ${note.title}`}>Edit</Button>
+          {(note.source?.injection || note.othersWords) && <Button variant="ghost" onClick={() => void act(() => agentsApi.editMemory(csrfToken, agent.id, note.id, { trusted: true }), `“${note.title}” is trusted: runs that read it are no longer flagged.`)} aria-label={`Trust the fact ${note.title}`}>Trust</Button>}
           <Button variant="ghost" onClick={() => void act(() => agentsApi.editMemory(csrfToken, agent.id, note.id, { pinned: !note.pinned }), note.pinned ? `“${note.title}” is no longer pinned.` : `“${note.title}” is pinned: recalled first, never dropped.`)} aria-label={`${note.pinned ? "Unpin" : "Pin"} ${note.title}`}>{note.pinned ? "Unpin" : "Pin"}</Button>
           <Button variant="ghost" onClick={() => void act(() => agentsApi.forget(csrfToken, agent.id, "notes", note.id), `Forgot “${note.title}”.`)} aria-label={`Forget the fact ${note.title}`}>Forget</Button>
         </span>
       ),
     },
   ];
+  const findings = state.findings ?? { shared: [], usable: [] };
+  // How long it stays fresh, short enough to leave the finding's words the room: "for 23 hours more".
+  const freshWords = (finding: Finding) => {
+    const when = relativeTime(finding.freshUntil, now);
+    if (!when) return null;
+    return finding.stale ? `went stale ${when}` : `for ${when.replace(/^in /, "")} more`;
+  };
+  const findingColumns = (own: boolean): Array<TableColumn<Finding>> => [
+    {
+      id: "finding", header: "Finding", cell: (finding) => (
+        <span className="agents-note">
+          <span className="agents-note__title">{finding.title}{finding.kind === "routine" ? <Tag tone="info">routine run</Tag> : <Tag tone="neutral">answer</Tag>}{finding.unsure && <Tag tone="warning">not sure</Tag>}{finding.partial && <Tag tone="warning">cut short</Tag>}</span>
+          <Prose text={finding.body} className="agents-note__body" />
+          {!own && <span className="agents-name__purpose">from {finding.from}</span>}
+        </span>
+      ),
+    },
+    { id: "age", header: "Found", hideOnPhone: true, cell: (finding) => <span className="agents-dim">{relativeTime(finding.updatedAt, now) ?? ""}</span> },
+    {
+      id: "fresh", header: "Fresh", cell: (finding) => (
+        <span className="agents-last">
+          <StatusChip status={finding.stale ? "warning" : "good"}>{finding.stale ? "stale" : "fresh"}</StatusChip>
+          {freshWords(finding) && <span className="agents-dim">{freshWords(finding)}</span>}
+        </span>
+      ),
+    },
+    ...(own ? [{
+      id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (finding: Finding) => (
+        <Button variant="ghost" onClick={() => void act(() => agentsApi.forget(csrfToken, agent.id, "notes", finding.id), "Forgot that finding; the other agents no longer see it.")} aria-label={`Forget the finding ${finding.title}`}>Forget</Button>
+      ),
+    }] : []),
+  ];
   const episodeColumns: Array<TableColumn<MemoryState["episodes"][number]>> = [
     { id: "text", header: "What the run found", cell: (episode) => <span className="agents-note"><span className="agents-note__body">{episode.text}</span></span> },
     { id: "when", header: "When", hideOnPhone: true, cell: (episode) => <span className="agents-dim">{relativeTime(episode.createdAt, now) ?? ""}</span> },
     { id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (episode) => <Button variant="ghost" onClick={() => void act(() => agentsApi.forget(csrfToken, agent.id, "episodes", episode.id), "Forgot that run.")} aria-label="Forget this run">Forget</Button> },
+  ];
+
+  const signalWords: Record<Example["signal"], string> = { seed: "from the template", "card-staged": "a card you staged", "thumbs-up": "a thumbs up", "finding-kept": "an answer kept as a finding", "eval-passed": "an evaluation question answered right" };
+  const exampleColumns: Array<TableColumn<Example>> = [
+    {
+      id: "request", header: "Request", cell: (example) => (
+        <span className="agents-note">
+          <span className="agents-note__title">{example.request}{example.seed && <Tag tone="neutral">template</Tag>}</span>
+          <span className="agents-name__purpose">{example.tools.length ? `plans ${example.tools.join(", ")}` : "plans no tool"}{example.embedded ? " · indexed" : ""}</span>
+        </span>
+      ),
+    },
+    { id: "signal", header: "Kept after", hideOnPhone: true, cell: (example) => <span className="agents-dim">{signalWords[example.signal] ?? example.signal}</span> },
+    { id: "when", header: "When", hideOnPhone: true, cell: (example) => <span className="agents-dim">{example.seed ? "" : relativeTime(example.createdAt, now) ?? ""}</span> },
+    { id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (example) => <Button variant="ghost" onClick={() => void act(() => agentsApi.forgetExample(csrfToken, agent.id, example.id), "Forgot that example; the planner is no longer shown it.")} aria-label={`Forget the example ${example.request}`}>Forget</Button> },
   ];
 
   return (
@@ -89,6 +156,8 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
           { id: "indexed", label: "Indexed", value: String(state.search.vectors), mono: true },
           { id: "pending", label: "Waiting for quiet hours", value: String(state.search.pending), mono: true, status: state.search.pending ? "neutral" : "good" },
           { id: "shared", label: "Its facts shared", value: state.settings.share ? "yes" : "no", mono: true },
+          { id: "shares-findings", label: "Shares its findings", value: state.settings.shareFindings === false ? "no" : "yes", mono: true },
+          { id: "uses-findings", label: "Uses others' findings", value: state.settings.useFindings === false ? "no" : "yes", mono: true },
           { id: "threads", label: "Conversations", value: state.settings.threads ? `${state.settings.turns} turns, then a summary` : "not kept", mono: true },
         ]} />
         {role === "owner" && state.search.byMeaning && state.search.pending > 0 && <Button onClick={() => void act(() => agentsApi.reindex(csrfToken), "Indexing is queued; it runs when the runner is free.")}>Index now</Button>}
@@ -100,13 +169,45 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
           empty={<EmptyState title="No facts yet">It writes them as it learns: in quiet hours, or when you ask it to.</EmptyState>} />
       </Panel>
 
+      <Panel className="agents-findings" title="Findings this agent shared" count={findings.shared.length} meta="what its routine runs and checked answers found, for the other agents">
+        <Table caption={`Findings ${agent.name} shared`} columns={findingColumns(true)} rows={findings.shared} rowKey={(finding) => finding.id}
+          rowStatus={(finding) => (finding.unsure || finding.partial ? "warning" : undefined)}
+          empty={<EmptyState title="Nothing shared yet">{state.settings.shareFindings === false
+            ? "It does not share its findings. Turn that on in its Build tab, under Team."
+            : "After its next routine run, or an answer it checks against its tools, what it found is kept here for the other agents."}</EmptyState>} />
+      </Panel>
+
+      <Panel className="agents-findings-usable" title="Findings it can use" count={findings.usable.length} meta="the other agents' fresh ones, as far as you may read">
+        <Table caption={`Other agents' findings ${agent.name} can use`} columns={findingColumns(false)} rows={findings.usable} rowKey={(finding) => finding.id}
+          empty={<EmptyState title="None to use now">{state.settings.useFindings === false
+            ? "It does not use the other agents' findings. Turn that on in its Build tab, under Team."
+            : "When another agent shares a finding, it shows here until it goes stale."}</EmptyState>} />
+      </Panel>
+
       {state.shared.length > 0 && (
         <Panel className="agents-shared" title="Shared by other agents" count={state.shared.length} meta="as far as its runs may read">
           <Table caption="Facts other agents share" rows={state.shared} rowKey={(note) => note.id}
+            rowStatus={(note) => (note.injection ? "warning" : undefined)}
             columns={[
-              { id: "fact", header: "Fact", cell: (note) => <span className="agents-note"><span className="agents-note__title">{note.title}</span><span className="agents-note__body">{note.body}</span></span> },
+              {
+                id: "fact", header: "Fact", cell: (note) => (
+                  <span className="agents-note">
+                    <span className="agents-note__title">{note.title}</span>
+                    <span className="agents-note__body">{note.body}</span>
+                    {(note.injection || note.othersWords) && <span className="agents-name__purpose">{[note.injection ? "after suspicious tool output" : null, note.othersWords ? "another account's words" : null].filter(Boolean).join(" · ")}</span>}
+                  </span>
+                ),
+              },
               { id: "from", header: "From", cell: (note) => note.from },
               { id: "fresh", header: "Fresh", cell: (note) => <StatusChip status={note.stale ? "warning" : "good"}>{note.stale ? "stale" : "fresh"}</StatusChip> },
+              {
+                // Trust goes to the agent that shared it, for whoever may change that agent (sweep 5).
+                id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "agents-actions-cell", cell: (note) => (
+                  note.canTrust && note.agentId && (note.injection || note.othersWords)
+                    ? <Button variant="ghost" onClick={() => void act(() => agentsApi.editMemory(csrfToken, note.agentId as string, note.id, { trusted: true }), `“${note.title}” is trusted: runs that read it are no longer flagged.`)} aria-label={`Trust the shared fact ${note.title}`}>Trust</Button>
+                    : null
+                ),
+              },
             ]} />
         </Panel>
       )}
@@ -116,13 +217,22 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
           empty={<EmptyState title="Nothing yet">Each answered run leaves a line here for later runs to recall.</EmptyState>} />
       </Panel>
 
+      {examples && (
+        <Panel className="agents-examples" title="Examples it plans from" count={examples.counts.total}
+          meta={`${examples.counts.seeds} from the template, ${examples.counts.total - examples.counts.seeds} approved; the planner is shown the nearest three`}
+          actions={role === "owner" && examples.counts.total > 0 ? <Button onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id))}>Export as training data</Button> : undefined}>
+          <Table caption={`Examples ${agent.name} plans from`} columns={exampleColumns} rows={examples.examples} rowKey={(example) => example.id}
+            empty={<EmptyState title="No examples yet">Stage a card, give an answer a thumbs up, or let an evaluation question pass: the request and its plan are kept here for the planner.</EmptyState>} />
+        </Panel>
+      )}
+
       <Panel className="agents-thread" title="Your conversation with it" padded
         actions={state.thread ? <Button variant="ghost" onClick={() => void act(() => agentsApi.forgetThread(csrfToken, agent.id), "It forgot your conversation.")}>Forget it</Button> : undefined}>
         {!state.thread ? <p className="agents-quiet">None yet. Ask it something in the console.</p> : (
           <>
             {state.thread.summary && <p className="agents-dim"><b>Earlier, in short:</b> {state.thread.summary}</p>}
             <ol className="agents-turns">
-              {state.thread.turns.map((turn, index) => <li key={index} className="agents-turn" data-role={turn.role}><span className="agents-turn__who">{turn.role === "user" ? "You" : agent.name}</span><span className="agents-turn__text">{turn.text}</span></li>)}
+              {state.thread.turns.map((turn, index) => <li key={index} className="agents-turn" data-role={turn.role}><span className="agents-turn__who">{turn.role === "user" ? "You" : agent.name}</span>{turn.role === "user" ? <span className="agents-turn__text">{turn.text}</span> : <Prose text={turn.text} className="agents-turn__text" />}</li>)}
             </ol>
           </>
         )}
@@ -131,7 +241,12 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
       {editing && (
         <Sheet kicker={agent.name} title="Edit a fact" onClose={() => setEditing(null)}
           footer={<><Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button><Button variant="primary" onClick={() => void act(async () => {
-            await agentsApi.editMemory(csrfToken, agent.id, editing.id, { title: draft.title, body: draft.body, ...(draft.freshDays === "always" ? { freshDays: null } : draft.freshDays ? { freshDays: Number(draft.freshDays) } : {}) });
+            // Only what changed (sweep 4): new words are the person's own, and clear a flagged fact's flag; its own words sent back unchanged must not.
+            await agentsApi.editMemory(csrfToken, agent.id, editing.id, {
+              ...(draft.title !== editing.title ? { title: draft.title } : {}),
+              ...(draft.body !== editing.body ? { body: draft.body } : {}),
+              ...(draft.freshDays === "always" ? { freshDays: null } : draft.freshDays ? { freshDays: Number(draft.freshDays) } : {}),
+            });
             setEditing(null);
           }, "The fact is changed; its embedding is made again in quiet hours.")}>Save</Button></>}>
           <div className="agents-password">

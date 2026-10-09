@@ -1,10 +1,11 @@
 import { verifyPassword } from "./security.mjs";
 import { defaultThrottle as throttle } from "./login-throttle.mjs";
-import { approvalRequirement, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
+import { approvalRequirement, defaultApprovalMode, elevationTtlMs, higherTier, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
-import { budgetFor, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
+import { budgetFor, internalRefusal, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
+import { restartsBoxPilot } from "./ops/services.mjs";
 import { asSentence } from "./health-alerts.mjs";
-import { formatDuration, jobTimeoutRecord, timeoutMessage, timeoutOf } from "./timeouts.mjs";
+import { formatDuration, jobTimeoutRecord, mayStillBeRunning, timeoutMessage, timeoutOf } from "./timeouts.mjs";
 import { productVersion } from "./version.mjs";
 
 /** What a secret parameter looks like in the database and the job API. */
@@ -20,11 +21,19 @@ export const dismissed = (job) => (job?.steps ?? []).some((step) => step.name ==
 /** A job that ran but whose result BoxPilot could not save; it carries a failed "record" step. */
 export const recordFailed = (job) => (job?.steps ?? []).some((step) => step.name === "record" && step.state === "failed");
 
+/**
+ * Whether what ran out may have left a second copy's worth of work running on the server: a step left
+ * running (a root task past its own limit), or the whole budget of an operation whose work is a root
+ * task, which the helper may still be waiting on. Nothing records that unit stopping, so neither is
+ * given more time beside it.
+ */
+const leftRunning = (timeout, operation) => timeout.phase !== "queued" && (timeout.stillRunning === true || (timeout.scope === "operation" && operation?.runsRootTask === true));
+
 /** The job-log step for a timeout: which limit ran out, and how long the job had run by then. */
 function timeoutStep(timeout) {
   if (timeout.phase === "queued") return `Waited ${formatDuration(timeout.elapsedMs)} behind other work and never started`;
   if (timeout.scope === "operation") return `Used its whole ${formatDuration(timeout.budgetMs)}; BoxPilot stopped waiting after ${formatDuration(timeout.elapsedMs)}`;
-  return `${timeout.step ?? "One step"} ran out of its ${formatDuration(timeout.budgetMs)}; the job had run for ${formatDuration(timeout.elapsedMs)}`;
+  return `${timeout.step ?? "One step"} ran out of its ${formatDuration(timeout.budgetMs)}${timeout.stillRunning ? " and may still be running" : ""}; the job had run for ${formatDuration(timeout.elapsedMs)}`;
 }
 
 /**
@@ -44,10 +53,38 @@ function unreadableReason(status) {
   return blocking && Number.isInteger(blocking.mode) ? `${reason} (the log ${blocking.what} is mode ${blocking.mode.toString(8)})` : reason;
 }
 
+/**
+ * The words a failed operation uses when it did undo its partial changes. Never the bare word
+ * "rollback": the errors that carry it mostly say the rollback failed ("automatic rollback also
+ * failed", "failed exact rollback validation"), and those used to be recorded as undone.
+ */
+const undoneWords = /was rolled back|\bthe previous (?:image|one|configuration) was restored|\bthe version it was on was restored|cleanup completed|was unchanged/i;
+
+/**
+ * Whether a failed operation undid its partial changes: true, false, or null when it did not say.
+ * An operation that tries to roll back says which in `rolledBack` (carried through the helper's
+ * reply); one that does not is read by the words above, unless something in it also failed.
+ */
+function rollbackOutcome(error) {
+  if (typeof error?.rolledBack === "boolean") return error.rolledBack;
+  const message = String(error?.message ?? "");
+  return undoneWords.test(message) && !/also failed/i.test(message) ? true : null;
+}
+
 /** One condition per operation and subject: a nightly backup that cannot record is one alert, not one a night. */
 function recordAlertKey(job) {
   const subject = job.parameters?.id ?? job.parameters?.name ?? null;
   return `record.failed:${job.type.slice(3)}${typeof subject === "string" && subject ? `:${subject.slice(0, 64)}` : ""}`;
+}
+
+/** The agent that staged a job (M45.5), held to plain bounded text: a name another person chose. */
+function agentOrigin(origin) {
+  if (!origin || typeof origin !== "object") return null;
+  const text = (value, max) => (typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max) : "");
+  const agentId = text(origin.agentId, 64);
+  const runId = text(origin.runId, 64);
+  if (!agentId || !runId) return null;
+  return { agentId, agentName: text(origin.agentName, 80) || "An agent", runId };
 }
 
 export function createJobService(store, helper, {
@@ -58,6 +95,13 @@ export function createJobService(store, helper, {
   jobLog = null,
   operationRecordHooks = {},
   operationPrepareHooks = {},
+  // A value a prepare hook pins at staging that can change while the job waits for approval (the
+  // model agents use, M37) is pinned again here, on the staged parameters, as the job is approved.
+  operationApprovalHooks = {},
+  // An operation whose tier depends on what it acts on names a hook that answers that tier from its
+  // validated parameters: installing an app its manifest calls high risk is high. The job is staged
+  // and approved at the higher of the two, never lower than the operation's own.
+  operationRiskHooks = {},
   onOperationSettled = () => {},
   // The health-alert ledger (raise/clear). A result that could not be saved is announced through it.
   alerts = null,
@@ -65,6 +109,11 @@ export function createJobService(store, helper, {
   secretTtlMs = stagedSecretTtlMs,
   approvalMaxAge = approvalMaxAgeMs,
   version = productVersion,
+  // How long a change the helper turned away unstarted, because BoxPilot was restarting, waits for
+  // it to come back before it is sent again (sweep 5), and how often it looks.
+  helperReturnMs = 10 * 60_000,
+  helperPollMs = 5_000,
+  sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
 } = {}) {
   // Announcing never holds up or fails the job: the ledger may wait on a notification target.
   const tell = (call) => { try { Promise.resolve(call()).catch(() => {}); } catch { /* the job's outcome stands */ } };
@@ -91,6 +140,33 @@ export function createJobService(store, helper, {
   // Secret parameters (share passwords) staged with a job live here until it runs; they are
   // never written to SQLite or the job log. A restart forgets them and the job must be re-staged.
   const stagedSecrets = new Map();
+  // Result fields an operation shows once (its oneTimeFields: Zulip's single-use organization
+  // link) wait here for the person who ran the job, for a quarter of an hour. They are never
+  // written to SQLite; the stored result says only which fields were given (`oneTime`).
+  const oneTimeResults = new Map();
+  const oneTimeTtlMs = 15 * 60_000;
+  function splitOneTime(job, result) {
+    const fields = job.type.startsWith("op:") ? registry.get(job.type.slice(3))?.oneTimeFields ?? [] : [];
+    if (!fields.length || !result || typeof result !== "object" || Array.isArray(result)) return result;
+    const stored = { ...result };
+    const kept = {};
+    for (const field of fields) if (Object.hasOwn(stored, field)) { kept[field] = stored[field]; delete stored[field]; }
+    if (!Object.keys(kept).length) return stored;
+    oneTimeResults.set(job.id, { value: kept, createdBy: job.createdBy, expiresAt: now() + oneTimeTtlMs });
+    return { ...stored, oneTime: Object.keys(kept) };
+  }
+  /** Forget what nobody came back for. Swept every minute with the staged secrets, not only when someone asks. */
+  function pruneOneTime() {
+    for (const [key, entry] of oneTimeResults) if (entry.expiresAt <= now()) oneTimeResults.delete(key);
+  }
+  /** What a job showed once, to the person who ran it, the first time they ask; null after that. */
+  function takeOneTime(jobId, callerId) {
+    pruneOneTime();
+    const entry = oneTimeResults.get(jobId);
+    if (!entry || !callerId || entry.createdBy !== callerId) return null;
+    oneTimeResults.delete(jobId);
+    return entry.value;
+  }
 
   /**
    * Decide how a job must be approved for this session (ADR-001 risk tiers).
@@ -103,7 +179,7 @@ export function createJobService(store, helper, {
     try { confirmText = registered?.confirm ? registered.confirm(job.parameters ?? {}) ?? null : null; } catch { confirmText = null; }
     const expiresAt = job.recovery?.approvalExpiresAt ?? null;
     const expired = Boolean(expiresAt && Date.parse(expiresAt) <= now());
-    return { expiresAt, expired, minimumRole: registered?.minimumRole ?? null, confirmText: typeof confirmText === "string" && confirmText ? confirmText : null, mode, ...approvalRequirement({ jobType: job.type, mode, elevatedUntil: session?.elevatedUntil ?? null, now: () => new Date(now()) }) };
+    return { expiresAt, expired, minimumRole: registered?.minimumRole ?? null, confirmText: typeof confirmText === "string" && confirmText ? confirmText : null, mode, ...approvalRequirement({ jobType: job.type, atLeast: job.risk ?? null, mode, elevatedUntil: session?.elevatedUntil ?? null, now: () => new Date(now()) }) };
   }
 
   /**
@@ -146,6 +222,11 @@ export function createJobService(store, helper, {
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     if (!registeredOperation) throw new Error("Job type is not supported by this executor");
+    // BoxPilot's own plumbing is refused at staging (sweep 3); one staged before then is withdrawn here.
+    if (registeredOperation.internal) {
+      withdraw(job, `${internalRefusal(registeredOperation)}, never as a job.`, "job.internal.withdrawn");
+      throw Object.assign(new Error(`${internalRefusal(registeredOperation)}, so this job was cancelled. Nothing ran.`), { code: "operation_internal" });
+    }
     // Staged for a server that has moved on (an update to a version already running): approving it
     // would do nothing or harm, so it is cancelled with the reason instead of run (M36).
     const superseded = supersededReason(job, registeredOperation);
@@ -153,18 +234,23 @@ export function createJobService(store, helper, {
       withdraw(job, `Superseded: ${superseded}.`, "job.superseded");
       throw Object.assign(new Error(`${superseded}, so BoxPilot cancelled it. Nothing ran.`), { code: "job_superseded" });
     }
-    const parameters = restoreSecrets(job.parameters ?? {}, stagedSecrets.get(jobId)?.values);
+    let parameters = restoreSecrets(job.parameters ?? {}, stagedSecrets.get(jobId)?.values);
     // A placeholder still present, anywhere, means the staged copy is gone (the service restarted):
     // refuse rather than run with the literal text "[secret]" as a password or an app's token.
     if (placeholderPaths(parameters).length) throw new Error("The credentials staged with this job are no longer available (the service restarted); stage it again");
+    if (operationApprovalHooks[registeredOperation.id]) parameters = await operationApprovalHooks[registeredOperation.id](parameters);
     const parameterError = registry.validate(registeredOperation.id, parameters);
     if (parameterError) throw new Error(`Job parameters are no longer valid: ${parameterError}`);
     // An operation that restarts (or reboots) BoxPilot must not start while another job is mid-run:
     // the restart would cut that job off and leave it marked interrupted, its work half-done. The
     // update job is still awaiting_approval here, so it is not yet in the active list itself. This is
     // a best-effort guard against the common case (approving an update while a job is visibly
-    // running), not a lock against a job that starts in the same instant.
-    if (registeredOperation.restartsService && typeof store.listActiveJobs === "function") {
+    // running), not a lock against a job that starts in the same instant. Restarting BoxPilot's own
+    // unit from Services is the same restart by another door. An operation whose restart is drained
+    // (package updates, KVM) is not guarded: its restart waits for the work running beside it to
+    // finish, a change sent while it restarts is sent again once BoxPilot is back (sweep 5), and
+    // refusing it sent the nightly 03:00 updates away behind the 03:00 backup, every night.
+    if ((registeredOperation.restartsService === true || restartsBoxPilot(registeredOperation.id, parameters)) && typeof store.listActiveJobs === "function") {
       const running = store.listActiveJobs().filter((other) => other.id !== jobId);
       if (running.length) {
         const names = running.map((other) => other.title).join(", ");
@@ -244,10 +330,36 @@ export function createJobService(store, helper, {
     const timeout = timeoutOf(error);
     if (!timeout) return null;
     const operation = registry.get(job.type.slice(3));
-    const moreTimeMs = timeout.phase === "queued" || placeholderPaths(job.parameters ?? {}).length ? null : nextBudgetMs(operation, execution.timeoutMs);
+    // A step left running (a root task past its own budget) is not offered more time: the retry
+    // would start a second copy beside the first, with no lane between them.
+    const moreTimeMs = timeout.phase === "queued" || leftRunning(timeout, operation) || placeholderPaths(job.parameters ?? {}).length ? null : nextBudgetMs(operation, execution.timeoutMs);
     let log = "";
     try { log = jobLog ? (await jobLog.read(job.id, 0))?.text ?? "" : ""; } catch { /* the record stands without it */ }
     return jobTimeoutRecord(timeout, { elapsedMs: now() - startedAt, log, moreTimeMs });
+  }
+
+  /**
+   * Whether the helper never started what it was sent: it turned it away because BoxPilot was
+   * restarting (helper_restarting), or there was no helper to send it to (helper_unavailable, between
+   * a helper restart's stop and its start). Nothing ran either way. Anything else - a failure, a
+   * connection lost after sending - may have run, and is never sent again.
+   */
+  const notStarted = (error) => error?.code === "helper_restarting" || error?.code === "helper_unavailable";
+
+  /**
+   * Wait for BoxPilot's helper to be back from a restart, for at most helperReturnMs: it answers, and
+   * no longer says it is restarting (its runtime read, self-restart.mjs). True once it is back.
+   */
+  async function helperBack() {
+    const deadline = now() + helperReturnMs;
+    for (;;) {
+      await sleep(helperPollMs);
+      try {
+        const runtime = await helper.request("system.runtime.inspect", {}, { timeoutMs: 10_000 });
+        if (runtime?.selfRestart?.restarting !== true) return true;
+      } catch { /* not there yet */ }
+      if (now() >= deadline) return false;
+    }
   }
 
   async function executePrepared({ job, owner, execution }) {
@@ -260,12 +372,39 @@ export function createJobService(store, helper, {
       // Invalidate before publishing terminal state so a UI refresh sees new evidence.
       try { await onOperationSettled(job); } catch { /* preserve the operation's actual outcome */ }
     };
+    // Waiting behind other work in the helper's queue is said on the job, and so is leaving it: the
+    // operation's budget starts there, and a flow watching this job counts its step's time from then.
+    const note = (state, detail) => { try { store.addJobStep(jobId, "queue", state, detail); } catch { /* the job's outcome stands */ } };
+    const queue = {
+      onQueued: () => note("waiting", "Waiting for earlier work on the server to finish; its time limit starts when it begins"),
+      onStarted: () => note("completed", "Started once the earlier work had finished"),
+    };
+    const send = () => (execution.run
+      ? execution.run()
+      : execution.timeoutMs
+        ? helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId, ...(execution.budgetMs ? { budgetMs: execution.budgetMs } : {}), ...queue })
+        : helper.request(execution.operation, execution.parameters, { jobId, ...queue }));
+    /**
+     * Sent; and, when the helper never started it because BoxPilot was restarting (sweep 5), sent
+     * again once, when BoxPilot is back. An automation's next step used to be refused in the moment
+     * between its last step and the restart, and the automation stopped there. While it waits the job
+     * says so as a queue wait, which a flow watching it reads as not lost, and which a restart of the
+     * web side in the meantime reads as never started (state.recoverInterruptedJobs).
+     */
+    const sendOnceBack = async () => {
+      try {
+        return await send();
+      } catch (error) {
+        if (execution.run || !notStarted(error)) throw error;
+        note("waiting", error.code === "helper_restarting" ? "BoxPilot is restarting, so this has not started; it is sent again once BoxPilot is back" : "BoxPilot's helper is not answering, so this has not started; it is sent again once it is back");
+        if (!await helperBack()) throw Object.assign(new Error(`BoxPilot was not back within ${formatDuration(helperReturnMs)}, so this did not start and nothing was changed. Run it again once BoxPilot is back.`), { code: error.code });
+        // From here it may start: a web restart now reads it as cut off, never as never started.
+        note("completed", "Sent again now that BoxPilot is back");
+        return send();
+      }
+    };
     try {
-      const result = execution.run
-        ? await execution.run()
-        : execution.timeoutMs
-          ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId, ...(execution.budgetMs ? { budgetMs: execution.budgetMs } : {}) })
-          : await helper.request(execution.operation, execution.parameters, { jobId });
+      const result = splitOneTime(job, await sendOnceBack());
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
@@ -286,7 +425,7 @@ export function createJobService(store, helper, {
         const timeout = current.state === "applying" && job.type.startsWith("op:") ? await timeoutRecordFor(job, execution, error, startedAt) : null;
         // A step's own limit comes with the operation's sentence (what it undid); the whole budget
         // running out has no such sentence, so it gets one saying what is known.
-        const message = timeout && (timeout.scope === "operation" || timeout.phase === "queued") ? timeoutMessage(job.title, timeout) : error.message;
+        const message = timeout && (mayStillBeRunning(timeout) || timeout.phase === "queued") ? timeoutMessage(job.title, timeout) : error.message;
         if (timeout) store.addJobStep(jobId, "timeout", "reached", timeoutStep(timeout).slice(0, 500));
         // The step that failed is the one that was running. A failure while applying used to be
         // written as "verify failed" beside an "apply running" nothing ever closed, so the job's
@@ -295,10 +434,9 @@ export function createJobService(store, helper, {
         // record that could not be saved) ends verify.
         if (current.state === "applying") store.addJobStep(jobId, "apply", "failed", (timeout ? `${job.title} ran out of time` : `${job.title} failed: ${message}`).slice(0, 500));
         else store.addJobStep(jobId, "verify", "failed", execution.failed);
-        // Helper operations that roll back on failure say so in the error itself.
-        if (/rollback|cleanup completed|was unchanged/i.test(error.message)) {
-          store.addJobStep(jobId, "rollback", "completed", "The operation undid its partial changes before failing; existing data was preserved");
-        }
+        const rolledBack = rollbackOutcome(error);
+        if (rolledBack === true) store.addJobStep(jobId, "rollback", "completed", "The operation undid its partial changes before failing; existing data was preserved");
+        else if (rolledBack === false) store.addJobStep(jobId, "rollback", "failed", "The operation tried to undo its partial changes and could not; check what it changed before running it again");
         store.transitionJob(jobId, current.state, "failed", { error: message, ...(timeout ? { timeout } : {}) });
       }
       store.recordAudit("job.failed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
@@ -326,9 +464,12 @@ export function createJobService(store, helper, {
    * and `rerunOf` / `retryOf` name the job this one runs again: after a restart cut it off (M30.2),
    * or after it ran out of time. They are kept on the record so each run links to the one before.
    */
-  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, retryOf = null } = {}) {
+  async function createOperationJob(operationId, parameters, ownerId, { role = "owner", budgetMs = null, rerunOf = null, rerunNeverStarted = false, retryOf = null, origin = null } = {}) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation not found");
+    // BoxPilot's own plumbing runs through the helper when BoxPilot calls it, never as a job: not
+    // from a card, a flow, a schedule or the operations route, whoever asks (sweep 3).
+    if (operation.internal) throw Object.assign(new Error(internalRefusal(operation)), { code: "operation_internal" });
     if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot stage operations");
     if (operation.risk === "high" && role !== "owner") throw new Error("Only the owner can stage high-risk operations");
     if (operation.minimumRole === "owner" && role !== "owner") throw new Error("Only the owner can stage this operation");
@@ -338,6 +479,8 @@ export function createJobService(store, helper, {
     if (operationPrepareHooks[operationId]) parameters = await operationPrepareHooks[operationId](parameters ?? {});
     const parameterError = registry.validate(operationId, parameters ?? {});
     if (parameterError) throw new Error(parameterError);
+    const tier = await effectiveRisk(operationId, parameters);
+    if (tier === "high" && role !== "owner") throw new Error(`Only the owner can stage this: ${operation.title} is high risk here`);
     // Every secret, top-level or an app's own inside values.env, is staged in memory and the record
     // keeps a placeholder, so the controller database - and every backup of it - never holds one.
     const { stored: persisted, secrets } = splitSecrets(parameters ?? {}, await secretPaths(operation, parameters ?? {}, { secretEnvNamesFor }));
@@ -346,22 +489,25 @@ export function createJobService(store, helper, {
     const job = store.createJob({
       type: `op:${operationId}`,
       title: operation.title,
-      risk: operation.risk,
+      risk: tier,
       parameters: persisted,
       recovery: {
         ...(approvalExpiresAt ? { approvalExpiresAt } : {}),
         ...(budget !== operation.timeoutMs ? { budgetMs: budget } : {}),
         ...(typeof rerunOf === "string" && rerunOf ? { rerunOf } : {}),
         ...(typeof retryOf === "string" && retryOf ? { retryOf } : {}),
+        // M45.5: an agent staged it, in its maker's name; the record names the agent and its run.
+        ...(agentOrigin(origin) ? { agent: agentOrigin(origin) } : {}),
         reason: operation.description || `${operation.title} is ${operation.risk} risk.`,
         manual: "If verification fails, review the job log and the helper journal, then rerun or undo the operation.",
       },
       createdBy: ownerId,
       initialSteps: [
         { name: "preflight", state: "completed", detail: `${operation.title}: parameters validated against the operation registry` },
-        { name: "checkpoint", state: "completed", detail: `${operation.risk} risk · ${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
-        ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, was cut off.` }] : []),
+        { name: "checkpoint", state: "completed", detail: `${tier} risk ·${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
+        ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, ${rerunNeverStarted ? "never started" : "was cut off"}.` }] : []),
         ...(typeof retryOf === "string" && retryOf ? [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${retryOf}, ran out of time.` }] : []),
+        ...(agentOrigin(origin) ? [{ name: "agent", state: "completed", detail: `${agentOrigin(origin).agentName} asked for this in its run ${agentOrigin(origin).runId}` }] : []),
         ...(budget !== operation.timeoutMs ? [{ name: "budget", state: "completed", detail: `Allowed ${formatDuration(budget)} instead of the usual ${formatDuration(operation.timeoutMs)}` }] : []),
       ],
     });
@@ -381,6 +527,8 @@ export function createJobService(store, helper, {
     const refuse = (message) => Object.assign(new Error(message), { code: "more_time_refused" });
     if (!operation || job.state !== "failed" || !job.timeout) throw refuse("Only a job that ran out of time can be tried again with more time");
     if (job.timeout.phase === "queued") throw refuse("This job never started: it waited behind other work. Run it again once that work has finished.");
+    // The step that ran out was left running on the server; a second copy would run beside it.
+    if (leftRunning(job.timeout, operation)) throw refuse(`${job.timeout.step ?? job.title} may still be running on the server, so it was not started a second time beside itself. Run it again once that has finished.`);
     if (placeholderPaths(job.parameters ?? {}).length) throw refuse("This job was given passwords, and BoxPilot does not keep them after a job runs. Start it again from where you started it.");
     const budgetMs = nextBudgetMs(operation, budgetFor(operation, job.recovery?.budgetMs ?? null));
     if (!budgetMs) throw refuse(operation.maxTimeoutMs ? `${operation.title} already had the most time it can have, ${formatDuration(operation.maxTimeoutMs)}.` : `${operation.title} cannot be given more time.`);
@@ -388,6 +536,17 @@ export function createJobService(store, helper, {
     store.addJobStep(job.id, "retry", "staged", `Staged again with ${formatDuration(budgetMs)} as job ${retry.id}`);
     store.recordAudit("job.more-time", { actorId: ownerId, subjectId: retry.id, details: { type: job.type, retryOf: job.id, budgetMs } });
     return retry;
+  }
+
+  /**
+   * The tier a job for this operation and these (prepared) parameters is staged at: the operation's
+   * own, or higher where its risk hook says what it acts on is riskier. Null for an unknown operation.
+   * Schedules and flows ask before they store a step, since an unattended run cannot be high.
+   */
+  async function effectiveRisk(operationId, parameters = {}) {
+    const operation = registry.get(operationId);
+    if (!operation) return null;
+    return operationRiskHooks[operationId] ? higherTier(operation.risk, await operationRiskHooks[operationId](parameters ?? {})) : operation.risk;
   }
 
   /** Apply the operation's prepare hook without staging — the scheduler validates with it. */
@@ -432,6 +591,12 @@ export function createJobService(store, helper, {
   function sweepStaleApprovals() {
     const swept = [];
     for (const job of store.listAwaitingApproval?.() ?? []) {
+      // Staged before BoxPilot's own plumbing was refused as a job (sweep 3): it could still be approved.
+      const operation = job.type?.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
+      if (operation?.internal) {
+        if (withdraw(job, `${internalRefusal(operation)}, never as a job.`, "job.internal.withdrawn")) swept.push({ id: job.id, why: "internal" });
+        continue;
+      }
       const superseded = supersededReason(job);
       if (superseded) {
         if (withdraw(job, `Superseded: ${superseded}.`, "job.superseded")) swept.push({ id: job.id, why: "superseded", reason: superseded });
@@ -482,6 +647,9 @@ export function createJobService(store, helper, {
 
   /** Drop finished or expired secrets. Called once a minute, and expiry is also enforced at approval. */
   function pruneStagedSecrets() {
+    // A single-use organization link nobody picked up is a secret too: it used to stay in memory
+    // until someone next took one.
+    pruneOneTime();
     let dropped = 0;
     for (const [jobId, record] of stagedSecrets) {
       const job = store.getJob(jobId);
@@ -492,5 +660,5 @@ export function createJobService(store, helper, {
     return dropped;
   }
 
-  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, sweepStaleApprovals, dismissFailure, supersededReason };
+  return { pruneStagedSecrets, holdsStagedSecrets, createOperationJob, retryWithMoreTime, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters, effectiveRisk, sweepStaleApprovals, dismissFailure, supersededReason, takeOneTime, oneTimeHeld: () => oneTimeResults.size };
 }

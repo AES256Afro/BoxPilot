@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { approveJob, getJob, getJobApproval, retryWithMoreTime, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "../operations";
+import { approveJob, getJob, getJobApproval, oneTimeFields, retryWithMoreTime, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "../operations";
+import { OneTimeResult } from "./OneTimeResult";
 import { useDialogFocus } from "../useDialogFocus";
 import { jobWarnings } from "../JobWarnings";
 import { formatDuration, jobTimeout } from "../JobTimeout";
@@ -46,6 +47,24 @@ export interface PendingOperation {
   /** Told the job once it is staged, before anything is approved (Repair records which finding it fixes). */
   onStaged?: (job: Job) => void;
   /**
+   * Told the job once the server has accepted its approval, so it will run. A staged job can still be
+   * withdrawn by cancelling; something that must only happen when the job runs (an agent's card
+   * being decided) waits for this instead.
+   */
+  onApproved?: (job: Job) => void;
+  /**
+   * Told once a job this dialog staged and then withdrew (Cancel, Escape, the dialog going away) is
+   * cancelled, or the cancel was refused because someone approved it meanwhile from another page or
+   * a push: a page that shows the job's state reads it again then, not before the cancel landed.
+   */
+  onWithdrawn?: (jobId: string) => void;
+  /**
+   * Told when the dialog is closed, with the job as it ended here: null when it was cancelled, could
+   * not be staged, or was not followed to its end. A form closes before its approval opens, so the
+   * page puts it back, as it was filled in, unless the job completed.
+   */
+  onClosed?: (job: Job | null) => void;
+  /**
    * Once the job is approved and running, hand it over rather than following it here: Repair streams
    * its log in the finding's card and re-checks the finding when it ends (M35). The approval itself is
    * exactly the same; only who watches the run changes. The caller closes the dialog.
@@ -68,6 +87,12 @@ export interface PendingOperation {
    * person presses it, and it opens in its own dialog, approved at its own tier like any other.
    */
   next?: PendingOperation;
+  /**
+   * Who suggested this step when it was not the person approving it: an agent's name, or the
+   * assistant. Its `preview` is then the model's own words, which text the model read can steer, so
+   * the dialog says whose words they are and shows everything the operation is given, unfolded.
+   */
+  proposedBy?: string;
 }
 
 interface Props extends PendingOperation {
@@ -93,7 +118,7 @@ function ParameterList({ parameters }: { parameters: Record<string, unknown> }) 
   );
 }
 
-export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, handoff, moreTimeFor, existingJobId, next, onNext }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, onApproved, onWithdrawn, onClosed, handoff, moreTimeFor, existingJobId, next, onNext, proposedBy }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [finished, setFinished] = useState<Job | null>(null);
@@ -114,6 +139,12 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   // Read through refs so a caller's new callback does not stage the job again.
   const onStagedRef = useRef(onStaged);
   onStagedRef.current = onStaged;
+  const onApprovedRef = useRef(onApproved);
+  onApprovedRef.current = onApproved;
+  const onWithdrawnRef = useRef(onWithdrawn);
+  onWithdrawnRef.current = onWithdrawn;
+  const onClosedRef = useRef(onClosed);
+  onClosedRef.current = onClosed;
   const handoffRef = useRef(handoff);
   handoffRef.current = handoff;
   useDialogFocus(dialogRef);
@@ -132,7 +163,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     const withdraw = () => {
       if (!stagedState.owned || !stagedState.jobId || stagedState.approvalStarted || stagedState.withdrawn) return;
       stagedState.withdrawn = true;
-      void cancelJob(stagedState.jobId, csrfToken).catch(() => undefined);
+      const jobId = stagedState.jobId;
+      void cancelJob(jobId, csrfToken).catch(() => undefined).then(() => onWithdrawnRef.current?.(jobId));
     };
     setPhase("staging"); setJob(null); setFinished(null); setPolicy(null); setError(null); setPassword(""); setTypedConfirm("");
     // A retry with more time is staged by the server from the timed-out job, and then approved
@@ -152,10 +184,12 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const dismiss = useCallback(() => {
     if (job && phase === "ready" && stagedRef.current?.owned && !stagedRef.current.withdrawn) {
       stagedRef.current.withdrawn = true;
-      void cancelJob(job.id, csrfToken).catch(() => undefined);
+      const jobId = job.id;
+      void cancelJob(jobId, csrfToken).catch(() => undefined).then(() => onWithdrawnRef.current?.(jobId));
     }
     onClose();
-  }, [job, phase, csrfToken, onClose]);
+    onClosedRef.current?.(finished);
+  }, [job, phase, finished, csrfToken, onClose]);
 
   // Escape closes the dialog (and withdraws the staged job) like Cancel does, unless something
   // opened over it has Escape first.
@@ -182,6 +216,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     try {
       await approveJob(job.id, csrfToken, password || undefined, typedConfirm || undefined);
       accepted = true;
+      // Accepted, so it runs whether or not this dialog is still here to follow it.
+      onApprovedRef.current?.(job);
       if (!mounted.current || tracking.signal.aborted) return;
       if (password) window.dispatchEvent(new Event("boxpilot:auth-changed"));
       setPassword("");
@@ -282,6 +318,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           {explained && (
             <section className="approve-section" aria-labelledby={`${titleId}-what`}>
               <h3 id={`${titleId}-what`} className="approve-section__title">What it will do</h3>
+              {preview && proposedBy && <p className="approve-note">{proposedBy}'s reason, in its own words. BoxPilot has not checked it; what runs is what it is given, below.</p>}
               {preview && <div className="approve-preview">{preview}</div>}
               {reason && <p className="approve-preview">{reason}</p>}
               {/* What "more time" changes, before it is approved: the same job, with a larger budget. */}
@@ -293,7 +330,13 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
                   {stagedCount > 0 ? <ParameterList parameters={staged!} /> : <span> with no settings.</span>}
                 </div>
               )}
-              {showParameters && (
+              {showParameters && proposedBy && (
+                <div className="approve-staged">
+                  <strong>Exactly what it is given ({stagedCount})</strong>
+                  <ParameterList parameters={staged!} />
+                </div>
+              )}
+              {showParameters && !proposedBy && (
                 <details className="approve-more">
                   <summary>Exactly what it is given ({stagedCount})</summary>
                   <ParameterList parameters={staged!} />
@@ -340,6 +383,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
                   {finished.steps.filter((step) => step.name === "verify").at(-1)?.detail ?? undefined}
                 </Notice>
               )}
+              {phase === "done" && finished && oneTimeFields(finished.result).length > 0 && <OneTimeResult jobId={finished.id} fields={oneTimeFields(finished.result)} csrfToken={csrfToken} />}
               {finished && ownError && <Notice tone="danger" live title={errorTitle}>{ownError}</Notice>}
               {finished && <JobLogView job={finished} title={title} onMoreTime={(timedOut) => setRetryFrom(timedOut.id)} />}
             </section>

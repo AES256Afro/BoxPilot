@@ -1,3 +1,5 @@
+import type { ViewName } from "../data";
+import type { JobTimeout } from "../operations";
 import type { RiskTier } from "../ui/types";
 
 /*
@@ -37,6 +39,8 @@ export interface LastAttempt {
   title: string;
   operationId: string;
   label: string | null;
+  /** Its timeout, when it ran out of time: one that may still be running is not offered again. */
+  timeout?: JobTimeout | null;
 }
 
 export interface Finding {
@@ -49,6 +53,8 @@ export interface Finding {
   /** Every fix, best first; `fix` is the first. Older servers send only `fix`. */
   fixes?: RepairFix[];
   manual: string | null;
+  /** The page that holds what the owner does about it, when that is not Repair (the router's DNS steps are on Network). */
+  view?: ViewName;
   /** What the finding says, hashed; a dismissal holds only while it matches. */
   fingerprint?: string;
   lastAttempt?: LastAttempt | null;

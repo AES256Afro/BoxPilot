@@ -21,7 +21,8 @@ import { annotateDevices, parseLsblkTree, sharesFrom, volumeGroupsFrom } from ".
 import { cloudProviders } from "../server/backup-cloud.mjs";
 import { buildChecklist } from "../server/setup-checklist.mjs";
 import { assessDriveChecks } from "../server/drive-checks.mjs";
-import { backupsDue, detectRemediations, fingerprintOf } from "../server/remediations.mjs";
+import { backupsDue, detectRemediations, dnsLeansOnThisServer, fingerprintOf } from "../server/remediations.mjs";
+import { judgeResilience } from "../server/dns-resilience.mjs";
 import { applyLedger } from "../server/repair-ledger.mjs";
 import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
@@ -41,13 +42,16 @@ const digest = (seed) => createHash("sha256").update(`demo:${seed}`).digest("hex
 
 // ---------- the fictional server ----------
 const host = { hostname: "homebox", lan: "192.168.50.20", gateway: "192.168.50.1", tailnet: "homebox.tail0a1b.ts.net", tailscaleIp: "100.101.102.103", owner: "alex" };
-const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095, ntfy: 8093 };
+const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095, ntfy: 8093, zulip: 8543, "pingvin-share": 3022 };
+// Installed apps with no port of their own: the Cloudflare Tunnel app shares the host's network (M42).
+const installedWithoutPorts = new Set(["cloudflared"]);
 // Apps set to "Tailnet only": their web port is on 127.0.0.1 and Tailscale Serve publishes it at the
 // same port. Only these are served (app.serve.inspect below): an app on the home network publishes
 // on every address, and Serve beside it at the same port is the trap Dockge fell into on 2026-09-29, which
 // the demo depicted for Immich and Vaultwarden until scripts/demo-fixtures.test.mjs looked.
-const tailnetOnly = new Set(["vaultwarden"]);
-const stats = { jellyfin: { cpuPercent: 3.2, memBytes: 412 * 1024 ** 2, containers: 1 }, "pi-hole": { cpuPercent: 0.4, memBytes: 96 * 1024 ** 2, containers: 2 }, immich: { cpuPercent: 6.1, memBytes: 1.4 * GiB, containers: 4 }, vaultwarden: { cpuPercent: 0.1, memBytes: 48 * 1024 ** 2, containers: 1 }, "uptime-kuma": { cpuPercent: 0.8, memBytes: 120 * 1024 ** 2, containers: 1 }, homepage: { cpuPercent: 0.2, memBytes: 70 * 1024 ** 2, containers: 1 }, nextcloud: { cpuPercent: 1.9, memBytes: 620 * 1024 ** 2, containers: 3 }, scrutiny: { cpuPercent: 0.3, memBytes: 110 * 1024 ** 2, containers: 1 } };
+// Zulip is tailnet only by default (M38): its address is the Serve one, which its phone apps need.
+const tailnetOnly = new Set(["vaultwarden", "zulip"]);
+const stats = { jellyfin: { cpuPercent: 3.2, memBytes: 412 * 1024 ** 2, containers: 1 }, "pi-hole": { cpuPercent: 0.4, memBytes: 96 * 1024 ** 2, containers: 2 }, immich: { cpuPercent: 6.1, memBytes: 1.4 * GiB, containers: 4 }, vaultwarden: { cpuPercent: 0.1, memBytes: 48 * 1024 ** 2, containers: 1 }, "uptime-kuma": { cpuPercent: 0.8, memBytes: 120 * 1024 ** 2, containers: 1 }, homepage: { cpuPercent: 0.2, memBytes: 70 * 1024 ** 2, containers: 1 }, nextcloud: { cpuPercent: 1.9, memBytes: 620 * 1024 ** 2, containers: 3 }, scrutiny: { cpuPercent: 0.3, memBytes: 110 * 1024 ** 2, containers: 1 }, zulip: { cpuPercent: 1.2, memBytes: 1.3 * GiB, containers: 5 } };
 
 const lsblk = JSON.stringify({ blockdevices: [
   { path: "/dev/nvme0n1", kname: "nvme0n1", pkname: null, type: "disk", size: 1024209543168, fstype: null, model: "Example NVMe SSD 1TB", tran: "nvme", mountpoints: [null], ro: false, rm: false },
@@ -106,7 +110,15 @@ const inventory = () => ({
       { target: "/", source: "/dev/mapper/ubuntu--vg-ubuntu--lv", filesystem: "ext4", totalBytes: 800 * GiB, usedBytes: 212 * GiB, availableBytes: 588 * GiB, usedPercent: 27, capacityState: "healthy", readOnly: false, optionNames: ["relatime", "rw"], errorEvidence: { supported: true, state: "healthy", errorsCount: 0, source: "ext4-sysfs-errors-count", reason: "ok" } },
       { target: "/mnt/media", source: "/dev/sda1", filesystem: "ext4", totalBytes: 4000 * GiB, usedBytes: 2710 * GiB, availableBytes: 1290 * GiB, usedPercent: 68, capacityState: "healthy", readOnly: false, optionNames: ["nofail", "relatime", "rw"], errorEvidence: { supported: true, state: "healthy", errorsCount: 0, source: "ext4-sysfs-errors-count", reason: "ok" } },
     ], summary: { healthy: 2, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 2, critical: 0, unavailable: 0, unsupported: 0 } },
-    blockDevices: { available: true, devices: [{ name: "/dev/nvme0n1", parent: null, type: "disk", filesystem: null, sizeBytes: 1024209543168, mountTargets: [], rotational: false, readOnly: false, transport: "nvme", model: "Example NVMe SSD 1TB" }, { name: "/dev/sda", parent: null, type: "disk", filesystem: null, sizeBytes: 4000 * GiB, mountTargets: [], rotational: true, readOnly: false, transport: "usb", model: "Example USB HDD 4TB" }] },
+    // As lsblk lists them inside the web service's sandbox: partitions, and no device-mapper volume (M40).
+    blockDevices: { available: true, devices: [
+      { name: "/dev/nvme0n1", parent: null, type: "disk", filesystem: null, sizeBytes: 1024209543168, mountTargets: [], rotational: false, readOnly: false, transport: "nvme", model: "Example NVMe SSD 1TB" },
+      { name: "/dev/nvme0n1p1", parent: "/dev/nvme0n1", type: "part", filesystem: "vfat", sizeBytes: 1 * GiB, mountTargets: ["/boot/efi"], rotational: false, readOnly: false, transport: "nvme", model: null },
+      { name: "/dev/nvme0n1p2", parent: "/dev/nvme0n1", type: "part", filesystem: "ext4", sizeBytes: 2 * GiB, mountTargets: ["/boot"], rotational: false, readOnly: false, transport: "nvme", model: null },
+      { name: "/dev/nvme0n1p3", parent: "/dev/nvme0n1", type: "part", filesystem: "LVM2_member", sizeBytes: 950 * GiB, mountTargets: [], rotational: false, readOnly: false, transport: "nvme", model: null },
+      { name: "/dev/sda", parent: null, type: "disk", filesystem: null, sizeBytes: 4000 * GiB, mountTargets: [], rotational: true, readOnly: false, transport: "usb", model: "Example USB HDD 4TB" },
+      { name: "/dev/sda1", parent: "/dev/sda", type: "part", filesystem: "ext4", sizeBytes: 4000 * GiB, mountTargets: ["/mnt/media"], rotational: true, readOnly: false, transport: "usb", model: null },
+    ] },
     smart: { available: true, status: "healthy", reason: "fixed-root-scan", generatedAt: ago(2), stale: false, disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 41, powerOnHours: 6120, percentageUsed: 3, mediaErrors: 0, unsafeShutdowns: 2 }, { device: "/dev/sda", health: "healthy", passed: true, temperatureCelsius: 36, powerOnHours: 14800, percentageUsed: null, mediaErrors: 0, unsafeShutdowns: 0, reason: "ok", transport: "usb", deviceType: "sat", readAt: ago(2) },
       // A data drive that spins down: the scan leaves it asleep and keeps what it last said (M36).
       { device: "/dev/sdb", health: "unavailable", passed: null, temperatureCelsius: null, powerOnHours: null, percentageUsed: null, mediaErrors: null, unsafeShutdowns: null, reason: "asleep", transport: "sata", deviceType: "auto", lastHealth: "healthy", lastReadAt: ago(26) }] },
@@ -243,7 +255,8 @@ export const inspections = {
     { unit: "systemd-journald.service", description: "Journal Service", load: "loaded", active: "active", sub: "running", enabled: "static", guarded: null, critical: true },
   ] },
   // Vaultwarden, which is tailnet only, and an old entry for MinIO, which is not installed any more.
-  "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }, { dnsName: host.tailnet, port: 9001, target: "http://127.0.0.1:9001" }] },
+  // Zulip too (M38): tailnet only by default, at the address its phone apps need.
+  "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }, { dnsName: host.tailnet, port: 8543, target: "http://127.0.0.1:8543" }, { dnsName: host.tailnet, port: 9001, target: "http://127.0.0.1:9001" }] },
   "app.stats.inspect": { available: true, stats },
   "host.snapshot.inspect": machineState,
   "backup.remote.inspect": { keyReady: true, publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExampleExam boxpilot-backup-mirror", fingerprint: "SHA256:ExampleFingerprintExampleFingerprintExample0", hostKeysPinned: 1, rsyncInstalled: true },
@@ -409,6 +422,16 @@ export const inspections = {
   "dns.blocker.verify": { address: host.lan, answering: true, resolving: true, blocking: true, intercepted: false, interceptorBlocking: null,
     control: { domain: "example.com", addresses: ["93.184.216.34"], error: null },
     probe: { domain: "doubleclick.net", addresses: ["0.0.0.0"], error: null }, reason: null },
+  // M39.3: the heartbeat on, pinging a dead man's switch every five minutes; the last one taken.
+  "heartbeat.inspect": { configured: true, host: "hc-ping.com", installed: true, enabled: true, intervalMinutes: 5, last: { at: ago(0.04), ok: true, status: 200, ms: 142, error: null }, intervals: [1, 2, 5, 10, 15, 30, 60] },
+  // M42: Cloudflare connected, and Pingvin Share published at a name on the owner's (fictional) domain.
+  "cloudflare.tunnel.inspect": {
+    connected: true, account: { id: "0f1e2d3c4b5a69788796a5b4c3d2e1f0", name: "Example household" }, tunnel: { id: "6f0c2e9a-4b1d-4c7e-9a3f-2d5b8e1c0a47", name: `boxpilot-${host.hostname}` },
+    plannedTunnelName: `boxpilot-${host.hostname}`, zones: [{ id: "4d3c2b1a0f9e8d7c6b5a49382716f5e4", name: "example.com" }],
+    routes: [{ hostname: "share.example.com", url: "https://share.example.com", appId: "pingvin-share", portId: "web", hostPort: 3022, service: "http://127.0.0.1:3022", publishedAt: ago(30) }],
+    connectedAt: ago(31), problem: null,
+  },
+  "cloudflare.tunnel.check": { status: "healthy", connectors: 1, routesAtCloudflare: ["share.example.com"], checkedAt: now().toISOString() },
   "router.inspect": { configured: true, reachable: true, host: "192.168.1.1", username: "root", model: "GL-MT6000", firmware: "4.7.0", reason: null },
   "router.leases": { host: "192.168.1.1", leases: [
     { name: "homebox", address: host.lan, mac: "aa:bb:cc:dd:ee:02", online: true, reserved: true },
@@ -576,8 +599,18 @@ api.get("/notifications", (_request, response) => json(response, { seenAt: ago(3
   { id: "n2", kind: "alert", key: "storage.mount.full:/mnt/media", family: "storage.mount.full", title: "/mnt/media is 91% full", message: "The filesystem mounted at /mnt/media is nearly full.", at: ago(26), delivered: true, reason: null, deliveredAt: ago(26), resolvedAt: ago(22), live: false },
   { id: "n3", kind: "job", key: "job.failed:d3", family: "job.failed", title: "Mirror local backups to the cloud destination failed", message: "rclone: the bucket answered 503; the next scheduled run tries again.", at: ago(50), delivered: true, reason: null, deliveredAt: ago(50), resolvedAt: null, live: false },
   { id: "n4", kind: "notice", key: "drive.reconnected:media", family: "drive.reconnected", title: "The media drive was reconnected automatically", message: "It dropped off USB at 03:12 and was checked and mounted again at 03:14.", at: ago(96), delivered: true, reason: null, deliveredAt: ago(96), resolvedAt: null, live: false },
+  { id: "n5", kind: "approval", key: "approval.waiting:0f8b3c1e-1111-4222-8333-444455556666", family: "approval.waiting", title: "Update an app (Immich): approve?", message: "Medium risk. Tap to review it in BoxPilot; nothing runs until you approve it there.", at: ago(120), delivered: true, reason: null, deliveredAt: ago(120), resolvedAt: null, live: false },
 ] }));
 api.post("/notifications/seen", (_request, response) => json(response, { seenAt: now().toISOString() }));
+/**
+ * Push approvals (M25.2): the panel at the top of the notifications, with the owner's iPhone on and
+ * the choices set. The demo never registers a service worker, so nothing can be turned on or pushed.
+ */
+api.get("/push", (_request, response) => json(response, {
+  canSubscribe: true, publicKey: null, problem: null,
+  devices: [{ id: "demo-iphone", label: "iPhone", service: "Apple", createdAt: ago(72), lastSentAt: ago(2), lastError: null }],
+  settings: { tiers: { low: false, medium: true, high: true }, quietHours: { enabled: true, start: "22:00", end: "07:00" }, ntfy: "fallback", openAt: `https://${host.tailnet}`, timeZone: "Europe/London" },
+}));
 api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
 api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { approvalMode: "tiered", modes: ["tiered", "always-password"], elevationTtlMs: 10 * 60_000 }));
@@ -853,10 +886,37 @@ const troubleFacts = () => ({
 const refusedRemount = { id: "t4", type: "op:storage.remount", title: "Reconnect a drive", state: "failed", risk: "medium", result: null, createdAt: ago(1.2), updatedAt: ago(1.19), approvals: [],
   parameters: { name: "media" }, error: "/mnt/media is in use, so it was left alone: umount: /mnt/media: target is busy. Stop whatever is using it — an app with that folder mounted, or the file server — and try again.",
   steps: [{ name: "apply", state: "running", detail: "Running Reconnect a drive", createdAt: ago(1.2) }, { name: "apply", state: "failed", detail: "Reconnect a drive failed: /mnt/media is in use, so it was left alone", createdAt: ago(1.19) }] };
+/**
+ * Whether the house keeps its DNS with homebox off (M39.2), judged by the product's own rules from
+ * facts per world: the lease names only homebox (the 2026-09-29 outage's shape); the unwell world's
+ * router passes lookups to a Pi-hole that is stopped, with the check after a power cut failing; a
+ * new server has nothing on it that the house leans on.
+ */
+function resilienceFor(world) {
+  const healthy = { answering: true, resolving: true, blocking: true, error: null };
+  const facts = world === "fresh"
+    ? { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.gateway], dhcpServer: host.gateway }, servesDns: false, answers: { [host.gateway]: { ...healthy, blocking: false } } }
+    : world === "trouble"
+      ? { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.gateway], dhcpServer: host.gateway }, servesDns: true, answers: { [host.gateway]: healthy }, canary: { router: host.gateway, forwards: true } }
+      // homebox's address is set by hand, so no lease: Pi-hole's own log says eight devices ask it directly.
+      : { handedOut: { source: "pihole-log", via: "Pi-hole's query log", servers: [host.lan], dhcpServer: host.gateway }, servesDns: true, answers: { [host.lan]: healthy },
+        askers: { available: true, window: "hour", queries: 1840, lanClients: 8, routerQueries: 0, routerAsks: false } };
+  const verdict = judgeResilience({ selfAddresses: [host.lan, host.tailscaleIp], gateway: host.gateway, rehearsal: null, ...facts }, { now: now(), hostname: host.hostname });
+  // After the power cut the unwell world had: Pi-hole came back, this server's own lookups did not
+  // (the 2026-09-29 resolv.conf trap), which is also why its heartbeat is failing.
+  const afterOutage = world === "trouble" ? { at: ago(0.3), ok: false, outage: { id: "demo-outage", stoppedAt: ago(4), backAt: ago(0.35) }, checks: [
+    { id: "dns-app-lan", ok: true, label: "Pi-hole answers on the LAN", detail: `A lookup sent to ${host.lan}, as a device on your network sends it, came back.` },
+    { id: "host-lookups", ok: false, label: "This server cannot look names up", detail: "github.com did not resolve through the system's resolver: no such name, or no DNS server answered." },
+  ] } : null;
+  return { ...verdict, checkedAt: ago(0.05), lanAddress: host.lan, gateway: host.gateway, canary: facts.canary ?? null, afterOutage };
+}
+api.get("/network/dns-resilience", (request, response) => json(response, resilienceFor(scenarioOf(request.get("referer")))));
+
 function demoScan(world) {
   if (world === "fresh") return { findings: [], dismissed: [], counts: { critical: 0, warning: 0, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, checkedAt: now().toISOString(), sourceStatus: "ready", unavailableChecks: [] };
   const facts = world === "trouble" ? troubleFacts() : { now: Date.now(), protection: protectionFixture(), schedules: [{ operationId: "app.backup", parameters: { id: "immich" }, enabled: true }] };
-  const { findings } = world === "trouble" ? detectRemediations(facts) : { findings: backupsDue(facts) };
+  const pihole = [{ id: "pi-hole", name: "Pi-hole", container: { running: world !== "trouble" } }];
+  const { findings } = world === "trouble" ? detectRemediations({ ...facts, dnsResilience: resilienceFor(world) }) : { findings: [...backupsDue(facts), ...dnsLeansOnThisServer({ dnsResilience: resilienceFor(world), apps: pihole })] };
   const split = findings.find((entry) => entry.id === "split-data-folders");
   const ledger = applyLedger(findings, world === "trouble" ? {
     // Set aside two days ago with a reason, as the owner would a split that is deliberate.
@@ -877,10 +937,11 @@ api.post("/remediations/attempts", (request, response) => response.status(201).j
 api.post("/schedules", (request, response) => response.status(201).json({ schedule: { id: "demo-schedule", ...request.body, enabled: true, createdBy: "owner-demo", createdAt: now().toISOString() } }));
 api.get("/catalog", async (request, response) => {
   const { manifests, problems } = await loadCatalog();
-  const present = installedFor(scenarioOf(request.get("referer")));
+  const scenario = scenarioOf(request.get("referer"));
+  const present = installedFor(scenario);
   json(response, {
     applications: manifests.map((manifest) => {
-      const port = present[manifest.id];
+      const port = present[manifest.id] ?? (scenario !== "fresh" && installedWithoutPorts.has(manifest.id) ? "no ports" : undefined);
       // As describe() says it (the Dockge port trap, 2026-09-29): each published port and the address it binds.
       const published = port && manifest.network !== "host" ? manifest.ports.map((entry) => ({ id: entry.id, host: entry.host, protocol: entry.protocol, bind: entry.exposure === "loopback" || (tailnetOnly.has(manifest.id) && entry.protocol === "tcp" && (entry.tailnet ?? "serve") === "serve") ? "127.0.0.1" : "0.0.0.0", fixed: Boolean(entry.fixed), web: entry.protocol === "tcp" && (entry.tailnet ?? "serve") === "serve" })) : [];
       const live = { id: manifest.id, name: manifest.name, published, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [], ...(tailnetOnly.has(manifest.id) ? { exposure: "tailnet" } : {}) }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null, updateHistory: port && manifest.id === "pi-hole" ? [{ at: ago(30), from: { "pi-hole": "pihole/pihole:2025.07.1" }, to: { "pi-hole": manifest.image.reference } }, { at: ago(30 * 24), from: { "pi-hole": "pihole/pihole:2025.05.0" }, to: { "pi-hole": "pihole/pihole:2025.07.1" } }] : [], backupVerification: port && manifest.id === "jellyfin" ? { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11), history: [{ verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11) }, { verified: true, backup: "20260818T031400Z.tar.gz", reason: null, checkedAt: ago(11 + 168) }, { verified: false, backup: "20260811T031400Z.tar.gz", reason: "The archive could not be unpacked: unexpected end of file", checkedAt: ago(11 + 336) }] } : null };
@@ -939,6 +1000,11 @@ const freshWords = {
   "dns.names.inspect": { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from the App catalog.", platform: null, records: [], apps: [] },
   "router.inspect": { configured: false, reachable: false, host: null, username: null, model: null, firmware: null, reason: "No router is connected yet." },
   "router.leases": { host: null, leases: [] },
+  // Off until the owner turns it on (M39.3).
+  "heartbeat.inspect": { configured: false, host: null, installed: true, enabled: false, intervalMinutes: null, last: null, intervals: [1, 2, 5, 10, 15, 30, 60] },
+  // Not connected to Cloudflare yet (M42).
+  "cloudflare.tunnel.inspect": { connected: false, account: null, tunnel: null, plannedTunnelName: `boxpilot-${host.hostname}`, zones: [], routes: [], connectedAt: null, problem: null },
+  "cloudflare.tunnel.check": { status: "inactive", connectors: 0, routesAtCloudflare: [], checkedAt: now().toISOString() },
   // A new server can read its backup folder; it just has no apps in it yet.
   "app.backup.protection": { available: true, apps: [] },
   // The machine itself is there on a new server (M33.12): its name, clock, memory and swap. Only
@@ -968,6 +1034,10 @@ const troubleWords = {
     reason: 'The router did not accept that password for "root". This is the password for the router\'s own admin page, which is often not the same as any other password on this network.' },
   // Pi-hole is installed but its container is stopped, so the names it serves have gone with it.
   "dns.names.inspect": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: false }, records: [] },
+  // The heartbeat is on, and the last ping did not get through: DNS was down on this server too.
+  "heartbeat.inspect": { configured: true, host: "hc-ping.com", installed: true, enabled: true, intervalMinutes: 5, last: { at: ago(0.07), ok: false, status: null, ms: 38, error: "its name did not resolve (DNS is not answering)" }, intervals: [1, 2, 5, 10, 15, 30, 60] },
+  // The Cloudflare Tunnel app is not holding the tunnel up: what is published shows an error page (M42).
+  "cloudflare.tunnel.check": { status: "down", connectors: 0, routesAtCloudflare: ["share.example.com"], checkedAt: now().toISOString() },
   "dns.blocker.clients": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: true }, clients: [], self: 9 },
   "app.serve.inspect": { available: false, serves: [] },
   "dns.blocker.verify": { address: "192.168.1.10", answering: true, resolving: false, blocking: true, intercepted: true, interceptorBlocking: false,
@@ -1271,7 +1341,8 @@ api.post("/assistant/ask", (_request, response) => json(response, {
  * stand-in model instead of Unsloth (scripts/demo-agents.mjs). The list routes are named here so the
  * static bundle carries them; everything else under /agents reaches the same world.
  */
-export const agentsDemo = createAgentsDemo({ inventory, apps: installed, services: Object.fromEntries(scenarioNames.map((name) => [name, fixturesFor(name)["service.list"]])), scenarioOf });
+// The agents see every installed app, the Cloudflare Tunnel app with no port of its own among them.
+export const agentsDemo = createAgentsDemo({ inventory, apps: { ...installed, ...Object.fromEntries([...installedWithoutPorts].map((id) => [id, null])) }, services:Object.fromEntries(scenarioNames.map((name) => [name, fixturesFor(name)["service.list"]])), scenarioOf });
 api.get("/agents", agentsDemo.handle);
 api.get("/agents/catalog", agentsDemo.handle);
 api.get("/agents/usage", agentsDemo.handle);
@@ -1279,6 +1350,14 @@ api.get("/agents/runtime", agentsDemo.handle);
 api.get("/agents/glance", agentsDemo.handle);
 api.get("/agents/proposals", agentsDemo.handle);
 api.get("/agents/knowledge", agentsDemo.handle);
+api.get("/agents/zulip", agentsDemo.handle);
+// A card's step named as the job it was staged as: the demo stages nothing (its job is "demo-job"),
+// so the card is answered as it stands, the way reading it again would.
+api.post("/agents/proposals/:proposalId/steps/:step/job", (request, response, next) => {
+  request.method = "GET";
+  request.url = `/agents/proposals/${encodeURIComponent(request.params.proposalId)}`;
+  agentsDemo.handle(request, response, next);
+});
 api.use(agentsDemo.handle);
 
 api.all("/{*rest}", (_request, response) => response.status(404).json({ error: "Not part of the demo", code: "demo_missing" }));

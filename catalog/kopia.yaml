@@ -9,7 +9,9 @@ risk: low
 image:
   reference: kopia/kopia:0.23.1
   version: "0.23.1"
-command: ["server", "start", "--insecure", "--address=0.0.0.0:51515", "--server-username=admin", "--server-password=${KOPIA_SERVER_PASSWORD}"]
+# The web password is not on the command line, where every process on the server could read it:
+# `kopia server start` reads --server-password from KOPIA_SERVER_PASSWORD, set below.
+command: ["server", "start", "--insecure", "--address=0.0.0.0:51515", "--server-username=admin"]
 ports:
   - id: web
     label: Web UI

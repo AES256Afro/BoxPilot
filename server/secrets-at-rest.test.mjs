@@ -51,6 +51,12 @@ const fixtures = {
   "backup.cloud.setup": (s) => ({ provider: "drive", path: "boxpilot", key: s("key"), secretAccessKey: s("secretAccessKey"), password: s("password"), token: s("token") }),
   "router.connect": (s) => ({ kind: "glinet", host: "router.example", password: s("password") }),
   "credentials.set": (s) => ({ name: "sentinel", value: s("value") }),
+  // M39.3: the secret is an address, so the sentinel rides inside one.
+  "heartbeat.set": (s) => ({ enabled: true, url: `https://hc-ping.example/${s("url")}`, intervalMinutes: 5 }),
+  // M42: the owner's Cloudflare API token.
+  "cloudflare.connect": (s) => ({ token: s("token") }),
+  // M45.3: the owner's Anthropic key, shaped as one (a key has no dots).
+  "agents.cloud.connect": (s) => ({ key: `sk-ant-${s("key").replace(/[^A-Za-z0-9_-]/g, "_")}`, capUsd: 20 }),
   "vpn.profile.set": (s) => ({ provider: vpnFields.provider.enum[0], type: vpnFields.type.enum[0], wireguardPrivateKey: s("wireguardPrivateKey"), openvpnPassword: s("openvpnPassword") }),
 };
 
@@ -64,9 +70,9 @@ function declaredPositions(operation) {
   return positions;
 }
 
-/** Where a fixture actually put a sentinel. */
+/** Where a fixture actually put a sentinel: anywhere in a string, since a secret may be an address. */
 function sentinelPositions(value, at = []) {
-  if (typeof value === "string") return value.startsWith(marker) ? [at] : [];
+  if (typeof value === "string") return value.includes(marker) ? [at] : [];
   if (Array.isArray(value)) return value.flatMap((item, index) => sentinelPositions(item, [...at, index]));
   if (value && typeof value === "object") return Object.entries(value).flatMap(([key, item]) => sentinelPositions(item, [...at, key]));
   return [];
@@ -130,7 +136,8 @@ describe("secrets at rest, for every operation in the registry (M29.1)", () => {
       const job = await jobs.createOperationJob(operationId, parameters, owner.id);
       for (const keys of positions) expect(readPath(store.getJob(job.id).parameters, keys), keys.join(".")).toBe("[secret]");
       if (operation.parameters.fields.values?.secretEnvOf) expect(store.getJob(job.id).parameters.values.env.TZ).toBe("UTC");   // an ordinary setting stays readable
-      const finished = await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery" });
+      // A high operation may also ask for typed confirmation (agents.cloud.connect: the monthly cap).
+      const finished = await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery", confirmText: operation.confirm?.(parameters) ?? null });
       expect(finished.state).toBe("completed");
       const call = received.find((entry) => entry.operation === operationId);
       for (const keys of positions) expect(readPath(call.parameters, keys), keys.join(".")).toBe(readPath(parameters, keys));
@@ -202,7 +209,7 @@ describe("controller backups hold no transient operation secret (M29.3)", () => 
       const ran = fixtures[operation.id](sentinelFor(`${operation.id}/ran`));
       const staged = fixtures[operation.id](sentinelFor(`${operation.id}/staged`));
       const job = await jobs.createOperationJob(operation.id, ran, owner.id);
-      expect((await jobs.approveAndRun(job.id, owner.id, { password })).state, operation.id).toBe("completed");
+      expect((await jobs.approveAndRun(job.id, owner.id, { password, confirmText: operation.confirm?.(ran) ?? null })).state, operation.id).toBe("completed");
       waiting.push({ operation, parameters: staged, job: await jobs.createOperationJob(operation.id, staged, owner.id) });
       await expect(scheduler.create({ operationId: operation.id, parameters: staged, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id }), operation.id).rejects.toThrow();
       await expect(flows.create({ name: "sweep", steps: [{ operationId: operation.id, parameters: staged }], createdBy: owner.id }), operation.id).rejects.toThrow();
@@ -216,7 +223,7 @@ describe("controller backups hold no transient operation secret (M29.3)", () => 
   async function approveWaiting({ jobs, owner, waiting, received }) {
     for (const { operation, parameters, job } of waiting) {
       const before = received.length;
-      expect((await jobs.approveAndRun(job.id, owner.id, { password })).state, operation.id).toBe("completed");
+      expect((await jobs.approveAndRun(job.id, owner.id, { password, confirmText: operation.confirm?.(parameters) ?? null })).state, operation.id).toBe("completed");
       const call = received[before];
       expect(call.operation).toBe(operation.id);
       for (const keys of declaredPositions(operation)) expect(readPath(call.parameters, keys), `${operation.id} ${keys.join(".")}`).toBe(readPath(parameters, keys));

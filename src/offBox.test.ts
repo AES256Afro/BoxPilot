@@ -35,6 +35,18 @@ describe("whether a copy exists off this server", () => {
     expect(verdict.where).toEqual(["cloud", "a backup drive"]);
   });
 
+  // R5B4-7: a sync that left files out (an archive that did not match its record) still counted as
+  // a recent copy, and Home said nothing.
+  it("says when the newest copy left files out, and not when a newer whole one is elsewhere", () => {
+    const verdict = offBoxVerdict({ drive: { configured: true, lastSyncAt: daysAgo(1), skipped: 2 } }, { now });
+    expect(verdict).toMatchObject({ state: "ok", skipped: 2 });
+    expect(offBoxWarning(verdict)).toBe("The last copy off this server left 2 files out");
+    expect(warn({ drive: { configured: true, lastSyncAt: daysAgo(1), skipped: 1 } })).toBe("The last copy off this server left 1 file out");
+    const elsewhere = offBoxVerdict({ drive: { configured: true, lastSyncAt: daysAgo(2), skipped: 2 }, cloud: { configured: true, lastSyncAt: daysAgo(1) } }, { now });
+    expect(elsewhere.skipped).toBe(0);
+    expect(offBoxWarning(elsewhere)).toBeNull();
+  });
+
   it("ignores a destination that was never saved, even if a stale timestamp lingers", () => {
     expect(offBoxVerdict({ ssh: { configured: false, lastSyncAt: daysAgo(2) } }, { now }).state).toBe("none");
   });

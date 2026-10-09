@@ -19,7 +19,8 @@
 import { fixedRun } from "../exec.mjs";
 import { createHash } from "node:crypto";
 import https from "node:https";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 
 const defaultFiles = { mkdir, readFile, writeFile };
 

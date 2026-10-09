@@ -1,7 +1,13 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { appStopClearingOperations } from "./app-stops.mjs";
+import { deviceResolvingOperations } from "./catalog/devices.mjs";
+import { registry } from "./ops/index.mjs";
+import { archivedComposeRisk } from "./ops/apps.mjs";
+import { agentsModelRemove } from "./tasks/agents.mjs";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
 vi.setConfig({ testTimeout: 30_000 });
@@ -459,6 +465,143 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("says on the job when it waits behind other work in the helper's queue, and when it starts", async () => {
+    // A flow watching the job reads this: its step's budget starts when the job does.
+    const helper = { request: vi.fn(async (_operation, _parameters, options) => {
+      options.onQueued();
+      options.onStarted();
+      return { ok: true };
+    }) };
+    const { store, owner, jobs } = await setup(helper);
+    try {
+      const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+      await jobs.approveAndRun(job.id, owner.id, {});
+      expect(store.getJob(job.id).steps.filter((step) => step.name === "queue").map((step) => step.state)).toEqual(["waiting", "completed"]);
+    } finally { store.close(); }
+  });
+
+  describe("a change sent while BoxPilot restarts (sweep 5)", () => {
+    // An automation's next step, sent in the moment between its last step and BoxPilot's drained
+    // restart, was refused "BoxPilot is restarting" and the automation stopped: no off-box copy that night.
+    const refusedForRestart = () => Object.assign(new Error("BoxPilot is restarting to pick up what an update changed, so this did not start and nothing was changed."), { code: "helper_restarting" });
+    const fast = { helperPollMs: 1, sleep: () => new Promise((resolve) => setTimeout(resolve, 1)) };
+
+    it("waits for BoxPilot to come back and sends it again, once", async () => {
+      let sends = 0;
+      let probes = 0;
+      const helper = { request: vi.fn(async (operation) => {
+        if (operation === "system.runtime.inspect") {
+          probes += 1;
+          // Still restarting, then gone while its helper restarts, then back.
+          if (probes === 1) return { selfRestart: { restarting: true } };
+          if (probes === 2) throw Object.assign(new Error("Helper unavailable: connect ENOENT"), { code: "helper_unavailable" });
+          return { selfRestart: { restarting: false, waiting: null, unfinished: null } };
+        }
+        if (operation === "job.output.release") return {};
+        sends += 1;
+        if (sends === 1) throw refusedForRestart();
+        return { synced: true };
+      }) };
+      const { store, owner } = await setup(helper);
+      try {
+        const jobs = createJobService(store, helper, fast);
+        const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+        expect((await jobs.approveAndRun(job.id, owner.id, {})).state).toBe("completed");
+        expect(sends).toBe(2);
+        const queue = store.getJob(job.id).steps.filter((step) => step.name === "queue");
+        expect(queue.map((step) => [step.state, step.detail])).toEqual([
+          ["waiting", "BoxPilot is restarting, so this has not started; it is sent again once BoxPilot is back"],
+          ["completed", "Sent again now that BoxPilot is back"],
+        ]);
+      } finally { store.close(); }
+    });
+
+    it("waits the same for a helper that is not there yet, since nothing reached it", async () => {
+      let sends = 0;
+      const helper = { request: vi.fn(async (operation) => {
+        if (operation === "system.runtime.inspect") return { selfRestart: { restarting: false } };
+        if (operation === "job.output.release") return {};
+        sends += 1;
+        if (sends === 1) throw Object.assign(new Error("Helper unavailable: connect ECONNREFUSED"), { code: "helper_unavailable" });
+        return {};
+      }) };
+      const { store, owner } = await setup(helper);
+      try {
+        const jobs = createJobService(store, helper, fast);
+        const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+        expect((await jobs.approveAndRun(job.id, owner.id, {})).state).toBe("completed");
+        expect(store.getJob(job.id).steps.find((step) => step.name === "queue")?.detail).toBe("BoxPilot's helper is not answering, so this has not started; it is sent again once it is back");
+      } finally { store.close(); }
+    });
+
+    it("fails, saying nothing ran, when BoxPilot is not back in time or refuses it again", async () => {
+      let at = 0;
+      const neverBack = { request: vi.fn(async (operation) => {
+        if (operation === "system.runtime.inspect") { at += 60_000; return { selfRestart: { restarting: true } }; }
+        if (operation === "job.output.release") return {};
+        throw refusedForRestart();
+      }) };
+      const { store, owner } = await setup(neverBack);
+      try {
+        const jobs = createJobService(store, neverBack, { ...fast, now: () => at });
+        const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+        await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow(/^BoxPilot was not back within 10 minutes, so this did not start and nothing was changed/);
+        expect(store.getJob(job.id)).toMatchObject({ state: "failed" });
+        // Sent once and never again; the queue step says it never left.
+        expect(neverBack.request.mock.calls.filter(([operation]) => operation === "apt.refresh")).toHaveLength(1);
+        expect(store.getJob(job.id).steps.filter((step) => step.name === "queue").at(-1).state).toBe("waiting");
+
+        const twice = { request: vi.fn(async (operation) => {
+          if (operation === "system.runtime.inspect") return { selfRestart: { restarting: false } };
+          if (operation === "job.output.release") return {};
+          throw refusedForRestart();
+        }) };
+        const again = createJobService(store, twice, fast);
+        const second = await again.createOperationJob("apt.refresh", {}, owner.id);
+        await expect(again.approveAndRun(second.id, owner.id, {})).rejects.toThrow(/^BoxPilot is restarting/);
+        expect(twice.request.mock.calls.filter(([operation]) => operation === "apt.refresh")).toHaveLength(2);
+      } finally { store.close(); }
+    });
+
+    it("never sends again a change that failed, or one the helper may have started", async () => {
+      for (const error of [new Error("apt-get failed"), new Error("Helper connection closed before sending a result"), Object.assign(new Error("Helper unavailable: read ECONNRESET"), {})]) {
+        const helper = { request: vi.fn(async (operation) => { if (operation === "apt.refresh") throw error; return {}; }) };
+        const { store, owner } = await setup(helper);
+        try {
+          const jobs = createJobService(store, helper, fast);
+          const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+          await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow(error.message);
+          expect(helper.request.mock.calls.filter(([operation]) => operation === "apt.refresh")).toHaveLength(1);
+          expect(helper.request.mock.calls.some(([operation]) => operation === "system.runtime.inspect")).toBe(false);
+        } finally { store.close(); }
+      }
+    });
+  });
+
+  it("records a rollback as completed only when the operation's own rollback worked", async () => {
+    // Any error mentioning "rollback" used to be recorded as "undid its partial changes", and the
+    // errors that mention it are mostly the ones whose rollback FAILED; the ones that worked
+    // ("the previous image was restored") recorded nothing.
+    const rollbackSteps = async (error) => {
+      const helper = { request: vi.fn(async () => { throw error; }) };
+      const { store, owner, jobs } = await setup(helper);
+      try {
+        const job = await jobs.createOperationJob("app.update", { id: "jellyfin" }, owner.id);
+        await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow();
+        return store.getJob(job.id).steps.filter((step) => step.name === "rollback").map((step) => step.state);
+      } finally { store.close(); }
+    };
+    // The helper says which, as rolledBack on the error.
+    expect(await rollbackSteps(Object.assign(new Error("Jellyfin update failed and automatic rollback also failed. docker compose up failed"), { rolledBack: false }))).toEqual(["failed"]);
+    expect(await rollbackSteps(Object.assign(new Error("Jellyfin update failed; the previous image was restored. docker compose up failed"), { rolledBack: true }))).toEqual(["completed"]);
+    // Without it, only the words for a rollback that worked count; the bare word never does.
+    expect(await rollbackSteps(new Error("Jellyfin update failed and automatic rollback also failed. docker compose up failed"))).toEqual([]);
+    expect(await rollbackSteps(new Error("The incomplete recovery domain failed exact rollback validation"))).toEqual([]);
+    expect(await rollbackSteps(new Error("Jellyfin update failed; the previous image was restored. docker compose up failed"))).toEqual(["completed"]);
+    expect(await rollbackSteps(new Error("Jellyfin rejected the edited compose file; the previous one was restored. docker compose up failed"))).toEqual(["completed"]);
+    expect(await rollbackSteps(new Error("Jellyfin installation failed and was rolled back. docker compose up failed"))).toEqual(["completed"]);
+  });
+
   it("lets operators run low and medium work but reserves high-risk staging and approval for owners", async () => {
     const helper = { request: vi.fn(async () => ({ ok: true })) };
     const { store, owner, jobs } = await setup(helper);
@@ -500,6 +643,56 @@ describe("guarding restarts against running jobs (M4.5 / self-update safety)", (
     expect(started.state).toBe("completed");
     expect(helper.request).toHaveBeenCalledWith("system.update", expect.objectContaining({ tag: "v1.62.0" }), expect.anything());
     store.close();
+  });
+
+  it("treats restarting BoxPilot's own units from Services as restarting BoxPilot", async () => {
+    // service.action is not marked as restarting the service, so restarting boxpilot.service from
+    // the Services page cut a running backup off and left it marked interrupted, its work half done.
+    const helper = { request: vi.fn(async () => ({ unit: "x", action: "restart" })) };
+    const { store, owner, jobs } = await setup(helper);
+    try {
+      const backup = await jobs.createOperationJob("app.backup", { id: "jellyfin" }, owner.id);
+      store.transitionJob(backup.id, "awaiting_approval", "applying");
+      for (const unit of ["boxpilot.service", "boxpilot-helper.service"]) {
+        const restart = await jobs.createOperationJob("service.action", { unit, action: "restart" }, owner.id);
+        await expect(jobs.approveAndRun(restart.id, owner.id, {})).rejects.toThrow(/^Wait for a running job to finish first: Back up application data\. "Control a system service" restarts BoxPilot/);
+        expect(store.getJob(restart.id).state).toBe("awaiting_approval");
+      }
+      expect(helper.request).not.toHaveBeenCalled();
+      // Any other unit, or any other action on BoxPilot's, is not a restart of BoxPilot.
+      const other = await jobs.createOperationJob("service.action", { unit: "nginx.service", action: "restart" }, owner.id);
+      await expect(jobs.approveAndRun(other.id, owner.id, {})).resolves.toMatchObject({ state: "completed" });
+      const enable = await jobs.createOperationJob("service.action", { unit: "boxpilot.service", action: "enable" }, owner.id);
+      await expect(jobs.approveAndRun(enable.id, owner.id, {})).resolves.toMatchObject({ state: "completed" });
+    } finally { store.close(); }
+  });
+
+  it("runs the operations whose restart is drained beside other work: upgrades, installs and KVM (sweep 4)", async () => {
+    // An upgrade that moves libc or openssl restarts BoxPilot to pick them up; installing KVM restarts
+    // the helper so VM work can write to /var/lib/libvirt. That restart waits for every job running
+    // beside them (self-restart.mjs), so refusing them while a backup ran guarded nothing: it only
+    // sent the nightly updates, Update night's steps and the Install buttons away with a "did not run".
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    try {
+      const backup = await jobs.createOperationJob("app.backup", { id: "jellyfin" }, owner.id);
+      store.transitionJob(backup.id, "awaiting_approval", "applying");
+      const packages = { "libvirt-clients": "1.0", "libvirt-daemon-system": "1.0", ovmf: "1.0", "qemu-system-x86": "1.0", virtinst: "1.0" };
+      const staged = [
+        await jobs.createOperationJob("apt.upgrade", {}, owner.id),
+        await jobs.createOperationJob("apt.install", { packages: ["htop"] }, owner.id),
+        await jobs.createOperationJob("prerequisite.virtualization.install", { expectedPackages: packages }, owner.id),
+      ];
+      for (const job of staged) {
+        expect(registry.get(job.type.slice(3)).restartsService).toBe("drained");
+        await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).resolves.toMatchObject({ state: "completed" });
+      }
+      expect(helper.request.mock.calls.map(([operation]) => operation)).toEqual(expect.arrayContaining(["apt.upgrade", "apt.install", "prerequisite.virtualization.install"]));
+      // A restart that is not drained is still refused beside it: a LAN change restarts BoxPilot at once.
+      const lan = await jobs.createOperationJob("system.web.lan.set", { enabled: true }, owner.id);
+      await expect(jobs.approveAndRun(lan.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toThrow(/^Wait for a running job to finish first: Back up application data\. ".+" restarts BoxPilot/);
+      expect(store.getJob(lan.id).state).toBe("awaiting_approval");
+    } finally { store.close(); }
   });
 
   it("does not block ordinary operations while a job runs", async () => {
@@ -724,7 +917,7 @@ describe("a job that ran out of time (M30.3)", () => {
     try {
       const job = await jobs.createOperationJob("app.install", { id: "jellyfin", values: {} }, owner.id);
       await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("overall deadline");
-      expect(helper.request).toHaveBeenCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(25), jobId: job.id });
+      expect(helper.request).toHaveBeenCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(25), jobId: job.id, onQueued: expect.any(Function), onStarted: expect.any(Function) });
       const failed = store.getJob(job.id);
       expect(failed.state).toBe("failed");
       expect(failed.timeout).toEqual({ scope: "operation", budgetMs: minutes(25), elapsedMs: minutes(25), phase: "running", step: null, lastOutput: "abc123 Downloading 812MB/2.1GB", moreTimeMs: minutes(50) });
@@ -744,7 +937,8 @@ describe("a job that ran out of time (M30.3)", () => {
       const job = await jobs.createOperationJob("app.update", { id: "jellyfin" }, owner.id);
       await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("was unchanged");
       const failed = store.getJob(job.id);
-      expect(failed.timeout).toMatchObject({ scope: "step", budgetMs: minutes(30), elapsedMs: minutes(33), step: "Downloading the new images", moreTimeMs: minutes(80) });
+      // More time is twice the update's own budget (its checkpoint's allowance included), not the step's.
+      expect(failed.timeout).toMatchObject({ scope: "step", budgetMs: minutes(30), elapsedMs: minutes(33), step: "Downloading the new images", moreTimeMs: 2 * registry.get("app.update").timeoutMs });
       expect(failed.error).toMatch(/^Jellyfin update failed before anything was restarted/);
       expect(failed.steps.map((step) => step.name)).toEqual(expect.arrayContaining(["timeout", "rollback"]));
     } finally { store.close(); }
@@ -761,6 +955,41 @@ describe("a job that ran out of time (M30.3)", () => {
       expect(store.getJob(queued.id).timeout).toMatchObject({ phase: "queued", moreTimeMs: null });
       expect(store.getJob(queued.id).error).toMatch(/waited 2 hours 30 minutes behind other work/);
       await expect(jobs.retryWithMoreTime(queued.id, owner.id)).rejects.toThrow("never started");
+    } finally { store.close(); }
+  });
+
+  it("says a root task that ran out of its own time may still be running, and does not start it again beside itself", async () => {
+    // The runner writes "timed out" and lets the task carry on, so "Try again with more time" staged
+    // a second install into the same folder beside the first, still running.
+    const { store, owner, jobs } = await timed((_operation, _parameters, _options, advance) => {
+      advance(minutes(44));
+      throw Object.assign(new Error("Root task agents.install did not finish within 44 minutes"), { code: "timeout", timeout: { scope: "step", budgetMs: minutes(44), step: "Root task agents.install", stillRunning: true } });
+    });
+    try {
+      const job = await jobs.createOperationJob("agents.runtime.install", {}, owner.id);
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow();
+      const failed = store.getJob(job.id);
+      expect(failed.timeout).toMatchObject({ scope: "step", stillRunning: true, moreTimeMs: null });
+      expect(failed.error).toMatch(/may still be running on the server/);
+      await expect(jobs.retryWithMoreTime(job.id, owner.id)).rejects.toThrow(/may still be running/);
+    } finally { store.close(); }
+  });
+
+  it("does not give more time beside a root task whose whole operation ran out, which may still be running (sweep 4)", async () => {
+    // The web side's deadline fired before the helper's answer: the record said the whole operation
+    // ran out, with nothing about the task left running, and "Try again with more time" was accepted
+    // and ran a second download beside the first for up to five hours.
+    const { store, owner, jobs } = await timed((_operation, _parameters, options, advance) => budgetRanOut(options, advance));
+    try {
+      for (const [operationId, parameters] of [["agents.model.download", { repo: "unsloth/Qwen3-8B-GGUF", file: "Qwen3-8B-Q4_K_M.gguf" }], ["agents.runtime.install", {}]]) {
+        const job = await jobs.createOperationJob(operationId, parameters, owner.id);
+        await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow();
+        const failed = store.getJob(job.id);
+        expect(failed.timeout).toMatchObject({ scope: "operation", moreTimeMs: null });
+        expect(failed.error).toMatch(/may still be running on the server/);
+        await expect(jobs.retryWithMoreTime(job.id, owner.id)).rejects.toMatchObject({ code: "more_time_refused", message: expect.stringMatching(/may still be running/) });
+      }
+      expect(store.listAwaitingApproval()).toEqual([]);
     } finally { store.close(); }
   });
 
@@ -790,7 +1019,7 @@ describe("a job that ran out of time (M30.3)", () => {
 
       await expect(jobs.approveAndRun(second.id, owner.id, {})).rejects.toThrow();
       // The larger budget reaches the helper, which checks it against the registry.
-      expect(helper.request).toHaveBeenLastCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(50), jobId: second.id, budgetMs: minutes(50) });
+      expect(helper.request).toHaveBeenLastCalledWith("app.install", { id: "jellyfin", values: {} }, { timeoutMs: minutes(50), jobId: second.id, budgetMs: minutes(50), onQueued: expect.any(Function), onStarted: expect.any(Function) });
       expect(store.getJob(second.id).timeout).toMatchObject({ budgetMs: minutes(50), elapsedMs: minutes(50), moreTimeMs: minutes(100) });
 
       const third = await jobs.retryWithMoreTime(second.id, owner.id);
@@ -829,5 +1058,210 @@ describe("a job that ran out of time (M30.3)", () => {
       expect(store.getJob(withToken.id).timeout.moreTimeMs).toBeNull();
       await expect(jobs.retryWithMoreTime(withToken.id, owner.id)).rejects.toThrow("does not keep them");
     } finally { store.close(); }
+  });
+});
+
+describe("a result shown once (M38: Zulip's organization link)", () => {
+  const link = "https://homebox.tail1234.ts.net:8543/new/abcdefghij2345klmnopqrst";
+  it("never stores the field, and gives it to the person who ran the job once", async () => {
+    const helper = { request: vi.fn(async () => ({ link, expiresInDays: 7, host: "homebox.tail1234.ts.net:8543" })) };
+    let now = Date.parse("2026-09-29T12:00:00.000Z");
+    const { store, owner } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper, { now: () => now });
+      const sam = store.createOwnerAccount({ username: "sam", passwordHash: "x", role: "operator", createdBy: owner.id });
+      const job = await jobs.createOperationJob("app.zulip.organization.link", { id: "zulip" }, owner.id);
+      const done = await jobs.approveAndRun(job.id, owner.id, {});
+      expect(done.state).toBe("completed");
+      expect(done.result).toEqual({ expiresInDays: 7, host: "homebox.tail1234.ts.net:8543", oneTime: ["link"] });
+      // Not in the job, not in the list, not anywhere the store can hand out.
+      expect(JSON.stringify(store.getJob(job.id))).not.toContain("/new/");
+      expect(JSON.stringify(store.listJobs(50, {}))).not.toContain("/new/");
+      expect(jobs.takeOneTime(job.id, sam.id)).toBeNull();
+      expect(jobs.takeOneTime(job.id, owner.id)).toEqual({ link });
+      expect(jobs.takeOneTime(job.id, owner.id)).toBeNull();
+
+      // Unclaimed, it is gone after a quarter of an hour.
+      const again = await jobs.createOperationJob("app.zulip.organization.link", { id: "zulip" }, owner.id);
+      await jobs.approveAndRun(again.id, owner.id, {});
+      now += 16 * 60_000;
+      expect(jobs.takeOneTime(again.id, owner.id)).toBeNull();
+
+      // And gone with the minute's sweep, whether or not anyone asks again: it used to stay in
+      // memory, a live single-use link, until someone next took one.
+      const unclaimed = await jobs.createOperationJob("app.zulip.organization.link", { id: "zulip" }, owner.id);
+      await jobs.approveAndRun(unclaimed.id, owner.id, {});
+      expect(jobs.oneTimeHeld()).toBe(1);
+      now += 16 * 60_000;
+      jobs.pruneStagedSecrets();
+      expect(jobs.oneTimeHeld()).toBe(0);
+    } finally { store.close(); }
+  });
+});
+
+describe("a tier that depends on what an operation acts on", () => {
+  // An app's manifest says how risky it is to deploy: the DNS servers the house depends on and the
+  // VPN are high, as ADR-001 counts DNS cutovers and network-critical deploys. Staging and approval
+  // ask for that tier, never less than the operation's own.
+  it("stages and approves installing an app its manifest calls high risk as high", async () => {
+    const helper = { request: vi.fn(async () => ({ installed: true })) };
+    const { store, owner } = await setup(helper);
+    try {
+      const operator = store.createOwnerAccount({ username: "sam", passwordHash: "x", role: "operator", createdBy: owner.id });
+      const jobs = createJobService(store, helper, { operationRiskHooks: { "app.install": async ({ id }) => (id === "pi-hole" ? "high" : "low") } });
+      await expect(jobs.createOperationJob("app.install", { id: "pi-hole" }, operator.id, { role: "operator" })).rejects.toThrow(/Only the owner/);
+      const job = await jobs.createOperationJob("app.install", { id: "pi-hole" }, owner.id, { role: "owner" });
+      expect(job.risk).toBe("high");
+      expect(jobs.describeApproval(job.id, null)).toMatchObject({ tier: "high", passwordRequired: true });
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow(/password/);
+      expect(helper.request).not.toHaveBeenCalled();
+      // A lower answer never lowers the operation's own tier.
+      const other = await jobs.createOperationJob("app.install", { id: "jellyfin" }, operator.id, { role: "operator" });
+      expect(other.risk).toBe("medium");
+      expect(jobs.describeApproval(other.id, null)).toMatchObject({ tier: "medium", passwordRequired: false });
+    } finally { store.close(); }
+  });
+
+  it("never stages BoxPilot's own plumbing, which BoxPilot runs itself through the helper (sweep 3)", async () => {
+    const helper = { request: vi.fn() };
+    const { store, owner } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper);
+      await expect(jobs.createOperationJob("agents.runtime.cpu", { processors: 8, background: 8, resetAfterSeconds: 7_200 }, owner.id, { role: "owner" })).rejects.toMatchObject({ code: "operation_internal", message: expect.stringMatching(/BoxPilot's own/) });
+      await expect(jobs.createOperationJob("agents.zulip.post", { host: "127.0.0.1", botEmail: "bot@example.test", posts: [] }, owner.id, { role: "owner" })).rejects.toMatchObject({ code: "operation_internal" });
+      expect(store.listJobs(10)).toEqual([]);
+      expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+
+  it("neither approves nor keeps one staged before it was refused, which could otherwise be approved for a week (sweep 4)", async () => {
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper);
+      // Staged before round 3 refused it at staging: still awaiting approval in the database.
+      const stage = (operationId, parameters) => store.createJob({ type: `op:${operationId}`, title: registry.get(operationId).title, risk: "low", parameters, recovery: {}, createdBy: owner.id });
+      const cpu = stage("agents.runtime.cpu", { processors: 8, background: 8, resetAfterSeconds: 7_200 });
+      const post = stage("agents.zulip.post", { host: "127.0.0.1", botEmail: "bot@example.test", posts: [] });
+      const ordinary = stage("apt.refresh", {});
+      await expect(jobs.approveAndRun(cpu.id, owner.id, {})).rejects.toMatchObject({ code: "operation_internal", message: expect.stringMatching(/BoxPilot's own/) });
+      expect(store.getJob(cpu.id)).toMatchObject({ state: "cancelled", error: expect.stringMatching(/BoxPilot's own/) });
+      expect(helper.request).not.toHaveBeenCalled();
+      // The hourly sweep withdraws the rest, saying why; anything else keeps waiting.
+      expect(jobs.sweepStaleApprovals()).toEqual([{ id: post.id, why: "internal" }]);
+      expect(store.getJob(post.id)).toMatchObject({ state: "cancelled", error: expect.stringMatching(/BoxPilot's own/) });
+      expect(store.getJob(ordinary.id).state).toBe("awaiting_approval");
+      expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+
+  it("answers the tier a job would be staged at without staging one, for schedules and flows to check", async () => {
+    const helper = { request: vi.fn() };
+    const { store } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper, { operationRiskHooks: { "app.install": async ({ id }) => (id === "pi-hole" ? "high" : null) } });
+      expect(await jobs.effectiveRisk("app.install", { id: "pi-hole" })).toBe("high");
+      expect(await jobs.effectiveRisk("app.install", { id: "jellyfin" })).toBe("medium");
+      expect(await jobs.effectiveRisk("apt.purge", { packages: ["htop"] })).toBe("high");
+      expect(await jobs.effectiveRisk("no.such.operation", {})).toBeNull();
+      expect(store.listJobs(10)).toEqual([]);
+    } finally { store.close(); }
+  });
+});
+
+describe("a value pinned at staging that can change before approval", () => {
+  // The model agents use is pinned into a staged removal (M37) so the root task can refuse to remove
+  // it. Switching agents to the model a removal names, then approving the removal, deleted the model
+  // now in use: the task checked the pin from staging. It is pinned again as the job is approved.
+  const repo = "unsloth/Qwen3.5-4B-GGUF";
+  const inUse = `${repo}/Qwen3.5-4B-UD-Q4_K_XL.gguf`;
+  const staged = { repo, file: "Qwen3.5-4B-UD-Q8_K_XL.gguf" };
+
+  it("is pinned again as the job is approved, so the model now in use is not removed", async () => {
+    let current = inUse;
+    const ran = vi.fn(async () => { throw new Error("the removal ran"); });
+    // The root task itself, with a recorder where the runner's script would run.
+    const helper = { request: vi.fn(async (_operation, parameters) => agentsModelRemove(parameters, { run: ran })) };
+    const { store, owner } = await setup(helper);
+    try {
+      // As index.mjs wires it.
+      const jobs = createJobService(store, helper, {
+        operationPrepareHooks: { "agents.model.remove": (parameters) => ({ repo: parameters?.repo, file: parameters?.file, projector: parameters?.projector ?? null, current }) },
+        operationApprovalHooks: { "agents.model.remove": (parameters) => ({ ...parameters, current }) },
+      });
+      const job = await jobs.createOperationJob("agents.model.remove", staged, owner.id);
+      expect(store.getJob(job.id).parameters.current).toBe(inUse);
+      current = `${staged.repo}/${staged.file}`; // agents switched to the staged model
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow(/agents use now/);
+      expect(helper.request).toHaveBeenCalledWith("agents.model.remove", expect.objectContaining({ current: `${staged.repo}/${staged.file}` }), expect.anything());
+      expect(ran).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+
+  it("is wired for the model removal in index.mjs", async () => {
+    const index = (await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), "index.mjs"), "utf8")).replaceAll("\r\n", "\n");
+    const start = index.indexOf("operationApprovalHooks: {");
+    expect(start).toBeGreaterThan(-1);
+    const hooks = index.slice(start, index.indexOf("\n  },", start));
+    expect(hooks).toMatch(/"agents\.model\.remove": \(parameters\) => \(\{ \.\.\.parameters, current: agents\.currentModel\(\) \}\)/);
+  });
+});
+
+describe("the hooks index.mjs gives the job service", () => {
+  // A hook under a name no operation has never runs: "firewall.rule.set" was registered for the
+  // operation "firewall.rule.add", so adding a rule by hand never marked the firewall profile edited.
+  it("are each keyed by a registered operation", async () => {
+    const index = (await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), "index.mjs"), "utf8")).replaceAll("\r\n", "\n");
+    const start = index.indexOf("const jobs = createJobService(");
+    expect(start).toBeGreaterThan(-1);
+    const block = index.slice(start, index.indexOf("\n});", start));
+    // Every quoted dotted name followed by a colon in the options is a hook key...
+    const keyed = [...block.matchAll(/"([a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+)"\s*:/g)].map((match) => match[1]);
+    // ...and so is every name in a list spread into one with Object.fromEntries.
+    const listed = [...block.matchAll(/Object\.fromEntries\(\[([^\]]*)\]/g)].flatMap((match) => [...match[1].matchAll(/"([^"]+)"/g)].map((name) => name[1]));
+    const spread = [...(block.includes("appStopClearingOperations") ? appStopClearingOperations : []), ...(block.includes("deviceResolvingOperations") ? deviceResolvingOperations : [])];
+    const keys = [...keyed, ...listed, ...spread];
+    expect(keyed.length).toBeGreaterThan(40);
+    expect(keys).toContain("firewall.rule.add");
+    expect(keys.filter((key) => !registry.has(key))).toEqual([]);
+  });
+});
+
+// Sweep 4: a restore that lets a backup's own compose file start as it was archived, granting more
+// than the catalog does, is the owner's, typed out and naming the app, at high risk.
+describe("allowing a backup's compose file on a restore", () => {
+  const hash = "a".repeat(64);
+  it("is high risk, owner only, and typed out naming the app", async () => {
+    const helper = { request: vi.fn(async () => ({ restored: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    const plain = await jobs.createOperationJob("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz" }, owner.id);
+    expect(jobs.approvalPolicy(plain)).toMatchObject({ tier: "high", confirmText: null });
+    const allowing = await jobs.createOperationJob("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz", allowCompose: hash }, owner.id);
+    expect(jobs.approvalPolicy(allowing)).toMatchObject({ tier: "high", confirmText: "allow demo" });
+    await expect(jobs.approveAndRun(allowing.id, owner.id, { password: "correct horse battery", confirmText: "restore" })).rejects.toThrow("Type allow demo to confirm");
+    expect(helper.request).not.toHaveBeenCalled();
+    await jobs.approveAndRun(allowing.id, owner.id, { password: "correct horse battery", confirmText: "allow demo" });
+    expect(helper.request).toHaveBeenCalledWith("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz", allowCompose: hash }, expect.anything());
+    await expect(jobs.createOperationJob("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz", allowCompose: hash }, owner.id, { role: "operator" })).rejects.toThrow(/Only the owner/);
+    await expect(jobs.createOperationJob("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz", allowCompose: "not-a-hash" }, owner.id)).rejects.toThrow("allowCompose");
+    store.close();
+  });
+
+  it("names every app a snapshot restore allows, and refuses one that is not a hash", async () => {
+    const { store, owner, jobs } = await setup({ request: vi.fn() });
+    const base = { source: "local", artifact: "machine-snapshot-20260821T020000Z-abcdef12.tar.gz" };
+    expect(jobs.approvalPolicy(await jobs.createOperationJob("host.snapshot.restore", base, owner.id))).toMatchObject({ tier: "high", confirmText: "restore" });
+    expect(jobs.approvalPolicy(await jobs.createOperationJob("host.snapshot.restore", { ...base, allowCompose: { zulip: hash, dockge: hash } }, owner.id))).toMatchObject({ tier: "high", confirmText: "allow dockge zulip" });
+    await expect(jobs.createOperationJob("host.snapshot.restore", { ...base, allowCompose: { dockge: "x" } }, owner.id)).rejects.toThrow("dockge must be a compose file's sha256");
+    await expect(jobs.createOperationJob("host.snapshot.restore", { ...base, allowCompose: { "../x": hash } }, owner.id)).rejects.toThrow("must be keyed by app id");
+    store.close();
+  });
+
+  it("raises the tier to high whatever the operation's own, through the risk hook", async () => {
+    expect(archivedComposeRisk({ id: "demo", backup: "x" })).toBe("low");
+    expect(archivedComposeRisk({ allowCompose: hash })).toBe("high");
+    expect(archivedComposeRisk({ allowCompose: {} })).toBe("low");
+    expect(archivedComposeRisk({ allowCompose: { demo: hash } })).toBe("high");
+    expect(await registry.effectiveRisk("app.backup.restore", { id: "demo", backup: "20260101T000000Z.tar.gz", allowCompose: hash })).toBe("high");
   });
 });

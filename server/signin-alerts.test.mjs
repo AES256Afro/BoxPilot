@@ -54,6 +54,9 @@ describe("new sign-in alerts", () => {
     expect(notified[0].title).toMatch(/New sign-in/);
     expect(notified[0].message).toContain("100.64.0.20");
     expect(notified[0].priority).toBe("high");
+    // A passkey or recovery codes made from a stolen session outlast a new password and a signed-out
+    // session, so the advice names all of it (sweep 3).
+    expect(notified[0].message).toMatch(/If this wasn't you, change your password, then in Settings, Account & sign-in, review Where you're signed in and Passkeys, and make new recovery codes: .+ still works after the password changes\.$/);
     // One ledger entry per account and address if the push reaches no one (M27.2).
     expect(notified[0].key).toMatch(/^signin\.new:.+:100\.64\.0\.20$/);
 

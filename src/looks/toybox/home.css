@@ -1,0 +1,196 @@
+/*
+ * Home in the Toybox look (src/looks/toybox/Home.tsx), as M.toybox draws it: the robot and its
+ * speech bubble, chunky cards down the left, the apps as pastel bubbles on the right. Ink borders,
+ * a flat drop shadow under everything, Fredoka throughout. Every selector starts with .toybox-.
+ */
+
+.toybox-home {
+  --toybox-ink: #2b2340;
+  --toybox-soft: #5b5470;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  align-items: start;
+  gap: 23.4px;
+  min-width: 0;
+  color: var(--toybox-ink);
+  font-family: "Fredoka", ui-rounded, "Nunito", sans-serif;
+}
+.toybox-left { display: grid; gap: 17.5px; min-width: 0; }
+
+/* A chunky card: white, an ink edge, a flat ink shadow under it. */
+.toybox-card {
+  min-width: 0;
+  padding: 17.5px 19.5px;
+  border: 3.9px solid var(--toybox-ink);
+  border-radius: 25.3px;
+  background: #ffffff;
+  box-shadow: 0 6.8px 0 var(--toybox-ink);
+}
+.toybox-card__title { margin: 0 0 6.2px; color: var(--toybox-soft); font: 600 15.6px/1.2 "Fredoka", ui-rounded, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+/* The title, and on its right the pill that shows the rest of a list longer than the drawing's two rows. */
+.toybox-card__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6.2px; }
+.toybox-card__head .toybox-card__title { margin: 0; }
+
+/* The robot: a blue box with two dot eyes, a smile and an antenna with a yellow ball. */
+.toybox-hero { display: grid; grid-template-columns: 120.7px minmax(0, 1fr); align-items: center; gap: 19.5px; }
+.toybox-bot {
+  position: relative;
+  width: 120.7px;
+  height: 105px;
+  border: 3.9px solid var(--toybox-ink);
+  border-radius: 27.2px;
+  background: #a9d0ff;
+  box-shadow: 0 6.8px 0 var(--toybox-ink);
+}
+.toybox-bot::before { position: absolute; top: 31.1px; left: 26.3px; width: 15.6px; height: 15.6px; border-radius: 50%; background: var(--toybox-ink); box-shadow: 48.7px 0 0 var(--toybox-ink); content: ""; }
+.toybox-bot::after { position: absolute; top: 52.5px; left: 38.9px; width: 35px; height: 17.5px; border: 4.3px solid var(--toybox-ink); border-top: 0; border-radius: 0 0 19.5px 19.5px; content: ""; }
+.toybox-bot i { position: absolute; top: -21.4px; left: calc(50% - 2.1px); width: 4.3px; height: 17.5px; background: var(--toybox-ink); }
+.toybox-bot i::after { position: absolute; top: -10.7px; left: -5.8px; width: 15.6px; height: 15.6px; box-sizing: border-box; border: 3.5px solid var(--toybox-ink); border-radius: 50%; background: #ffd84d; content: ""; }
+.toybox-say { display: grid; gap: 5px; padding-right: 15px; padding-left: 17px; }
+.toybox-say__line { margin: 0; font: 600 26.3px/1.1 "Fredoka", ui-rounded, sans-serif; }
+.toybox-say__verdict { margin: 0; font-size: 15px; line-height: 1.35; }
+
+/* What needs you: a round dot with a glyph, the words, the pill buttons and the tier. */
+.toybox-needs__list { margin: 0; padding: 0; list-style: none; }
+.toybox-need { display: grid; grid-template-columns: 50.6px minmax(0, 1fr); align-items: center; gap: 3.9px 15.6px; padding: 9.7px 0; }
+.toybox-need + .toybox-need { border-top: 2.3px dashed rgba(43, 35, 64, 0.25); }
+.toybox-dot {
+  display: grid;
+  width: 60.7px;
+  height: 60.7px;
+  flex: none;
+  place-items: center;
+  box-sizing: border-box;
+  border: 4.2px solid var(--toybox-ink);
+  border-radius: 50%;
+  color: var(--toybox-ink);
+  font: 700 23.4px/1 "Fredoka", ui-rounded, sans-serif;
+  grid-row: span 2;
+}
+.toybox-need__title { justify-self: start; padding: 0; border: 0; color: var(--toybox-ink); background: none; font: 600 17.5px/1.2 "Fredoka", ui-rounded, sans-serif; text-align: left; cursor: pointer; }
+.toybox-need__title:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.toybox-need:not(:has(.toybox-need__acts)) .toybox-dot { grid-row: auto; }
+.toybox-need__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 7.8px; grid-column: 2; }
+.toybox-home .toybox-need__acts .ui-button { min-height: 31px; padding: 0 14px; font-size: 14px; }
+/* The tier is said in words beside the buttons, so no dot inside them. */
+.toybox-home .toybox-need__acts .ui-button.ui-button--risk-medium::before { display: none; }
+.toybox-tier { color: var(--toybox-soft); font-size: 12.5px; font-weight: 500; }
+.toybox-need__run { flex-basis: 100%; color: #1f6b3d; font-size: 13.5px; }
+.toybox-more { flex: none; margin: -6px 0; padding: 4px 12px; border: 2.2px solid var(--toybox-ink); border-radius: 999px; color: var(--toybox-ink); background: #ffffff; box-shadow: 0 3px 0 var(--toybox-ink); font: 600 13.5px/1.2 "Fredoka", ui-rounded, sans-serif; cursor: pointer; }
+.toybox-more:active { box-shadow: 0 1px 0 var(--toybox-ink); transform: translateY(2px); }
+.toybox-quiet { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 6px 0 0; font-size: 16px; font-weight: 500; }
+.toybox-quiet .toybox-dot { width: 44px; height: 44px; font-size: 18px; }
+.toybox-fixed { margin: -6px 4px 0; color: var(--toybox-ink); font-size: 14px; font-weight: 500; }
+
+/* Candy-stripe bars: memory, the data drive, busy-ness. */
+.toybox-bars { display: grid; gap: 10.7px; }
+.toybox-bar {
+  display: grid;
+  grid-template-columns: 85.6px minmax(0, 1fr) 43.6px;
+  align-items: center;
+  gap: 9.3px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--toybox-ink);
+  background: none;
+  font: 500 15.6px/1.3 "Fredoka", ui-rounded, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.toybox-bar:hover .toybox-bar__label { text-decoration: underline; text-decoration-thickness: 2px; }
+.toybox-bar__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toybox-bar__track { display: block; height: 17.1px; overflow: hidden; box-sizing: border-box; border: 2.2px solid var(--toybox-ink); border-radius: 15.6px; background: #ffffff; }
+.toybox-bar__track i { display: block; height: 100%; box-sizing: border-box; border-right: 2.2px solid var(--toybox-ink); }
+.toybox-bar__value { font-weight: 600; text-align: right; }
+
+/* Your apps: pastel bubbles with an ink edge, the name, how each is doing, a "!" sticker. */
+/* It runs down towards the foot of the screen, as the drawing has it, and ends with its shadow 12 px
+   above the tray of areas, so the tray never sits on it. */
+.toybox-apps { min-height: calc(100vh - 150px - var(--shell-bottom-inset, 0px)); }
+@media (min-width: 761px) {
+  /* The robot pokes its antenna up into the top bar, as it stands over the page in the drawing. */
+  .toybox-hero { position: relative; z-index: 41; }
+}
+.toybox-apps__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 29.2px 9.7px; margin: 15.6px 0 0; padding: 0; list-style: none; }
+.toybox-app {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 4.9px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  color: var(--toybox-ink);
+  background: none;
+  font-family: "Fredoka", ui-rounded, sans-serif;
+  text-align: center;
+  cursor: pointer;
+}
+.toybox-app__bubble {
+  display: grid;
+  width: 89.5px;
+  height: 89.5px;
+  margin-bottom: 2px;
+  place-items: center;
+  box-sizing: border-box;
+  border: 3.5px solid var(--toybox-ink);
+  border-radius: 50%;
+  box-shadow: 0 4.3px 0 var(--toybox-ink);
+  transition: transform 120ms ease;
+}
+.toybox-app__bubble > span { font-size: 38.9px; font-weight: 700; line-height: 1; }
+.toybox-app:hover .toybox-app__bubble { transform: translateY(-3px); }
+.toybox-app:active .toybox-app__bubble { box-shadow: 0 1px 0 var(--toybox-ink); transform: translateY(3px); }
+.toybox-app__name { max-width: 100%; overflow: hidden; font-size: 16px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.toybox-app__mood { color: var(--toybox-soft); font-size: 12.8px; }
+.toybox-app__sticker {
+  position: absolute;
+  top: -4.3px;
+  left: calc(50% + 64px);
+  padding: 2.7px 5px;
+  border: 1.5px solid var(--toybox-ink);
+  border-radius: 4.3px;
+  background: #ffd84d;
+  font: 700 10.7px/1 "Fredoka", ui-rounded, sans-serif;
+  transform: rotate(12deg);
+}
+.toybox-app--add .toybox-app__bubble { border-style: dashed; background: #ffffff; box-shadow: none; }
+.toybox-app--add .toybox-app__bubble > span { font-size: 27px; font-weight: 500; }
+.toybox-app:focus-visible,
+.toybox-bar:focus-visible,
+.toybox-need__title:focus-visible { outline: 3px solid #7c5cff; outline-offset: 3px; }
+
+@media (max-width: 1100px) {
+  .toybox-home { grid-template-columns: minmax(0, 1fr); }
+  .toybox-apps { min-height: 0; }
+  .toybox-apps__grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .toybox-hero { grid-template-columns: 84px minmax(0, 1fr); gap: 14px; margin-top: 18px; }
+  .toybox-bot { width: 84px; height: 74px; border-radius: 20px; transform-origin: top left; }
+  .toybox-bot::before { top: 22px; left: 17px; width: 11px; height: 11px; box-shadow: 34px 0 0 var(--toybox-ink); }
+  .toybox-bot::after { top: 37px; left: 27px; width: 24px; height: 12px; border-width: 3.4px; }
+  .toybox-say__line { font-size: 21px; }
+  .toybox-say__verdict { font-size: 15px; }
+  .toybox-card { padding: 15px 16px; border-radius: 22px; }
+  .toybox-need { grid-template-columns: 44px minmax(0, 1fr); gap: 4px 12px; }
+  .toybox-dot { width: 46px; height: 46px; border-width: 3.5px; font-size: 19px; }
+  .toybox-need__title { font-size: 16px; }
+  .toybox-bar { grid-template-columns: 78px minmax(0, 1fr) 40px; font-size: 14.5px; }
+  .toybox-apps__grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 22px 6px; }
+  .toybox-app__bubble { width: 72px; height: 72px; }
+  .toybox-app__bubble > span { font-size: 31px; }
+  .toybox-app__name { font-size: 14.5px; white-space: normal; overflow-wrap: anywhere; }
+  .toybox-app__sticker { left: calc(50% + 30px); }
+}
+
+@media (pointer: coarse) {
+  .toybox-home .toybox-need__acts .ui-button,
+  .toybox-more { min-height: 44px; }
+  .toybox-need__title { padding-block: 12px; margin-block: -12px; }
+}

@@ -127,6 +127,16 @@ describe("Storage page", () => {
       await waitFor(() => expect(JSON.parse(staged["storage.mount"] ?? "{}")).toEqual({ parameters: { uuid: "data-uuid", name: "media" } }));
     });
 
+    it("offers the backup destination's name for a drive, as the share sheet does", async () => {
+      mockFetch();
+      render(<StoragePage csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Mount /dev/sdb1" }));
+      const sheet = screen.getByRole("dialog", { name: "/dev/sdb1" });
+      fireEvent.click(within(sheet).getByRole("button", { name: "Use this for BoxPilot's backups" }));
+      expect((within(sheet).getByLabelText("Mount name") as HTMLInputElement).value).toBe("boxpilot-backup");
+      expect(within(sheet).getByText(/BoxPilot copies its backups there/).textContent).toContain("/mnt/boxpilot/backup");
+    });
+
     it("never offers Mount or Format on the system disk, its LVM physical volume, or the root volume", async () => {
       mockFetch();
       render(<StoragePage csrfToken="csrf-token" />);
@@ -198,7 +208,8 @@ describe("Storage page", () => {
       expect(request).toEqual({ method: "POST", csrf: "csrf-token" });
       expect(screen.getByText("Reconnects automatically.")).toBeTruthy();
       expect(screen.getAllByText(/at most 3 times a day and 30 minutes apart/)).toHaveLength(1);
-      expect(screen.getAllByRole("switch")).toHaveLength(1);
+      // One switch on the drive's row (a look may draw the same control above the tabs, M41).
+      expect(within(screen.getByRole("tabpanel")).getAllByRole("switch")).toHaveLength(1);
     });
 
     it("says where to reconnect a held drive by hand, since its row has no Reconnect button", async () => {
@@ -351,6 +362,38 @@ describe("Storage page", () => {
       openTab(/^Drives/);
       openTab(/^File sharing/);
       expect(screen.queryByRole("dialog", { name: "Add a share" })).toBeNull();
+    });
+
+    // /mnt holds /mnt/boxpilot (the backup destination), which both file servers refuse to serve:
+    // the suggestions offered it anyway, and a drive mounted under it had a Share button.
+    it("never suggests or offers to share a folder the file servers refuse", async () => {
+      mockFetch({ overview: { ...report,
+        devices: [...report.devices, { ...base, path: "/dev/sde1", type: "part", sizeBytes: GiB, fstype: "ext4", uuid: "backup-uuid", label: "backup", model: null, transport: null, mountpoints: ["/mnt/boxpilot/backup"], readOnly: false, removable: true, depth: 0 }],
+        fstab: [...report.fstab, { device: "UUID=backup-uuid", mountpoint: "/mnt/boxpilot/backup", fstype: "ext4", options: "defaults,nofail", managedName: "boxpilot-backup" }],
+      } });
+      render(<StoragePage csrfToken="csrf-token" />);
+      expect(await screen.findByRole("button", { name: "Share /mnt/olddata on the network" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Share /mnt/boxpilot/backup on the network" })).toBeNull();
+      openTab(/^File sharing/);
+      await waitFor(() => expect(document.querySelectorAll("datalist option").length).toBeGreaterThan(0));
+      const suggested = [...document.querySelectorAll("datalist option")].map((option) => option.getAttribute("value"));
+      expect(suggested).toContain("/mnt/olddata");
+      expect(suggested).toContain("/srv");
+      expect(suggested).not.toContain("/mnt");
+      expect(suggested).not.toContain("/mnt/boxpilot/backup");
+    });
+
+    it("names the folder waiting beside Install Samba when Share is pressed before Samba is installed", async () => {
+      mockFetch({
+        overview: { ...report, devices: [...report.devices, { ...base, path: "/dev/sdd1", type: "part", sizeBytes: GiB, fstype: "ext4", uuid: "dump-uuid", label: "the-dump", model: null, transport: null, mountpoints: ["/mnt/the-dump"], readOnly: false, removable: true, depth: 0 }] },
+        samba: { ...samba, installed: false, running: null, configured: false, config: { ...samba.config, managed: false, shares: [] }, users: [] },
+      });
+      render(<StoragePage csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Share /mnt/the-dump on the network" }));
+      expect(await screen.findByText("Samba is not installed")).toBeTruthy();
+      // No sheet whose share would go into a list this tab does not draw yet.
+      expect(screen.queryByRole("dialog", { name: "Add a share" })).toBeNull();
+      expect(screen.getByText(/Install it first to share/).textContent).toContain("/mnt/the-dump");
     });
 
     it("says the firewall has to allow SMB on the LAN, and goes there", async () => {

@@ -15,6 +15,17 @@
 const reads = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
+ * A path without its trailing slashes, "/" itself kept. It was `replace(/(.)\/+$/, "$1")`, which read
+ * a run of slashes again from each one of them when the path went on after it: a 16 KB path of
+ * slashes took 70 ms of the event loop per request (sweep 5).
+ */
+function withoutTrailingSlashes(path) {
+  let end = path.length;
+  while (end > 1 && path[end - 1] === "/") end -= 1;
+  return path.slice(0, end);
+}
+
+/**
  * The /api/v1 role policy, ahead of every router: viewers look (and run read-only operations, which
  * the operations router checks one by one, and ask the assistant, which only reads and answers from
  * what the asker may read); operators change the box but not its settings or people - Repair's
@@ -27,7 +38,7 @@ export function apiRolePolicy() {
   return function rolePolicy(request, response, next) {
     const role = request.boxpilotSession?.owner?.role ?? "owner";
     const reading = reads.has(request.method);
-    const pathname = request.path.toLowerCase().replace(/(.)\/+$/, "$1");
+    const pathname = withoutTrailingSlashes(request.path.toLowerCase());
     const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(pathname);
     // Asking the assistant, or an agent someone may borrow (M37): both only read, as the asker.
     const asking = request.method === "POST" && (pathname === "/assistant/ask" || /^\/agents\/[^/]+\/ask$/.test(pathname));
@@ -80,25 +91,43 @@ export const seesEveryAccount = (request) => request.boxpilotSession?.owner?.rol
 export const readsThroughHelper = (request) => ["owner", "operator"].includes(request.boxpilotSession?.owner?.role);
 
 /**
+ * The kinds of alert and news about the server itself, whose words every role reads in full: a disk,
+ * a drive, the UPS, services, containers, BoxPilot's own job logs, a new release. Any other kind is
+ * about somebody's work or is the owner's (sweep 3): the weekly report names every account's failed
+ * jobs, which only the owner may preview. A kind added later is the owner's until it is put here.
+ */
+const everyonesFamilies = new Set([
+  "storage.root.full", "storage.mount.full", "storage.smart", "storage.mount.detached", "storage.mount.readonly", "storage.forecast",
+  "smart.errors", "smart.wear", "power.ups", "system.services", "system.reboot", "docker.unhealthy", "docker.restarting",
+  "joblog.unreadable", "release.available", "drive.reconnected", "boxpilot.restart",
+]);
+
+/**
  * A health-alert ledger entry as this caller may read it (M29.4): its words and its key. Every role
- * sees that a condition is live; the words of one about another account's work - a job a restart
- * cut off, a result not saved, a schedule of theirs, their sign-in from a new address - go only to
- * the owner and to that account. Everyone else reads what kind of thing it is, and its key is cut
- * back to that kind, because the rest of the key names the schedule, the account or the subject.
- * `scheduleOwner(id)` answers who created a schedule.
+ * sees that a condition is live; the words of one about another account's work - a schedule of
+ * theirs, an automation's run, their sign-in from a new address - go only to the owner and to that
+ * account. Everyone else reads what kind of thing it is, and its key is cut back to that kind,
+ * because the rest of the key names the schedule, the account or the subject.
+ * `scheduleOwner(id)` answers who created a schedule. An automation's failure carries its step's job
+ * error, which GET /flows keeps to the owner and to the account whose run it was (flowForCaller): the
+ * entry names who ran the run its words describe (`actorId`, recorded as it was raised), and one
+ * recorded before that was kept is the owner's. `full` says whether the caller may read the rest of
+ * the entry (its message): a key with no subject, like the weekly report's, is not shortened when cut.
  */
 export function watchEntryFor(request, key, entry, label, scheduleOwner = () => null) {
   const title = entry?.title ?? key;
   const [family, subject] = String(key).split(":");
-  if (seesEveryAccount(request)) return { title, key };
+  if (seesEveryAccount(request)) return { title, key, full: true };
   const self = callerId(request);
-  const theirs = family === "schedule.failed" || family === "schedule.overdue" ? Boolean(self && scheduleOwner(subject) === self)
+  const theirs = everyonesFamilies.has(family) ? true
+    : family === "schedule.failed" || family === "schedule.overdue" ? Boolean(self && scheduleOwner(subject) === self)
+    : family === "flow.failed" ? Boolean(self && typeof entry?.actorId === "string" && entry.actorId === self)
     : family === "signin.new" ? Boolean(self && subject === self)
-    // Named by operation and subject rather than by job, so whose it was cannot be told apart.
-    // An agent's notice (M37) is written from what its maker's run read, so its words are the owner's.
-    : family === "job.interrupted" || family === "record.failed" || family === "approval.lapsed" || family === "agent.important" ? false
-    : true;
-  return theirs ? { title, key } : { title: label, key: family };
+    // Everything else: a job a restart cut off or a result not saved (named by operation and subject
+    // rather than by job, so whose it was cannot be told apart), a job that lapsed waiting for
+    // approval, an agent's notice (written from what its maker's run read), the weekly report.
+    : false;
+  return theirs ? { title, key, full: true } : { title: label, key: family, full: false };
 }
 
 /** The fields that name who did something: a job's creator, a drill's runner, a profile's applier. */

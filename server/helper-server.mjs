@@ -3,15 +3,17 @@ import net from "node:net";
 import path from "node:path";
 import { productVersion } from "./version.mjs";
 import { registry } from "./ops/index.mjs";
-import { createRunUnitClient } from "./run-unit.mjs";
+import { createRunUnitClient, whileHoldingRootTasks } from "./run-unit.mjs";
 import { createCredentialStore } from "./credentials.mjs";
 import { createVpnProfileStore } from "./vpn-profile.mjs";
 import { createAppHelper } from "./app-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
-import { helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
+import { helperErrorReply, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
 import { createConcurrencyGate, createLaneQueues, laneFor } from "./helper-lanes.mjs";
+import { createDrainedRestart, restartRefusalError } from "./self-restart.mjs";
+import { resumeInterruptedBackups } from "./interrupted-backups.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
@@ -28,7 +30,6 @@ import { createHousekeepingService } from "./housekeeping.mjs";
 import { createPerformanceService } from "./performance.mjs";
 import { createLocalDnsService } from "./local-dns.mjs";
 import { fixedRun } from "./exec.mjs";
-import { timeoutOf } from "./timeouts.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const idleGraceMs = 30_000;
@@ -36,10 +37,26 @@ const maxRequestBytes = 128 * 1024; // compose edits and key imports declare 64 
 const legacyReadOnlyOperations = new Set(["container.docker.inspect", "container.docker.inventory", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 const readOnlyOperations = new Set([...registry.readOnlyIds(), ...legacyReadOnlyOperations]);
 const lanes = createLaneQueues();
+// BoxPilot restarting itself after an upgrade or a KVM install: once no lane is held, waiting without
+// holding any, then holding the exclusive lane so nothing new starts before it. From the moment it
+// begins, what waits in a lane and what arrives is answered at once, with nothing done, while the web
+// side is still there to record it: stopped first, it used to mark those jobs as cut off mid-run.
+// The refusal carries its own code (helper_restarting), so the web side's job layer waits for
+// BoxPilot to come back and sends it again once: an automation's next step, sent in the moment
+// between its last step and the restart, is not lost to it (sweep 5).
+let restarting = false;
+const selfRestart = createDrainedRestart({ lanes, run: fixedRun, onRestarting: (active) => {
+  restarting = active;
+  if (!active) return;
+  for (const queued of waiting) queued.refuse(restartRefusalError());
+  waiting.clear();
+} });
 // Inspections do not queue per subject, so this is what stops a page in a reload loop from
 // starting dozens of root child processes at once.
 const reads = createConcurrencyGate(8);
 const queuedHeartbeatMs = 20_000;
+/** Mutations waiting in a lane, not yet started. */
+const waiting = new Set();
 const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
 const vmRetention = createVmRetentionHelper();
@@ -68,7 +85,7 @@ const machineSnapshot = createMachineSnapshotHelper({ controllerBackups });
 const housekeeping = createHousekeepingService({ apps, runUnit });
 const performance = createPerformanceService();
 const localDns = createLocalDnsService({ apps, runDocker: fixedRun });
-const helperDependencies = { runUnit, credentials, vpnProfile, apps, housekeeping, performance, localDns, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot };
+const helperDependencies = { runUnit, credentials, vpnProfile, apps, housekeeping, performance, localDns, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot, selfRestart };
 if (recovery.blocked) {
   console.error("BoxPilot is serving requests; restore drills stay unavailable until that is resolved.");
 }
@@ -80,6 +97,21 @@ if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.no
 // A task whose caller gave up can write its result hours later, into tmpfs nobody reads.
 const swept = await runUnit.sweepStale().catch(() => ({ removed: 0 }));
 if (swept.removed > 0) console.log(`Removed ${swept.removed} stale root-task file(s) from a previous run`);
+
+// An app backup a power cut or a restart cut off left the app stopped, which Docker never undoes,
+// and half an archive. Both are put right here: Docker may still be starting, so it is waited for
+// outside any lane, and each app's lane is held only for its start (interrupted-backups.mjs).
+void resumeInterruptedBackups(await apps.interruptedBackups().catch(() => []), { apps, lanes });
+
+// A machine snapshot or a restore of one that a power cut or a restart cut off left its half-written
+// archive and the folder it worked in, which hold the database and every app's .env in the clear;
+// and an app data archive it was copying in from the mirror or a drive is left unfinished beside the
+// app's backups. All run in this process, which has taken no request yet, so none can still be running.
+const snapshotScraps = await machineSnapshot.sweepInterrupted().catch((error) => {
+  console.error(`Clearing what an interrupted machine snapshot or restore left failed: ${error.message}`);
+  return { removed: [] };
+});
+if (snapshotScraps.removed.length) console.log(`Removed what an interrupted machine snapshot or restore left: ${snapshotScraps.removed.join(", ")}`);
 
 await mkdir(path.dirname(socketPath), { recursive: true, mode: 0o750 });
 await unlink(socketPath).catch((error) => {
@@ -122,6 +154,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (readOnlyOperations.has(request.operation)) {
         result = await reads.run(() => executeHelperOperation(request, helperDependencies), { signal: abandoned.signal });
       } else {
+        if (restarting) throw restartRefusalError();
         const held = laneFor(request.operation, request.parameters);
         // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
         // both idle timers alive; the client reads those lines as progress, not as the reply.
@@ -136,26 +169,32 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
           heartbeat = setInterval(() => frame(helperQueuedFrame(request?.id ?? null, held.join("+"))), queuedHeartbeatMs);
           heartbeat.unref?.();
         }
+        // While it waits, a stop of the helper (a drained self-restart holds every lane until then)
+        // answers it at once with nothing done, rather than holding the stop until systemd kills it.
+        const queued = { refused: false, refuse: (refusal = restartRefusalError("BoxPilot's helper restarted before this began, so nothing was changed. Run it again.")) => { queued.refused = true; if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } reply(helperErrorReply(request?.id ?? null, refusal)); } };
+        waiting.add(queued);
         try {
-          result = await lanes.run(held, async () => {
+          result = await lanes.run(held, async (holdUntil) => {
+            waiting.delete(queued);
+            if (queued.refused) throw new Error("The helper stopped before this request began");
             // The web side gave up while this waited: running it now would change the host with no job watching.
             // allowHalfOpen keeps `destroyed` false after the peer's FIN, so check the read side too.
             if (connection.destroyed || connection.readableEnded) throw new Error("The request was abandoned while it waited for an earlier operation on this subject");
             if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
             if (registeredTimeout) connection.setTimeout(registeredTimeout); // the operation's own budget starts now
             if (willWait) frame(helperStartedFrame(request.id)); // ...and the client's deadline restarts with it
-            return executeHelperOperation(request, helperDependencies);
+            // A root task it leaves running past its own limit keeps these lanes until its unit stops.
+            return whileHoldingRootTasks(holdUntil, () => executeHelperOperation(request, helperDependencies));
           });
         } finally {
+          waiting.delete(queued);
           if (heartbeat) clearInterval(heartbeat);
         }
       }
       reply(result);
     } catch (error) {
-      // A step that ran out of its own time says so in a field (M30.3). An older web side reads
-      // only `error`, so the reply stays what it was for it.
-      const timeout = timeoutOf(error);
-      reply({ version: 1, id: request?.id ?? null, ok: false, error: error.message, code: timeout ? "timeout" : "operation_failed", ...(timeout ? { timeout } : {}) });
+      // A step that ran out of its own time, and whether a rollback worked, go in fields.
+      reply(helperErrorReply(request?.id ?? null, error));
     }
   }
 
@@ -190,6 +229,9 @@ server.listen(socketPath, async () => {
 });
 
 async function shutdown() {
+  // Work already running drains (systemd allows it 90 seconds); work still queued never starts.
+  for (const queued of waiting) queued.refuse();
+  waiting.clear();
   server.close(async () => {
     await unlink(socketPath).catch(() => {});
     process.exit(0);

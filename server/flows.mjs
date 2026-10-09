@@ -9,7 +9,7 @@
  * nothing attempts an automatic unwind — a half-done flow the owner can read beats a rollback
  * that guesses.
  */
-import { maskSecrets, secretPaths } from "./ops/registry.mjs";
+import { internalRefusal, maskSecrets, secretPaths } from "./ops/registry.mjs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { registry as defaultRegistry, validateParameters } from "./ops/index.mjs";
 import { computeNextRun, validateCadence } from "./scheduler.mjs";
@@ -17,6 +17,9 @@ import { holdsPlaceholder, isSinglePlaceholder, referencesIn, resolveValues, ste
 import { asSentence } from "./health-alerts.mjs";
 import { mountNamePattern } from "./tasks/storage.mjs";
 import { mountpointFor } from "./backup-mount.mjs";
+import { queuedCeilingMs } from "./helper-client.mjs";
+import { mayStillBeRunning } from "./timeouts.mjs";
+import { restartsBoxPilot } from "./ops/services.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -26,7 +29,12 @@ const chainLimit = 8;
 // Failures run() has already recorded on the flow, so a caller must not overwrite them with
 // "skipped". Every stop-path throw in run() carries one of these prefixes; keep them in step.
 const recordedRunFailure = /stopped at step|failed at step|lost sight of step/;
+// What a run resumed after a restart says while it runs (recover() resumes a run only once).
+const resumedMark = "resumed after BoxPilot restarted";
 const riskOrder = { low: 0, medium: 1, high: 2 };
+
+/** A job still waiting in the helper's queue behind other work: the job layer notes "queue" waiting, then completed. */
+const waitingInQueue = (job) => (job.steps ?? []).filter((step) => step.name === "queue").at(-1)?.state === "waiting";
 
 /** The highest tier any step carries; what the flow answers for. */
 export function flowRisk(steps, registry = defaultRegistry) {
@@ -49,7 +57,11 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
     if (!step || typeof step.operationId !== "string") return `${label} must name an operation`;
     const operation = registry.get?.(step.operationId);
     if (!operation) return `${label}: ${step.operationId} is not a registered operation`;
+    if (operation.internal) return `${label}: ${internalRefusal(operation)}`;
     if (operation.risk === "high") return `${label}: ${operation.title} is high risk and cannot be part of a flow (ADR-002)`;
+    // A typed confirmation is a person promising they meant it, at approval; a flow approves its
+    // steps itself, so such a step would be refused there on every run.
+    if (typeof operation.confirm === "function") return `${label}: ${operation.title} asks you to type a confirmation each time, so it cannot be part of a flow`;
     const parameters = step.parameters ?? {};
     if (typeof parameters !== "object" || Array.isArray(parameters)) return `${label}: parameters must be an object`;
     // Secrets are checked by flowSecretProblem below, which can ask the catalog about an app's own.
@@ -120,10 +132,20 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   };
   const owns = (jobId) => stepJobs.has(jobId);
   const alertKey = (flow) => `flow.failed:${flow.id}`;
-  /** Through the health-alert ledger: sent once, or kept as not announced when nothing can be sent. */
-  function announce(flow, headline, message) {
+  /**
+   * Through the health-alert ledger: sent once, or kept as not announced when nothing can be sent.
+   * `actorId` is who ran the run the words describe; its step errors are that account's and the
+   * owner's to read (sweep 3), whoever runs the flow next. Null when nobody can be named.
+   */
+  function announce(flow, headline, message, actorId) {
     if (!alerts) return;
-    try { Promise.resolve(alerts.raise({ key: alertKey(flow), title: `${headline}: ${flow.name}`, message: String(message).slice(0, 500), priority: "high" })).catch(() => {}); } catch { /* the flow's own record stands */ }
+    try { Promise.resolve(alerts.raise({ key: alertKey(flow), title: `${headline}: ${flow.name}`, message: String(message).slice(0, 500), priority: "high", actorId: typeof actorId === "string" ? actorId : null })).catch(() => {}); } catch { /* the flow's own record stands */ }
+  }
+  /** Who ran a run, from its jobs: each of one run's jobs is its runner's. Null when they do not say. */
+  function runnerOf(jobIds) {
+    const runners = new Set((jobIds ?? []).filter(Boolean).map((jobId) => store.getJob?.(jobId)?.createdBy ?? null));
+    const [only] = runners;
+    return runners.size === 1 && typeof only === "string" ? only : null;
   }
   function settle(flow, options) {
     if (!alerts) return;
@@ -158,6 +180,100 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       ...(step.retry !== undefined ? { retry: step.retry } : {}),
       ...(step.when !== undefined ? { when: { value: step.when.value, ...(step.when.equals !== undefined ? { equals: step.when.equals } : {}) } } : {}),
     }));
+  }
+
+  /** An operation only the owner may run (minimumRole "owner"). */
+  const ownerOnly = (step) => registry.get?.(step?.operationId)?.minimumRole === "owner";
+  /** JSON with object keys in one order, so two steps compare by what they hold. */
+  const canonical = (value) => JSON.stringify(value ?? null, (_key, entry) => (entry && typeof entry === "object" && !Array.isArray(entry) ? Object.fromEntries(Object.entries(entry).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) : entry));
+  const sameStep = (left, right) => Boolean(left && right) && canonical(normalizeSteps([left])[0]) === canonical(normalizeSteps([right])[0]);
+
+  /**
+   * The steps to store, as saved by someone with `role` (sweep 2). A flow runs as whoever starts it,
+   * so a step only the owner may run is the owner's to put in one: an operator's flow holding an HTTP
+   * request to their own address ran with the owner's authority when the owner clicked Run now.
+   * Saved by the owner, a new or changed such step is marked ownerAdded; one already stored unchanged
+   * keeps the mark it had, whoever saves it, so sending the steps back keeps nothing the owner has
+   * not kept (keepStep below). For the owner's save that is wherever it was stored (sweep 5): it was
+   * matched by place, so removing or adding a step before an unkept one moved it somewhere nothing
+   * was stored, and it was marked as the owner's own. Of two the same, the unkept one is matched
+   * first, so a match that cannot tell them apart never keeps a step. Saved by anyone else, it must
+   * be one already stored at the same place, unchanged (the owner's step in an operator's flow, put
+   * back by the routes as stored). Anything else is refused.
+   */
+  function authorSteps(steps, role, stored = []) {
+    const submitted = normalizeSteps(steps);
+    const matched = new Map(); // submitted place -> stored place
+    const taken = new Set();
+    submitted.forEach((step, index) => {
+      if (ownerOnly(step) && sameStep(stored[index], step)) { matched.set(index, index); taken.add(index); }
+    });
+    if (role === "owner") {
+      submitted.forEach((step, index) => {
+        if (!ownerOnly(step) || matched.has(index)) return;
+        const same = stored.flatMap((entry, position) => (!taken.has(position) && sameStep(entry, step) ? [position] : []));
+        const position = same.find((candidate) => stored[candidate].ownerAdded !== true) ?? same[0];
+        if (position !== undefined) { matched.set(index, position); taken.add(position); }
+      });
+    }
+    const authored = submitted.map((step, index) => {
+      if (!ownerOnly(step)) return step;
+      if (matched.has(index)) return { ...step, ...(stored[matched.get(index)].ownerAdded === true ? { ownerAdded: true } : {}) };
+      if (role === "owner") return { ...step, ownerAdded: true };
+      throw Object.assign(new Error(`Only the owner can put step ${index + 1} (${registry.get(step.operationId).title}) in a flow: only the owner may run it, and a flow runs as whoever starts it`), { code: "flow_step_owner_only" });
+    });
+    if (role !== "owner") keepStepsOwnerStepsRead(authored, stored);
+    return authored;
+  }
+
+  const titleOf = (step) => registry.get?.(step?.operationId)?.title ?? step?.operationId;
+  /** The step names a step reads: its parameters' placeholders and its condition's. */
+  const namesRead = (step) => [...referencesIn(step?.parameters ?? {}), ...(step?.when ? referencesIn({ value: step.when.value }) : [])].map((reference) => reference.step);
+
+  /**
+   * A step only the owner may run reads earlier steps' results through {{ steps.x.y }} and `when`
+   * (sweep 3). Whoever can change one of those steps chooses what the owner's step sends, and where,
+   * and whether it runs at all, the next time the owner presses Run now: keeping the owner's step
+   * unchanged was not enough. So a save by anyone but the owner leaves every step an owner-only step
+   * reads, directly or through the steps it reads in turn, where it is and as it is. An owner-only
+   * step moved or removed is refused already (authorSteps above, and the routes' hidden-step guard).
+   */
+  function keepStepsOwnerStepsRead(submitted, stored) {
+    for (const [index, ownersStep] of stored.entries()) {
+      if (!ownerOnly(ownersStep) || !sameStep(ownersStep, submitted[index])) continue;
+      const read = new Set();
+      const pending = namesRead(ownersStep);
+      while (pending.length) {
+        const name = pending.pop();
+        if (read.has(name)) continue;
+        read.add(name);
+        const source = stored.find((step, position) => position < index && step.name === name);
+        if (source) pending.push(...namesRead(source));
+      }
+      for (const [position, step] of stored.entries()) {
+        if (position >= index || typeof step.name !== "string" || !read.has(step.name) || sameStep(step, submitted[position])) continue;
+        throw Object.assign(new Error(`Only the owner can change, move or remove step ${position + 1} (${titleOf(step)}): step ${index + 1} (${titleOf(ownersStep)}), which only the owner may run, reads its result. Leave it where it is, as it is, to save your other changes.`), { code: "flow_step_owner_only" });
+      }
+    }
+  }
+
+  /**
+   * A step only the owner may run, in a flow someone else created, that the owner has not kept since
+   * it was put there: saved before steps were checked (above), or carried over from then. Not run
+   * until the owner keeps it: "Keep this step" on the Automations page keeps that one step, and only
+   * it (keepStep in update). Each as `{ step, title, reads }` (step counted from 1; `reads`, the
+   * names of the steps whose results it uses), in order; none, an empty list.
+   */
+  function stepsToKeep(flow) {
+    if ((store.findOwnerById?.(flow.createdBy)?.role ?? null) === "owner") return [];
+    return (flow.steps ?? []).flatMap((step, index) => (ownerOnly(step) && step.ownerAdded !== true
+      ? [{ step: index + 1, title: registry.get(step.operationId).title, reads: [...new Set(namesRead(step))] }]
+      : []));
+  }
+  function unvouchedStep(flow) {
+    const [unkept] = stepsToKeep(flow);
+    if (!unkept) return null;
+    return `step ${unkept.step} (${unkept.title}) is one only the owner may run, and the owner has not kept it since someone else put it there. The owner can keep it with "Keep this step" on this automation in Automations`;
   }
 
   /**
@@ -196,19 +312,30 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   // The stored hash is never the browser's business; strip it from anything a route returns.
   const withoutHash = ({ webhookHash: _webhookHash, ...flow }) => flow;
 
-  /** A flow's steps, refused if one carries a secret; `prefix` says why for a flow already saved. */
-  async function refuseStoredSecrets(steps, prefix = "") {
+  /**
+   * A flow's steps, refused if one carries a secret or is high risk for what it acts on; `prefix`
+   * says why for a flow already saved. validateFlow refuses an operation that is high risk itself;
+   * one the job layer raises to high for its subject (installing an app whose manifest says so)
+   * needs the job layer's answer, and would otherwise stop the flow at that step on every run.
+   */
+  async function refuseStoredSteps(steps, prefix = "") {
     const problem = await flowSecretProblem(steps, { registry, secretEnvNamesFor });
     if (problem) throw new Error(`${prefix}${problem}`);
+    if (typeof jobs?.effectiveRisk !== "function") return;
+    for (const [index, step] of steps.entries()) {
+      const operation = registry.get?.(step?.operationId);
+      if (operation && await jobs.effectiveRisk(step.operationId, step.parameters ?? {}) === "high") throw new Error(`${prefix}step ${index + 1}: ${operation.title} is high risk here and cannot be part of a flow (ADR-002)`);
+    }
   }
 
-  async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null, triggerDrive = null }) {
+  async function create({ name, steps, createdBy, role = "owner", cadence = null, triggerFlowId = null, triggerDrive = null }) {
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
-    await refuseStoredSecrets(steps);
+    const authored = authorSteps(steps, role);
+    await refuseStoredSteps(steps);
     const triggerProblem = checkTrigger(triggerFlowId) ?? checkDriveTrigger(triggerDrive);
     if (triggerProblem) throw new Error(triggerProblem);
-    return withoutHash(store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, triggerFlowId, ...(triggerDrive ? { triggerDrive } : {}), ...cadenceFields(cadence) }));
+    return withoutHash(store.createFlow({ name: name.trim(), steps: authored, createdBy, triggerFlowId, ...(triggerDrive ? { triggerDrive } : {}), ...cadenceFields(cadence) }));
   }
 
   /**
@@ -222,28 +349,31 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!operation || !step.parameters || typeof step.parameters !== "object") return step;
       return { ...step, parameters: maskSecrets(step.parameters, await secretPaths(operation, step.parameters, { secretEnvNamesFor })) };
     };
-    return Promise.all(store.listFlows().map(async (flow) => ({ ...withoutHash(flow), steps: await Promise.all((flow.steps ?? []).map(masked)), risk: flowRisk(flow.steps, registry), running: running.has(flow.id) })));
+    return Promise.all(store.listFlows().map(async (flow) => ({ ...withoutHash(flow), steps: await Promise.all((flow.steps ?? []).map(masked)), risk: flowRisk(flow.steps, registry), running: running.has(flow.id), ownerToKeep: stepsToKeep(flow) })));
   }
 
-  async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {
+  async function update(id, { name, steps, cadence, enabled, triggerFlowId, keepStep }, actorId, { role = "owner" } = {}) {
     const flow = store.getFlow(id);
     assertMayManage(flow, actorId, role);
+    if (keepStep !== undefined) return keepOwnersStep(flow, keepStep, { actorId, role, alone: [name, steps, cadence, enabled, triggerFlowId].every((value) => value === undefined) });
     // A drive-armed flow runs unattended the moment its drive drops, so what it runs was fixed when the
     // drive was armed (M26.5): it can be renamed, paused or resumed, and anything else means disarming
     // and arming again. The same steps sent back by an edit form are not a change.
     if (flow.triggerDrive) {
-      const stepsChanged = steps !== undefined && JSON.stringify(normalizeSteps(steps)) !== JSON.stringify(flow.steps);
+      const stepsChanged = steps !== undefined && JSON.stringify(normalizeSteps(steps)) !== JSON.stringify(normalizeSteps(flow.steps));
       if (stepsChanged || cadence !== undefined || triggerFlowId !== undefined) throw new Error(`${flow.name} reconnects ${mountpointFor(flow.triggerDrive)} when it drops; to change what it does, stop reconnecting automatically and arm the drive again`);
     }
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
+    // Only new or changed owner-only steps are the editor's; those already there stay as they were.
+    const authored = steps ? authorSteps(steps, role, flow.steps) : undefined;
     // The steps as they will be after this edit, new or kept: editing was once the way round the check.
-    await refuseStoredSecrets(steps ?? flow.steps);
+    await refuseStoredSteps(steps ?? flow.steps);
     if (triggerFlowId !== undefined) {
       const triggerProblem = checkTrigger(triggerFlowId, id);
       if (triggerProblem) throw new Error(triggerProblem);
     }
-    const changes = { name: name?.trim(), steps: steps ? normalizeSteps(steps) : undefined, enabled, triggerFlowId };
+    const changes = { name: name?.trim(), steps: authored, enabled, triggerFlowId };
     if (cadence !== undefined) Object.assign(changes, cadenceFields(cadence));
     // Re-enabling a scheduled flow computes the next due time afresh, so a flow paused for a
     // month does not fire the moment it is switched back on to make up for missed Sundays.
@@ -253,6 +383,19 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     return withoutHash(store.updateFlow(id, changes, { actorId }));
   }
 
+  /**
+   * "Keep this step" (sweep 4): the owner keeps the one owner-only step the notice showed them,
+   * counted from 1, as it is stored; every other step keeps the mark it had. On its own: a request
+   * that changes anything else is refused, so nothing rides along with the keep.
+   */
+  function keepOwnersStep(flow, keepStep, { actorId, role, alone }) {
+    if (role !== "owner") throw Object.assign(new Error("Only the owner can keep a step only the owner may run"), { code: "flow_step_owner_only" });
+    if (!alone) throw new Error("A step is kept on its own, with nothing else about the flow changed");
+    if (!stepsToKeep(flow).some((entry) => entry.step === keepStep)) throw new Error(`Step ${keepStep} has nothing to keep: it is not a step only the owner may run that waits for the owner`);
+    const steps = flow.steps.map((step, index) => (index === keepStep - 1 ? { ...step, ownerAdded: true } : step));
+    return withoutHash(store.updateFlow(flow.id, { steps }, { actorId }));
+  }
+
   function remove(id, actorId, { role = "owner" } = {}) {
     const flow = store.getFlow(id);
     assertMayManage(flow, actorId, role);
@@ -260,13 +403,21 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     settle(flow, { quietly: true }); // deleted, not fixed: nothing to announce
   }
 
-  /** Wait for one step's job to reach a terminal state, bounded by the operation's own budget. */
+  /**
+   * Wait for one step's job to reach a terminal state, bounded by the operation's own budget. The
+   * budget starts when the job does, not when it was approved: a drive's reconnect queued behind a
+   * six-hour sync was declared lost while it waited, and ran later with nobody watching. While the
+   * job says it is waiting in the helper's queue it is not lost - the job layer gives up on it at
+   * the queue ceiling and settles it - so the wait is bounded by that ceiling plus the budget.
+   */
   async function awaitJob(jobId, timeoutMs) {
-    const deadline = Date.now() + timeoutMs;
+    const ceiling = Date.now() + queuedCeilingMs + timeoutMs;
+    let deadline = Date.now() + timeoutMs;
     for (;;) {
       const job = store.getJob(jobId);
       if (!job) throw new Error("The step's job record disappeared");
       if (["completed", "failed", "cancelled"].includes(job.state)) return job;
+      if (waitingInQueue(job)) deadline = Math.min(Date.now() + timeoutMs, ceiling);
       if (Date.now() > deadline) throw new Error("The step did not finish inside its operation's own time budget");
       await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
@@ -282,7 +433,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     if (!flow) throw new Error("Flow not found");
     if (["viewer", "disabled"].includes(role)) throw new Error("Viewers cannot run flows");
     if (running.has(id)) throw new Error(`${flow.name} is already running`);
-    const problem = validateFlow(flow, registry);
+    const problem = validateFlow(flow, registry) ?? unvouchedStep(flow);
     if (problem) throw new Error(`This flow is no longer valid: ${problem}`);
     if (store.getSetting?.("approvalMode", null) === "always-password") {
       throw new Error("Approval mode is set to always ask, so flows cannot run: each step would need its own password. Change the approval mode to run flows.");
@@ -300,7 +451,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * can do that is reported, so nothing is lost by not being awaited.
    */
   async function launch(id, actorId, { role = "owner" } = {}) {
-    await refuseStoredSecrets(preflight(id, role).steps, "This flow is no longer valid: ");
+    await refuseStoredSteps(preflight(id, role).steps, "This flow is no longer valid: ");
     // Checked again after waiting on the catalog, and with nothing between this and run() taking
     // the flow: a second start in that gap must be refused to its own caller, not merely logged.
     const flow = preflight(id, role);
@@ -310,26 +461,34 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     return { started: true, id, name: flow.name };
   }
 
-  async function run(id, actorId, { role = "owner", chainDepth = 0, silent = false } = {}) {
+  /**
+   * `resume` (recover() only) goes on with a run a BoxPilot restart stopped before step `from` began:
+   * the steps before it keep their jobs, results, skips and problems, and the run says it resumed.
+   */
+  async function run(id, actorId, { role = "owner", chainDepth = 0, silent = false, resume = null } = {}) {
     const flow = preflight(id, role);
-    // A drive's trigger words its own outcome (runForDrive); every other run is told from here.
-    const tell = silent ? () => {} : announce;
+    // A drive's trigger words its own outcome (runForDrive); every other run is told from here, as this run's.
+    const tell = silent ? () => {} : (target, headline, message) => announce(target, headline, message, actorId);
 
     running.add(id);
     let completedRun = false;
+    const from = resume?.from ?? 0;
     // One entry per step, in step order: a job id, or null for a step whose condition was not
     // met. The page maps run entries back to steps by position, so skipped steps hold their place.
-    const jobIds = [];
-    const problems = [];
-    const notes = [];
-    let skippedByCondition = 0;
-    const namedResults = {};
+    const jobIds = resume ? [...resume.jobIds] : [];
+    const problems = resume ? [...resume.problems] : [];
+    const notes = resume ? [`resumed at step ${from + 1} after BoxPilot restarted`] : [];
+    let skippedByCondition = resume?.skipped ?? 0;
+    const namedResults = resume ? { ...resume.namedResults } : {};
+    // A resumed run says so while it runs, so a second restart does not resume it again.
+    const resumedWords = resume ? `, ${resumedMark}` : "";
     try {
-      // A flow saved before its secret was refused still carries it: it does not run, like any
-      // other flow validateFlow no longer accepts. Checked after the flow is marked running, so the
+      // A flow saved before its secret (or its step's raised tier) was refused still carries it: it
+      // does not run, like any other flow validateFlow no longer accepts. Checked after the flow is marked running, so the
       // wait on the catalog cannot let a second start slip past preflight.
-      await refuseStoredSecrets(flow.steps, "This flow is no longer valid: ");
+      await refuseStoredSteps(flow.steps, "This flow is no longer valid: ");
       for (const [index, step] of flow.steps.entries()) {
+        if (index < from) continue;
         const operation = registry.get(step.operationId);
         const title = operation?.title ?? step.operationId;
         // A condition reads an earlier step's recorded result; false means the step is skipped
@@ -372,7 +531,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
             if (attempt === 1) jobIds.push(job.id); else jobIds[index] = job.id;
             // Progress lands as it happens, not at the end: the page can show which step is running
             // and its live output, and a crash mid-run leaves an honest record of where it stopped.
-            store.markFlowRun(id, { result: `running step ${index + 1} of ${flow.steps.length} (${title})${attempt > 1 ? `, attempt ${attempt} of ${attemptsAllowed}` : ""}`, jobIds });
+            store.markFlowRun(id, { result: `running step ${index + 1} of ${flow.steps.length} (${title})${attempt > 1 ? `, attempt ${attempt} of ${attemptsAllowed}` : ""}${resumedWords}`, jobIds });
             await jobs.approveAndStart(job.id, actorId, {});
           } catch (error) {
             if (job && typeof jobs.cancelJob === "function") {
@@ -402,6 +561,17 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
             if (attempt > 1) notes.push(`step ${index + 1} (${title}) succeeded on attempt ${attempt} of ${attemptsAllowed}`);
             break;
           }
+          // A job that used its whole budget after it started was given up on, not stopped: its own
+          // record says it may still be running. That is losing sight of the step by another name,
+          // so neither a retry (a second copy beside the first) nor a keep-going policy applies.
+          // A root task past its own limit is the same: the runner writes it down and lets it run on.
+          if (finished.state === "failed" && mayStillBeRunning(finished.timeout)) {
+            const summary = `lost sight of step ${index + 1} (${title}): it did not finish inside its time budget and may still be running on the server, so later steps did not start`.slice(0, 300);
+            store.markFlowRun(id, { result: summary, jobIds });
+            store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, attempt, reason: "ran out of its whole time budget" } });
+            tell(flow, "Automation stopped", `${flow.name} ${summary}`);
+            throw new Error(`${flow.name} ${summary}`);
+          }
           store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, attempt } });
           if (finished.state === "failed" && attempt < attemptsAllowed) {
             await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
@@ -427,7 +597,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       // A step that failed under a keep-going policy is still a failure; its job no longer pushes on its own.
       if (problems.length) tell(flow, "Automation finished with problems", `${flow.name} ${result}`);
       else settle(flow);
-      store.recordAudit("flow.completed", { actorId, subjectId: id, details: { steps: flow.steps.length, problems: problems.length } });
+      store.recordAudit("flow.completed", { actorId, subjectId: id, details: { steps: flow.steps.length, problems: problems.length, ...(resume ? { resumedAt: from + 1 } : {}) } });
       completedRun = true;
       return { completed: true, steps: flow.steps.length, jobIds, problems };
     } finally {
@@ -491,8 +661,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     return "accepted";
   }
 
-  /** One flow run under its creator's stored authority, with refusals recorded and notified. */
-  async function runUnderCreator(flow, refusalPhrase) {
+  /** One flow run under its creator's stored authority, with refusals recorded and notified. `afterRun` follows a run that completed. */
+  async function runUnderCreator(flow, refusalPhrase, { afterRun = null } = {}) {
     if (running.has(flow.id)) return;
     const creator = store.findOwnerById?.(flow.createdBy) ?? null;
     try {
@@ -501,11 +671,12 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!creator) throw new Error("the flow's creator no longer exists");
       if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
       await run(flow.id, flow.createdBy, { role: creator.role });
+      afterRun?.();
     } catch (error) {
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
         store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-        announce(flow, "Automation did not run", `${flow.name} ${refusalPhrase}: ${error.message}`.slice(0, 300));
+        announce(flow, "Automation did not run", `${flow.name} ${refusalPhrase}: ${error.message}`.slice(0, 300), flow.createdBy);
       }
     }
   }
@@ -583,7 +754,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
         store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-        announce(flow, "Automation did not run", `${flow.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300));
+        announce(flow, "Automation did not run", `${flow.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300), flow.createdBy);
       }
     }
   }
@@ -594,43 +765,89 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * scheduler already carries: the creator consented by writing the cadence, the consent is
    * visible on the page, and disabling the flow revokes it. Everything else about unattended
    * running is inherited too, including refusing to run under always-ask approval mode.
+   *
+   * Every due flow is started and left to run: the clocks are all advanced and the runs all fired
+   * before any of them is waited on. tick() used to await each run in turn and turn away the ticks
+   * that came meanwhile, so one slow flow - a step queued for hours behind other work - kept every
+   * other schedule, and every follower, from starting. `running` still stops a flow lapping itself.
+   * The promise returned settles once the runs this tick started have, for a caller that waits.
    */
-  let ticking = false;
   async function tick() {
-    if (ticking) return 0;
-    ticking = true;
-    try {
-      const due = store.listDueFlows(now().toISOString());
-      for (const flow of due) {
-        // Advance the clock before running, so a slow flow cannot fire twice.
-        const nextDueAt = computeNextRun(flow, now()).toISOString();
-        if (running.has(flow.id)) { store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy }); continue; }
-        // Advanced BEFORE the refusals below, not after. When the creator had been demoted, the
-        // refusal threw first and the clock never moved, so the flow was due again on the very next
-        // tick: a "did not run" push to the owner's phone every sixty seconds, and 1,440 skipped
-        // rows a day into an audit log capped at 20,000 - which evicts every other record in a
-        // fortnight. The scheduler had always advanced first; this now does the same.
-        store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
-        const creator = store.findOwnerById?.(flow.createdBy) ?? null;
-        try {
-          if (!creator) throw new Error("the flow's creator no longer exists");
-          if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
-          await run(flow.id, flow.createdBy, { role: creator.role });
-          store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
-        } catch (error) {
-          // run() already recorded the failure on the flow; a refusal before it started needs recording here.
-          if (!recordedRunFailure.test(error.message)) {
-            store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
-            store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-            // A refusal produces no job, so nothing else would tell the owner their schedule did not run.
-            announce(flow, "Automation did not run", `${flow.name} was due but did not run: ${error.message}`.slice(0, 300));
-          }
-        }
-      }
-      return due.length;
-    } finally {
-      ticking = false;
+    const due = store.listDueFlows(now().toISOString());
+    const started = [];
+    for (const flow of due) {
+      // Advance the clock before running, so a slow flow cannot fire twice. Advanced BEFORE the
+      // refusals in runUnderCreator, not after: when the creator had been demoted, the refusal threw
+      // first and the clock never moved, so the flow was due again on the very next tick: a "did not
+      // run" push to the owner's phone every sixty seconds, and 1,440 skipped rows a day into an audit
+      // log capped at 20,000 - which evicts every other record in a fortnight.
+      const nextDueAt = computeNextRun(flow, now()).toISOString();
+      store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
+      if (running.has(flow.id)) continue;
+      // A refusal before the run starts produces no job, so runUnderCreator records it and tells the
+      // owner their schedule did not run; run() records its own failures.
+      const recordRan = () => store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
+      started.push(runUnderCreator(flow, "was due but did not run", { afterRun: recordRan })
+        .catch((error) => report(`[boxpilot] scheduled flow ${flow.name} could not be run: ${error.message}`)));
     }
+    await Promise.all(started);
+    return due.length;
+  }
+
+  /**
+   * Where a run a BoxPilot restart stopped can go on from (sweep 5), or why it cannot. It can when the
+   * restart came between two steps: the step it was on had finished (completed), or had not begun -
+   * its job still waiting for approval, or never started by the helper (state.recoverInterruptedJobs:
+   * it was waiting behind other work, or for BoxPilot to come back from the restart). A step cut off
+   * mid-run may have done anything, so that run stays interrupted, as before. Not resumed either: a
+   * run already resumed once, one whose steps changed meanwhile, a drive's reconnect (auto-reconnect
+   * holds the drive for a person), one whose runner can no longer run it, and one with a step still
+   * to run that takes a person - high risk, a typed confirmation - or can restart BoxPilot again.
+   * `{ from, actor, role, jobIds, namedResults, problems, skipped, staged, stopped, between }`, or
+   * `{ why, between }`, `between` saying where it stopped (null when a step was cut off mid-run).
+   */
+  function resumePoint(flow, neverStarted) {
+    const progress = /^running step (\d+) of (\d+)/.exec(flow.lastResult ?? "");
+    if (!progress) return { why: null, between: null };
+    const index = Number(progress[1]) - 1;
+    const recorded = flow.lastJobIds ?? [];
+    const jobId = recorded[index] ?? null;
+    const job = jobId ? store.getJob?.(jobId) ?? null : null;
+    // A step's job is recorded before the run says it is on that step; without it nothing is known.
+    if (!job) return { why: null, between: null };
+    const began = job.state !== "awaiting_approval" && !neverStarted.has(job.id);
+    if (began && job.state !== "completed") return { why: null, between: null };
+    const from = began ? index + 1 : index;
+    // Where it stopped, as the record says it when it does not go on.
+    const between = began ? `after step ${index + 1} (${job.title}) finished, so nothing after it ran` : `before step ${index + 1} (${job.title}) began, so nothing ran for step ${index + 1} or after it`;
+    const refuse = (why) => ({ why, between });
+    if (flow.lastResult.includes(resumedMark)) return refuse("it had already been resumed once after a restart");
+    if (Number(progress[2]) !== (flow.steps ?? []).length) return refuse("its steps changed while it ran");
+    if (flow.triggerDrive) return refuse("it reconnects a drive, which waits for a person after a restart");
+    for (const [position, step] of flow.steps.entries()) {
+      if (position < from) continue;
+      const operation = registry.get?.(step.operationId);
+      const title = titleOf(step);
+      if (!operation) return refuse(`step ${position + 1} (${title}) is not a registered operation`);
+      if (operation.risk === "high") return refuse(`step ${position + 1} (${title}) is high risk`);
+      if (typeof operation.confirm === "function") return refuse(`step ${position + 1} (${title}) asks for a typed confirmation`);
+      if (operation.restartsService || restartsBoxPilot(step.operationId, step.parameters ?? {})) return refuse(`step ${position + 1} (${title}) can restart BoxPilot`);
+    }
+    const actor = runnerOf(recorded.slice(0, index + 1));
+    const role = actor ? store.findOwnerById?.(actor)?.role ?? null : null;
+    if (!actor || !role || ["viewer", "disabled"].includes(role)) return refuse("who ran it cannot run it again");
+    // What the steps before it left: their jobs, their named results, and what was skipped or failed.
+    const jobIds = Array.from({ length: from }, (_, position) => recorded[position] ?? null);
+    const namedResults = {};
+    const problems = [];
+    let skipped = 0;
+    for (const [position, step] of flow.steps.slice(0, from).entries()) {
+      const earlier = jobIds[position] ? store.getJob?.(jobIds[position]) ?? null : null;
+      if (!earlier) { skipped += 1; continue; }
+      if (earlier.state === "completed") { if (typeof step.name === "string") namedResults[step.name] = earlier.result ?? {}; continue; }
+      problems.push(`step ${position + 1} (${titleOf(step)}) ${earlier.state}`.slice(0, 200));
+    }
+    return { from, actor, role, jobIds, namedResults, problems, skipped, between, staged: job.state === "awaiting_approval" ? job : null, stopped: began || job.state === "awaiting_approval" ? null : job };
   }
 
   /**
@@ -639,22 +856,61 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * the flow looks idle. Startup rewrites those records to what is actually known. The step's own
    * job was already marked by the interrupted-jobs recovery, and may well have finished on its
    * own; the record says to check it rather than guessing.
+   *
+   * A run the restart stopped between two steps goes on instead, from the step that had not begun,
+   * once (sweep 5): BoxPilot restarting itself after the night's update, the moment a backup step
+   * finished, used to leave "back up, then copy off-box" without its copy, and the automations that
+   * run after it never ran. Followers run after a resumed run completes, as after any. One that cannot
+   * go on says nothing ran for the step that had not begun, and why. `interrupted` is what
+   * state.recoverInterruptedJobs returned.
    */
-  function recover() {
+  function recover(interrupted = []) {
+    const neverStarted = new Set((interrupted ?? []).filter((entry) => entry?.neverStarted).map((entry) => entry.id));
     let recovered = 0;
     for (const flow of store.listFlows()) {
       if (!flow.lastResult || !flow.lastResult.startsWith("running step")) continue;
-      const summary = `interrupted by a BoxPilot restart while ${flow.lastResult}; the step's job record says how far it got, and later steps did not run`.slice(0, 300);
-      store.markFlowRun(flow.id, { result: summary, jobIds: flow.lastJobIds ?? [] });
-      store.recordAudit("flow.interrupted", { actorId: flow.createdBy, subjectId: flow.id, details: { was: flow.lastResult.slice(0, 200) } });
-      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`);
       recovered += 1;
+      const point = resumePoint(flow, neverStarted);
+      if (point.from !== undefined) {
+        resumed.push(resumeRun(flow, point));
+        continue;
+      }
+      const summary = (point.between === null
+        ? `interrupted by a BoxPilot restart while ${flow.lastResult}; the step's job record says how far it got, and later steps did not run`
+        : `interrupted by a BoxPilot restart ${point.between}. It was not run on from there: ${point.why}`).slice(0, 300);
+      store.markFlowRun(flow.id, { result: summary, jobIds: flow.lastJobIds ?? [] });
+      store.recordAudit("flow.interrupted", { actorId: flow.createdBy, subjectId: flow.id, details: { was: flow.lastResult.slice(0, 200), ...(point.why ? { notResumed: point.why } : {}) } });
+      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`, runnerOf(flow.lastJobIds));
     }
     return recovered;
   }
 
-  function start(intervalMs = 60_000) {
-    recover();
+  /** Runs recover() went on with, each settling once it has ended (for whoever waits on them). */
+  const resumed = [];
+
+  /** Go on with a run from the step a restart kept from beginning, under its runner's authority. */
+  async function resumeRun(flow, point) {
+    const reason = "BoxPilot restarted before this step began; its automation runs it again";
+    // A step's job staged but never approved is withdrawn; one that never started says what happens next.
+    if (point.staged) { try { jobs.cancelJob?.(point.staged.id, point.actor, { role: "owner", reason }); } catch { /* moved on already */ } }
+    else if (point.stopped) { try { store.addJobStep(point.stopped.id, "rerun", "started", `${reason}.`); } catch { /* the run stands without it */ } }
+    store.recordAudit("flow.resumed", { actorId: point.actor, subjectId: flow.id, details: { step: point.from + 1, was: flow.lastResult.slice(0, 200) } });
+    try {
+      return await run(flow.id, point.actor, { role: point.role, resume: point });
+    } catch (error) {
+      if (recordedRunFailure.test(error.message)) return null;
+      // Refused before it began (no longer valid, approvals always ask): nothing ran from that step.
+      const summary = `interrupted by a BoxPilot restart ${point.between}. It could not be run on from there: ${error.message}`.slice(0, 300);
+      store.markFlowRun(flow.id, { result: summary, jobIds: point.jobIds });
+      store.recordAudit("flow.interrupted", { actorId: point.actor, subjectId: flow.id, details: { notResumed: error.message.slice(0, 200) } });
+      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`, point.actor);
+      return null;
+    }
+  }
+
+  function start(options = {}) {
+    const { intervalMs = 60_000, interrupted = [] } = typeof options === "number" ? { intervalMs: options } : options;
+    recover(interrupted);
     const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
     timer.unref?.();
     return () => clearInterval(timer);
@@ -672,7 +928,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   function stepPalette() {
     const isScalar = (field) => ["string", "number", "boolean", undefined].includes(field.type);
     return registry.list()
-      .filter((operation) => operation.risk !== "high" && !operation.readOnly)
+      // validateFlow refuses these, so offering them would only lead to a refusal at save time.
+      .filter((operation) => operation.risk !== "high" && !operation.readOnly && !operation.internal && typeof operation.confirm !== "function")
       // Buildable by a plain form, and never able to store a secret in the flow's JSON. A field
       // that is not a scalar (an array of packages, an object of app values) is fine only when it
       // is optional: the form omits it, which is valid. A required non-scalar field, or any secret
@@ -688,5 +945,5 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       }));
   }
 
-  return { create, list, update, remove, run, launch, tick, start, recover, stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook, owns, runForDrive, recordSkip };
+  return { create, list, update, remove, run, launch, tick, start, recover, resumed: () => Promise.all(resumed), stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook, owns, runForDrive, recordSkip };
 }
