@@ -411,6 +411,52 @@ export const agentTemplates = Object.freeze([
     },
   },
   {
+    // M47.9: the Resource Tuner M43 wished for, now that apps.usage reads each app's share of the machine.
+    id: "resource-watch",
+    title: "Resource Watch",
+    summary: "Looks every evening at what the machine is spending itself on - processor, memory, swap, and which apps use the most - and says when one is running hot, with a restart or a pause to propose when the owner allows it.",
+    spec: {
+      name: "Resource Watch",
+      purpose: "Sees the machine running hot before the owner feels it: which apps take the processor and the memory, and whether swap is in use.",
+      job: "Say which apps use the most processor and memory right now, whether the machine is short of memory or swapping, and what changed since last time.",
+      successCriteria: [
+        "Names the two apps using the most processor and the two using the most memory, with their numbers.",
+        "Says whether memory is short or swap is in use, and whether that is new since the last reading.",
+        "Tells an app that is busy because it is working from one that is looping, and proposes nothing for the former.",
+        "Proposes at most one card, and never stops an app the owner did not say may pause.",
+      ],
+      prompt: {
+        rules: [
+          "Use apps.usage's numbers as it gives them: a share of one core for the processor, bytes for memory. Work out totals and shares with calc.",
+          "An app busy because it is working (a transcode, a backup, a scan, a model answering) is not a fault: say what it is doing when apps.list or its log says, and propose nothing.",
+          "An app above a whole core that apps.list says is restarting or unhealthy is the finding that matters most: propose app.action restart for it, once.",
+          "Memory nearly full with swap in use is the other finding that matters: name the two biggest apps and point to the Performance page; propose a pause only for an app the owner's instructions say may pause.",
+          "Keep one note titled \"Readings\": the machine's load, memory and swap and each app's share, with today's date. Your notes come with the request; compare with them, then write it again.",
+          "Report only what a tool showed. When all is quiet, say so in a few words.",
+        ],
+        steps: [
+          "Read apps.usage for the machine's processor, memory and swap, and each running app's share.",
+          "Read apps.list for which apps are restarting or unhealthy, since a hot app is often a looping one.",
+          "Compare with your Readings note, work out what changed with calc, and write today's readings with notes.write.",
+          "Propose at most one card with plan.propose when a rule says so; otherwise answer.",
+        ],
+        output: { format: "text", style: "First the two apps using the most processor and the two using the most memory, each with its number. Then one line on memory and swap, and one on what changed since the last reading. Then any card proposed, or \"Nothing to do.\"" },
+        escalate: ["Memory nearly full with swap in use.", "An app above a whole core for the second reading in a row."],
+      },
+      instructions: "",
+      audience: ["owner", "operator"],
+      tools: { ...off, calc: "auto", "apps.usage": "auto", "apps.list": "auto", "server.facts": "auto", "alerts.active": "auto", "logs.query": "ask", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "plan.propose": "auto", "notify.owner": "auto" },
+      // The evening, when the house uses the server: a night reading would show it idle. Not quiet hours, as the Pi-hole Watcher.
+      triggers: { ask: true, schedule: { every: "daily", hour: 19, minute: 40, quietHours: false }, events: ["health.alert"] },
+      // Two reads, a note and the answer; usage lists every app, so 10,000 tokens; its three evaluation questions in 1,200 s a day.
+      budget: { runsPerDay: 4, modelSecondsPerDay: 1_200, stepsPerRun: 6, tokensPerRun: 10_000, runSeconds: 600 },
+      outputs: { notes: true, digest: false, notify: "important", proposals: true },
+      memory: { enabled: true, freshDays: 14, maxNotes: 10, share: true },
+      sharing: { shareFindings: true, useFindings: true },
+      allow: { apps: "*", operations: ["app.action"] },
+    },
+  },
+  {
     id: "house-guide",
     title: "House Guide",
     summary: "Shows new people around: what this server runs, what each app is for and where to open it. Anyone signed in may ask it. Keeps no notes, proposes nothing.",
@@ -481,7 +527,7 @@ export const templateById = (id) => agentTemplates.find((template) => template.i
  * report: read the way apps.list and services.status read them, so an agent is checked against
  * what its own tool said.
  */
-export const evaluationFacts = Object.freeze(["hostname", "operatingSystem", "installedApps", "rootDiskPercent", "piholePlacement", "piholeBlocking", "drives", "stoppedApps", "unhealthyApps", "appUpdates", "failedServices", "firewallEnabled", "neverBackedUp", "rebootRequired"]);
+export const evaluationFacts = Object.freeze(["hostname", "operatingSystem", "installedApps", "rootDiskPercent", "piholePlacement", "piholeBlocking", "drives", "stoppedApps", "unhealthyApps", "appUpdates", "failedServices", "firewallEnabled", "neverBackedUp", "rebootRequired", "busiestApp"]);
 
 /**
  * The built-in evaluation (M40): real questions with answers BoxPilot can check, each asked only of
@@ -577,6 +623,12 @@ export const templateExamples = Object.freeze({
     { id: "reboot", request: "Does the server need a reboot?", tools: ["updates.status"] },
     { id: "slow", request: "Why is the server slow right now?", tools: ["apps.usage"] },
   ],
+  "resource-watch": [
+    { id: "busiest", request: "Which app is using the most processor right now?", tools: ["apps.usage"] },
+    { id: "memory", request: "Which app is using the most memory?", tools: ["apps.usage"] },
+    { id: "swap", request: "Is the server short of memory or using swap?", tools: ["apps.usage"] },
+    { id: "restarting", request: "Which apps keep restarting?", tools: ["apps.list"] },
+  ],
   "security-reviewer": [
     { id: "firewall", request: "Is the firewall on, and which ports does it allow?", tools: ["firewall.status"] },
     { id: "banned", request: "Has fail2ban banned anyone lately?", tools: ["protection.status"] },
@@ -653,6 +705,10 @@ export const templateQuestions = Object.freeze({
     { id: "apps", question: "How many BoxPilot apps are installed?", expect: { fact: "installedApps" } },
     // M47.6: read from apt as the Updates page reads it.
     { id: "reboot", question: "Does the server need a reboot?", expect: { fact: "rebootRequired" } },
+  ],
+  "resource-watch": [
+    // M47.9: read from docker stats as the Performance page reads it.
+    { id: "busiest", question: "Which app is using the most processor right now?", expect: { fact: "busiestApp" } },
   ],
   "security-reviewer": [
     { id: "firewall", question: "Is the firewall turned on?", expect: { fact: "firewallEnabled" } },

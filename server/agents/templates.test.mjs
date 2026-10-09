@@ -30,7 +30,7 @@ const readTools = createToolRunner({ state: {}, store: {}, registry });
 const factTool = {
   hostname: "server.facts", operatingSystem: "server.facts", installedApps: "apps.list", stoppedApps: "apps.list", unhealthyApps: "apps.list", appUpdates: "apps.list",
   rootDiskPercent: "storage.health", drives: "storage.health", piholePlacement: "where.runs", piholeBlocking: "pihole.stats", failedServices: "services.status",
-  firewallEnabled: "firewall.status", neverBackedUp: "backups.coverage", rebootRequired: "updates.status",
+  firewallEnabled: "firewall.status", neverBackedUp: "backups.coverage", rebootRequired: "updates.status", busiestApp: "apps.usage",
 };
 /** Every question the evaluation asks an agent made from this template: its built-in ones not covered, then its own. */
 const evaluationOf = (template) => {
