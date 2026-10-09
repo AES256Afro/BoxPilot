@@ -2965,7 +2965,7 @@ every M37 to M45 agent test passing.
   tokens against 54,900, 1,099 s against 1,166 s over the eight), with one to three examples shown
   on seven of the eight questions.
 
-- ✅ **M46.6 Preference pairs from the thumbs** (unreleased, `feat/m46-pairs`). M46.3 left it: "a
+- ✅ **M46.6 Preference pairs from the thumbs** (v1.175.0, `feat/m46-pairs`). M46.3 left it: "a
   thumbs down deletes the example rather than keeping it as a negative", so the thumbs could not
   train. Now a thumbed-down run is paired with the approved example nearest its request (the same
   words; by meaning when both have vectors, at least 0.85; else at least 60% of the shorter
@@ -2980,7 +2980,7 @@ every M37 to M45 agent test passing.
   go through the same stand-ins. `docs/TRAINING.md` section 5: a short ORPO stage on the pairs after
   the fine-tune, small beta, one epoch, the same gate. Tests: `examples-export.test.mjs` (the pair,
   the skips, the match by meaning and by words, the API's count and file, the script).
-- ✅ **M46.7 The acting conversation as training data** (unreleased, `feat/m46-acting`). M46.3 left
+- ✅ **M46.7 The acting conversation as training data** (v1.175.0, `feat/m46-acting`). M46.3 left
   it: "records for the acting conversation (request, tool output, answer) are not exported yet".
   For every approved run behind an example, the conversation it held is rebuilt from its steps
   (`acting-export.mjs`: the system message as `prompt.mjs` words it, the task with the plan it
@@ -3086,7 +3086,7 @@ Each item is its own pull request, released and deployed when green.
   offered by meaning: F2, F3". None for an agent that does not use findings, a run that does not
   read them, or a person who asked for a fresh check. Test: `findings-meaning.test.mjs`.
 
-- ✅ **M47.6 Three more eyes, and the Planner's** (unreleased, `feat/m47-more-eyes`). Three
+- ✅ **M47.6 Three more eyes, and the Planner's** (v1.174.0, `feat/m47-more-eyes`). Three
   templates still said what their tools could not see. Storage Watch: "what takes up the space, what
   Docker could free"; the Update Planner: "how many system packages are waiting" (M47.1 had made
   `updates.status` for the Keeper and left the Planner's rule); the Backup Auditor's own success
@@ -3120,7 +3120,7 @@ Each item is its own pull request, released and deployed when green.
   right, the right tool 12 of 12; the miss was the grader's ("No reboot is currently required ...
   does not need a reboot" read as yes for "need a reboot"), fixed to take the words of no out
   before looking for yes.
-- ✅ **M47.7 The weekly bench** (unreleased, `feat/weekly-bench`, #432). The real-model bench was
+- ✅ **M47.7 The weekly bench** (v1.174.0, `feat/weekly-bench`, #432). The real-model bench was
   manual, so its numbers were a memory. Every Monday at 05:20 UTC `agents-bench.yml` runs the
   built-in and the boundary sets on main at the shipped four threads, the job summary the week's
   record (no baseline: the week before is the previous run). Proved by a dispatch from the branch:
