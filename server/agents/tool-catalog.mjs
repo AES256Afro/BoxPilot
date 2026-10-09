@@ -114,7 +114,7 @@ export const toolCatalog = Object.freeze([
     id: "updates.status", title: "Package updates", category: "boxpilot", role: "viewer", cost: "moderate",
     description: "How many system packages have an update waiting, how many are security updates, whether a reboot is required, and which services still run old libraries. For apps' updates, apps.list says which have one.",
     use: "waiting system package updates, security patches, a reboot required",
-    askedFor: [/\b(package updates?|system updates?|security (updates?|patch\w*)|apt|upgradable|reboot (required|needed|waiting|pending)|needs? (a )?reboot|pending (updates?|reboot))\b/i],
+    askedFor: [/\b(package updates?|system updates?|security (updates?|patch\w*)|apt|upgradable|reboot (required|needed|waiting|pending)|needs? (a |to )?reboot|pending (updates?|reboot))\b/i],
     params: {},
   },
   {
@@ -151,7 +151,7 @@ export const toolCatalog = Object.freeze([
     id: "apps.usage", title: "Resource use", category: "boxpilot", role: "viewer", cost: "moderate",
     description: "How hard the machine is working now - processor, load, memory, swap - and each running app's share of a processor core and its memory, busiest first. server.facts has the whole machine only.",
     use: "which apps use the most processor or memory, why the server is slow, swap in use",
-    askedFor: [/\b(resource (use|usage)|using the most|uses the most|most (cpu|memory|ram|processor)|hog\w*|slow(ness|ly)?|sluggish|load average|swap(ping)?|busiest|heaviest)\b/i],
+    askedFor: [/\b(resource (use|usage)|(using|uses|eating|eats|taking|takes) the most|most (cpu|memory|ram|processor)|hog\w*|slow(ness|ly)?|sluggish|load average|swap(ping)?|busiest|heaviest)\b/i],
     params: {},
   },
   {
@@ -165,7 +165,7 @@ export const toolCatalog = Object.freeze([
     id: "space.reclaimable", title: "Reclaimable space", category: "boxpilot", role: "operator", cost: "moderate",
     description: "What takes up room that nothing needs - previous BoxPilot releases, images no app uses, old backup archives, unfinished restores, Docker's leftovers - and what the Storage page's clean-up would free, with Docker's own disk use (images, containers, volumes, build cache) and what it could reclaim. Reads only: the clean-up is a card.",
     use: "what could be cleaned up or freed, what takes the space, Docker's disk use",
-    askedFor: [/\b(reclaim\w*|free up|freed|clean(ed|ing)? ?up|cleanup|prune|dangling|unused images?|taking up (the )?(space|room)|takes up (the )?(space|room)|docker('s)? disk|build cache)\b/i, /\bdocker\b[^.?!]{0,20}\b(disk|using|space)\b|\bdisk\b[^.?!]{0,12}\bdocker\b/i],
+    askedFor: [/\b(reclaim\w*|free up|freed?|clean(ed|ing)?[- ]?up|cleanup|prune|dangling|unused images?|taking up (the )?(space|room)|takes up (the )?(space|room)|docker('s)? disk|build cache)\b/i, /\bdocker\b[^.?!]{0,20}\b(disk|using|space)\b|\bdisk\b[^.?!]{0,12}\bdocker\b/i],
     params: {},
   },
   {
