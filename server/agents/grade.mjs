@@ -72,6 +72,15 @@ export function gradeFact(fact, value, answer) {
         : /\b(not installed|isn't installed|no (host )?firewall|ufw is (missing|absent))\b/.test(text);
     return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
   }
+  if (fact === "rebootRequired") {
+    // M47.6: yes or no; "reboot required: no" (the tool's own words) and "does not need" say no.
+    const no = /\b(no reboot|not (required|needed|necessary)|does ?n[o']t need|doesn't need|no need|required: no|needed: no|reboot: no)\b/.test(text);
+    // "reboot required: no" holds the words of yes, so it is read as no before yes is looked for.
+    const rest = text.replace(/\b(reboot )?(required|needed): no\b/g, " ");
+    const yes = /\b(reboot (is )?(required|needed|pending|waiting)|needs? (a |to )?reboot|should (be )?reboot(ed)?|required: yes|needed: yes|reboot: yes)\b/.test(rest) || /^yes\b/.test(text.trim());
+    const passed = value === "yes" ? yes && !no : value === "no" ? no && !yes : false;
+    return { passed, found: passed ? `Says ${value}` : `Expected ${value}` };
+  }
   if (fact === "drives") return gradeDrives(value, answer);
   if (Object.hasOwn(namedFacts, fact)) return gradeNames(namedFacts[fact], value, text);
   const passed = text.includes(String(value).toLowerCase());
@@ -87,6 +96,8 @@ const namedFacts = {
   stoppedApps: { what: "stopped", none: [/\b(none|no (boxpilot )?apps?|nothing|all (of them |the apps |apps )?(are )?running|every app is running)\b/, /\bstopped( or not running)?: none\b/] },
   unhealthyApps: { what: "unhealthy", none: [/\b(none|no (boxpilot )?apps?|nothing|all (of them |the apps |apps )?(are )?(healthy|running)|every app is (healthy|running))\b/, /\bunhealthy: none\b/] },
   appUpdates: { what: "waiting for an update", none: [/\b(none|nothing|no (app )?updates?|no apps?|all (of them |the apps |apps )?(are )?up to date|every app is up to date)\b/] },
+  // M47.6: the apps that hold data and were never backed up, as backups.coverage lists them.
+  neverBackedUp: { what: "never backed up", none: [/\b(none|no apps?|every (one|app) (has been|has|is|was) backed up|all (of them |the apps |apps )?(have been |are |were )?backed up|nothing (is )?(unprotected|without a backup)|0 never backed up)\b/] },
   failedServices: { what: "failed", none: [/\b(none|nothing has failed|no (systemd )?(services?|units?)( have| has)? failed|no failed|0 failed)\b/], name: (unit) => String(unit).replace(/\.service$/, "") },
 };
 

@@ -114,7 +114,7 @@ export const toolCatalog = Object.freeze([
     id: "updates.status", title: "Package updates", category: "boxpilot", role: "viewer", cost: "moderate",
     description: "How many system packages have an update waiting, how many are security updates, whether a reboot is required, and which services still run old libraries. For apps' updates, apps.list says which have one.",
     use: "waiting system package updates, security patches, a reboot required",
-    askedFor: [/\b(package updates?|system updates?|security (updates?|patch\w*)|apt|upgradable|reboot (required|needed|waiting|pending)|pending (updates?|reboot))\b/i],
+    askedFor: [/\b(package updates?|system updates?|security (updates?|patch\w*)|apt|upgradable|reboot (required|needed|waiting|pending)|needs? (a )?reboot|pending (updates?|reboot))\b/i],
     params: {},
   },
   {
@@ -143,6 +143,29 @@ export const toolCatalog = Object.freeze([
     description: "Which apps BoxPilot published to the internet through the Cloudflare tunnel, at which addresses, from BoxPilot's own record. Nothing is asked of Cloudflare and no token is read.",
     use: "what is exposed to the internet, the Cloudflare tunnel, published addresses",
     askedFor: [/\b(tunnel|cloudflare|exposed to the internet|published (apps?|to the internet)|reachable from (the internet|outside))\b/i],
+    params: {},
+  },
+  // M47.6: the three reads the templates still said they could not make. Each the read the
+  // Performance, Backups and Storage pages make.
+  {
+    id: "apps.usage", title: "Resource use", category: "boxpilot", role: "viewer", cost: "moderate",
+    description: "How hard the machine is working now - processor, load, memory, swap - and each running app's share of a processor core and its memory, busiest first. server.facts has the whole machine only.",
+    use: "which apps use the most processor or memory, why the server is slow, swap in use",
+    askedFor: [/\b(resource (use|usage)|using the most|uses the most|most (cpu|memory|ram|processor)|hog\w*|slow(ness|ly)?|sluggish|load average|swap(ping)?|busiest|heaviest)\b/i],
+    params: {},
+  },
+  {
+    id: "backups.coverage", title: "Backup coverage", category: "boxpilot", role: "viewer", cost: "moderate",
+    description: "Every installed app: whether it holds data worth backing up, how many backups it has, how old the newest is, and whether a schedule backs it up; the apps never backed up first. backups.status has the recent backups and the copies off this server; this has every app.",
+    use: "which apps have never been backed up or have no backup schedule, each app's backups",
+    askedFor: [/\b(never (been )?backed up|no backups?\b|without (a )?backup|unprotected|backup coverage|not backed up|missing (a )?backup|lack\w* (a )?backup|backup schedules?)\b/i, /\bwhich apps?\b[^.?!]{0,30}\b(backed up|backups?)\b/i],
+    params: {},
+  },
+  {
+    id: "space.reclaimable", title: "Reclaimable space", category: "boxpilot", role: "operator", cost: "moderate",
+    description: "What takes up room that nothing needs - previous BoxPilot releases, images no app uses, old backup archives, unfinished restores, Docker's leftovers - and what the Storage page's clean-up would free, with Docker's own disk use (images, containers, volumes, build cache) and what it could reclaim. Reads only: the clean-up is a card.",
+    use: "what could be cleaned up or freed, what takes the space, Docker's disk use",
+    askedFor: [/\b(reclaim\w*|free up|freed|clean(ed|ing)? ?up|cleanup|prune|dangling|unused images?|taking up (the )?(space|room)|takes up (the )?(space|room)|docker('s)? disk|build cache)\b/i, /\bdocker\b[^.?!]{0,20}\b(disk|using|space)\b|\bdisk\b[^.?!]{0,12}\bdocker\b/i],
     params: {},
   },
   {

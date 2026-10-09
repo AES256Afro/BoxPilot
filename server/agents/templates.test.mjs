@@ -30,7 +30,7 @@ const readTools = createToolRunner({ state: {}, store: {}, registry });
 const factTool = {
   hostname: "server.facts", operatingSystem: "server.facts", installedApps: "apps.list", stoppedApps: "apps.list", unhealthyApps: "apps.list", appUpdates: "apps.list",
   rootDiskPercent: "storage.health", drives: "storage.health", piholePlacement: "where.runs", piholeBlocking: "pihole.stats", failedServices: "services.status",
-  firewallEnabled: "firewall.status",
+  firewallEnabled: "firewall.status", neverBackedUp: "backups.coverage", rebootRequired: "updates.status",
 };
 /** Every question the evaluation asks an agent made from this template: its built-in ones not covered, then its own. */
 const evaluationOf = (template) => {
@@ -142,8 +142,10 @@ describe("the templates added in M43", () => {
     expect(promptText(templateById("environment-scout").spec)).toMatch(/Asked about the firewall or Repair alone, read firewall\.status or repair\.findings for it; the weekly survey reads both/);
     expect(promptText(templateById("environment-scout").spec)).toMatch(/Open ports, SSH settings and waiting system package updates no tool of yours sees/);
     expect(promptText(templateById("environment-scout").spec)).toMatch(/Cloudflare Tunnel app/);
-    expect(promptText(templateById("update-planner").spec)).toMatch(/cannot see how many system packages are waiting/);
-    expect(promptText(templateById("storage-watch").spec)).toMatch(/cannot see what takes up the space/);
+    // M47.6: package updates and what takes the space are read too; the snapshots' ages still are not.
+    expect(promptText(templateById("update-planner").spec)).toMatch(/updates\.status says how many system packages are waiting/);
+    expect(promptText(templateById("storage-watch").spec)).toMatch(/how old the snapshots are it does not: point to the Storage page/);
+    for (const template of agentTemplates) expect(promptText(template.spec), template.id).not.toMatch(/cannot see/);
   });
 });
 
