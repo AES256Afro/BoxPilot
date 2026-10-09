@@ -1,5 +1,7 @@
 import os from "node:os";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
+// systemd's drop-in and modprobe's files are read at boot: written durably, never truncated in place.
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 
 /**
