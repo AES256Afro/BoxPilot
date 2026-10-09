@@ -220,7 +220,12 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
       {examples && (
         <Panel className="agents-examples" title="Examples it plans from" count={examples.counts.total}
           meta={`${examples.counts.seeds} from the template, ${examples.counts.total - examples.counts.seeds} approved; the planner is shown the nearest three`}
-          actions={role === "owner" && examples.counts.total > 0 ? <Button onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id))}>Export as training data</Button> : undefined}>
+          actions={role === "owner" && examples.counts.total > 0 ? (
+            <>
+              <Button onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id))}>Export as training data</Button>
+              {examples.counts.pairs > 0 && <Button variant="secondary" onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id, { pairs: true }))}>Export {examples.counts.pairs} preference {examples.counts.pairs === 1 ? "pair" : "pairs"}</Button>}
+            </>
+          ) : undefined}>
           <Table caption={`Examples ${agent.name} plans from`} columns={exampleColumns} rows={examples.examples} rowKey={(example) => example.id}
             empty={<EmptyState title="No examples yet">Stage a card, give an answer a thumbs up, or let an evaluation question pass: the request and its plan are kept here for the planner.</EmptyState>} />
         </Panel>

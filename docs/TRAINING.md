@@ -157,5 +157,30 @@ the file with one), and switched to the way any model is: through an approval ca
 - No trainer runs on the box, and BoxPilot calls none. A CPU-only server keeps the base model.
 - Records for the acting conversation (request, tool output, answer) are not exported yet: the book
   keeps the request, the plan and the answer, not the tool outputs the answer was checked against.
-- Reinforcement learning from the thumbs (DPO or GRPO on up against down) would need pairs the book
-  does not keep: a thumbs down deletes the example rather than keeping it as a negative.
+- Reinforcement learning on the acting conversation (GRPO on the answer against the tool output)
+  is not here; the preference pairs below train the planner alone.
+
+## 5. Preference pairs from the thumbs (M46.6)
+
+A thumbs down takes a run out of the book; it does not vanish. Beside the approved example nearest
+its request (the same words; by meaning when both have vectors, at least 0.85; else at least 60% of
+the shorter request's words shared), when the two plans differ, it is a preference pair: the
+example's understanding chosen, the run's rejected, in TRL's conversational shape (`prompt`,
+`chosen`, `rejected`). A thumbs down whose plan was the same as the approved one makes no pair (the
+answer was wrong, not the plan), and a thumbs down with no approved neighbour waits for one: nothing
+is made up for the chosen side. The Memory tab offers "Export N preference pairs" when there are any;
+the API is `GET /api/v1/agents/<id>/examples/export?pairs=true`; the script is
+`boxpilot-agents-examples.mjs pairs <db>`. The same stand-ins hide the house's names.
+
+After the fine-tune in section 3, a short ORPO or DPO stage on the pairs, same adapter:
+
+```python
+from trl import ORPOConfig, ORPOTrainer
+pairs = load_dataset("json", data_files="boxpilot-pairs-*.jsonl", split="train")
+ORPOTrainer(model=model, args=ORPOConfig(output_dir="orpo", beta=0.1, learning_rate=5e-6, num_train_epochs=1, max_length=4096, per_device_train_batch_size=1, gradient_accumulation_steps=8),
+            train_dataset=pairs, processing_class=tokenizer).train()
+```
+
+A few dozen pairs is a signal, not a dataset: keep `beta` small and one epoch, and the gate in
+section 4 decides as before. Pairs are few by design - each is a person's judgement - so the
+fine-tune on the book comes first and the pairs correct it.
