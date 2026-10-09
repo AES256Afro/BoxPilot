@@ -2830,18 +2830,37 @@ every M37 to M45 agent test passing.
   "Next": matching findings by meaning when words fall short, which needs the request embedded at
   claim time (the runner has the embedder; the web service, which offers findings, does not).
   Tests: `brain.test.mjs` (the three copies, the vectors, the spread on scores alone).
-- **M46.3 Training data and the recipe.** Export the example book as chat-shaped JSONL (the planner's
-  system message, the request, the plan as the model wrote it, the answer), the house's names
-  replaced with stand-ins (`createStandIns`) and secrets redacted, `coverExamples` offered to pick
-  a covering subset; plus `docs/TRAINING.md`: the Unsloth recipe for a GPU machine (Qwen 3.5 4B,
-  bf16 LoRA r=16 α=16 on every linear layer, the DoRA and orthogonal variants as the geometric
-  options, 75% reasoning-style examples kept, GGUF export) and the gate: the adapter ships only if
-  `tests/bench/agents-real.mjs eval` beats the base model. Nothing in BoxPilot calls a trainer; a
-  CPU-only server keeps the base model.
-- **M46.4 The Memory tab shows the book.** Each example with its signal, tools and vector state;
-  forget one; export (M46.3) from the same tab.
-- **Measured on the real model:** `agents-bench.yml` (mode `eval`, `baseline: main`) before and
-  after M46.1, so the demonstrations are held to the same six questions as everything else.
+- ✅ **M46.3 Training data and the recipe** (unreleased, `feat/m46-training`). The example book
+  exported as chat-shaped JSON Lines (`server/agents/examples-export.mjs`): the planner's own system
+  message for the agent and its tools, the request as the planner is asked it, and the model's own
+  understanding (goal, subject, constraints, confidence, plan; kept with each example since this
+  item, `intent_json`) as the assistant turn; `meta` with the signal, the tools, the route and the
+  answer. Every text through the stand-ins a Claude run uses (`createStandIns(houseNames())`), so no
+  host, account, domain, address or MAC leaves. `GET /agents/:id/examples/export` (the owner's
+  alone: it leaves the box; `?cover=N` a k-center covering subset, `?seeds=false` without the
+  template's own) and `scripts/boxpilot-agents-examples.mjs list|export <db>` read-only against the
+  database for a server without the API at hand. `docs/TRAINING.md`: why geometry over brute force
+  (DoRA's magnitude-direction split, OFT's rotations that keep the angles between neurons, PiSSA
+  initialisation; with sources), the Unsloth recipe for a GPU machine (Qwen 3.5 4B bf16, r=16 α=16
+  all linear layers, `use_dora` first, OFT second, one epoch, no QLoRA, transformers v5, the 75%
+  reasoning-mix caveat, GGUF export) and the gate: the adapter ships only if the real-model
+  evaluation, the acting tasks and the red-team set are no worse than the base, and then only
+  through the model library's checksum and an approval card. Nothing in BoxPilot calls a trainer.
+  Tests: `examples-export.test.mjs` (the records, the stand-ins, the cover, seeds out, the owner's
+  export and the script against the same database).
+- ✅ **M46.4 The Memory tab shows the book** (unreleased, `feat/m46-training`). "Examples it plans
+  from": each request with the tools its plan reads, whether it is indexed, what it was kept after
+  (the template, a card staged, a thumbs up, an answer kept as a finding, an evaluation question
+  answered right) and when; Forget; and, for the owner, "Export as training data" (M46.3). An older
+  server without the book shows no panel. Test: `AgentsPage.test.tsx` (memory).
+- ✅ **Measured on the real model** (`agents-bench.yml` run 37915276524, mode `eval`, `baseline:
+  main`, Qwen 3.5 4B at four threads under 400%, 2026-10-09): main and M46.1 both 6 of 6, the same
+  tool chosen for every question. The three demonstration lines cost 318 more prompt tokens over
+  the six questions (about 53 a question) and 394 s against 387 s of wall time, inside the noise
+  between two runs. The six questions never made the base model slip, so the set shows the cost of
+  the demonstrations and not their gain; the gain shows where the planner chose wrong before
+  (`apps.list` for "where does Pi-hole run", M40), which the owner's own approvals, not this set,
+  will keep measuring through the nightly evaluation's accuracy history.
 
 ## App catalogue candidates
 
