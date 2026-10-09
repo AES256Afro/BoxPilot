@@ -28,7 +28,7 @@ function parseVariables(output) {
     const separator = line.indexOf(":");
     if (separator < 1) continue;
     const key = line.slice(0, separator).trim();
-    if (["battery.charge", "battery.runtime", "ups.load", "ups.status"].includes(key)) values.set(key, line.slice(separator + 1).trim());
+    if (["battery.charge", "battery.charge.low", "battery.runtime", "battery.runtime.low", "ups.load", "ups.status"].includes(key)) values.set(key, line.slice(separator + 1).trim());
   }
   const statusTokens = String(values.get("ups.status") ?? "").split(/\s+/).filter((item) => fixedStatusTokens.has(item));
   const state = statusTokens.includes("FSD") ? "forced-shutdown"
@@ -45,6 +45,10 @@ function parseVariables(output) {
     batteryChargePercent: boundedNumber(values.get("battery.charge"), 100),
     estimatedRuntimeSeconds: boundedNumber(values.get("battery.runtime"), 31 * 24 * 60 * 60),
     loadPercent: boundedNumber(values.get("ups.load"), 200),
+    // When the UPS calls its battery low: below this charge, or under this much runtime left
+    // (M39.1). The server's shutdown starts then, so these are the owner's thresholds.
+    lowBatteryPercent: boundedNumber(values.get("battery.charge.low"), 100),
+    lowRuntimeSeconds: boundedNumber(values.get("battery.runtime.low"), 24 * 60 * 60),
   };
 }
 
@@ -60,6 +64,8 @@ function baseEvidence(overrides = {}) {
     batteryChargePercent: null,
     estimatedRuntimeSeconds: null,
     loadPercent: null,
+    lowBatteryPercent: null,
+    lowRuntimeSeconds: null,
     source: "nut-localhost-fixed",
     boundary: { mutationPerformed: false, powerCommandAvailable: false, shutdownPolicyChanged: false, localhostOnly: true, remoteNetworkProbePerformed: false, browserTargetAccepted: false, rawOutputIncluded: false, deviceNameIncluded: false, serialIncluded: false },
     ...overrides,

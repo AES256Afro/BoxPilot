@@ -31,6 +31,7 @@ import { databaseCopyReport, databaseCopyRule, describeDatabaseCopy, humanBytes 
 import { keepsBackupData } from "../server/catalog/schema.mjs";
 import { registry as operationRegistry } from "../server/ops/index.mjs";
 import { createAgentsDemo } from "./demo-agents.mjs";
+import { powerOnGuidance } from "../server/power-on-guidance.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -100,6 +101,22 @@ const firewallProfile = { id: "home-server", services: ["dns", "jellyfin"], sshR
 const listeners = [{ protocol: "tcp", address: "0.0.0.0", port: 2283, scope: "wildcard" }, { protocol: "tcp", address: "0.0.0.0", port: 5432, scope: "wildcard" }];
 const fail2ban = { installed: true, running: true, configured: true, config: { managed: true, maxRetry: 5, findTimeMinutes: 10, banTimeMinutes: 60, ignoreLan: true, ignore: ["127.0.0.1/8", "::1", "100.64.0.0/10", "192.168.50.0/24"], sshd: true }, currentlyBanned: 1, totalBanned: 14 };
 
+// Power (M39): a short outage last night, which the UPS rode out, and an earlier one that ran the
+// battery down, so the server shut itself down and came back when the mains did. Fictional.
+const powerEvents = () => [
+  { at: ago(9.9), event: "on-mains", charge: 97, runtime: 2310 },
+  { at: ago(9.97), event: "on-battery", charge: 100, runtime: 2460 },
+  { at: ago(76), event: "started" },
+  { at: ago(77.2), event: "power-off" },
+  { at: ago(77.21), event: "apps-stopped", containers: 9, drives: 1, busy: 0 },
+  { at: ago(77.22), event: "shutdown", charge: 18, runtime: 290 },
+  { at: ago(77.22), event: "low-battery", charge: 18, runtime: 290 },
+  { at: ago(77.8), event: "on-battery", charge: 100, runtime: 2460 },
+  { at: ago(24 * 20), event: "watching", charge: 100, runtime: 2460 },
+];
+const powerPolicy = { shutdownAtLowBattery: true, lowBatteryPercent: 20, lowRuntimeSeconds: 300, preparationSeconds: 60, configuredAt: ago(24 * 20) };
+const upsReading = { installed: true, configured: true, available: true, state: "online", reason: "ok", deviceCount: 1, statusTokens: ["OL"], batteryChargePercent: 100, estimatedRuntimeSeconds: 2460, loadPercent: 18, lowBatteryPercent: 20, lowRuntimeSeconds: 300, source: "nut-localhost-fixed", boundary: { mutationPerformed: false, powerCommandAvailable: false, shutdownPolicyChanged: false, localhostOnly: true, remoteNetworkProbePerformed: false, browserTargetAccepted: false, rawOutputIncluded: false, deviceNameIncluded: false, serialIncluded: false } };
+
 const inventory = () => ({
   generatedAt: now().toISOString(),
   host: { hostname: host.hostname, operatingSystem: "Ubuntu 24.04.3 LTS", kernel: "6.8.0-64-generic", architecture: "x64", uptimeSeconds: 19 * 86400 + 4 * 3600 },
@@ -124,7 +141,7 @@ const inventory = () => ({
       { device: "/dev/sdb", health: "unavailable", passed: null, temperatureCelsius: null, powerOnHours: null, percentageUsed: null, mediaErrors: null, unsafeShutdowns: null, reason: "asleep", transport: "sata", deviceType: "auto", lastHealth: "healthy", lastReadAt: ago(26) }] },
   },
   maintenance: { system: { available: true, state: "running", failedServiceCount: 0, failedServiceCountTruncated: false }, reboot: { available: true, required: false }, packageManager: { available: true, state: "ready", pendingUpdateFragments: 0, countTruncated: false }, aptMetadata: { available: true, state: "current", updatedAt: ago(5), ageHours: 5 }, automaticSecurityUpdates: { available: true, state: "enabled-active", enabled: true, active: true } },
-  power: { ups: { installed: true, configured: true, available: true, state: "online", reason: "ok", deviceCount: 1, statusTokens: ["OL"], batteryChargePercent: 100, estimatedRuntimeSeconds: 2460, loadPercent: 18, source: "nut-localhost-fixed", boundary: { mutationPerformed: false, powerCommandAvailable: false, shutdownPolicyChanged: false, localhostOnly: true, remoteNetworkProbePerformed: false, browserTargetAccepted: false, rawOutputIncluded: false, deviceNameIncluded: false, serialIncluded: false } } },
+  power: { ups: upsReading, events: powerEvents().slice(0, 20), eventsAvailable: "yes", policy: powerPolicy },
   network: { addresses: [{ interface: "eno1", address: host.lan, cidr: `${host.lan}/24` }, { interface: "tailscale0", address: host.tailscaleIp, cidr: `${host.tailscaleIp}/32` }], tailscale: { installed: true, connected: true, dnsName: host.tailnet } },
   services: [{ unit: "boxpilot.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" }, { unit: "boxpilot-helper.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" }, { unit: "docker.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" }, { unit: "tailscaled.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" }],
   docker: { available: true, containers: Object.keys(installed).map((id) => ({ id: id.slice(0, 6), name: `bp-${id}`, image: `${id}:latest`, state: "running", status: "Up 19 days", health: "healthy", ports: `${host.lan}:${installed[id]}`, networks: `bp-${id}_default` })), images: [], networks: [], volumes: [], projects: [] },
@@ -207,6 +224,13 @@ function demoDatabaseCopies(parameters = {}) {
 }
 
 export const inspections = {
+  // The watchdog and Wake-on-LAN (M39): an AMD board whose watchdog Ubuntu does not load by itself,
+  // and one wired port that can wake. The address is from the documentation range (RFC 7042).
+  "power.hardware.inspect": {
+    watchdog: { state: "loadable", usable: true, virtualization: "none", devices: [], driver: { name: "sp5100_tco", available: "module", loaded: false, blacklisted: true }, runtimeSeconds: 0, rebootSeconds: 600, managedByBoxPilot: false },
+    wakeOnLan: { ethtool: true, ports: [{ name: "eno1", mac: "00:00:5e:00:53:01", driver: "r8169", up: true, supports: "pumbg", current: "d", supportsMagic: true, magicOn: false, linkFile: "/usr/lib/systemd/network/99-default.link", keptByBoxPilot: false }] },
+    boardVendor: "ASUSTeK COMPUTER INC.",
+  },
   "system.settings.inspect": {
     hostname: { static: host.hostname, live: host.hostname }, timezone: "UTC",
     timezones: ["UTC", "Europe/London", "Europe/Berlin", "America/New_York", "America/Chicago", "America/Los_Angeles", "Asia/Tokyo", "Australia/Sydney"],
@@ -488,6 +512,7 @@ const freshRest = {
   "/storage/nfs": (body) => ({ ...body, installed: false, running: false, configured: false, config: { ...body.config, exports: [] } }),
   "/storage/shares/discover": (body) => ({ ...body, devices: [] }),
   "/power/ups/detect": (body) => ({ ...body, devices: [], nutInstalled: false }),
+  "/power/overview": (body) => ({ ...body, ups: { ...body.ups, installed: false, configured: false, available: false, state: "unavailable", reason: "nut-client-not-installed", batteryChargePercent: null, estimatedRuntimeSeconds: null, loadPercent: null, lowBatteryPercent: null, lowRuntimeSeconds: null }, events: [], eventsAvailable: "none", policy: null, guidance: powerOnGuidance({ boardVendor: body.guidance.board?.vendor ?? null }) }),
   "/virtualization/domains": (body) => ({ ...body, connected: false, error: "libvirt is not installed on this server yet", domains: [] }),
   "/virtualization/status": (body) => ({ ...body, ready: false, checks: body.checks.map((check) => ({ ...check, ok: false, detail: "Not installed on this server yet" })),
     tailscale: { installed: false, connected: false, dnsName: null, serveUrls: [] },
@@ -806,6 +831,7 @@ api.get("/integrations/github", (_request, response) => json(response, {
   ],
 }));
 api.get("/power/ups/detect", (_request, response) => json(response, { devices: [{ vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id", sysfs: "1-3" }], nutInstalled: true }));
+api.get("/power/overview", (_request, response) => json(response, { ups: upsReading, events: powerEvents(), eventsAvailable: "yes", policy: powerPolicy, guidance: powerOnGuidance({ boardVendor: "ASUSTeK COMPUTER INC.", upsConfigured: true }) }));
 api.get("/firewall/overview", (_request, response) => json(response, {
   report: firewallReport, reportError: null, web: { port: 8787, lanExposed: false }, protected: protectedRules({ webPort: 8787, webHost: "127.0.0.1" }), profiles, services, riskyPorts, current: firewallProfile,
   advice: adviseFirewall({ report: firewallReport, listeners, apps: [{ id: "immich", name: "Immich", ports: [{ port: 2283, protocol: "tcp", label: "Web UI and mobile app" }] }], current: firewallProfile, fail2ban, webPort: 8787, webHost: "127.0.0.1" }),
@@ -988,6 +1014,8 @@ export function emptied(value) {
 
 /** The words that only appear when there is nothing to show, which emptying cannot invent. */
 const freshWords = {
+  // A fresh box is the same hardware: its watchdog and network port are there before anything is set up.
+  "power.hardware.inspect": inspections["power.hardware.inspect"],
   // A fresh box has had no update, so no database copies; the rule keeps its numbers.
   "housekeeping.database-copies.inspect": { rule: databaseCopyRule(), defaults: databaseCopyRule(), limits: { keep: [1, 50], keepDays: [0, 3650] }, secretScrubVersion: "1.127.0" },
   // The rebuild persona: a fresh box with the old server's backup drive already mounted. This is
