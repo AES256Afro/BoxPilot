@@ -32,7 +32,8 @@ function stepTitle(step: RunStep): string {
   if (step.kind === "recall") return `Recalled ${Number(step.flags?.read ?? 0)} ${Number(step.flags?.read ?? 0) === 1 ? "memory" : "memories"}`;
   if (step.kind === "memory") return `Searched memory for “${String((step.input as { query?: string } | null)?.query ?? "")}”`;
   // M44: another agent's finding offered before planning, and a hand-off answered from one.
-  if (step.kind === "finding") return `Offered ${step.name ?? "another agent"}'s finding`;
+  // M47.3: offered by the request's words before the plan, or by its meaning once it was embedded.
+  if (step.kind === "finding") return `Offered ${step.name ?? "another agent"}'s finding${(step.input as { by?: string } | null)?.by === "meaning" ? " by meaning" : ""}`;
   if (step.kind === "handoff" && step.flags?.reused) return `Used ${String((step.input as { agent?: string } | null)?.agent ?? "a specialist")}'s finding from ${ago(step.flags.age) ?? "earlier"} instead of running it again`;
   if (step.kind === "handoff") return `Handed to ${String((step.input as { agent?: string } | null)?.agent ?? "a specialist")}`;
   if (step.kind === "tool" && step.name === "agents.handoff") return `${String((step.input as { agent?: string } | null)?.agent ?? "A specialist")}${step.flags?.reused ? "'s finding" : " answered"}`;
