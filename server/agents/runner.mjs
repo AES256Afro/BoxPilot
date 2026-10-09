@@ -409,8 +409,20 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         const ids = actToolIds((claim.tools ?? []).map((tool) => tool.id), { planned: understanding?.tools?.length ? understanding.tools : null, hinted, kind: run.kind });
         const byId = new Map((claim.tools ?? []).map(({ id, ...tool }) => [id, tool]));
         const messages = claim.messages.map((message) => ({ ...message }));
+        const lastUser = messages.findLastIndex((message) => message.role === "user");
+        // Findings by meaning (M47.3): with the request embedded, the web service ranks the other
+        // agents' findings by vector, beyond what words found before the plan; they go in as F<n>
+        // beside the first ones, and the check holds citations of them too.
+        if (queryVector && claim.findingsByMeaning && typeof api.findings === "function" && lastUser >= 0) {
+          const more = await api.findings(run.id, lease, { vector: queryVector.map((value) => Math.round(value * 1e6) / 1e6) }).catch(() => null);
+          const found = Array.isArray(more?.findings) ? more.findings : [];
+          if (found.length) {
+            for (const finding of found) findingSources.push({ id: finding.id, title: finding.title, text: finding.text });
+            messages[lastUser] = { ...messages[lastUser], content: `${messages[lastUser].content}\n\n${found.map((finding) => finding.wrapped).join("\n\n")}` };
+            await system("findings", `${found.length} more ${found.length === 1 ? "finding" : "findings"} offered by meaning: ${found.map((finding) => finding.id).join(", ")}`);
+          }
+        }
         if (understanding) {
-          const lastUser = messages.findLastIndex((message) => message.role === "user");
           if (lastUser >= 0) messages[lastUser] = { ...messages[lastUser], content: `${messages[lastUser].content}\n\n${planMessage(understanding, { hinted: hinted.filter((id) => ids.includes(id)) })}` };
         }
         const conversation = { tools: ids.map((id) => byId.get(id)).filter(Boolean), messages, last: null };
@@ -538,6 +550,7 @@ export function createRunnerApi({ base, token, runnerId, fetch: fetchImpl = glob
     steps: (runId, lease, steps) => post(`/runs/${encodeURIComponent(runId)}/steps`, { lease, steps }),
     tool: (runId, lease, name, input, extras = {}) => post(`/runs/${encodeURIComponent(runId)}/tools`, { lease, name, input, ...(extras.vector ? { vector: extras.vector } : {}) }, { timeoutMs: 60_000 }),
     vectors: (runId, lease, entries) => post(`/runs/${encodeURIComponent(runId)}/vectors`, { lease, entries }, { timeoutMs: 60_000 }),
+    findings: (runId, lease, body) => post(`/runs/${encodeURIComponent(runId)}/findings`, { lease, ...body }, { timeoutMs: 30_000 }),
     finish: (runId, lease, body) => post(`/runs/${encodeURIComponent(runId)}/finish`, { lease, ...body }),
     usage: (body) => post("/usage", body),
     // M45.3: a run on Claude's model call, through BoxPilot to the model gateway; the answer on the contract.
@@ -558,6 +571,7 @@ export function directRunnerApi(service, runnerId) {
     steps: (runId, lease, steps) => Promise.resolve(service.runnerSteps(runId, lease, steps)),
     tool: (runId, lease, name, input, extras = {}) => service.runnerTool(runId, lease, name, input, extras),
     vectors: (runId, lease, entries) => Promise.resolve(service.runnerVectors(runId, lease, entries)),
+    findings: (runId, lease, body) => Promise.resolve(service.runnerFindings(runId, lease, body)),
     finish: (runId, lease, body) => service.runnerFinish(runId, lease, body),
     usage: (body) => Promise.resolve(service.runnerUsage(runnerId, body)),
     model: (runId, lease, request, { timeoutMs = 180_000, reason = null } = {}) => service.runnerModel(runId, lease, { request, timeoutMs, ...(reason ? { reason } : {}) }),
