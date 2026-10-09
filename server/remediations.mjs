@@ -1027,6 +1027,58 @@ export function backupsDue({ protection = null, schedules = [], now = Date.now()
 }
 
 /** Everything, worst first, with a stable order inside a severity so the list does not shuffle. */
+const bootPartitionTargets = ["/boot/efi", "/efi", "/boot"];
+
+/**
+ * The boot partition still marked "not properly unmounted" (2026-09-29). After the power cut the
+ * kernel said "FAT-fs (nvme0n1p1): Volume was not properly unmounted. Some data may be corrupt.
+ * Please run fsck." about /boot/efi, and says it at every boot since: Linux never clears a FAT mark
+ * it found set, and Ubuntu's boot-time check, which would, needs fsck.fat. Not a drive BoxPilot
+ * mounted, so the drive checks never looked at it.
+ *
+ * The kernel's line is the evidence (the mark cannot be read on a mounted FAT partition: the kernel
+ * keeps it set while mounted). A check since that line, recorded by the fix, answers it.
+ */
+export function bootPartitionUnclean({ mounts = [], unclean = null, tools = null, bootChecks = {}, fstab = [], hostname = null } = {}) {
+  if (!unclean?.available || !Array.isArray(unclean.events)) return [];
+  const partition = bootPartitionTargets.map((target) => mounts.find((mount) => mount.target === target && ["vfat", "msdos"].includes(String(mount.fstype ?? "").toLowerCase()))).find(Boolean);
+  if (!partition?.source) return [];
+  const event = unclean.events.find((entry) => entry.device === partition.source && /not properly unmounted/i.test(entry.message ?? ""));
+  if (!event) return [];
+  const check = bootChecks?.[partition.source];
+  if (check?.clean && Date.parse(check.checkedAt) > Date.parse(event.at)) return [];
+  const host = hostname || "the server";
+  const checker = tools?.fsckFat !== false;
+  const checkedAtBoot = (fstab.find((row) => row.mountpoint === partition.target)?.pass ?? 0) > 0;
+  const target = partition.target;
+  return [finding({
+    id: "boot-partition-mark",
+    severity: "warning",
+    title: "The boot partition was not cleanly unmounted",
+    detail: `${target}, the small partition ${host} starts from, was in use when the server last went down without shutting down, and it still carries a "not properly unmounted" mark. Linux never clears a mark it found set, so it repeats the warning at every start until a check clears it. The partition is only written when the bootloader or a kernel is updated, so damage is unlikely, but the check is what says so.${checker ? "" : ` fsck.fat, its checker, is not installed, so the check comes first${checkedAtBoot ? "; once it is, Ubuntu also checks the partition by itself at each start, as fstab asks, and a mark like this one clears at the next reboot" : ""}.`}`,
+    evidence: [
+      `kernel, ${new Date(event.at).toLocaleString()}: ${event.message}`,
+      `${target} is ${partition.fstype} on ${partition.source}`,
+      ...(checker ? [] : ["fsck.fat not found in /usr/sbin or /sbin"]),
+      ...(check ? [`last check ${new Date(check.checkedAt).toLocaleString()}${check.clean ? " (clean)" : " (found more than the mark)"}`] : []),
+    ],
+    fixes: [checker
+      ? {
+        operationId: "storage.boot-mark.clear",
+        parameters: {},
+        label: "Check and clear the boot partition's mark",
+        preview: `Makes sure nothing is installing packages or updating the bootloader, then unmounts ${target} (refused, with nothing changed, if anything has a file open on it) and reads ${partition.source} with fsck.fat -n. Only if the mark is all it finds does it clear it with fsck.fat -a and check again that nothing is left. Then it mounts ${target} again and reads it. It takes under a minute and stops nothing else; anything beyond the mark is left as it is, with the check's words.`,
+      }
+      : {
+        operationId: "apt.install",
+        parameters: { packages: ["dosfstools"] },
+        label: "Install the FAT checker",
+        preview: `Installs the dosfstools package (fsck.fat). Nothing on ${target} is touched by this step; the check is offered next.`,
+      }],
+    manual: `When the check finds more than the mark, it stops, leaves ${target} as it was, and its log says what it found. To repair it anyway, from a terminal: sudo umount ${target} && sudo fsck.fat -a ${partition.source} && sudo mount ${target}.`,
+  })];
+}
+
 export function detectRemediations(facts = {}) {
   // Drives mounted after one of the apps using them started: those apps hold what was there before.
   // A drive that is dead or read-only now is left to its own Reconnect, which restarts its apps.
@@ -1040,6 +1092,7 @@ export function detectRemediations(facts = {}) {
   const findings = [
     ...staleMounts(facts),
     ...readOnlyRemounts(facts),
+    ...bootPartitionUnclean(facts),
     ...exfatCheckerMissing(facts),
     ...flakyDrives(facts),
     ...drivesNeedingCheck(facts),

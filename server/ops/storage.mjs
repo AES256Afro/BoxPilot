@@ -42,8 +42,9 @@ export function parseFstab(content) {
   return String(content ?? "").split("\n")
     .filter((line) => line.trim() && !line.trim().startsWith("#"))
     .map((line) => {
-      const [device, mountpoint, fstype, options] = line.trim().split(/\s+/);
-      return { device, mountpoint, fstype, options, managedName: managed.get(line.trim()) ?? null };
+      const [device, mountpoint, fstype, options, , pass] = line.trim().split(/\s+/);
+      // pass: whether the boot-time fsck checks it (0: never), which the boot partition's finding says.
+      return { device, mountpoint, fstype, options, pass: Number.parseInt(pass ?? "0", 10) || 0, managedName: managed.get(line.trim()) ?? null };
     });
 }
 
@@ -263,6 +264,15 @@ export function storageOperations() {
       description: "Runs the filesystem's own read-only checker on a mounted drive and reports what it finds. Containers using the drive are stopped, file-sharing clients are disconnected (they reconnect by themselves), the drive is unmounted for the check, then mounted again and the containers started. Nothing is repaired or written; that is a separate decision with the report in hand.",
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.check", { name: parameters.name }, { timeoutMs: minutes(33), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      // The EFI system partition after a power cut (2026-09-29): Linux repeats "Volume was not
+      // properly unmounted" at every boot until a repairing check clears the mark. Not a managed
+      // drive, so not storage.dirty-mark.clear: nothing BoxPilot mounted, and no app uses it.
+      id: "storage.boot-mark.clear", title: "Check and clear the boot partition's mark", risk: "medium", timeoutMs: minutes(8),
+      description: "For the FAT boot partition (/boot/efi) still marked \"not properly unmounted\" after a power cut. Refused while packages are being installed or the bootloader updated, since they write there. Unmounts it (refused, with nothing changed, if anything has a file open on it), reads it with fsck.fat -n, and only if the mark is all it finds repairs it with fsck.fat -a, then mounts it again and records the check.",
+      parameters: { fields: {} },
+      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("storage.boot-mark-clear", {}, { timeoutMs: minutes(7), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       // Its own operation and its own confirmation, not a step of the check: it writes to the drive.

@@ -2265,6 +2265,18 @@ same server. Decided in ADR-008. The network half is `feat/m39-network`.
   `tests/ubuntu/dns-fallback.sh` runs it all against real dnsmasq routers with and without a
   fallback and the runner's own lease, on both LTS releases; `tests/ubuntu/pihole-askers.sh` runs
   the catalog's Pi-hole image asked by eight devices and reads its database as the helper does.
+- ✅ **M39.5 The boot partition's mark** (unreleased, `feat/boot-partition-mark`; lifted from #334,
+  the rest of which M39.2, M39.3 and #336 had shipped another way). After the 2026-09-29 power cut
+  the kernel said "FAT-fs (nvme0n1p1): Volume was not properly unmounted" about /boot/efi at every
+  boot: Linux never clears a FAT mark it found set, and Ubuntu's boot-time check needs fsck.fat.
+  Repair's finding `boot-partition-mark` (warning) reads the kernel's line, the FAT boot partition
+  and whether a clean check came after it; its fix `storage.boot-mark.clear` (medium) refuses while
+  packages or the bootloader are being written, unmounts the partition (refused if anything holds
+  a file open), reads it with `fsck.fat -n`, repairs with `-a` only when the mark is all it finds,
+  mounts it again and records the check (`bootPartitionChecks`); without dosfstools it offers the
+  install first. `server/tasks/boot-partition.mjs`; the scan reads `fstab`'s pass column and whether
+  fsck.fat exists; CI runs `tests/ubuntu/boot-partition-mark.sh` on a real FAT32 loop device on both
+  LTS releases. Tests: `remediations.test.mjs`, `boot-partition.test.mjs`.
 - ✅ **M39.3 Told when the server is down** (unreleased, `feat/m39-network`). An opt-in heartbeat
   (Settings, Notifications): a bare `GET` every few minutes (five unless changed) to a dead man's switch the
   owner picks (healthchecks.io's free plan, or Healthchecks or Uptime Kuma push on another machine),

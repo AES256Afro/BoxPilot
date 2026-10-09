@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { appsWithoutContainer, backupDestinationToMove, backupsDue, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, portConflicts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
+import { parseUncleanMounts } from "./ops/storage.mjs";
+import { appsWithoutContainer, backupDestinationToMove, backupsDue, bootPartitionUnclean, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, portConflicts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -802,5 +803,58 @@ describe("what a dismissal holds on to (M35)", () => {
     expect(fingerprintOf(again)).toBe(fingerprintOf(first));
     expect(fingerprintOf({ ...first, evidence: [...first.evidence, "one more line"] })).not.toBe(fingerprintOf(first));
     expect(fingerprintOf({ ...first, severity: "critical" })).not.toBe(fingerprintOf(first));
+  });
+});
+
+describe("the boot partition's mark (2026-09-29)", () => {
+  const efi = { target: "/boot/efi", source: "/dev/nvme0n1p1", fstype: "vfat", managedName: null };
+  const root = { target: "/", source: "/dev/mapper/ubuntu--vg-ubuntu--lv", fstype: "ext4", managedName: null };
+  // `journalctl -k -b -o short-iso -g ...` as storage.unclean.events reads it.
+  const afterTheCut = [
+    "2026-09-29T22:18:04+0000 server kernel: EXT4-fs (dm-0): orphan cleanup on readonly fs",
+    "2026-09-29T22:18:04+0000 server kernel: EXT4-fs (dm-0): mounted filesystem 00000000-0000-0000-0000-000000000000 ro with ordered data mode. Quota mode: none.",
+    "2026-09-29T22:18:07+0000 server kernel: FAT-fs (nvme0n1p1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.",
+  ].join("\n");
+  const cleanBoot = [
+    "2026-09-27T03:10:44+0000 server kernel: EXT4-fs (dm-0): mounted filesystem 00000000-0000-0000-0000-000000000000 ro with ordered data mode. Quota mode: none.",
+    "2026-09-27T03:10:45+0000 server kernel: EXT4-fs (dm-0): re-mounted 00000000-0000-0000-0000-000000000000 r/w. Quota mode: none.",
+    "2026-09-27T03:10:46+0000 server kernel: EXT4-fs (nvme0n1p2): mounted filesystem 00000000-0000-0000-0000-000000000001 r/w with ordered data mode. Quota mode: none.",
+  ].join("\n");
+  const facts = (overrides = {}) => ({ mounts: [root, efi], unclean: { available: true, events: parseUncleanMounts(afterTheCut) }, tools: { fsckExfat: true, fsckFat: true }, bootChecks: {}, fstab: [{ device: "UUID=AB12-CD34", mountpoint: "/boot/efi", pass: 1 }], hostname: "homebox", ...overrides });
+
+  it("finds the kernel's line about /boot/efi, and offers the check that clears it", () => {
+    const [found] = bootPartitionUnclean(facts());
+    expect(found).toMatchObject({ id: "boot-partition-mark", severity: "warning", title: "The boot partition was not cleanly unmounted" });
+    expect(found.detail).toContain("/boot/efi, the small partition homebox starts from, was in use when the server last went down without shutting down");
+    expect(found.detail).toContain("Linux never clears a mark it found set, so it repeats the warning at every start until a check clears it.");
+    expect(found.evidence[0]).toMatch(/^kernel, .*: FAT-fs \(nvme0n1p1\): Volume was not properly unmounted\. Some data may be corrupt\. Please run fsck\.$/);
+    expect(found.evidence[1]).toBe("/boot/efi is vfat on /dev/nvme0n1p1");
+    expect(found.fixes).toEqual([expect.objectContaining({ operationId: "storage.boot-mark.clear", parameters: {}, label: "Check and clear the boot partition's mark" })]);
+    expect(found.fix.preview).toContain("unmounts /boot/efi (refused, with nothing changed, if anything has a file open on it) and reads /dev/nvme0n1p1 with fsck.fat -n. Only if the mark is all it finds does it clear it with fsck.fat -a");
+    expect(found.manual).toContain("sudo umount /boot/efi && sudo fsck.fat -a /dev/nvme0n1p1 && sudo mount /boot/efi");
+  });
+
+  it("installs the checker first when there is none, and says Ubuntu then checks it at each start", () => {
+    const [found] = bootPartitionUnclean(facts({ tools: { fsckExfat: true, fsckFat: false } }));
+    expect(found.fix).toMatchObject({ operationId: "apt.install", parameters: { packages: ["dosfstools"] }, label: "Install the FAT checker" });
+    expect(found.detail).toContain("fsck.fat, its checker, is not installed, so the check comes first; once it is, Ubuntu also checks the partition by itself at each start");
+    expect(found.evidence).toContain("fsck.fat not found in /usr/sbin or /sbin");
+    // With fstab asking for no boot-time check, that promise is not made.
+    expect(bootPartitionUnclean(facts({ tools: { fsckFat: false }, fstab: [{ mountpoint: "/boot/efi", pass: 0 }] }))[0].detail).not.toContain("at each start");
+  });
+
+  it("says nothing after a clean boot, about another partition, or once it has been checked since", () => {
+    expect(bootPartitionUnclean(facts({ unclean: { available: true, events: parseUncleanMounts(cleanBoot) } }))).toEqual([]);
+    expect(bootPartitionUnclean(facts({ mounts: [root, { ...efi, source: "/dev/sda1" }] }))).toEqual([]);
+    expect(bootPartitionUnclean(facts({ mounts: [root] }))).toEqual([]);
+    expect(bootPartitionUnclean(facts({ unclean: null }))).toEqual([]);
+    expect(bootPartitionUnclean(facts({ bootChecks: { "/dev/nvme0n1p1": { checkedAt: "2026-09-29T23:00:00.000Z", clean: true } } }))).toEqual([]);
+    // A check from before the line does not answer it.
+    expect(bootPartitionUnclean(facts({ bootChecks: { "/dev/nvme0n1p1": { checkedAt: "2026-09-28T23:00:00.000Z", clean: true } } }))).toHaveLength(1);
+  });
+
+  it("is the only finding a power cut leaves on the system disks: root's orphan cleanup is not a drive BoxPilot manages", () => {
+    const { findings } = detectRemediations(facts());
+    expect(findings.map((entry) => entry.id)).toEqual(["boot-partition-mark"]);
   });
 });

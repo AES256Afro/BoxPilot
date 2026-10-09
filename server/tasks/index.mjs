@@ -9,6 +9,7 @@ import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./user
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
 import { storageCheck, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageRemount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { storageDockerOrder, storageVolumeState } from "./drive-shutdown.mjs";
+import { clearBootPartitionMark } from "./boot-partition.mjs";
 import { storageWritable } from "./drive-writable.mjs";
 import { shareMount, shareReconnect, shareUnmount } from "./shares.mjs";
 import { moveBackupMount } from "./backup-mount-move.mjs";
@@ -67,6 +68,7 @@ export const tasks = Object.freeze({
   "storage.writable": storageWritable,
   "storage.check": storageCheck,
   "storage.clear-mark": storageClearMark,
+  "storage.boot-mark-clear": clearBootPartitionMark,
   "storage.docker-order": storageDockerOrder,
   "storage.volume-state": storageVolumeState,
   "storage.backup-relocate": moveBackupMount,
