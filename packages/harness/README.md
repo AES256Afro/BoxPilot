@@ -27,6 +27,7 @@ boxpilot-harness show 3f2a91c0       # one run's trace and answer
 boxpilot-harness notes boiler        # what the agent saved for later runs
 boxpilot-harness good 3f2a91c0       # keep a run as an example: shown before a task like it
 boxpilot-harness examples            # the example book (good runs, cases graded right); bad <run> takes one back
+boxpilot-harness export > book.jsonl # the book as training data: each good run's whole conversation, names hidden
 boxpilot-harness eval cases.json     # cases run on copies of the folder and graded
 ```
 
