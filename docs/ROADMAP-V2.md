@@ -2874,6 +2874,12 @@ every M37 to M45 agent test passing.
   bench workflow's `set` input, with `baseline` for a before and after. On the stand-in: 8 of 8,
   the right tool 8 of 8 (`evaluation.test.mjs`).
 
+- ✅ **M47.5 The CLI's example book** (unreleased, `feat/cli-examples`). The standalone host had no
+  book. `boxpilot-harness good <run>` keeps a finished run as an example (its task, the tools it ran,
+  its answer), `bad <run>` takes it back, `examples` lists the book, and an evaluation case graded
+  right is kept by itself. Before a task, the nearest three by words (`selectExamples`; the CLI
+  embeds nothing) go above it as "Tasks that went well in this folder, and the tools each used",
+  and the trace says how many were shown and why. Test: `cli.test.mjs`.
 - **Fixed on the way (2026-10-09, from the owner's server):** the Environment Scout raised an
   "Environment Scout needs you to look" card every night its evaluation question ("Which parts of
   this server can your tools not check?") ran into its step limit, though the answer passed: the
