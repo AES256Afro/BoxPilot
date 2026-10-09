@@ -394,17 +394,17 @@ describe("the Environment Scout's weekly survey on a busy server (M44)", () => {
   afterEach(async () => { await h.close(); });
 
   // As a small model on a CPU does it: one tool a step, then a card a step, then the answer.
-  const reads = ["alerts_active", "storage_health", "apps_list", "backups_status", "server_facts"];
+  const reads = ["alerts_active", "repair_findings", "storage_health", "apps_list", "backups_status", "firewall_status", "server_facts"];
   const oneAtATime = (body) => {
     if (body?.response_format?.json_schema?.name === "understanding") {
       return { understanding: { goal: "Survey this server and rank where to focus", subject: "this server", constraints: [], confidence: 0.9, clarify: null, plan: reads.map((tool) => ({ step: `Read ${tool}`, tool })) } };
     }
-    if (body.tool_choice === "none") return { content: "Where to focus\n1. The backup drive sdb is failing [T2].\nFine: the rest [T5]." };
+    if (body.tool_choice === "none") return { content: "Where to focus\n1. The backup drive sdb is failing [T3].\nFine: the rest [T7]." };
     const done = body.messages.filter((message) => message.role === "tool").length;
     if (done < reads.length) return { toolCalls: [{ name: reads[done], arguments: {} }] };
-    if (done === reads.length) return { toolCalls: [{ name: "plan_propose", arguments: { title: "Rehearse restoring Jellyfin", reason: "sdb, the backup drive, is failing [T2].", steps: [{ operationId: "app.backup.verify", parameters: { id: "jellyfin" }, why: "A backup on a failing drive may not restore." }] } }] };
-    if (done === reads.length + 1) return { toolCalls: [{ name: "plan_propose", arguments: { title: "Restart Jellyfin", reason: "It is unhealthy [T3].", steps: [{ operationId: "app.action", parameters: { id: "jellyfin", action: "restart" }, why: "It is unhealthy." }] } }] };
-    return { content: "Where to focus\n1. The backup drive sdb is failing [T2]; a card rehearses a restore.\n2. Jellyfin is unhealthy [T3]; a card restarts it.\nFine: Plex was stopped on purpose [T3]; the machine is fine [T5].\nNot checked: the firewall, open ports, SSH settings, system package updates and Repair's findings." };
+    if (done === reads.length) return { toolCalls: [{ name: "plan_propose", arguments: { title: "Rehearse restoring Jellyfin", reason: "sdb, the backup drive, is failing [T3].", steps: [{ operationId: "app.backup.verify", parameters: { id: "jellyfin" }, why: "A backup on a failing drive may not restore." }] } }] };
+    if (done === reads.length + 1) return { toolCalls: [{ name: "plan_propose", arguments: { title: "Restart Jellyfin", reason: "It is unhealthy [T4].", steps: [{ operationId: "app.action", parameters: { id: "jellyfin", action: "restart" }, why: "It is unhealthy." }] } }] };
+    return { content: "Where to focus\n1. The backup drive sdb is failing [T3]; a card rehearses a restore.\n2. Jellyfin is unhealthy [T4]; a card restarts it.\nFine: Plex was stopped on purpose [T4]; the machine is fine [T7].\nNot checked: the firewall, open ports, SSH settings, system package updates and Repair's findings." };
   };
 
   it("reads all five tools it planned, proposes its two cards and answers, within its steps and tokens", async () => {
@@ -418,14 +418,14 @@ describe("the Environment Scout's weekly survey on a busy server (M44)", () => {
     await h.service.tick();
     const run = await h.runNext();
     expect(run).toMatchObject({ kind: "schedule", state: "completed" });
-    expect(run.steps.find((step) => step.kind === "plan").input.map((entry) => entry.tool)).toEqual(["alerts.active", "storage.health", "apps.list", "backups.status", "server.facts"]);
-    expect(run.steps.filter((step) => step.kind === "tool" && step.state === "done").map((step) => step.name)).toEqual(["alerts.active", "storage.health", "apps.list", "backups.status", "server.facts"]);
+    expect(run.steps.find((step) => step.kind === "plan").input.map((entry) => entry.tool)).toEqual(["alerts.active", "repair.findings", "storage.health", "apps.list", "backups.status", "firewall.status", "server.facts"]);
+    expect(run.steps.filter((step) => step.kind === "tool" && step.state === "done").map((step) => step.name)).toEqual(["alerts.active", "repair.findings", "storage.health", "apps.list", "backups.status", "firewall.status", "server.facts"]);
     expect(run.steps.filter((step) => step.kind === "proposal" && step.state === "done")).toHaveLength(2);
     expect(run.flags.limitReached).toBeUndefined();
     expect(run.answer).toMatch(/^Where to focus\n1\. The backup drive sdb is failing/);
-    // Eight calls that act, two to spare; its tokens well under what ends a run early.
+    // Ten calls that act (seven reads, two cards, the answer), two to spare; its tokens well under what ends a run early.
     const spec = templateById("environment-scout").spec;
-    expect(run.steps.filter((step) => step.kind === "model")).toHaveLength(8);
+    expect(run.steps.filter((step) => step.kind === "model")).toHaveLength(10);
     expect(run.usage.readTokens + run.usage.completionTokens).toBeLessThan(spec.budget.tokensPerRun * 0.85);
     expect(h.service.listProposals(h.caller("owner")).filter((card) => card.runId === run.id && card.kind === "escalation")).toEqual([]);
     // What apps.list said of Plex: stopped on purpose, with its date, apart from the apps down.
@@ -447,7 +447,7 @@ describe("the Environment Scout's weekly survey on a busy server (M44)", () => {
     const run = await h.runNext();
     // The eighth step could only answer: the answer it was made to give.
     expect(run.flags).toMatchObject({ limitReached: true, limit: "steps" });
-    expect(run.answer).toBe("Where to focus\n1. The backup drive sdb is failing [T2].\nFine: the rest [T5].");
+    expect(run.answer).toBe("Where to focus\n1. The backup drive sdb is failing [T3].\nFine: the rest [T7].");
     const [card] = h.service.listProposals(h.caller("owner")).filter((entry) => entry.runId === run.id && entry.kind === "escalation");
     expect(card.reason).toBe("It reached its limit of 8 steps a run before it finished. If that keeps happening, raise \"Steps a run\" on its Build tab, under Guardrails.");
     // A survey cut short is shared said to be so, and never stands in for a specialist's run.
@@ -478,7 +478,8 @@ describe("the budgets the templates ship with (M44)", () => {
   it("hold a whole survey and a whole digest twice over in the background, within every ceiling", () => {
     const scout = templateById("environment-scout").spec.budget;
     const keeper = templateById("server-keeper").spec.budget;
-    expect(scout).toMatchObject({ stepsPerRun: 10, tokensPerRun: 24_000, runSeconds: 1_200, modelSecondsPerDay: 2_400 });
+    // M47.2: seven reads a survey, so twelve steps, 32,000 tokens, 25 minutes, 3,000 s a day.
+    expect(scout).toMatchObject({ stepsPerRun: 12, tokensPerRun: 32_000, runSeconds: 1_500, modelSecondsPerDay: 3_000 });
     expect(keeper).toMatchObject({ stepsPerRun: 6, tokensPerRun: 20_000, runSeconds: 1_200, modelSecondsPerDay: 3_600 });
     for (const budget of [scout, keeper]) {
       for (const [field, { min, max }] of Object.entries(budgetCeilings)) {
