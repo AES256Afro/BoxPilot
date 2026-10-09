@@ -1086,3 +1086,71 @@ grants, jobs and plans, and the evaluation against BoxPilot's world.
   router or the owner sends it.
 - Five places that refuse a remote model stay as they are for the local runtime; the remote path is
   new code with its own tests, not a loosened guard.
+
+## ADR-014: agents learn from what the owner approves by geometry, not by volume
+
+**Date:** 2026-10-09 · **Status:** Accepted (M46, in progress) · **Builds on:** ADR-012 (findings and
+live facts), ADR-013 (the harness, the router, grants). **Design:** `docs/HARNESS.md` → Examples.
+
+### Context
+
+After M45 the owner asked to improve the agent platform and the quality of what the local model
+learns, and to look at "geometric training options instead of brute force". BoxPilot's agents run
+on a 4B model on a CPU-only server that must run cool (M37), so no training runs on the box. What
+the model is shown is the only lever there, and until now it was shown no example of a good plan:
+the planner had one synthetic JSON skeleton, and its known failures are choices between near
+neighbours (`apps.list` for "where does Pi-hole run", twice, M40). Memory recall ranked by
+similarity alone, so the nearest k items were mostly the same item k times.
+
+The roadmap already asked, at the end of M44, for the owner's approvals to be collected as
+examples and, only if it beats the base model on the evaluations, for a GPU fine-tune of a small
+"BoxPilot skills" adapter.
+
+### Options weighed
+
+- **(a) More context and more tries.** Show the planner every approved example, raise the step
+  and retry limits, ask Claude for a second opinion more often. Rejected: a 4B model holds 8,192
+  tokens and reads about 50 a second on four processors; every example shown costs seconds, and
+  repeats teach nothing new. This is the brute force the owner asked to move away from.
+- **(b) Geometric selection of what is shown.** Chosen. Examples carry embeddings (the memory
+  index already makes them, 384 dimensions, 26 ms each). Before a plan, a few are picked by where
+  they sit around the request: the nearest, one from the other side of the nearest decision (a
+  different tool for a request that looks alike), and the rest by maximal marginal relevance, with
+  near-duplicates never shown twice. Three lines, about 60 tokens, chosen in the runner where the
+  model is. The rules are pure arithmetic in the harness core (`core/examples.mjs`), tested on
+  their own; the stand-in model reads them as a model would.
+- **(c) Fine-tune on the box.** Rejected: there is no GPU, and the server must never run hot.
+- **(d) Fine-tune elsewhere, geometrically.** Kept for M46.3 as an export and a recipe, not a
+  feature: the example book exported as training data with the house's names replaced by
+  stand-ins, and a recipe that prefers adapters which preserve the base model's geometry (DoRA's
+  magnitude-direction split, orthogonal fine-tuning's rotations that keep the angles between
+  neurons) over a full fine-tune, trained on a GPU machine and brought back as a GGUF only if it
+  beats the base model on the evaluations. Nothing in BoxPilot calls a trainer.
+
+### Decision
+
+1. **The example book.** `agent_examples`: a request and the plan that served it (the tools it
+   read), with the answer, kept when a person approved the work: a card staged, a thumbs up, an
+   answer kept as a finding, an evaluation question answered right. A thumbs down takes it back.
+   Each template ships with examples of its own, chosen to sit on the boundaries a small model gets
+   wrong; agents made before get them once. A run that read something like an instruction, asked
+   back, or made no plan leaves none; a request that itself reads like an instruction is never
+   kept. Requests are redacted. At most 300 kept per agent besides the seeds.
+2. **Demonstrations by geometry.** The web service sends the runner a pool (all of them while there
+   are few; the nearest by words and every seed past that), each with its vector when the index has
+   made one. The runner embeds the request on the local model, picks up to three (nearest,
+   contrast, diverse), and puts them in the planner's user message after the request, never in the
+   system message, which stays the same bytes for the prompt cache. The trace says which were shown
+   and why. On Claude the pick goes by words: the request is not embedded off the box for this.
+3. **The book is the owner's and the maker's.** Read and pruned from the API (`GET
+   /agents/:id/examples`, `DELETE /agents/:id/examples/:exampleId`); the Memory tab shows it. No
+   example leaves the box unless the owner exports it (M46.3), with stand-ins.
+
+### Consequences
+
+- The planner's tool choice improves where it was weakest, for the cost of three short lines a run,
+  and keeps improving as the owner approves work; what the owner marks wrong is unlearned at once.
+- The memory index embeds examples in quiet hours like notes and episodes: tens of short texts, a
+  few seconds of model time once.
+- Training stays off the box. If the owner trains an adapter elsewhere, the gate is the same
+  evaluation that gates everything else: it ships only if it beats the base model.

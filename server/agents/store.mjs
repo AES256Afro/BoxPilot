@@ -218,6 +218,25 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       deadline_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_agent_plans_state ON agent_plans(state, agent_id);
+    -- M46: the example book. Work a person approved (a card staged, a thumbs up, an answer kept as a
+    -- finding, an evaluation question answered right) kept as a request and the plan that served it,
+    -- and the examples each template ships with. Shown to the planner as demonstrations, exported
+    -- as training data. 'source' is the run's id, or seed:<id> for a template's own.
+    CREATE TABLE IF NOT EXISTS agent_examples (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      signal TEXT NOT NULL,
+      request TEXT NOT NULL,
+      plan_json TEXT NOT NULL,
+      answer TEXT,
+      route TEXT,
+      model TEXT,
+      read_role TEXT NOT NULL DEFAULT 'owner',
+      created_at TEXT NOT NULL,
+      UNIQUE (agent_id, source)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_examples_agent ON agent_examples(agent_id, created_at DESC);
   `);
   // Columns added after the first M37 tables: added in place where an older database lacks them.
   const ensureColumn = (table, column, definition) => {
@@ -691,6 +710,48 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   const deleteVectorsLike = (kind, prefix) => prepare("DELETE FROM agent_vectors WHERE kind = ? AND item_id LIKE ?").run(kind, `${prefix}%`);
   const countVectors = () => Number(prepare("SELECT COUNT(*) AS count FROM agent_vectors").get().count);
 
+  // ---- examples: the work a person approved (M46) ----
+
+  const exampleOf = (row) => row && ({
+    id: row.id, agentId: row.agent_id, source: row.source, signal: row.signal, request: row.request, plan: parse(row.plan_json, []),
+    answer: row.answer ?? null, route: row.route ?? null, model: row.model ?? null, readRole: row.read_role, createdAt: row.created_at,
+    seed: row.source.startsWith("seed:"),
+  });
+  /**
+   * Keep an example: one per agent and source (a run, or a template's seed). A source already kept is
+   * left as it was, so the first approval's record stands; `keep` is the most an agent keeps besides
+   * its seeds, oldest dropped first with their vectors.
+   */
+  function addExample({ agentId, source, signal, request, plan, answer = null, route = null, model = null, readRole = "owner", keep = 300 }) {
+    return transaction(() => {
+      const existing = prepare("SELECT * FROM agent_examples WHERE agent_id = ? AND source = ?").get(agentId, source);
+      if (existing) return { ...exampleOf(existing), added: false };
+      const id = randomUUID();
+      prepare("INSERT INTO agent_examples (id, agent_id, source, signal, request, plan_json, answer, route, model, read_role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(id, agentId, source, signal, request, json(plan), answer, route, model, readRole, iso());
+      const dropped = prepare("SELECT id FROM agent_examples WHERE agent_id = ? AND source NOT LIKE 'seed:%' AND id NOT IN (SELECT id FROM agent_examples WHERE agent_id = ? AND source NOT LIKE 'seed:%' ORDER BY created_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, keep).map((entry) => entry.id);
+      for (const gone of dropped) { prepare("DELETE FROM agent_examples WHERE id = ?").run(gone); prepare("DELETE FROM agent_vectors WHERE kind = 'example' AND item_id = ?").run(gone); }
+      return { ...exampleOf(prepare("SELECT * FROM agent_examples WHERE id = ?").get(id)), added: true };
+    });
+  }
+  const listExamples = (agentId, { limit = 400 } = {}) => prepare("SELECT * FROM agent_examples WHERE agent_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(agentId, Math.min(Math.max(limit, 1), 1_000)).map(exampleOf);
+  const listAllExamples = ({ limit = 5_000 } = {}) => prepare("SELECT * FROM agent_examples ORDER BY created_at DESC, rowid DESC LIMIT ?").all(Math.min(Math.max(limit, 1), 20_000)).map(exampleOf);
+  const countExamples = (agentId) => prepare("SELECT COUNT(*) AS count, SUM(CASE WHEN source LIKE 'seed:%' THEN 1 ELSE 0 END) AS seeds FROM agent_examples WHERE agent_id = ?").get(agentId);
+  const getExample = (agentId, exampleId) => exampleOf(prepare("SELECT * FROM agent_examples WHERE agent_id = ? AND id = ?").get(agentId, String(exampleId ?? "")));
+  const deleteExample = (agentId, exampleId) => transaction(() => {
+    const changed = Number(prepare("DELETE FROM agent_examples WHERE agent_id = ? AND id = ?").run(agentId, exampleId).changes) > 0;
+    if (changed) prepare("DELETE FROM agent_vectors WHERE kind = 'example' AND item_id = ?").run(exampleId);
+    return changed;
+  });
+  /** The example a run left, if any, taken back: a thumbs down after a thumbs up. */
+  const deleteExampleOfRun = (agentId, runId) => transaction(() => {
+    const row = prepare("SELECT id FROM agent_examples WHERE agent_id = ? AND source = ?").get(agentId, String(runId ?? ""));
+    if (!row) return false;
+    prepare("DELETE FROM agent_examples WHERE id = ?").run(row.id);
+    prepare("DELETE FROM agent_vectors WHERE kind = 'example' AND item_id = ?").run(row.id);
+    return true;
+  });
+
   // ---- feedback ----
 
   function setFeedback(runId, { agentId, version, model = null, verdict, note = null, givenBy }) {
@@ -934,6 +995,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     getThread, saveThread, deleteThread,
     addEpisode, listEpisodes, deleteEpisode,
     setVector, vectorsOf, deleteVector, deleteVectorsLike, countVectors,
+    addExample, listExamples, listAllExamples, countExamples, getExample, deleteExample, deleteExampleOfRun,
     setFeedback, getFeedback, listFeedback,
     createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun, setProposalStepJob, listOpenProposalsForJob,
     addDocument, upsertDocument, listDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
