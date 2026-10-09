@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, KeyValue, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, type AgentSummary, type Finding, type Memory as MemoryState, type MemoryNote } from "./api";
+import { agentsApi, type AgentSummary, type Example, type Examples, type Finding, type Memory as MemoryState, type MemoryNote } from "./api";
 import { errorText } from "./format";
 import { Prose } from "./Prose";
 
@@ -13,6 +13,10 @@ import { Prose } from "./Prose";
  *
  * M44: the findings it shared with the other agents, and theirs it can use, each with its age and
  * how long it stays fresh. A finding it shared can be forgotten; the switches are on the Build tab.
+ *
+ * M46: the example book - the requests whose plans a person approved, and the template's own - that
+ * the planner is shown the nearest few of before each plan. One can be forgotten; the owner exports
+ * the book as training data (docs/TRAINING.md), with this house's names replaced.
  */
 
 export interface MemoryProps {
@@ -31,6 +35,8 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<MemoryNote | null>(null);
+  // The example book arrives apart from the rest, and an older server has none to give.
+  const [examples, setExamples] = useState<Examples | null>(null);
   const [draft, setDraft] = useState({ title: "", body: "", freshDays: "" });
   const currentId = agent?.id ?? null;
 
@@ -41,8 +47,12 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
       const next = await agentsApi.memory(id);
       if (shown.current === id) { setState(next); setError(null); }
     } catch (requestError) { if (shown.current === id) setError(errorText(requestError, "What it remembers could not be read")); }
+    try {
+      const book = await agentsApi.examples(id);
+      if (shown.current === id) setExamples(book);
+    } catch { if (shown.current === id) setExamples(null); }
   }, []);
-  useEffect(() => { shown.current = currentId; setState(null); if (currentId) void read(currentId); }, [currentId, read]);
+  useEffect(() => { shown.current = currentId; setState(null); setExamples(null); if (currentId) void read(currentId); }, [currentId, read]);
 
   if (!agent) return <Panel title="Memory" padded><EmptyState title="No agent to look at">Memory is for the agents you may change.</EmptyState></Panel>;
   if (!state) {
@@ -115,6 +125,21 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
     { id: "text", header: "What the run found", cell: (episode) => <span className="agents-note"><span className="agents-note__body">{episode.text}</span></span> },
     { id: "when", header: "When", hideOnPhone: true, cell: (episode) => <span className="agents-dim">{relativeTime(episode.createdAt, now) ?? ""}</span> },
     { id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (episode) => <Button variant="ghost" onClick={() => void act(() => agentsApi.forget(csrfToken, agent.id, "episodes", episode.id), "Forgot that run.")} aria-label="Forget this run">Forget</Button> },
+  ];
+
+  const signalWords: Record<Example["signal"], string> = { seed: "from the template", "card-staged": "a card you staged", "thumbs-up": "a thumbs up", "finding-kept": "an answer kept as a finding", "eval-passed": "an evaluation question answered right" };
+  const exampleColumns: Array<TableColumn<Example>> = [
+    {
+      id: "request", header: "Request", cell: (example) => (
+        <span className="agents-note">
+          <span className="agents-note__title">{example.request}{example.seed && <Tag tone="neutral">template</Tag>}</span>
+          <span className="agents-name__purpose">{example.tools.length ? `plans ${example.tools.join(", ")}` : "plans no tool"}{example.embedded ? " · indexed" : ""}</span>
+        </span>
+      ),
+    },
+    { id: "signal", header: "Kept after", hideOnPhone: true, cell: (example) => <span className="agents-dim">{signalWords[example.signal] ?? example.signal}</span> },
+    { id: "when", header: "When", hideOnPhone: true, cell: (example) => <span className="agents-dim">{example.seed ? "" : relativeTime(example.createdAt, now) ?? ""}</span> },
+    { id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (example) => <Button variant="ghost" onClick={() => void act(() => agentsApi.forgetExample(csrfToken, agent.id, example.id), "Forgot that example; the planner is no longer shown it.")} aria-label={`Forget the example ${example.request}`}>Forget</Button> },
   ];
 
   return (
@@ -191,6 +216,15 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
         <Table caption={`Past runs ${agent.name} remembers`} columns={episodeColumns} rows={state.episodes} rowKey={(episode) => episode.id}
           empty={<EmptyState title="Nothing yet">Each answered run leaves a line here for later runs to recall.</EmptyState>} />
       </Panel>
+
+      {examples && (
+        <Panel className="agents-examples" title="Examples it plans from" count={examples.counts.total}
+          meta={`${examples.counts.seeds} from the template, ${examples.counts.total - examples.counts.seeds} approved; the planner is shown the nearest three`}
+          actions={role === "owner" && examples.counts.total > 0 ? <Button onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id))}>Export as training data</Button> : undefined}>
+          <Table caption={`Examples ${agent.name} plans from`} columns={exampleColumns} rows={examples.examples} rowKey={(example) => example.id}
+            empty={<EmptyState title="No examples yet">Stage a card, give an answer a thumbs up, or let an evaluation question pass: the request and its plan are kept here for the planner.</EmptyState>} />
+        </Panel>
+      )}
 
       <Panel className="agents-thread" title="Your conversation with it" padded
         actions={state.thread ? <Button variant="ghost" onClick={() => void act(() => agentsApi.forgetThread(csrfToken, agent.id), "It forgot your conversation.")}>Forget it</Button> : undefined}>

@@ -255,6 +255,9 @@ export interface Knowledge {
 }
 /** `othersWords`: its words are another account's, held to them by the runs of whoever looks (sweep 4). */
 export interface MemoryNote { id: string; title: string; body: string; source: Note["source"]; createdAt: string; updatedAt: string; freshUntil: string | null; stale: boolean; pinned: boolean; shared: boolean; readRole: string; indexed: boolean; othersWords?: boolean }
+/** M46: an example the planner is shown, as the Memory tab lists it: a request and the tools a good plan read for it. */
+export interface Example { id: string; request: string; tools: string[]; plan: Array<{ step: string; tool: string | null }>; answer: string | null; signal: "seed" | "card-staged" | "thumbs-up" | "finding-kept" | "eval-passed"; seed: boolean; runId: string | null; route: string | null; readRole: string; createdAt: string; embedded: boolean }
+export interface Examples { examples: Example[]; counts: { total: number; seeds: number } }
 /** M44: a finding, as the Memory tab lists it. */
 export interface Finding { id: string; kind: "routine" | "answer"; title: string; body: string; from: string; agentId: string; updatedAt: string; freshUntil: string | null; stale: boolean; readRole: string; runId: string | null; unsure: boolean; partial: boolean }
 export interface Memory {
@@ -348,6 +351,10 @@ export const agentsApi = {
   editMemory: (csrf: string, id: string, noteId: string, patch: { title?: string; body?: string; freshDays?: number | null; pinned?: boolean; shared?: boolean; trusted?: boolean }) => send<MemoryNote>("PUT", `/${encodeURIComponent(id)}/memory/notes/${encodeURIComponent(noteId)}`, csrf, patch),
   forget: (csrf: string, id: string, kind: "notes" | "episodes", itemId: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/${kind}/${encodeURIComponent(itemId)}`, csrf),
   forgetThread: (csrf: string, id: string) => send<{ forgotten: boolean }>("DELETE", `/${encodeURIComponent(id)}/memory/thread`, csrf),
+  // M46: the example book, and the owner's export of it as training data (a file, so a link rather than a call).
+  examples: (id: string) => get<Examples>(`/${encodeURIComponent(id)}/examples`),
+  forgetExample: (csrf: string, id: string, exampleId: string) => send<{ deleted: boolean }>("DELETE", `/${encodeURIComponent(id)}/examples/${encodeURIComponent(exampleId)}`, csrf),
+  examplesExportUrl: (id: string, { cover = null, seeds = true }: { cover?: number | null; seeds?: boolean } = {}) => `${base}/${encodeURIComponent(id)}/examples/export${[cover ? `cover=${cover}` : null, seeds ? null : "seeds=false"].filter(Boolean).length ? `?${[cover ? `cover=${cover}` : null, seeds ? null : "seeds=false"].filter(Boolean).join("&")}` : ""}`,
   /** A verdict; a "wrong" with `expect` (words the right answer holds) also becomes a golden question (M40). */
   feedback: (csrf: string, runId: string, verdict: "up" | "down", note?: string, expect?: string[]) => send<{ verdict: "up" | "down"; note: string | null; mine: boolean; addedToEvaluation?: { questionId: string | null } }>("POST", `/runs/${encodeURIComponent(runId)}/feedback`, csrf, { verdict, note: note || null, ...(expect?.length ? { expect } : {}) }),
   exportAgent: (id: string) => get<Record<string, unknown>>(`/${encodeURIComponent(id)}/export`),

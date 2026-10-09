@@ -269,6 +269,8 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   ensureColumn("agent_documents", "described_at", "TEXT");
   ensureColumn("agent_documents", "describe_attempts", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("agent_eval_runs", "model", "TEXT");
+  // M46.3: what the planner understood (goal, subject, constraints, confidence) beside the plan, so an export is the model's own answer.
+  ensureColumn("agent_examples", "intent_json", "TEXT");
   database.exec("CREATE INDEX IF NOT EXISTS idx_agent_runs_parent ON agent_runs(parent_run_id)");
 
   const iso = () => now().toISOString();
@@ -715,20 +717,20 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   const exampleOf = (row) => row && ({
     id: row.id, agentId: row.agent_id, source: row.source, signal: row.signal, request: row.request, plan: parse(row.plan_json, []),
     answer: row.answer ?? null, route: row.route ?? null, model: row.model ?? null, readRole: row.read_role, createdAt: row.created_at,
-    seed: row.source.startsWith("seed:"),
+    intent: parse(row.intent_json, null), seed: row.source.startsWith("seed:"),
   });
   /**
    * Keep an example: one per agent and source (a run, or a template's seed). A source already kept is
    * left as it was, so the first approval's record stands; `keep` is the most an agent keeps besides
    * its seeds, oldest dropped first with their vectors.
    */
-  function addExample({ agentId, source, signal, request, plan, answer = null, route = null, model = null, readRole = "owner", keep = 300 }) {
+  function addExample({ agentId, source, signal, request, plan, intent = null, answer = null, route = null, model = null, readRole = "owner", keep = 300 }) {
     return transaction(() => {
       const existing = prepare("SELECT * FROM agent_examples WHERE agent_id = ? AND source = ?").get(agentId, source);
       if (existing) return { ...exampleOf(existing), added: false };
       const id = randomUUID();
-      prepare("INSERT INTO agent_examples (id, agent_id, source, signal, request, plan_json, answer, route, model, read_role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(id, agentId, source, signal, request, json(plan), answer, route, model, readRole, iso());
+      prepare("INSERT INTO agent_examples (id, agent_id, source, signal, request, plan_json, intent_json, answer, route, model, read_role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(id, agentId, source, signal, request, json(plan), intent ? json(intent) : null, answer, route, model, readRole, iso());
       const dropped = prepare("SELECT id FROM agent_examples WHERE agent_id = ? AND source NOT LIKE 'seed:%' AND id NOT IN (SELECT id FROM agent_examples WHERE agent_id = ? AND source NOT LIKE 'seed:%' ORDER BY created_at DESC, rowid DESC LIMIT ?)").all(agentId, agentId, keep).map((entry) => entry.id);
       for (const gone of dropped) { prepare("DELETE FROM agent_examples WHERE id = ?").run(gone); prepare("DELETE FROM agent_vectors WHERE kind = 'example' AND item_id = ?").run(gone); }
       return { ...exampleOf(prepare("SELECT * FROM agent_examples WHERE id = ?").get(id)), added: true };
