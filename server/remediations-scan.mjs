@@ -5,6 +5,7 @@
  * repair.findings (M47) report the same findings. `operatorReadsWanted` says whether the reads an
  * operator may make (ADR-003) are made; `visibleJobsGiven` are the jobs this caller may see.
  */
+import os from "node:os";
 import { registry } from "./ops/index.mjs";
 import { detectRemediations } from "./remediations.mjs";
 import { applyLedger, attemptsKey, dismissalsKey } from "./repair-ledger.mjs";
@@ -32,19 +33,26 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   facts.volumes = volumes;
   facts.driveTools = null;
   facts.driveChecks = state.getSetting("driveChecks", {}) ?? {};
+  // The boot partition's check, answering the kernel's "not properly unmounted" line (2026-09-29).
+  facts.bootChecks = state.getSetting("bootPartitionChecks", {}) ?? {};
+  facts.hostname = os.hostname();
   if (storage) {
     // findmnt knows what is mounted; fstab knows which of those BoxPilot manages and with what
     // options. Only managed mounts are offered a fix, so a hand-made entry is never touched.
     const byMountpoint = new Map((storage.fstab ?? []).map((row) => [row.mountpoint, row]));
-    facts.fstab = (storage.fstab ?? []).map((row) => ({ device: row.device, mountpoint: row.mountpoint, managedName: row.managedName ?? null }));
+    facts.fstab = (storage.fstab ?? []).map((row) => ({ device: row.device, mountpoint: row.mountpoint, managedName: row.managedName ?? null, pass: row.pass ?? 0 }));
     facts.mounts = (storage.mounts ?? []).map((mount) => {
       const entry = byMountpoint.get(mount.target);
       return { ...mount, managedName: entry?.managedName ?? null, options: entry?.options ?? null };
     });
     facts.devices = (storage.devices ?? []).filter((device) => device.path).map((device) => ({ path: device.path, transport: device.transport ?? device.tran ?? null }));
-    // Whether the exFAT checker exists here at all; asked of the filesystem, not of apt.
-    const present = await Promise.all(["/usr/sbin/fsck.exfat", "/sbin/fsck.exfat"].map((file) => fileExists(file)));
-    facts.tools = { fsckExfat: present.some(Boolean) };
+    // Whether the exFAT checker exists here at all; asked of the filesystem, not of apt. The boot
+    // partition's checker (dosfstools) only when a FAT partition is mounted.
+    const [present, fat] = await Promise.all([
+      Promise.all(["/usr/sbin/fsck.exfat", "/sbin/fsck.exfat"].map((file) => fileExists(file))),
+      facts.mounts.some((mount) => ["vfat", "msdos"].includes(mount.fstype)) ? Promise.all(["/usr/sbin/fsck.fat", "/sbin/fsck.fat"].map((file) => fileExists(file))) : null,
+    ]);
+    facts.tools = { fsckExfat: present.some(Boolean), fsckFat: fat ? fat.some(Boolean) : null };
     // The exact versions the drive-tools fix would install, asked only when a finding offers that
     // fix: an exFAT drive and no fsck.exfat. Asked on every scan, it was eight root processes, two
     // of them apt-cache, on every Repair load of a server that already had the checker.
