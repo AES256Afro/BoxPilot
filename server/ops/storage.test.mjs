@@ -25,8 +25,8 @@ describe("storage operations", () => {
   it("parses fstab entries and findmnt usage rows", () => {
     const fstab = "# comment\nUUID=root / ext4 defaults 0 1\n# boxpilot:media\nUUID=x /mnt/media ext4 defaults,nofail 0 2\n";
     expect(parseFstab(fstab)).toEqual([
-      { device: "UUID=root", mountpoint: "/", fstype: "ext4", options: "defaults", managedName: null },
-      { device: "UUID=x", mountpoint: "/mnt/media", fstype: "ext4", options: "defaults,nofail", managedName: "media" },
+      { device: "UUID=root", mountpoint: "/", fstype: "ext4", options: "defaults", pass: 1, managedName: null },
+      { device: "UUID=x", mountpoint: "/mnt/media", fstype: "ext4", options: "defaults,nofail", pass: 2, managedName: "media" },
     ]);
     expect(parseFindmnt(JSON.stringify({ filesystems: [{ target: "/", source: "/dev/sda1", fstype: "ext4", size: "100", used: "40", avail: "60" }] })))
       .toEqual([{ target: "/", source: "/dev/sda1", fstype: "ext4", sizeBytes: 100, usedBytes: 40, availableBytes: 60, options: [], readOnly: false }]);
