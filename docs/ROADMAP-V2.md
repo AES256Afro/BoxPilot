@@ -2305,7 +2305,7 @@ outage did (`feat/repair-dns-power`).
   `tests/ubuntu/dns-fallback.sh` runs it all against real dnsmasq routers with and without a
   fallback and the runner's own lease, on both LTS releases; `tests/ubuntu/pihole-askers.sh` runs
   the catalog's Pi-hole image asked by eight devices and reads its database as the helper does.
-- ✅ **M39.5 The boot partition's mark** (unreleased, `feat/boot-partition-mark`; lifted from #334,
+- ✅ **M39.5 The boot partition's mark** (v1.173.0, `feat/boot-partition-mark`; lifted from #334,
   the rest of which M39.2, M39.3 and #336 had shipped another way). After the 2026-09-29 power cut
   the kernel said "FAT-fs (nvme0n1p1): Volume was not properly unmounted" about /boot/efi at every
   boot: Linux never clears a FAT mark it found set, and Ubuntu's boot-time check needs fsck.fat.
@@ -2880,7 +2880,7 @@ approvals become training data for a GPU machine without any of the house's name
 them. Each item is its own pull request, every one keeping the local model's evaluation at 6/6 and
 every M37 to M45 agent test passing.
 
-- ✅ **M46.1 The example book and demonstrations** (unreleased, `feat/m46-examples`).
+- ✅ **M46.1 The example book and demonstrations** (v1.170.0, `feat/m46-examples`).
   `agent_examples`: a request and the plan that served it, kept when a person approved the work (a
   card staged, a thumbs up, an answer kept as a finding, an evaluation question answered right; a
   thumbs down takes it back), redacted, never from a run that read something like an instruction
@@ -2905,7 +2905,7 @@ every M37 to M45 agent test passing.
   tools, the planner shown the nearest and one of another tool with the trace saying so, a model
   following them, the thumbs up and down, the instruction-like request, the index embedding them
   and the pick going by meaning after, the book's readers (`server/agents/examples.test.mjs`).
-- ✅ **M46.2 Diversity in recall** (unreleased, `feat/m46-recall`). Memory recall and
+- ✅ **M46.2 Diversity in recall** (v1.170.0, `feat/m46-recall`). Memory recall and
   `memory.search` ranked by reciprocal-rank fusion of words and meaning, then took the top k: the
   same fact as a note, an episode and a finding filled three of four places. `hybridSearch` now
   takes the best few (three times the limit, at least twelve) and spreads them with the same
@@ -2914,7 +2914,7 @@ every M37 to M45 agent test passing.
   "Next": matching findings by meaning when words fall short, which needs the request embedded at
   claim time (the runner has the embedder; the web service, which offers findings, does not).
   Tests: `brain.test.mjs` (the three copies, the vectors, the spread on scores alone).
-- ✅ **M46.3 Training data and the recipe** (unreleased, `feat/m46-training`). The example book
+- ✅ **M46.3 Training data and the recipe** (v1.170.0, `feat/m46-training`). The example book
   exported as chat-shaped JSON Lines (`server/agents/examples-export.mjs`): the planner's own system
   message for the agent and its tools, the request as the planner is asked it, and the model's own
   understanding (goal, subject, constraints, confidence, plan; kept with each example since this
@@ -2932,7 +2932,7 @@ every M37 to M45 agent test passing.
   through the model library's checksum and an approval card. Nothing in BoxPilot calls a trainer.
   Tests: `examples-export.test.mjs` (the records, the stand-ins, the cover, seeds out, the owner's
   export and the script against the same database).
-- ✅ **M46.4 The Memory tab shows the book** (unreleased, `feat/m46-training`). "Examples it plans
+- ✅ **M46.4 The Memory tab shows the book** (v1.170.0, `feat/m46-training`). "Examples it plans
   from": each request with the tools its plan reads, whether it is indexed, what it was kept after
   (the template, a card staged, a thumbs up, an answer kept as a finding, an evaluation question
   answered right) and when; Forget; and, for the owner, "Export as training data" (M46.3). An older
@@ -2946,7 +2946,7 @@ every M37 to M45 agent test passing.
   (`apps.list` for "where does Pi-hole run", M40), which the owner's own approvals, not this set,
   will keep measuring through the nightly evaluation's accuracy history.
 
-- ✅ **M46.5 The boundary set** (unreleased, `feat/boundary-eval`). The built-in six never trip
+- ✅ **M46.5 The boundary set** (v1.171.0, `feat/boundary-eval`). The built-in six never trip
   the base model, so they measure the demonstrations' cost, not their gain. `boundarySet` in
   `test/agents-eval.mjs`: eight questions worded between two plausible tools ("Is Pi-hole a BoxPilot
   app, another container, or running on the host?", "Did Pi-hole block anything today?", "Is
@@ -2965,7 +2965,7 @@ every M37 to M45 agent test passing.
   tokens against 54,900, 1,099 s against 1,166 s over the eight), with one to three examples shown
   on seven of the eight questions.
 
-- ✅ **M47.4 Feedback from Zulip** (unreleased, `feat/zulip-feedback`). Nobody on the owner's
+- ✅ **M47.4 Feedback from Zulip** (v1.172.0, `feat/zulip-feedback`). Nobody on the owner's
   server had ever pressed the Test tab's thumbs, so the example book grew only from cards and
   evaluations. A reply under an agent's answer in Zulip - `+1`, `-1`, a thumb, `right`, `wrong`,
   `wrong: what was expected` - from someone the owner mapped is now that run's feedback
@@ -2975,7 +2975,7 @@ every M37 to M45 agent test passing.
   thumbs down takes it back, and the bot says what it noted. Someone not set up gets the usual word.
   Test: `chat-ask.test.mjs`.
 
-- ✅ **M47.5 The CLI's example book** (unreleased, `feat/cli-examples`). The standalone host had no
+- ✅ **M47.5 The CLI's example book** (v1.172.0, `feat/cli-examples`). The standalone host had no
   book. `boxpilot-harness good <run>` keeps a finished run as an example (its task, the tools it ran,
   its answer), `bad <run>` takes it back, `examples` lists the book, and an evaluation case graded
   right is kept by itself. Before a task, the nearest three by words (`selectExamples`; the CLI
@@ -2995,7 +2995,7 @@ server: every night the Environment Scout's top findings were "my tools cannot c
 system updates or Repair's findings". M43 had left the Security Reviewer unbuilt for the same want.
 Each item is its own pull request, released and deployed when green.
 
-- ✅ **M47.1 Six read tools, the Security Reviewer, the firewall fact** (unreleased,
+- ✅ **M47.1 Six read tools, the Security Reviewer, the firewall fact** (v1.171.0,
   `feat/m47-eyes`). `firewall.status` (ufw: on or off, default policy, every rule; Docker's own
   rules named), `updates.status` (packages waiting, how many security, a reboot required, services on
   old libraries), `repair.findings` (the Repair page's own scan, worst first, each with its fix or
@@ -3017,7 +3017,7 @@ Each item is its own pull request, released and deployed when green.
   replaced. Tests: `tools-eyes.test.mjs` (the words, the roles, the hints, the templates, the
   grader, a Keeper answering from the firewall, the migration), the Repair route's tests unchanged
   through the shared scan.
-- ✅ **M47.2 A wider plan** (unreleased, `feat/m47-wider-plan`). A plan held five steps, so the
+- ✅ **M47.2 A wider plan** (v1.171.0, `feat/m47-wider-plan`). A plan held five steps, so the
   Scout's survey read five tools and the firewall and Repair stayed on request. The planner's plan
   now holds eight (`understandingSchema`, "name only the tools the request needs: one or two for a
   plain question"), the Scout's survey reads seven one a step (alerts, Repair's findings, the
@@ -3031,8 +3031,13 @@ Each item is its own pull request, released and deployed when green.
   tools, which the examples migration had run before. Tests: the
   survey reading all seven within its steps and tokens, the M43 budget still reaching its limit at
   eight steps, the schema (`findings.test.mjs`, `templates.test.mjs`, `brain.test.mjs`). To measure
-  on bigbox: the first widened survey's model time against its 25 minutes (Usage tab).
-- ✅ **M47.3 Findings by meaning** (unreleased, `feat/m47-findings-by-meaning`; M44's and M46's
+  on bigbox: the first widened survey's model time against its 25 minutes (Usage tab; the first is
+  due Sunday 2026-10-11 04:20 UTC). Measured in CI (2026-10-09, main against `baseline: v1.171.0`,
+  Qwen3.5-4B at four threads, bench runs 37955857245 and 37955860701): the eight-step plan did not
+  widen a Keeper's reads; the built-in set 6 of 6 on both trees in the same time (687 s against
+  686 s over the six), the boundary set 8 of 8 with the right tool 8 of 8 on both, ten tool reads
+  over the eight questions against the baseline's eleven.
+- ✅ **M47.3 Findings by meaning** (v1.171.0, `feat/m47-findings-by-meaning`; M44's and M46's
   last open item). Findings were offered before the plan by word overlap alone, and the memory
   index never embedded them (they are notes kept apart from the notes list). Now the index embeds
   each agent's findings, and once the runner has embedded the request (M46) it asks
@@ -3043,6 +3048,38 @@ Each item is its own pull request, released and deployed when green.
   calls that act read and to what the check holds citations to; the trace says "2 more findings
   offered by meaning: F2, F3". None for an agent that does not use findings, a run that does not
   read them, or a person who asked for a fresh check. Test: `findings-meaning.test.mjs`.
+
+- ✅ **M47.6 Three more eyes, and the Planner's** (unreleased, `feat/m47-more-eyes`). Three
+  templates still said what their tools could not see. Storage Watch: "what takes up the space, what
+  Docker could free"; the Update Planner: "how many system packages are waiting" (M47.1 had made
+  `updates.status` for the Keeper and left the Planner's rule); the Backup Auditor's own success
+  criterion, "each app never backed up", which `backups.status` (recent backups, the copies off the
+  server, the rehearsals) cannot answer. Now `apps.usage` (the Performance page's read: the
+  machine's processor, load, memory and swap, then each running app's share of a core and its
+  memory, busiest first), `backups.coverage` (the Backups page's read plus the schedules: every
+  installed app, whether it holds data worth keeping, how many backups, how old the newest, whether
+  a schedule backs it up; never backed up first; the apps of caches named as needing none) and
+  `space.reclaimable` (the Storage page's clean-up read, an operator's under ADR-003, with what it
+  would free and what it leaves and why, and `docker system df` with the log cap). The Keeper gets
+  all three, IT Support resource use ("why is it slow"), the Backup Auditor coverage (a step and a
+  rule: an app of caches needs no backup; 7 steps, 12,000 tokens, 1,500 s a day for its fifth
+  golden question, "Which apps have never been backed up?", graded on the fact `neverBackedUp`),
+  Storage Watch the clean-up's read (a step when a filesystem is above 80% or fills within 30 days,
+  proposing `housekeeping.reclaim` or `docker.prune`), the Update Planner `updates.status` (its
+  step, its two rules, a sixth golden question "Does the server need a reboot?" on the fact
+  `rebootRequired`, 1,800 s a day). The Scout keeps its ten tools: a call that acts carries ten and
+  its survey fills them. Agents made before get the tools their template gained, the template's
+  wording for a rule or step of the old wording (a maker's own wording is kept), the Auditor's new
+  rule, the budget the longer work takes, and the new seeds (`migrateDefaults`, "BoxPilot gave it
+  eyes on ..."). The stand-in model knows the words. 34 tools. Tests: `tools-more-eyes.test.mjs`
+  (the words, the roles, the hints, the templates, the two graders, a Keeper answering from
+  coverage, the Auditor's and the Planner's facts, the migration); the planner's prompt grew by
+  about 45 tokens (`bench.test.mjs`).
+- ✅ **M47.7 The weekly bench** (unreleased, `feat/weekly-bench`, #432). The real-model bench was
+  manual, so its numbers were a memory. Every Monday at 05:20 UTC `agents-bench.yml` runs the
+  built-in and the boundary sets on main at the shipped four threads, the job summary the week's
+  record (no baseline: the week before is the previous run). Proved by a dispatch from the branch:
+  the built-in set 6 of 6 on Qwen3.5-4B.
 
 ## App catalogue candidates
 
