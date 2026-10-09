@@ -35,7 +35,7 @@ export const understandingSchema = Object.freeze({
     confidence: { type: "number", minimum: 0, maximum: 1, description: "How sure you are that you understood: 0 to 1." },
     clarify: { type: ["string", "null"], maxLength: 200, description: "A question to ask back when the request is ambiguous; otherwise null." },
     plan: {
-      type: "array", maxItems: 5,
+      type: "array", maxItems: 8,
       items: { type: "object", additionalProperties: false, required: ["step", "tool"], properties: { step: stepText, tool: { type: ["string", "null"] } } },
       description: "The steps, in order; each with the tool it uses, or null for writing the answer.",
     },
@@ -72,7 +72,7 @@ export function plannerSystem(agent = {}, tools = []) {
     "Answer only with JSON like this:",
     JSON.stringify({ goal: "What is wanted, in one sentence", subject: "What it is about", constraints: [], confidence: 0.8, clarify: null, plan: [...(example ? [{ step: "Read what the answer needs", tool: example }] : []), { step: "Answer with citations", tool: null }] }),
     "goal: what the person or the trigger wants. subject: an app, a service, a drive, the server. constraints: limits stated or implied. confidence: 0 to 1. clarify: one question to ask back if the request is too unclear to act on, else null.",
-    "plan: at most five steps in order, each a few words naming the one tool it uses from the list below, or null for writing the answer. Name only the tools the request needs.",
+    "plan: at most eight steps in order, each a few words naming the one tool it uses from the list below, or null for writing the answer. Name only the tools the request needs: one or two for a plain question.",
     // M44: what other agents found may already answer it. The same words for every run of the agent.
     ...(agent.useFindings ? ["Plan no tool for what another agent's finding (F1, F2) answers, unless asked for a fresh check or a fix."] : []),
     "",
@@ -150,7 +150,7 @@ export function readUnderstanding(raw, { offered = [] } = {}) {
   if (!readable(goal)) return { problem: "The understanding had no goal" };
   const confidence = Number(value.confidence);
   const plan = [];
-  for (const entry of (Array.isArray(value.plan) ? value.plan : []).slice(0, 6)) {
+  for (const entry of (Array.isArray(value.plan) ? value.plan : []).slice(0, 9)) {
     const tool = toolName(entry?.tool);
     const words = clip(entry?.step, 200);
     if (readable(words)) plan.push({ step: words, tool });

@@ -4436,13 +4436,49 @@ export function createAgentService({
         const added = eyes.filter((id) => template.spec.tools[id] === "auto" && (tools[id] ?? "off") === "off");
         if (!added.length) continue;
         for (const id of added) tools[id] = "auto";
-        const rules = (agent.spec.prompt?.rules ?? []).map((rule) => (rule === oldRule ? template.spec.prompt.rules.find((entry) => entry.startsWith("The firewall and Repair's findings")) ?? rule : rule));
+        const rules = (agent.spec.prompt?.rules ?? []).map((rule) => (rule === oldRule ? template.spec.prompt.rules.find((entry) => entry.startsWith("Asked about the firewall or Repair alone")) ?? rule : rule));
         let spec;
         try { spec = normalizeSpec({ ...agent.spec, tools, prompt: { ...agent.spec.prompt, rules }, sharing: sharingFor(agent) }); } catch { continue; }
         if (save(agent, spec, `BoxPilot gave it eyes on ${added.map((id) => toolById(id)?.title.toLowerCase() ?? id).join(", ")}`, added.map((id) => `tools.${id}`))) given += 1;
       }
       next.eyes = { at: now().toISOString(), given };
       changed += given;
+    }
+    // M47.2: a Scout still on the five-read survey (or M47.1's rule) gets the seven-read one and the
+    // budget it needs, once; a Scout whose maker rewrote its steps keeps them.
+    if (!done.survey) {
+      const scout = templateById("environment-scout");
+      const fiveReads = [
+        "Read what is wrong now with alerts.active: failed services and schedules, unhealthy apps, a reboot waiting, disks filling.",
+        "Read the drives with storage.health, and the apps with apps.list: unhealthy, restarting, stopped (on purpose or not) or with an update waiting.",
+        "Read backups.status for the copies off this server and which apps' backups were test-restored.",
+        "Read server.facts for processor load, memory and how long it has been up.",
+        "Rank what you found, say what changed since your last survey (in what you remember), and propose cards for the top two with plan.propose.",
+      ];
+      const onRequestRule = "The firewall and Repair's findings are read on request: firewall.status and repair.findings. The weekly survey does not read them: list what this run did not read under Not checked, with the page to open (Firewall, Repair).";
+      const newRule = scout?.spec.prompt.rules.find((entry) => entry.startsWith("Asked about the firewall or Repair alone")) ?? null;
+      let widened = 0;
+      for (const agent of store.listAgents()) {
+        if (agent.template !== "environment-scout" || !scout) continue;
+        const steps = agent.spec.prompt?.steps ?? [];
+        const sameSteps = steps.length === fiveReads.length && steps.every((step, index) => step === fiveReads[index]);
+        const hasOldRule = (agent.spec.prompt?.rules ?? []).includes(onRequestRule);
+        if (!sameSteps && !hasOldRule) continue;
+        const prompt = {
+          ...agent.spec.prompt,
+          steps: sameSteps ? scout.spec.prompt.steps : steps,
+          rules: (agent.spec.prompt?.rules ?? []).map((rule) => (rule === onRequestRule && newRule ? newRule : rule)),
+        };
+        const budget = { ...agent.spec.budget };
+        for (const field of ["modelSecondsPerDay", "stepsPerRun", "tokensPerRun", "runSeconds"]) if ((budget[field] ?? 0) < scout.spec.budget[field]) budget[field] = scout.spec.budget[field];
+        const tools = { ...agent.spec.tools };
+        for (const id of ["firewall.status", "repair.findings"]) if ((tools[id] ?? "off") === "off") tools[id] = "auto";
+        let spec;
+        try { spec = normalizeSpec({ ...agent.spec, prompt, budget, tools, sharing: sharingFor(agent) }); } catch { continue; }
+        if (save(agent, spec, "BoxPilot widened its weekly survey: it reads Repair's findings and the firewall too, with the steps, tokens and time that takes", ["prompt.steps", "budget"])) widened += 1;
+      }
+      next.survey = { at: now().toISOString(), widened };
+      changed += widened;
     }
     // M46: agents made before the example book get their template's examples, once.
     if (!done.examples) {
@@ -4451,7 +4487,7 @@ export function createAgentService({
       next.examples = { at: now().toISOString(), seeded };
       changed += seeded;
     }
-    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
+    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.survey !== done.survey) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
     return changed;
   }
 

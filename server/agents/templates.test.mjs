@@ -117,7 +117,7 @@ describe("the templates added in M43", () => {
     }
   });
 
-  it("name at most five tools in their steps besides the always-on ones, so their routine work fits in one plan", () => {
+  it("name at most eight tools in their steps besides the always-on ones, so their routine work fits in one plan", () => {
     const always = new Set(toolCatalog.filter((tool) => tool.always).map((tool) => tool.id));
     for (const id of added) {
       const { spec } = templateById(id);
@@ -139,7 +139,7 @@ describe("the templates added in M43", () => {
 
   it("say what their tools cannot see instead of guessing at it", () => {
     // M47: the firewall and Repair are read on request; open ports, SSH settings and package updates still are not.
-    expect(promptText(templateById("environment-scout").spec)).toMatch(/The firewall and Repair's findings are read on request: firewall\.status and repair\.findings/);
+    expect(promptText(templateById("environment-scout").spec)).toMatch(/Asked about the firewall or Repair alone, read firewall\.status or repair\.findings for it; the weekly survey reads both/);
     expect(promptText(templateById("environment-scout").spec)).toMatch(/Open ports, SSH settings and waiting system package updates no tool of yours sees/);
     expect(promptText(templateById("environment-scout").spec)).toMatch(/Cloudflare Tunnel app/);
     expect(promptText(templateById("update-planner").spec)).toMatch(/cannot see how many system packages are waiting/);
