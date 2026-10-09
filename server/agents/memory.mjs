@@ -78,7 +78,51 @@ export function hybridSearch(items, { query, queryVector = null, limit = 5, minC
       .sort((a, b) => b[1] - a[1]).slice(0, 50);
     meaning.forEach(([index], rank) => add(index, rank, "meaning"));
   }
-  return [...fused.values()].sort((a, b) => b.score - a.score).slice(0, limit).map((entry) => ({ ...items[entry.index], score: Math.round(entry.score * 10_000) / 10_000, via: [...entry.via] }));
+  // The best few by fused score, then spread (M46.2): the top k alone is often one fact k times.
+  const ranked = [...fused.values()].sort((a, b) => b.score - a.score).slice(0, Math.max(limit * 3, 12)).map((entry) => ({ ...items[entry.index], score: Math.round(entry.score * 10_000) / 10_000, via: [...entry.via] }));
+  return diversify(ranked, { limit });
+}
+
+const itemWords = (item) => new Set(tokenize(`${item.title ?? ""} ${String(item.text ?? "").slice(0, 1_000)}`));
+
+/**
+ * How alike two remembered items are: cosine when both have vectors, else the share of the shorter
+ * one's words the two share (a finding that quotes a note shares all of the note's words).
+ */
+export function itemSimilarity(a, b) {
+  const byVector = cosine(a.vector, b.vector);
+  if (byVector !== null) return byVector;
+  const wa = itemWords(a); const wb = itemWords(b);
+  if (!wa.size || !wb.size) return 0;
+  let shared = 0;
+  for (const word of wa) if (wb.has(word)) shared += 1;
+  return shared / Math.min(wa.size, wb.size);
+}
+
+/**
+ * Spread what recall returns (M46.2, ADR-014): from items ranked by score, pick `limit` by maximal
+ * marginal relevance - each next pick the one with the best λ·relevance − (1 − λ)·(similarity to
+ * what is already picked), relevance being the score against the best - and never a near-copy of a
+ * pick (similarity at or above `dedupeAbove`). The same fact as a note, an episode and a finding
+ * then fills one place, not three.
+ */
+export function diversify(ranked, { limit = 5, lambda = 0.7, dedupeAbove = 0.95 } = {}) {
+  if (!ranked.length || limit <= 0) return [];
+  const top = ranked[0].score || 1;
+  const picks = [];
+  while (picks.length < limit) {
+    let best = null; let bestScore = -Infinity;
+    for (const item of ranked) {
+      if (picks.includes(item)) continue;
+      const nearest = picks.length ? Math.max(...picks.map((pick) => itemSimilarity(pick, item))) : 0;
+      if (nearest >= dedupeAbove) continue;
+      const score = lambda * (item.score / top) - (1 - lambda) * nearest;
+      if (score > bestScore) { bestScore = score; best = item; }
+    }
+    if (!best) break;
+    picks.push(best);
+  }
+  return picks;
 }
 
 // ---- conversations ----
