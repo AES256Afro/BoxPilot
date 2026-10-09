@@ -2742,7 +2742,11 @@ export function createAgentService({
         card("question", `${agent.name} has a question`, "It asked rather than guess what was meant. Answer it in the console.", { question: clarify });
       } else {
         if (rules.lowConfidence && typeof confidence === "number" && confidence < limits.lowConfidence && ["ask", "manual", "event", "schedule", "webhook"].includes(run.kind)) reasons.push(`It was only ${Math.round(confidence * 100)}% sure it understood the request.`);
-        if (rules.limits && run.flags?.limitReached) reasons.push(limitWords(run.flags, spec));
+        // A run that measures the agent (an evaluation) or writes up another's work leaves no card
+        // for a limit it reached: the owner's Environment Scout raised one every night its
+        // evaluation question ran into its step limit (bigbox, 2026-10-07 and 2026-10-09), though
+        // the answer passed. Evaluations are read on the Evaluation tab, never as cards.
+        if (rules.limits && run.flags?.limitReached && ["ask", "manual", "event", "schedule", "webhook"].includes(run.kind)) reasons.push(limitWords(run.flags, spec));
       }
       // A run that asked back is no less one that read something like an instruction: its question
       // may be those words (sweep 3: the card and the warning were skipped for it).
