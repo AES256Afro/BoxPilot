@@ -54,7 +54,7 @@ export const agentTemplates = Object.freeze([
       },
       instructions: "",
       audience: ["owner", "operator"],
-      tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "logs.query": "ask", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "jobs.recent": "auto", "records.query": "auto", "alerts.active": "auto", "backups.status": "auto", "pihole.stats": "ask", "where.runs": "auto", "plan.propose": "auto", "notify.owner": "auto", "agents.handoff": "auto" },
+      tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "logs.query": "ask", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "jobs.recent": "auto", "records.query": "auto", "alerts.active": "auto", "backups.status": "auto", "pihole.stats": "ask", "where.runs": "auto", "firewall.status": "auto", "updates.status": "auto", "repair.findings": "auto", "protection.status": "auto", "plan.propose": "auto", "notify.owner": "auto", "agents.handoff": "auto" },
       triggers: { ask: true, schedule: { every: "daily", hour: 5, minute: 30, quietHours: true }, events: ["health.alert", "drive.dropped"] },
       // An hour of model time a day: its 24 runs (questions, the digest, alerts, learning) take a few
       // minutes each on a CPU, and half an hour ran out after three questions on a small machine.
@@ -82,7 +82,7 @@ export const agentTemplates = Object.freeze([
         "Ranks what needs the owner first, and says in one line which areas are fine.",
         "Each item says what it is, why it matters and the tool output it came from.",
         "Each item ends with a next step: a card for a registered operation, or the BoxPilot page to open.",
-        "Names the areas it could not check, such as the firewall and system updates, instead of guessing.",
+        "Names the areas this run did not read, such as the firewall or system updates when they were not asked for, instead of guessing.",
       ],
       prompt: {
         rules: [
@@ -92,10 +92,11 @@ export const agentTemplates = Object.freeze([
           "A drive storage.health says was spun down to save power is normal and not a problem: BoxPilot leaves an idle disk asleep rather than wake it to read its health. List it under Fine, with its last reading.",
           "Use the numbers and dates the tools give, as they give them. Do not work out new ones.",
           "backups.status lists BoxPilot's own database backups, the copies off this server and which apps' backups were test-restored, not every app's backups. Name the apps that hold data with no test restore; for which have a backup at all, point to the Backups page.",
-          "Your tools cannot see the firewall, open ports, SSH settings, waiting system package updates or Repair's findings. List them under Not checked with the page to open: Firewall, Updates, Repair.",
+          "The firewall and Repair's findings are read on request: firewall.status and repair.findings. The weekly survey does not read them: list what this run did not read under Not checked, with the page to open (Firewall, Repair).",
+          "Open ports, SSH settings and waiting system package updates no tool of yours sees: name them under Not checked, with the page to open (Updates).",
           "If apps.list shows the Cloudflare Tunnel app (cloudflared), some apps may be open to the internet: say so, and that its Tunnel tab lists them.",
           "Read every tool in your plan before you propose anything. Then propose at most two cards, for the two most important items a registered operation fixes; for the rest, name the operation or the page.",
-          "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed.",
+          "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed, firewall.status for the firewall, repair.findings for what Repair found.",
         ],
         // Five reads: the most a plan holds (intent.mjs), so the weekly survey reads all of them.
         steps: [
@@ -111,7 +112,7 @@ export const agentTemplates = Object.freeze([
       instructions: "",
       audience: ["owner", "operator"],
       // Five reads for the survey, two more for a person's question about one area, and proposing.
-      tools: { ...off, "server.facts": "auto", "storage.health": "auto", "alerts.active": "auto", "apps.list": "auto", "backups.status": "auto", "services.status": "auto", "jobs.recent": "auto", "plan.propose": "auto" },
+      tools: { ...off, "server.facts": "auto", "storage.health": "auto", "alerts.active": "auto", "apps.list": "auto", "backups.status": "auto", "services.status": "auto", "jobs.recent": "auto", "firewall.status": "auto", "repair.findings": "auto", "plan.propose": "auto" },
       // A survey reads five tools, several minutes of model time on a CPU: once a week, early on
       // Sunday in quiet hours, and whenever the owner asks.
       triggers: { ask: true, schedule: { every: "weekly", weekday: 0, hour: 4, minute: 20, quietHours: true }, events: [] },
@@ -335,7 +336,7 @@ export const agentTemplates = Object.freeze([
       },
       instructions: "",
       audience: ["owner", "operator", "viewer"],
-      tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "alerts.active": "auto", "where.runs": "auto" },
+      tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "alerts.active": "auto", "where.runs": "auto", "firewall.status": "auto", "updates.status": "auto", "repair.findings": "auto" },
       triggers: { ask: true, schedule: null, events: [] },
       // 1,800 s, not 1,200: its seven evaluation questions need 1,680 s with half the day left for
       // people, so at 1,200 its nightly evaluation was always skipped (M43).
@@ -346,6 +347,55 @@ export const agentTemplates = Object.freeze([
       // and shares nothing of its own (M44).
       sharing: { shareFindings: false, useFindings: true },
       escalation: { lowConfidence: false, limits: false, actions: false, risk: true },
+    },
+  },
+  {
+    // M47: the template M43 left unbuilt for want of tools that see the firewall, fail2ban, SSH and the tunnel.
+    id: "security-reviewer",
+    title: "Security Reviewer",
+    summary: "Looks over how this server is exposed once a week - the firewall, brute-force protection, SSH and the accounts, what the tunnel publishes, which apps listen - and writes what to tighten, each item with its evidence and a next step.",
+    spec: {
+      name: "Security Reviewer",
+      purpose: "Reviews how this server is exposed and says, most important first, what to tighten and why.",
+      job: "Review how this server is exposed - the firewall, fail2ban, SSH and accounts, the tunnel, the apps that listen - and rank what to tighten, most important first, with evidence and a next step.",
+      successCriteria: [
+        "Ranks what to tighten first, and says in one line what is already sound.",
+        "Each item says what it is, why it matters and the tool output it came from.",
+        "Each item ends with a next step: a card for a registered operation, or the BoxPilot page to open.",
+        "Names what it could not see - open ports, the apps' own logins, the router - instead of guessing.",
+      ],
+      prompt: {
+        rules: [
+          "Rank by exposure: what the internet can reach first (the tunnel's apps, a firewall off or allowing everything), then forced logins (SSH password or root login, no fail2ban), then who holds keys and sudo, then updates waiting.",
+          "Report only what a tool showed. When an area is sound, say so in a few words; never invent a weakness to fill the list.",
+          "A firewall that is off is not by itself an emergency on a home network behind a router: say what it would protect against here, from what apps.list shows listening.",
+          "Docker publishes its ports whatever ufw says: an app with a web port is reachable on the home network, and on the internet only through the tunnel or the router.",
+          "Use the numbers and names the tools give, as they give them. Do not work out new ones.",
+          "Read every tool in your plan before you propose anything. Then propose at most two cards, for the two most important items a registered operation fixes; for the rest, name the operation or the page.",
+          "Asked about one area, read the tool for it: firewall.status for the firewall, protection.status for fail2ban, users.access for SSH and the accounts, tunnel.exposure for the internet, updates.status for package updates.",
+        ],
+        // Five reads: the most a plan holds (intent.mjs), so the weekly review reads all of them.
+        steps: [
+          "Read firewall.status: whether it is on, the default policy, and which ports it allows.",
+          "Read protection.status and users.access: fail2ban, password and root login over SSH, who has sudo and keys.",
+          "Read tunnel.exposure: what is published to the internet.",
+          "Read apps.list: which apps listen on a web port, and which are stopped or unhealthy.",
+          "Rank what to tighten, say what changed since your last review (in what you remember), and propose cards for the top two with plan.propose.",
+        ],
+        output: { format: "text", style: "A numbered list headed \"What to tighten\", most important first. Each item: what it is, why it matters, the evidence with its [T] citation, and the next step. Then a line \"Sound:\" and a line \"Not checked:\"." },
+        escalate: [],
+      },
+      instructions: "",
+      audience: ["owner", "operator"],
+      // Five reads for the review, services and updates for a person's question about one area, and proposing.
+      tools: { ...off, "firewall.status": "auto", "protection.status": "auto", "users.access": "auto", "tunnel.exposure": "auto", "apps.list": "auto", "services.status": "auto", "updates.status": "auto", "docs.search": "auto", "plan.propose": "auto", "notify.owner": "auto" },
+      // A review reads five tools: once a week, early on Monday in quiet hours, after the Scout's Sunday survey, and whenever the owner asks.
+      triggers: { ask: true, schedule: { every: "weekly", weekday: 1, hour: 4, minute: 40, quietHours: true }, events: [] },
+      budget: { runsPerDay: 4, modelSecondsPerDay: 2_400, stepsPerRun: 10, tokensPerRun: 24_000, runSeconds: 1_200 },
+      outputs: { notes: false, digest: false, notify: "never", proposals: true },
+      memory: { enabled: true, freshDays: 21, maxNotes: 10 },
+      sharing: { shareFindings: true, useFindings: true },
+      allow: { apps: "*", operations: ["fail2ban.apply", "firewall.rule.add", "apt.upgrade", "apt.unattended.set"] },
     },
   },
   {
@@ -419,7 +469,7 @@ export const templateById = (id) => agentTemplates.find((template) => template.i
  * report: read the way apps.list and services.status read them, so an agent is checked against
  * what its own tool said.
  */
-export const evaluationFacts = Object.freeze(["hostname", "operatingSystem", "installedApps", "rootDiskPercent", "piholePlacement", "piholeBlocking", "drives", "stoppedApps", "unhealthyApps", "appUpdates", "failedServices"]);
+export const evaluationFacts = Object.freeze(["hostname", "operatingSystem", "installedApps", "rootDiskPercent", "piholePlacement", "piholeBlocking", "drives", "stoppedApps", "unhealthyApps", "appUpdates", "failedServices", "firewallEnabled"]);
 
 /**
  * The built-in evaluation (M40): real questions with answers BoxPilot can check, each asked only of
@@ -454,6 +504,10 @@ export const templateExamples = Object.freeze({
     { id: "overnight", request: "What went wrong on the server overnight?", tools: ["alerts.active", "jobs.recent"] },
     { id: "backup-when", request: "When was Jellyfin last backed up?", tools: ["backups.status"] },
     { id: "howto", request: "How do I restore an app from a backup?", tools: ["docs.search"] },
+    { id: "firewall", request: "Is the firewall on, and which ports does it allow?", tools: ["firewall.status"] },
+    { id: "updates", request: "Are there system updates waiting, or a reboot?", tools: ["updates.status"] },
+    { id: "repair", request: "What does Repair want fixed?", tools: ["repair.findings"] },
+    { id: "banned", request: "Has fail2ban banned anyone lately?", tools: ["protection.status"] },
   ],
   "environment-scout": [
     { id: "unhealthy", request: "Which BoxPilot apps are unhealthy or keep restarting?", tools: ["apps.list"] },
@@ -461,6 +515,8 @@ export const templateExamples = Object.freeze({
     { id: "root", request: "How full is the root filesystem?", tools: ["storage.health"] },
     { id: "wrong-now", request: "What is wrong on the server right now?", tools: ["alerts.active"] },
     { id: "backups", request: "Which apps have no recent backup?", tools: ["backups.status"] },
+    { id: "firewall", request: "Is the firewall on?", tools: ["firewall.status"] },
+    { id: "repair", request: "What has Repair found?", tools: ["repair.findings"] },
   ],
   "pihole-watcher": [
     { id: "where", request: "Where does Pi-hole run on this server?", tools: ["where.runs"] },
@@ -496,6 +552,16 @@ export const templateExamples = Object.freeze({
     { id: "where-pihole", request: "Where does Pi-hole run on this server?", tools: ["where.runs"] },
     { id: "running", request: "Is Jellyfin running?", tools: ["apps.list"] },
     { id: "unreachable", request: "Why can't I reach the dashboard?", tools: ["apps.list", "alerts.active"] },
+    { id: "firewall", request: "Is the firewall on?", tools: ["firewall.status"] },
+    { id: "reboot", request: "Does the server need a reboot?", tools: ["updates.status"] },
+  ],
+  "security-reviewer": [
+    { id: "firewall", request: "Is the firewall on, and which ports does it allow?", tools: ["firewall.status"] },
+    { id: "banned", request: "Has fail2ban banned anyone lately?", tools: ["protection.status"] },
+    { id: "ssh-root", request: "Can root log in over SSH, or with a password?", tools: ["users.access"] },
+    { id: "exposed", request: "What is published to the internet?", tools: ["tunnel.exposure"] },
+    { id: "listening", request: "Which apps are listening on a web port?", tools: ["apps.list"] },
+    { id: "updates", request: "Are security updates waiting?", tools: ["updates.status"] },
   ],
   "house-guide": [
     { id: "pihole-for", request: "What is Pi-hole for?", tools: ["docs.search"] },
@@ -545,8 +611,9 @@ export const templateQuestions = Object.freeze({
     { id: "unhealthy", question: "Which BoxPilot apps are unhealthy?", expect: { fact: "unhealthyApps" } },
     { id: "failed-services", question: "Which system services have failed?", expect: { fact: "failedServices" } },
     { id: "root-disk", question: "How full is the root filesystem, as a percentage?", expect: { fact: "rootDiskPercent" } },
-    // What it cannot see is part of a right answer: a survey that is silent about the firewall reads as "the firewall is fine".
-    { id: "not-checked", question: "Which parts of this server can your tools not check?", expect: { includes: ["firewall"] } },
+    // M47: the firewall is read, not guessed at; what it still cannot see (open ports, SSH settings) is part of a right answer.
+    { id: "firewall", question: "Is the firewall turned on?", expect: { fact: "firewallEnabled" } },
+    { id: "not-checked", question: "Which parts of this server can your tools not check?", expect: { includes: ["ports"] } },
   ],
   "app-doctor": [
     { id: "stopped", question: "Which BoxPilot apps are stopped?", expect: { fact: "stoppedApps" } },
@@ -560,6 +627,10 @@ export const templateQuestions = Object.freeze({
   "update-planner": [
     { id: "app-updates", question: "Which BoxPilot apps have an update available?", expect: { fact: "appUpdates" } },
     { id: "apps", question: "How many BoxPilot apps are installed?", expect: { fact: "installedApps" } },
+  ],
+  "security-reviewer": [
+    { id: "firewall", question: "Is the firewall turned on?", expect: { fact: "firewallEnabled" } },
+    { id: "ssh-root", question: "May root log in over SSH?", expect: { includes: ["root"] } },
   ],
   "house-guide": [
     { id: "hostname", question: "What is this server called?", expect: { fact: "hostname" } },
