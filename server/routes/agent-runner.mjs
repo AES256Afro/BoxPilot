@@ -53,6 +53,8 @@ export function createAgentRunnerRouter({ agents, limit = null }) {
   router.post("/agent-runner/runs/:runId/tools", auth, handle((request) => agents.runnerTool(request.params.runId, lease(request), request.body?.name, request.body?.input ?? "{}", { vector: request.body?.vector ?? null })));
   // An index run's embeddings, for memory search by meaning.
   router.post("/agent-runner/runs/:runId/vectors", auth, handle((request) => agents.runnerVectors(request.params.runId, lease(request), request.body?.entries)));
+  // M47.3: the other agents' findings nearest the request's embedding, once the runner has made it.
+  router.post("/agent-runner/runs/:runId/findings", auth, handle((request) => agents.runnerFindings(request.params.runId, lease(request), request.body ?? {})));
   // M45.3: a run on Claude asks its model through here; the web service sends it on to the model gateway.
   router.post("/agent-runner/runs/:runId/model", auth, handle((request) => agents.runnerModel(request.params.runId, lease(request), request.body ?? {})));
   router.post("/agent-runner/runs/:runId/finish", auth, handle((request) => agents.runnerFinish(request.params.runId, lease(request), request.body ?? {})));

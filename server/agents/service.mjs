@@ -31,7 +31,7 @@ import { createAgentChat, zulipSettingKey } from "./chat.mjs";
 import { ConnectorError, boundSync, cleanDocumentText, connectors, readFolderSetting, scanFolder, textOfUpload } from "./connectors.mjs";
 import { ageWords, compactFinding, findingAnswers, findingFreshMs, findingKind, findingReaderKinds, findingScore, sharingOf, wantsFresh } from "./findings.mjs";
 import { readUnderstanding, understandingSummary } from "./intent.mjs";
-import { decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, memoryTiers, readVector } from "./memory.mjs";
+import { cosine, decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, memoryTiers, readVector } from "./memory.mjs";
 import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
 import { agentsNamed, chainOf, checkHandoff, nameKey, reservedNameProblem, specialistsFor, treeOf } from "./orchestrator.mjs";
 import { exportDefinition, readDefinition } from "./portable.mjs";
@@ -115,6 +115,8 @@ export const serviceLimits = Object.freeze({
   // 225 tokens: read twice, by the planner and by the calls that act), and a finding kept at most
   // this long, a note's size.
   findingsInPrompt: 3,
+  // M47.3: how near a finding's embedding must be to the request's to be offered by meaning.
+  findingsMinCosine: 0.55,
   findingPromptChars: 900,
   findingChars: 2_000,
   // Examples (M46): how many of the agent's examples go to the runner for it to choose from, and how
@@ -1068,26 +1070,69 @@ export function createAgentService({
       .sort((a, b) => b.score - a.score || b.shared - a.shared || b.finding.updatedAt.localeCompare(a.finding.updatedAt))
       .slice(0, limits.findingsInPrompt);
     const names = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
-    return ranked.map(({ finding }, position) => {
-      const index = position + 1;
-      const from = names.get(finding.agentId) ?? "another agent";
-      const cleaned = sanitizeUntrusted(`${finding.title}\n${finding.body}`, { maxChars: limits.findingPromptChars, redact });
-      const doubts = { unsure: Boolean(finding.source?.unsure), partial: Boolean(finding.source?.partial) };
-      // Another agent's words, read here: a flag of this run's own (hop 0) - but not a person's own
-      // question, its title (sweep 3).
-      const flagged = findingReadsLikeInstruction(finding, run);
-      if (flagged) flagInjection(run.id, { hop: 0 });
-      const step = store.addStep(run.id, {
-        kind: "finding", name: from, output: cleaned.text,
-        input: { id: `F${index}`, noteId: finding.id, agentId: finding.agentId, agent: from, writtenAt: finding.updatedAt, freshUntil: finding.freshUntil, ...doubts },
-        flags: { finding: `F${index}`, ...(flagged ? { injection: true } : {}) },
-      });
-      if (step) emit(run.id, "step", step);
-      return {
-        id: `F${index}`, title: `${from}'s finding`, text: cleaned.text,
-        wrapped: wrapFinding({ index, from, writtenAt: finding.updatedAt.slice(0, 16), age: findingAge(finding), text: cleaned.text, ...doubts, flags: { injection: flagged } }),
-      };
+    return ranked.map(({ finding }, position) => offerFinding(run, finding, position + 1, names, "words"));
+  }
+
+  /**
+   * One finding offered to a run as F<index>: boxed as untrusted data, a step in the trace saying
+   * which and how it was matched (`by`: "words" before the plan, "meaning" once the request was
+   * embedded, M47.3), and this run flagged when the finding reads like an instruction.
+   */
+  function offerFinding(run, finding, index, names, by) {
+    const from = names.get(finding.agentId) ?? "another agent";
+    const cleaned = sanitizeUntrusted(`${finding.title}\n${finding.body}`, { maxChars: limits.findingPromptChars, redact });
+    const doubts = { unsure: Boolean(finding.source?.unsure), partial: Boolean(finding.source?.partial) };
+    // Another agent's words, read here: a flag of this run's own (hop 0) - but not a person's own
+    // question, its title (sweep 3).
+    const flagged = findingReadsLikeInstruction(finding, run);
+    if (flagged) flagInjection(run.id, { hop: 0 });
+    const step = store.addStep(run.id, {
+      kind: "finding", name: from, output: cleaned.text,
+      input: { id: `F${index}`, noteId: finding.id, agentId: finding.agentId, agent: from, writtenAt: finding.updatedAt, freshUntil: finding.freshUntil, by, ...doubts },
+      flags: { finding: `F${index}`, ...(flagged ? { injection: true } : {}) },
     });
+    if (step) emit(run.id, "step", step);
+    return {
+      id: `F${index}`, title: `${from}'s finding`, text: cleaned.text,
+      wrapped: wrapFinding({ index, from, writtenAt: finding.updatedAt.slice(0, 16), age: findingAge(finding), text: cleaned.text, ...doubts, flags: { injection: flagged } }),
+    };
+  }
+
+  /**
+   * Findings by meaning (M47.3, M44's "Next"): once the runner has embedded the request, it asks for
+   * the other agents' fresh findings nearest to it that words did not find before the plan, up to
+   * the places left. The vector comes from the runner; the findings' own were made by the memory
+   * index (a finding is a note). Nothing when the agent does not use findings, the run is not one
+   * that reads them, or no finding is near enough.
+   */
+  function runnerFindings(runId, lease, { vector = null } = {}) {
+    const run = heldRun(runId, lease);
+    const agent = store.getAgent(run.agentId, { includeDeleted: true });
+    const spec = store.getVersion(run.agentId, run.version)?.spec ?? agent?.spec;
+    if (!agent || !spec || !sharingFor(agent, spec).useFindings || !findingReaderKinds.includes(run.kind)) return { findings: [] };
+    const queryVector = readVector(vector);
+    if (!queryVector) return { findings: [] };
+    const already = offeredFindings(run.id);
+    const room = limits.findingsInPrompt - already.length;
+    if (room <= 0) return { findings: [] };
+    const root = run.rootRunId && run.rootRunId !== run.id ? store.getRun(run.rootRunId) : null;
+    if (wantsFresh(run.question, root?.question)) return { findings: [] };
+    const seen = new Set(store.listSteps(run.id).filter((step) => step.kind === "finding").map((step) => step.input?.noteId));
+    const candidates = usableFindings(run.readRole, { exceptAgentId: agent.id }).filter((finding) => !seen.has(finding.id));
+    if (!candidates.length) return { findings: [] };
+    const items = withVectors(candidates.map((finding) => ({ key: `note:${finding.id}`, finding })), embedModelName()).filter((item) => item.vector);
+    const query32 = Float32Array.from(queryVector);
+    let length = 0;
+    for (const value of query32) length += value * value;
+    length = Math.sqrt(length) || 1;
+    for (let index = 0; index < query32.length; index += 1) query32[index] /= length;
+    const ranked = items.map((item) => ({ finding: item.finding, score: cosine(item.vector, query32) })).filter((entry) => entry.score !== null && entry.score >= limits.findingsMinCosine)
+      .sort((a, b) => b.score - a.score || b.finding.updatedAt.localeCompare(a.finding.updatedAt)).slice(0, room);
+    if (!ranked.length) return { findings: [] };
+    const names = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
+    const offered = ranked.map(({ finding }, position) => offerFinding(run, finding, already.length + position + 1, names, "meaning"));
+    audit("agents.findings.by-meaning", { subjectId: run.agentId, details: { runId: run.id, offered: offered.length } });
+    return { findings: offered };
   }
 
   /**
@@ -1431,6 +1476,8 @@ export function createAgentService({
       ],
       // The findings it was offered, F1, F2 ...: what the runner's check holds a claim citing one to.
       findings: findings.map(({ id, title, text }) => ({ id, title, text })),
+      // M47.3: whether the runner may ask for more findings by meaning once it has embedded the request.
+      findingsByMeaning: usesFindings && findingReaderKinds.includes(run.kind) && findings.length < limits.findingsInPrompt,
       // A follow-up's specialists' answers, T1, T2 ...: tool output already, before any it reads (sweep 3).
       handoffs,
       tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(["operations.run", "operations.plan"].includes(tool.id) ? actTool(tool, spec) : tool) })),
@@ -1467,6 +1514,8 @@ export function createAgentService({
     const items = [];
     for (const agent of store.listAgents()) {
       for (const note of store.listNotes(agent.id, { limit: 200 })) items.push({ key: `note:${note.id}`, text: `${note.title}\n${note.body}` });
+      // Its findings (M47.3): notes of their own kind, kept apart from the list above, matched by meaning once embedded.
+      for (const finding of store.listFindings({ agentId: agent.id })) items.push({ key: `note:${finding.id}`, text: `${finding.title}\n${finding.body}` });
       for (const episode of store.listEpisodes(agent.id, { limit: 200 })) items.push({ key: `episode:${episode.id}`, text: episode.text });
       // The example book (M46): the request alone, which is what a new request is compared with.
       for (const example of store.listExamples(agent.id, { limit: 400 })) items.push({ key: `example:${example.id}`, text: example.request });
@@ -4254,7 +4303,7 @@ export function createAgentService({
     noteRuntimeInstalled: (result, options) => noteRuntimeInstalled(result, options),
     currentModel: () => { const runtime = runtimeSettings(); return `${runtime.repo}/${runtime.file}`; },
     // the runner
-    runnerHello, runnerNext, runnerHeartbeat, runnerSteps, runnerTool, runnerFinish, runnerVectors, runnerModel,
+    runnerHello, runnerNext, runnerHeartbeat, runnerSteps, runnerTool, runnerFinish, runnerVectors, runnerModel, runnerFindings,
     runnerUsage: (runnerId, value) => { noteRunner(runnerId, value?.usage ?? null, value?.hostBusy); return runnerAdvice(); },
     runnerAdvice: () => runnerAdvice(),
     verifyRunnerToken: (token) => verifyRunnerToken(token), ensureRunnerToken: () => ensureRunnerToken(),

@@ -328,6 +328,11 @@ with the house's names as stand-ins, from the API (the owner's) or from the data
 `scripts/boxpilot-agents-examples.mjs`, for an adapter trained on a GPU machine elsewhere and gated
 by the same evaluation. Nothing in BoxPilot calls a trainer.
 
+Other agents' findings reach a run two ways (M44, M47.3): by words before the plan, and by meaning
+after the runner has embedded the request, when the web service ranks the fresh findings it may
+read by cosine and fills the places left. Each goes in boxed as F<n>, with a trace step saying how
+it was matched.
+
 The same spread applies to memory recall (M46.2, `diversify` in `server/agents/memory.mjs`): what
 the hybrid search returns to the prompt and to `memory.search` is the best few by fused score, then
 picked by maximal marginal relevance, so the same fact remembered as a note, an episode and a
