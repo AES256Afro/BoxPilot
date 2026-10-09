@@ -2872,7 +2872,14 @@ every M37 to M45 agent test passing.
   the fact and on whether the plan named the right tool, with how many examples were shown. `node
   test/agents-eval.mjs --set boundary`; `tests/bench/agents-real.mjs --eval --set boundary`; the
   bench workflow's `set` input, with `baseline` for a before and after. On the stand-in: 8 of 8,
-  the right tool 8 of 8 (`evaluation.test.mjs`).
+  the right tool 8 of 8 (`evaluation.test.mjs`). **On the real model** (run 37936411358, Qwen 3.5
+  4B at four threads, `baseline: v1.167.0` against the example book): the right tool 8 of 8 on
+  both; facts 8 of 8 before and 7 of 8 after, the one miss a grader's fault (both models said
+  nextcloud, the stopped app, "needs a restart"; the question asked for "none is unhealthy", so it
+  now grades the stopped apps). What the demonstrations changed: fewer tools read for the same
+  answers (where.runs alone for the Pi-hole question, not where.runs and apps.list; 48,700 prompt
+  tokens against 54,900, 1,099 s against 1,166 s over the eight), with one to three examples shown
+  on seven of the eight questions.
 
 - **Fixed on the way (2026-10-09, from the owner's server):** the Environment Scout raised an
   "Environment Scout needs you to look" card every night its evaluation question ("Which parts of

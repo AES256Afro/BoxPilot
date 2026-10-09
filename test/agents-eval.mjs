@@ -43,7 +43,8 @@ export const boundarySet = Object.freeze([
   { id: "service-died", question: "Has any service on the box died?", fact: "failedServices", tool: "services.status" },
   { id: "disk-full", question: "Is the main disk close to full?", fact: "rootDiskPercent", tool: "storage.health" },
   { id: "machine-name", question: "What's the name of this machine, and what does it run?", fact: "operatingSystem", tool: "server.facts" },
-  { id: "needs-restart", question: "Which of my apps need a restart?", fact: "unhealthyApps", tool: "apps.list" },
+  // A stopped app is the one that needs a restart: both models said nextcloud, and the grader asked for "none is unhealthy" (bench run 37936411358).
+  { id: "needs-restart", question: "Which of my apps need a restart?", fact: "stoppedApps", tool: "apps.list" },
   { id: "media-drive", question: "Which drive holds the media, and is it the system disk?", fact: "drives", tool: "storage.health" },
 ]);
 
