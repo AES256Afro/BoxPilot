@@ -2821,10 +2821,15 @@ every M37 to M45 agent test passing.
   tools, the planner shown the nearest and one of another tool with the trace saying so, a model
   following them, the thumbs up and down, the instruction-like request, the index embedding them
   and the pick going by meaning after, the book's readers (`server/agents/examples.test.mjs`).
-- **M46.2 Diversity in recall.** Memory recall and `memory.search` rank by reciprocal-rank fusion
-  of words and meaning, then take the top k: the same fact as a note, an episode and a finding
-  fills three of four places. Apply the same maximal marginal relevance to what recall returns, and
-  match findings by meaning when words fall short (M44's "Next").
+- ✅ **M46.2 Diversity in recall** (unreleased, `feat/m46-recall`). Memory recall and
+  `memory.search` ranked by reciprocal-rank fusion of words and meaning, then took the top k: the
+  same fact as a note, an episode and a finding filled three of four places. `hybridSearch` now
+  takes the best few (three times the limit, at least twelve) and spreads them with the same
+  maximal marginal relevance (`diversify`, λ 0.7): a near-copy of a pick (cosine 0.95 when both
+  have vectors, else the shorter one's words all shared) is never returned. Still open from M44's
+  "Next": matching findings by meaning when words fall short, which needs the request embedded at
+  claim time (the runner has the embedder; the web service, which offers findings, does not).
+  Tests: `brain.test.mjs` (the three copies, the vectors, the spread on scores alone).
 - **M46.3 Training data and the recipe.** Export the example book as chat-shaped JSONL (the planner's
   system message, the request, the plan as the model wrote it, the answer), the house's names
   replaced with stand-ins (`createStandIns`) and secrets redacted, `coverExamples` offered to pick

@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { answerFormat, readStructuredAnswer } from "../../packages/harness/src/index.mjs";
 import { ExactError, calculate, convertUnits, extractJson, matchPattern, timeCalc } from "./deterministic.mjs";
 import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor, understandingSchema } from "./intent.mjs";
-import { cosine, decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, readVector, threadBudget } from "./memory.mjs";
+import { cosine, decodeVector, diversify, encodeVector, episodeOf, foldThread, hybridSearch, itemSimilarity, readVector, threadBudget } from "./memory.mjs";
 import { systemMessage } from "./prompt.mjs";
 import { normalizeSpec } from "./spec.mjs";
 import { toolIdOf } from "./tool-catalog.mjs";
@@ -162,6 +162,33 @@ describe("memory", () => {
     // "storage" shares no word with the disks note; its vector finds it.
     const byMeaning = hybridSearch(items, { query: "storage", queryVector: [0, 0, 0.9, 0.1, 0, 0, 0, 0], limit: 1 });
     expect(byMeaning[0]).toMatchObject({ key: "c", via: ["meaning"] });
+  });
+
+  it("spreads what it returns: the same fact as a note, an episode and a finding fills one place, not three (M46.2)", () => {
+    const fact = "Pi-hole runs in the container bp-pi-hole on this server, as a BoxPilot app";
+    const items = [
+      { key: "note", title: "Pi-hole", text: fact },
+      { key: "episode", title: "A run on 2026-10-01", text: `Asked where Pi-hole runs. ${fact}.` },
+      { key: "finding", title: "Asked: where does Pi-hole run?", text: `${fact} [T1]` },
+      { key: "blocking", title: "Pi-hole blocking", text: "Pi-hole blocked 15% of 1,000 queries in the last day; gravity updated two days ago" },
+      { key: "disks", title: "Disks", text: "The media drive is 4 TB" },
+    ];
+    const found = hybridSearch(items, { query: "pi-hole", limit: 3 });
+    // The nearest copy of the fact once; then Pi-hole's other fact; never the second and third copies.
+    expect(found.map((item) => item.key)).toEqual(["note", "blocking"]);
+    // By vectors: two items at the same point are one; the next pick is the one farthest from it.
+    const at = (angle) => decodeVector(encodeVector([Math.cos(angle), Math.sin(angle), 0, 0, 0, 0, 0, 0]));
+    const vectors = [
+      { key: "p", title: "Pi-hole", text: "one", vector: at(0) },
+      { key: "p2", title: "Pi-hole", text: "two", vector: at(0.01) },
+      { key: "q", title: "Pi-hole", text: "three", vector: at(0.4) },
+      { key: "r", title: "Pi-hole", text: "four", vector: at(0.8) },
+    ];
+    expect(hybridSearch(vectors, { query: "pi-hole", queryVector: [1, 0, 0, 0, 0, 0, 0, 0], limit: 3 }).map((item) => item.key)).toEqual(["p", "r", "q"]);
+    // The spread itself, on scores alone.
+    expect(diversify([{ score: 1, title: "Drive", text: "the backup drive is failing" }, { score: 0.9, title: "Drive", text: "the backup drive is failing" }, { score: 0.2, title: "Disks", text: "the disks are fine" }], { limit: 2 }).map((item) => item.text)).toEqual(["the backup drive is failing", "the disks are fine"]);
+    expect(diversify([], { limit: 2 })).toEqual([]);
+    expect(itemSimilarity({ title: "", text: "" }, { title: "a", text: "b" })).toBe(0);
   });
 
   it("folds a long conversation into a running summary that fits the model's context", () => {
