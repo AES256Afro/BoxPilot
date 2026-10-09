@@ -2965,6 +2965,21 @@ every M37 to M45 agent test passing.
   tokens against 54,900, 1,099 s against 1,166 s over the eight), with one to three examples shown
   on seven of the eight questions.
 
+- ✅ **M46.6 Preference pairs from the thumbs** (unreleased, `feat/m46-pairs`). M46.3 left it: "a
+  thumbs down deletes the example rather than keeping it as a negative", so the thumbs could not
+  train. Now a thumbed-down run is paired with the approved example nearest its request (the same
+  words; by meaning when both have vectors, at least 0.85; else at least 60% of the shorter
+  request's words shared) when the two plans differ: the example's understanding chosen, the run's
+  rejected (its intent step and its plan step), in TRL's conversational preference shape (`prompt`,
+  `chosen`, `rejected`, with `meta`: the run, the example, how they matched, the tools each named,
+  the person's note). The same plan makes no pair (the answer was wrong, not the plan: the planner
+  is what is trained), and a thumbs down with no approved neighbour waits for one: nothing is made
+  up for the chosen side. `preferencePairs` and `nearestExample` in `examples-export.mjs`; the Memory
+  tab counts them (`counts.pairs`) and offers "Export N preference pairs" beside the book's export;
+  `GET .../examples/export?pairs=true`; `boxpilot-agents-examples.mjs pairs <db>`. The house's names
+  go through the same stand-ins. `docs/TRAINING.md` section 5: a short ORPO stage on the pairs after
+  the fine-tune, small beta, one epoch, the same gate. Tests: `examples-export.test.mjs` (the pair,
+  the skips, the match by meaning and by words, the API's count and file, the script).
 - ✅ **M47.4 Feedback from Zulip** (v1.172.0, `feat/zulip-feedback`). Nobody on the owner's
   server had ever pressed the Test tab's thumbs, so the example book grew only from cards and
   evaluations. A reply under an agent's answer in Zulip - `+1`, `-1`, a thumb, `right`, `wrong`,

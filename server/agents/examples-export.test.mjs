@@ -3,12 +3,13 @@
  * The example book as training data (M46.3): one chat-shaped record an example, the planner's own
  * system message and request wording, the model's understanding as the answer; the house's names
  * replaced with stand-ins everywhere; a covering subset on request; seeds marked and droppable; and
- * the same records from the API (the owner's) and from the script against the database.
+ * the same records from the API (the owner's) and from the script against the database. M46.6: a
+ * thumbs down beside the approved plan it should have had, as a preference pair.
  */
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
-import { plannerToolsOf, toJsonl, trainingRecords, understandingOf } from "./examples-export.mjs";
+import { nearestExample, plannerToolsOf, preferencePairs, toJsonl, trainingRecords, understandingOf } from "./examples-export.mjs";
 import { templateById } from "./templates.mjs";
 
 let h;
@@ -58,6 +59,47 @@ describe("training records", () => {
   });
 });
 
+describe("preference pairs", () => {
+  it("pair a thumbs down with the approved plan nearest its request when the plans differ, and skip the same plan or no neighbour", () => {
+    const rejected = [
+      { id: "r1", request: "Where does Pi-hole run on homebox?", understanding: { goal: "Find Pi-hole on homebox", subject: "Pi-hole", constraints: [], confidence: 0.7, plan: [{ step: "Read apps_list", tool: "apps_list" }] }, note: "wrong: it is a BoxPilot app on homebox" },
+      // The same plan as the approved one: the answer was wrong, not the plan.
+      { id: "r2", request: "Is Pi-hole blocking ads right now?", understanding: { goal: "x", plan: [{ step: "Read Pi-hole", tool: "pihole_stats" }] } },
+      // No approved neighbour: nothing is made up for the chosen side.
+      { id: "r3", request: "How many containers restart at night?", understanding: { goal: "y", plan: [{ step: "Read apps", tool: "apps_list" }] } },
+      // Most words shared with the drives example, whose plan reads storage.health.
+      { id: "r4", request: "Which drives are connected right now?", understanding: { goal: "z", plan: [{ step: "Read facts", tool: "server_facts" }] } },
+      { id: "r5", request: "", understanding: { plan: [] } },
+    ];
+    const pairs = preferencePairs({ agent: { name: "Server Keeper", spec: keeperSpec }, examples, rejected, names: { hosts: ["homebox"] } });
+    expect(pairs.map((pair) => pair.meta.runId)).toEqual(["r1", "r4"]);
+    const [first, second] = pairs;
+    expect(first.prompt.map((message) => message.role)).toEqual(["system", "user"]);
+    expect(first.prompt[0].content).toMatch(/^You work out what a request to Server Keeper asks for/);
+    expect(first.prompt[1].content).toBe("Where does Pi-hole run on host-1?\n\nWork out what is asked and plan it. Answer only with the JSON.");
+    expect(JSON.parse(first.chosen[0].content)).toMatchObject({ goal: "Find where Pi-hole runs on host-1", plan: [{ step: "Read where.runs", tool: "where_runs" }, { step: "Answer", tool: null }] });
+    expect(JSON.parse(first.rejected[0].content)).toMatchObject({ goal: "Find Pi-hole on host-1", confidence: 0.7, plan: [{ step: "Read apps_list", tool: "apps_list" }] });
+    expect(first.meta).toMatchObject({ agent: "Server Keeper", exampleId: "1", matchedBy: "same words", chosenTools: ["where_runs"], rejectedTools: ["apps_list"], note: "wrong: it is a BoxPilot app on host-1" });
+    expect(second.meta).toMatchObject({ exampleId: "3", chosenTools: ["storage_health"], rejectedTools: ["server_facts"] });
+    expect(second.meta.matchedBy).toMatch(/^words (0\.[6-9]\d|1\.00)$/);
+    expect(second.meta.note).toBeUndefined();
+    expect(JSON.stringify(pairs)).not.toContain("homebox");
+  });
+
+  it("find the neighbour by meaning when both sides have vectors, else by words", () => {
+    const byMeaning = nearestExample({ request: "totally other words", vector: [1, 0] }, [{ id: "v", request: "nothing shared here", vector: [0.99, 0.1] }]);
+    expect(byMeaning).toMatchObject({ by: expect.stringMatching(/^meaning 0\.9\d$/) });
+    expect(byMeaning.example.id).toBe("v");
+    expect(nearestExample({ request: "totally other words", vector: [1, 0] }, [{ id: "v", request: "nothing shared here", vector: [0, 1] }])).toBeNull();
+    // Words alone, under the bar: none.
+    expect(nearestExample({ request: "the moon is far", vector: null }, [{ id: "w", request: "which drives are connected", vector: null }])).toBeNull();
+    // The same words win over a near vector.
+    const same = nearestExample({ request: "Which drives are connected?", vector: [1, 0] }, [{ id: "near", request: "which drive is the system disk", vector: [1, 0.01] }, { id: "same", request: "which drives are connected", vector: [0, 1] }]);
+    expect(same).toMatchObject({ by: "same words" });
+    expect(same.example.id).toBe("same");
+  });
+});
+
 describe("exporting the book", () => {
   it("is the owner's from the API, with this house's names as stand-ins, and the same from the script against the database", async () => {
     h = await createAgentsHarness();
@@ -88,5 +130,42 @@ describe("exporting the book", () => {
     const listed = spawnSync(process.execPath, ["scripts/boxpilot-agents-examples.mjs", "list", h.state.databasePath], { encoding: "utf8", cwd: process.cwd() });
     expect(listed.status).toBe(0);
     expect(listed.stdout).toMatch(/Server Keeper\s+\d+ examples/);
+  });
+
+  it("pairs a thumbs down with the approved plan from the API, counts them for the tab, and writes them from the script (M46.6)", async () => {
+    h = await createAgentsHarness();
+    h.enable();
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    // Approved: the planner read where.runs for where Pi-hole runs.
+    h.service.startRun(h.caller("owner"), keeper.id, { kind: "ask", question: "Where does Pi-hole run on this server?" });
+    const good = await h.runNext();
+    expect(good.state).toBe("completed");
+    h.service.giveFeedback(h.caller("owner"), good.id, { verdict: "up" });
+    expect(h.service.examplesOf(h.caller("owner"), keeper.id).counts.pairs).toBe(0);
+    // Rejected: the same question, a planner that read apps.list instead; the person says so.
+    h.fake.state.script = (body) => (body.response_format?.json_schema?.name === "understanding"
+      ? { understanding: { goal: "Answer where Pi-hole runs", subject: "Pi-hole", constraints: [], confidence: 0.6, clarify: null, plan: [{ step: "Read apps_list", tool: "apps_list" }, { step: "Answer", tool: null }] } }
+      : null);
+    h.service.startRun(h.caller("owner"), keeper.id, { kind: "ask", question: "Where does Pi-hole run on this server?" });
+    const bad = await h.runNext();
+    h.fake.state.script = null;
+    expect(["completed", "degraded"]).toContain(bad.state);
+    h.service.giveFeedback(h.caller("owner"), bad.id, { verdict: "down", note: "wrong: it is a BoxPilot app" });
+    expect(h.service.examplesOf(h.caller("owner"), keeper.id).counts.pairs).toBe(1);
+    const exported = h.service.exportExamples(h.caller("owner"), keeper.id, { pairs: true });
+    expect(exported.filename).toMatch(/^boxpilot-pairs-server-keeper-\d{4}-\d{2}-\d{2}\.jsonl$/);
+    expect(exported.records).toBe(1);
+    const [pair] = exported.jsonl.trim().split("\n").map((line) => JSON.parse(line));
+    expect(pair.meta).toMatchObject({ runId: bad.id, matchedBy: "same words", rejectedTools: ["apps_list"], note: "wrong: it is a BoxPilot app" });
+    expect(JSON.parse(pair.chosen[0].content).plan.some((entry) => entry.tool === "where_runs")).toBe(true);
+    expect(JSON.parse(pair.rejected[0].content).plan.map((entry) => entry.tool)).toEqual(["apps_list", null]);
+    // The thumbs down is no example, so the book's own export does not carry it.
+    expect(h.service.exportExamples(h.caller("owner"), keeper.id, {}).jsonl).not.toContain(bad.id);
+    // The script reads the same database.
+    const script = spawnSync(process.execPath, ["scripts/boxpilot-agents-examples.mjs", "pairs", h.state.databasePath, "--agent", "Server Keeper"], { encoding: "utf8", cwd: process.cwd() });
+    expect(script.status, script.stderr).toBe(0);
+    expect(script.stdout.trim().split("\n")).toHaveLength(1);
+    expect(JSON.parse(script.stdout.trim()).meta).toMatchObject({ runId: bad.id, rejectedTools: ["apps_list"], chosenTools: expect.arrayContaining(["where_runs"]) });
+    expect(script.stderr).toMatch(/1 pairs from 1 agent/);
   });
 });

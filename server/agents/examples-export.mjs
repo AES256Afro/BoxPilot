@@ -11,10 +11,17 @@
  * addresses replaced with values no real house has). Secrets were redacted when the example was
  * kept. `coverExamples` picks a subset that covers the book when a smaller set is wanted.
  *
+ * Preference pairs (M46.6): a run someone gave a thumbs down, beside the approved example nearest
+ * its request (the same words, or by meaning when both have vectors, else most words shared), when
+ * the two plans differ: the example's understanding is the chosen answer, the run's the rejected
+ * one, in the shape a preference trainer (DPO, ORPO) reads. A thumbs down whose plan was the same
+ * as the approved one makes no pair: the answer was wrong, not the plan, and the planner is what is
+ * trained. Nothing is made up for the chosen side: a thumbs down with no approved neighbour waits.
+ *
  * The script `scripts/boxpilot-agents-examples.mjs` writes the same records from the database
  * directly, for a server where the API is not at hand; `docs/TRAINING.md` is the recipe.
  */
-import { coverExamples, createStandIns } from "../../packages/harness/src/index.mjs";
+import { cosineOf, coverExamples, createStandIns, wordOverlap } from "../../packages/harness/src/index.mjs";
 import { plannerSystem } from "./intent.mjs";
 import { toolById, toolCatalog } from "./tool-catalog.mjs";
 
@@ -46,8 +53,7 @@ export function trainingRecords({ agent, examples, names = {}, cover = null, see
   const standIns = createStandIns(names);
   const hide = (text) => standIns.hide(String(text ?? ""));
   const spec = agent.spec ?? {};
-  const tools = plannerToolsOf(spec);
-  const system = hide(plannerSystem({ name: spec.name ?? agent.name, purpose: spec.purpose ?? "", job: spec.job ?? "", steps: spec.prompt?.steps ?? [], useFindings: spec.sharing?.useFindings !== false }, tools));
+  const system = plannerSystemFor(agent, hide);
   let chosen = examples.filter((example) => seeds || !example.seed);
   if (cover && cover > 0 && cover < chosen.length) {
     const picked = new Set(coverExamples({ candidates: chosen.map((example) => ({ key: example.id, text: example.request, vector: example.vector ?? null })), limit: cover }).map((candidate) => candidate.key));
@@ -68,6 +74,63 @@ export function trainingRecords({ agent, examples, names = {}, cover = null, see
       },
     };
   });
+}
+
+/** The planner's system message for an agent, as its runs send it, with the house's names hidden. */
+function plannerSystemFor(agent, hide) {
+  const spec = agent.spec ?? {};
+  return hide(plannerSystem({ name: spec.name ?? agent.name, purpose: spec.purpose ?? "", job: spec.job ?? "", steps: spec.prompt?.steps ?? [], useFindings: spec.sharing?.useFindings !== false }, plannerToolsOf(spec)));
+}
+
+const plainWords = (text) => String(text ?? "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+const toolsOf = (understanding) => understanding.plan.map((entry) => entry.tool).filter(Boolean);
+
+/** The approved example nearest a rejected run's request, and how it was matched, or null. */
+export function nearestExample(run, examples, { minOverlap = 0.6, minCosine = 0.85 } = {}) {
+  let best = null;
+  for (const example of examples) {
+    let score = null;
+    let by = null;
+    if (plainWords(example.request) === plainWords(run.request)) { score = 2; by = "same words"; }
+    else {
+      const cosine = run.vector && example.vector ? cosineOf(run.vector, example.vector) : null;
+      if (cosine !== null && cosine >= minCosine) { score = 1 + cosine; by = `meaning ${cosine.toFixed(2)}`; }
+      else {
+        const overlap = wordOverlap(run.request, example.request);
+        if (cosine === null && overlap >= minOverlap) { score = overlap; by = `words ${overlap.toFixed(2)}`; }
+      }
+    }
+    if (score !== null && (!best || score > best.score)) best = { example, score, by };
+  }
+  return best;
+}
+
+/**
+ * Preference pairs for one agent: `rejected` are its thumbed-down runs as { id, request, understanding,
+ * note, vector }, `examples` the book (as for trainingRecords). TRL's conversational preference shape:
+ * prompt, chosen, rejected, each a list of messages.
+ */
+export function preferencePairs({ agent, examples, rejected, names = {}, minOverlap = 0.6, minCosine = 0.85 }) {
+  const standIns = createStandIns(names);
+  const hide = (text) => standIns.hide(String(text ?? ""));
+  const system = plannerSystemFor(agent, hide);
+  const hidden = (understanding) => ({ ...understanding, goal: hide(understanding.goal), subject: hide(understanding.subject), constraints: understanding.constraints.map(hide), plan: understanding.plan.map((entry) => ({ ...entry, step: hide(entry.step) })) });
+  const pairs = [];
+  for (const run of rejected) {
+    if (!run?.request || !run.understanding || !Array.isArray(run.understanding.plan)) continue;
+    const match = nearestExample(run, examples, { minOverlap, minCosine });
+    if (!match) continue;
+    const chosen = understandingOf(match.example);
+    const bad = understandingOf({ request: run.request, plan: run.understanding.plan, intent: run.understanding });
+    if (toolsOf(chosen).join(" ") === toolsOf(bad).join(" ")) continue;
+    pairs.push({
+      prompt: [{ role: "system", content: system }, { role: "user", content: plannerUserMessage(hide(run.request)) }],
+      chosen: [{ role: "assistant", content: JSON.stringify(hidden(chosen)) }],
+      rejected: [{ role: "assistant", content: JSON.stringify(hidden(bad)) }],
+      meta: { agent: hide(agent.spec?.name ?? agent.name), runId: run.id, exampleId: match.example.id, matchedBy: match.by, chosenTools: toolsOf(chosen), rejectedTools: toolsOf(bad), ...(run.note ? { note: hide(run.note) } : {}) },
+    });
+  }
+  return pairs;
 }
 
 /** Records as JSON Lines, one a line, ending with a newline. */

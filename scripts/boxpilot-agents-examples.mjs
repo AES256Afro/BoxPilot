@@ -7,6 +7,10 @@
  *   boxpilot-agents-examples.mjs list   <db>
  *   boxpilot-agents-examples.mjs export <db> [--agent NAME] [--cover N] [--no-seeds]
  *                                            [--host NAME ...] [--domain NAME ...] [--user NAME ...]
+ *   boxpilot-agents-examples.mjs pairs  <db> [--agent NAME] [--host NAME ...] [--domain NAME ...] [--user NAME ...]
+ *
+ * `pairs` writes the preference pairs (M46.6): each thumbs down beside the approved example nearest
+ * its request when their plans differ, for a DPO or ORPO stage after the fine-tune.
  *
  * Run it as the database's owner (`runuser -u boxpilot -- node scripts/boxpilot-agents-examples.mjs
  * export /var/lib/boxpilot/boxpilot.sqlite3 > examples.jsonl`). The host's own name and the accounts
@@ -14,7 +18,7 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { houseNames } from "../server/agents/cloud.mjs";
-import { toJsonl, trainingRecords } from "../server/agents/examples-export.mjs";
+import { preferencePairs, toJsonl, trainingRecords } from "../server/agents/examples-export.mjs";
 import { decodeVector } from "../server/agents/memory.mjs";
 
 const [action, databasePath, ...rest] = process.argv.slice(2);
@@ -30,11 +34,20 @@ function open(path) {
     route: row.route ?? null, model: row.model ?? null, createdAt: row.created_at,
   }));
   const vectors = new Map(database.prepare("SELECT item_id, vector FROM agent_vectors WHERE kind = 'example'").all().map((row) => [row.item_id, decodeVector(row.vector)]));
-  return { agents, examplesOf, vectors, close: () => database.close() };
+  // The thumbs down, each with what its planner understood (the intent step's input).
+  const rejectedOf = (agentId) => database.prepare("SELECT f.run_id, f.note, r.question, r.kind FROM agent_feedback f JOIN agent_runs r ON r.id = f.run_id WHERE f.agent_id = ? AND f.verdict = 'down' ORDER BY f.given_at DESC").all(agentId)
+    .filter((row) => ["ask", "manual", "eval", "schedule"].includes(row.kind))
+    .map((row) => {
+      const intent = parse(database.prepare("SELECT input_json FROM agent_run_steps WHERE run_id = ? AND kind = 'intent' AND state = 'done' ORDER BY seq LIMIT 1").get(row.run_id)?.input_json, null);
+      const plan = parse(database.prepare("SELECT input_json FROM agent_run_steps WHERE run_id = ? AND kind = 'plan' ORDER BY seq LIMIT 1").get(row.run_id)?.input_json, null);
+      return { id: row.run_id, request: String(row.question ?? "").replace(/\s+/g, " ").trim().slice(0, 300), understanding: intent && Array.isArray(plan) ? { ...intent, plan } : null, note: row.note ?? null, vector: null };
+    })
+    .filter((run) => run.request && run.understanding?.plan);
+  return { agents, examplesOf, rejectedOf, vectors, close: () => database.close() };
 }
 
 try {
-  if (!["list", "export"].includes(action) || !databasePath) throw new Error("usage: boxpilot-agents-examples.mjs list|export <db> [--agent NAME] [--cover N] [--no-seeds] [--host H] [--domain D] [--user U]");
+  if (!["list", "export", "pairs"].includes(action) || !databasePath) throw new Error("usage: boxpilot-agents-examples.mjs list|export|pairs <db> [--agent NAME] [--cover N] [--no-seeds] [--host H] [--domain D] [--user U]");
   const book = open(databasePath);
   try {
     if (action === "list") {
@@ -54,11 +67,11 @@ try {
       let total = 0;
       for (const agent of chosen) {
         const examples = book.examplesOf(agent.id).map((example) => ({ ...example, vector: book.vectors.get(example.id) ?? null }));
-        const records = trainingRecords({ agent, examples, names: extra, cover, seeds });
+        const records = action === "pairs" ? preferencePairs({ agent, examples, rejected: book.rejectedOf(agent.id), names: extra }) : trainingRecords({ agent, examples, names: extra, cover, seeds });
         total += records.length;
         process.stdout.write(toJsonl(records));
       }
-      process.stderr.write(`${total} records from ${chosen.length} ${chosen.length === 1 ? "agent" : "agents"}\n`);
+      process.stderr.write(`${total} ${action === "pairs" ? "pairs" : "records"} from ${chosen.length} ${chosen.length === 1 ? "agent" : "agents"}\n`);
     }
   } finally {
     book.close();

@@ -39,7 +39,7 @@ import { systemMessage, taskMessage } from "./prompt.mjs";
 import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
 import { digestToken, finishedStates } from "./store.mjs";
 import { agentTemplates, builtInQuestions, evaluationFacts, seedExamples, templateById, templateQuestions } from "./templates.mjs";
-import { toJsonl, trainingRecords } from "./examples-export.mjs";
+import { preferencePairs, toJsonl, trainingRecords } from "./examples-export.mjs";
 import { appUpdatesOf, drivesOf, failedServicesOf, placementOf, stoppedAppsOf, unhealthyAppsOf } from "./tool-text.mjs";
 import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolCategories } from "./tool-catalog.mjs";
 import { ToolError, createToolRunner, readableSources } from "./tools.mjs";
@@ -1303,7 +1303,8 @@ export function createAgentService({
         id: example.id, request: example.request, tools: [...new Set(example.plan.map((entry) => entry.tool).filter(Boolean))], plan: example.plan, answer: example.answer,
         signal: example.signal, seed: example.seed, runId: example.seed ? null : example.source, route: example.route, readRole: example.readRole, createdAt: example.createdAt, embedded: vectors.has(`example:${example.id}`),
       })),
-      counts: { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0) },
+      // M46.6: how many thumbs down have an approved neighbour with another plan: the pairs an export would carry.
+      counts: { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0), pairs: pairsFor(agent).length },
     };
   }
 
@@ -1312,21 +1313,56 @@ export function createAgentService({
    * Lines with this house's names as stand-ins (`examples-export.mjs`); `cover` picks a covering
    * subset of that many, `seeds: false` leaves the template's own examples out.
    */
-  function exportExamples(caller, agentId, { cover = null, seeds = true } = {}) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId);
-    if (person.role !== "owner") refuse(403, "Only the owner exports examples: they leave this server", "forbidden");
+  /** The book with each example's vector, when the index made one with the model in use. */
+  function examplesWithVectors(agentId) {
     const vectors = store.vectorsOf(["example"]);
     const model = embedModelName();
-    const examples = store.listExamples(agent.id, { limit: 1_000 }).map((example) => {
+    return store.listExamples(agentId, { limit: 1_000 }).map((example) => {
       const stored = vectors.get(`example:${example.id}`);
       return { ...example, vector: stored && stored.model === model ? decodeVector(stored.vector) : null };
     });
+  }
+
+  /**
+   * The runs someone gave a thumbs down, as a preference pair's rejected side (M46.6): the request,
+   * what the planner understood, the note. Only runs that still exist and were planned.
+   */
+  function rejectedRuns(agentId) {
+    const rejected = [];
+    for (const given of store.listFeedback(agentId, { limit: 500 })) {
+      if (given.verdict !== "down") continue;
+      const run = store.getRun(given.runId);
+      if (!run || !["ask", "manual", "eval", "schedule"].includes(run.kind)) continue;
+      // The understanding is the intent step's input; the plan it carried is the plan step's (as rememberExample reads them).
+      const steps = store.listSteps(run.id);
+      const intent = steps.find((step) => step.kind === "intent" && step.state === "done")?.input ?? null;
+      const plan = steps.find((step) => step.kind === "plan")?.input;
+      const request = clip(redact(String(run.question ?? run.trigger?.title ?? "").replace(/\s+/g, " ").trim()), 300);
+      if (!request || !intent || !Array.isArray(plan)) continue;
+      rejected.push({ id: run.id, request, understanding: { ...intent, plan }, note: given.note ?? null, vector: null });
+    }
+    return rejected;
+  }
+
+  const pairsFor = (agent) => preferencePairs({ agent: { name: agent.name, spec: agent.spec }, examples: examplesWithVectors(agent.id), rejected: rejectedRuns(agent.id), names: houseNamesFor() });
+
+  function exportExamples(caller, agentId, { cover = null, seeds = true, pairs = false } = {}) {
+    const person = personOf(caller);
+    const agent = agentFor(person, agentId);
+    if (person.role !== "owner") refuse(403, "Only the owner exports examples: they leave this server", "forbidden");
+    const slug = String(agent.name).replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "agent";
+    const date = now().toISOString().slice(0, 10);
+    // M46.6: the preference pairs instead, when asked: each thumbs down beside the approved plan it should have had.
+    if (pairs === true || pairs === "true" || pairs === "1") {
+      const records = pairsFor(agent);
+      audit("agents.examples.exported", { actorId: person.id, subjectId: agent.id, details: { pairs: records.length } });
+      return { filename: `boxpilot-pairs-${slug}-${date}.jsonl`, records: records.length, jsonl: toJsonl(records) };
+    }
+    const examples = examplesWithVectors(agent.id);
     const size = Number.isInteger(Number(cover)) && Number(cover) > 0 ? Math.min(Number(cover), 1_000) : null;
     const records = trainingRecords({ agent: { name: agent.name, spec: agent.spec }, examples, names: houseNamesFor(), cover: size, seeds: seeds !== false && seeds !== "false" && seeds !== "0" });
     audit("agents.examples.exported", { actorId: person.id, subjectId: agent.id, details: { records: records.length, cover: size, seeds: records.some((record) => record.meta.seed) } });
-    const slug = String(agent.name).replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "agent";
-    return { filename: `boxpilot-examples-${slug}-${now().toISOString().slice(0, 10)}.jsonl`, records: records.length, jsonl: toJsonl(records) };
+    return { filename: `boxpilot-examples-${slug}-${date}.jsonl`, records: records.length, jsonl: toJsonl(records) };
   }
 
   function forgetExample(caller, agentId, exampleId) {
