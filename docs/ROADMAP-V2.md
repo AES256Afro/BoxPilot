@@ -2637,7 +2637,7 @@ that would need one is under Next, not faked.
   on the stand-in model, five reads and two cards, the step it may not propose dropped, nothing
   run; the Build tab lists every template and fills the form from each (`templates.test.tsx`); the
   demo's survey (`demo-agents.test.mjs`).
-- **Next: templates that need a read tool first.** Each read exists as a registered operation; what
+- **Done since (M47.1, M47.6): templates that needed a read tool first.** Each read existed as a registered operation; what
   is missing is the agent tool that reads it, with its words in `tool-text.mjs`:
   - **Security Reviewer**: firewall rules and default policy, listening ports, SSH password and root
     sign-in, fail2ban's bans, admin accounts, apps reachable from the internet. A `security.posture`
@@ -3074,7 +3074,12 @@ Each item is its own pull request, released and deployed when green.
   eyes on ..."). The stand-in model knows the words. 34 tools. Tests: `tools-more-eyes.test.mjs`
   (the words, the roles, the hints, the templates, the two graders, a Keeper answering from
   coverage, the Auditor's and the Planner's facts, the migration); the planner's prompt grew by
-  about 45 tokens (`bench.test.mjs`).
+  about 45 tokens (`bench.test.mjs`). The boundary set gains four questions where a new read and an
+  older one share their words ("Which of my apps have never been backed up?" against
+  backups.status, "Which app is eating the most memory?" against server.facts, "How much space
+  would a clean-up free?" against storage.health, "Do I need to reboot the server?" against
+  alerts.active), graded on the fact and the tool; twelve in all, which the Monday bench measures on
+  the real model.
 - ✅ **M47.7 The weekly bench** (unreleased, `feat/weekly-bench`, #432). The real-model bench was
   manual, so its numbers were a memory. Every Monday at 05:20 UTC `agents-bench.yml` runs the
   built-in and the boundary sets on main at the shipped four threads, the job summary the week's

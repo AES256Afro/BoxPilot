@@ -46,6 +46,12 @@ export const boundarySet = Object.freeze([
   // A stopped app is the one that needs a restart: both models said nextcloud, and the grader asked for "none is unhealthy" (bench run 37936411358).
   { id: "needs-restart", question: "Which of my apps need a restart?", fact: "stoppedApps", tool: "apps.list" },
   { id: "media-drive", question: "Which drive holds the media, and is it the system disk?", fact: "drives", tool: "storage.health" },
+  // M47.6's reads beside the older ones that share their words: backups.status, server.facts (memory),
+  // storage.health (space), alerts.active (a reboot waiting).
+  { id: "never-backed-up", question: "Which of my apps have never been backed up?", fact: "neverBackedUp", tool: "backups.coverage" },
+  { id: "memory-hog", question: "Which app is eating the most memory?", fact: "busiestApp", tool: "apps.usage" },
+  { id: "cleanup", question: "How much space would a clean-up free?", fact: "reclaimableSpace", tool: "space.reclaimable" },
+  { id: "needs-reboot", question: "Do I need to reboot the server?", fact: "rebootRequired", tool: "updates.status" },
 ]);
 
 export const evalSets = Object.freeze({ builtin: evalSet, boundary: boundarySet });
@@ -62,6 +68,9 @@ function ownersWorld(h) {
     drives: drivesOf(h.snapshot), rootDiskPercent: 31, piholePlacement: "boxpilot-app", stoppedApps: ["nextcloud"], operatingSystem: h.snapshot.host.operatingSystem,
     // The boundary set's facts: Pi-hole blocks (the harness's Pi-hole answers so), smartd failed, no app is unhealthy, the host's name.
     piholeBlocking: "on", failedServices: ["smartd.service"], unhealthyApps: [], hostname: h.snapshot.host.hostname,
+    // M47.6: Nextcloud holds data and was never backed up, Jellyfin is the busiest app, the clean-up
+    // would free 2.5 GB, apt wants no reboot (the harness's reads answer so).
+    neverBackedUp: ["nextcloud"], busiestApp: "jellyfin", reclaimableSpace: "2.5 GB", rebootRequired: "no",
   };
 }
 

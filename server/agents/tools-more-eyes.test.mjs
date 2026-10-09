@@ -85,6 +85,9 @@ describe("the tools, held to the run's role", () => {
     expect(toolsForQuestion("How much disk space could be cleaned up?", offered)).toContain("space.reclaimable");
     expect(toolsForQuestion("How much disk is Docker using?", offered)).toContain("space.reclaimable");
     expect(toolsForQuestion("Does the server need a reboot?", offered)).toEqual(["updates.status"]);
+    expect(toolsForQuestion("Do I need to reboot the server?", offered)).toEqual(["updates.status"]);
+    expect(toolsForQuestion("Which app is eating the most memory?", offered)).toContain("apps.usage");
+    expect(toolsForQuestion("How much space would a clean-up free?", offered)).toContain("space.reclaimable");
     for (const id of offered) expect(toolById(id)).toBeTruthy();
   });
 });
