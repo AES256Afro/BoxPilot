@@ -2980,6 +2980,21 @@ every M37 to M45 agent test passing.
   go through the same stand-ins. `docs/TRAINING.md` section 5: a short ORPO stage on the pairs after
   the fine-tune, small beta, one epoch, the same gate. Tests: `examples-export.test.mjs` (the pair,
   the skips, the match by meaning and by words, the API's count and file, the script).
+- ✅ **M46.7 The acting conversation as training data** (unreleased, `feat/m46-acting`). M46.3 left
+  it: "records for the acting conversation (request, tool output, answer) are not exported yet".
+  For every approved run behind an example, the conversation it held is rebuilt from its steps
+  (`acting-export.mjs`: the system message as `prompt.mjs` words it, the task with the plan it
+  carried, each model turn with its tool calls, each tool's output boxed as the model read it, T1,
+  T2 ..., the answer) as one chat-shaped record with `tool` turns, for the answer to be learned
+  beside the plan. A run that would not be faithful makes none (a follow-up run, part of a
+  conversation, a JSON answer, an answer the check doubted or that cites a finding, a run that read
+  something that looked like an instruction, steps whose calls and outputs do not pair), and what
+  the prompt held beside the task - notes, memories, findings, specialists - is left out and said
+  so (`meta.context`): a run does not keep them. The Memory tab counts them (`counts.acting`) and
+  offers "Export N answers with their tool output"; `?acting=true`; the script's `acting`.
+  `docs/TRAINING.md` section 6: train them with the book, loss on the assistant turns only. Tests:
+  `acting-export.test.mjs` (the rebuilt conversation, each skip, the pairing, the API's count and
+  file, the script).
 - ✅ **M47.4 Feedback from Zulip** (v1.172.0, `feat/zulip-feedback`). Nobody on the owner's
   server had ever pressed the Test tab's thumbs, so the example book grew only from cards and
   evaluations. A reply under an agent's answer in Zulip - `+1`, `-1`, a thumb, `right`, `wrong`,

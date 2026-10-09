@@ -49,7 +49,7 @@ describe("the templates' examples", () => {
     h.enable();
     const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
     const book = h.service.examplesOf(h.caller("owner"), keeper.id);
-    expect(book.counts).toEqual({ total: templateExamples["server-keeper"].length, seeds: templateExamples["server-keeper"].length, pairs: 0 });
+    expect(book.counts).toEqual({ total: templateExamples["server-keeper"].length, seeds: templateExamples["server-keeper"].length, pairs: 0, acting: 0 });
     expect(book.examples.find((example) => example.request === "Where does Pi-hole run on this server?")).toMatchObject({ tools: ["where.runs"], signal: "seed", seed: true, runId: null, embedded: false });
     // A Keeper whose maker turned a tool off is not shown examples that use it.
     const spec = templateById("server-keeper").spec;

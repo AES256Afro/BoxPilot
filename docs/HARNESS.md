@@ -328,7 +328,11 @@ and the nearest few by words go before the next task like them.
 The book is also training data (M46.3, `docs/TRAINING.md`): exported as chat-shaped JSON Lines
 with the house's names as stand-ins, from the API (the owner's) or from the database with
 `scripts/boxpilot-agents-examples.mjs`, for an adapter trained on a GPU machine elsewhere and gated
-by the same evaluation. Nothing in BoxPilot calls a trainer.
+by the same evaluation. Beside it (M46.6, M46.7): the preference pairs, each thumbs down beside the
+approved plan nearest its request when the plans differ; and the acting conversations, each
+approved run rebuilt from its steps with the tool outputs boxed as the model read them and the
+answer the check held, so the answer is learned as well as the plan. Nothing in BoxPilot calls a
+trainer.
 
 Other agents' findings reach a run two ways (M44, M47.3): by words before the plan, and by meaning
 after the runner has embedded the request, when the web service ranks the fresh findings it may
