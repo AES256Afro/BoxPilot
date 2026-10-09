@@ -109,6 +109,7 @@ export const operationRisk = {
   "storage.backup.relocate": "medium",
   "storage.check": "medium",
   "storage.dirty-mark.clear": "medium",
+  "storage.boot-mark.clear": "medium",
   "storage.docker-order.apply": "medium",
   "storage.format": "high",
   "storage.fs-snapshot.create": "medium",
