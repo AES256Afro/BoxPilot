@@ -130,6 +130,9 @@ export function createAgentsRouter({ agents, state, auth, cloud = noCloud }) {
   router.get("/agents/:id/notes", handle((request) => ({ notes: agents.listNotes(callerOf(request), request.params.id) })));
   // What it remembers, by tier; the owner edits a fact or makes it forget one, an episode or the conversation.
   router.get("/agents/:id/memory", handle((request) => agents.memoryOf(callerOf(request), request.params.id)));
+  // M46: the example book, the work a person approved that the planner is shown.
+  router.get("/agents/:id/examples", handle((request) => agents.examplesOf(callerOf(request), request.params.id)));
+  router.delete("/agents/:id/examples/:exampleId", auth.requireCsrf, handle((request) => agents.forgetExample(callerOf(request), request.params.id, request.params.exampleId)));
   router.put("/agents/:id/memory/notes/:noteId", auth.requireCsrf, handle((request) => agents.editMemory(callerOf(request), request.params.id, request.params.noteId, request.body ?? {})));
   router.delete("/agents/:id/memory/notes/:noteId", auth.requireCsrf, handle((request) => agents.forgetMemory(callerOf(request), request.params.id, { kind: "note", id: request.params.noteId })));
   router.delete("/agents/:id/memory/episodes/:episodeId", auth.requireCsrf, handle((request) => agents.forgetMemory(callerOf(request), request.params.id, { kind: "episode", id: request.params.episodeId })));

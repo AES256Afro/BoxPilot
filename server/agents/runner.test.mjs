@@ -104,10 +104,10 @@ describe("each call's time", () => {
 
   it("is not started when it cannot fit in what the run has left, and the run answers from the tools the plan named", async () => {
     bench = await createBench({ promptPerSecond: 20, generatePerSecond: 4 });
-    withSpec(bench.keeper, (spec) => ({ ...spec, budget: { ...spec.budget, runSeconds: 150 } }));
+    withSpec(bench.keeper, (spec) => ({ ...spec, budget: { ...spec.budget, runSeconds: 160 } }));
     const result = await bench.ask(ownerQuestion);
     expect(result.run).toMatchObject({ state: "degraded", flags: { degraded: "timeout" } });
-    // The plan fit (75 s at 20 and 4 tokens a second); acting on it would not have, and the trace said so first.
+    // The plan fit (about 80 s at 20 and 4 tokens a second, its three example lines included); acting on it would not have, and the trace said so first.
     expect(result.requests).toHaveLength(1);
     expect(result.run.steps.find((step) => step.kind === "system" && step.state === "failed").flags.detail).toMatch(/^Not starting the next step: it needs about \d+ s \(\d+ tokens to read at 20 a second, then a short answer\) and the run has \d+ s left\.$/);
     // Alerts, storage, services and apps, as the plan said; not memory, and not BoxPilot's own documents.

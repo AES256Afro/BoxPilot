@@ -24,3 +24,4 @@ export { createModelSession } from "./core/session.mjs";
 export { act, answerNowNote, checkAnswer, modelStep, stripToolMarkup } from "./core/loop.mjs";
 export { checkInput, createToolbox, defineTool, toolKinds } from "./core/tools.mjs";
 export { runDefaults, runTask, toolsAnswer } from "./core/run.mjs";
+export { coverExamples, cosineOf, exampleDefaults, selectExamples, wordOverlap } from "./core/examples.mjs";
