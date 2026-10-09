@@ -200,10 +200,13 @@ check "nut-monitor's journal has what the shutdown did" bash -c "journalctl -u n
 systemctl start docker.socket docker.service
 wait_for 60 "when Docker starts again the app comes back by its restart policy" bash -c "[ \"\$(docker inspect -f '{{.State.Running}}' '$APP' 2>/dev/null)\" = true ]"
 EVENTS_JSON="$(read_events)"
+# upsmon fires LOWBATT's notice and SHUTDOWNCMD together: on a fast runner (26.04, 2026-10-09) the
+# shutdown's line landed before the low battery's within the same second. Either order is the story.
 check "the reader sees the whole story, newest first" "$NODE" -e '
   const names = JSON.parse(process.argv[1]).events.map((event) => event.event);
-  const order = ["power-off", "apps-stopped", "shutdown", "low-battery"].map((name) => names.indexOf(name));
-  process.exit(order.every((index, position) => index >= 0 && (position === 0 || index > order[position - 1])) ? 0 : 1);' "$EVENTS_JSON"
+  const at = (name) => names.indexOf(name);
+  const ok = at("power-off") === 0 && at("apps-stopped") === 1 && at("shutdown") >= 2 && at("low-battery") >= 2 && new Set([at("shutdown"), at("low-battery")]).size === 2;
+  process.exit(ok ? 0 : 1);' "$EVENTS_JSON"
 
 section "The power-event log"
 sed 's/^/    /' "$EVENTS"
