@@ -377,6 +377,7 @@ describe("the brain in the console", () => {
         { seq: 1, kind: "intent", name: "understanding", state: "done", input: { goal: "Say how full a disk is", subject: "disk", constraints: [], tools: ["server_facts"], confidence: 0.42, clarify: null }, output: null, flags: {}, startedAt: ago(1), durationMs: 900, tokensIn: 400, tokensOut: 40 },
         { seq: 2, kind: "plan", name: "plan", state: "done", input: [{ step: "Read the disks", tool: "server_facts" }, { step: "Answer with the fullest", tool: null }], output: null, flags: {}, startedAt: ago(1), durationMs: null, tokensIn: null, tokensOut: null },
         { seq: 3, kind: "recall", name: "memory", state: "done", input: null, output: "The backup disk is /mnt/backup.", flags: { read: 1 }, startedAt: ago(1), durationMs: 3, tokensIn: null, tokensOut: null },
+        { seq: 4, kind: "prompt", name: "task", state: "done", input: null, output: "Now: 2026-09-29T10:00:00.000Z\n<question>\nHow full is the root disk?\n</question>", flags: { notes: 0, memories: 1, findings: 2, handoffs: 0, thread: false }, startedAt: ago(1), durationMs: null, tokensIn: null, tokensOut: null },
         ...(finishedRun.steps ?? []).slice(1).map((step) => ({ ...step, seq: step.seq + 2 })),
       ],
     };
@@ -394,6 +395,7 @@ describe("the brain in the console", () => {
     expect(within(trace).getByText("Planned 2 steps")).toBeTruthy();
     expect(within(trace).getByText("Read the disks")).toBeTruthy();
     expect(within(trace).getByText("Recalled 1 memory")).toBeTruthy();
+    expect(within(trace).getByText("Was shown the task, 1 memory, 2 findings")).toBeTruthy();
     // One request, two runs: the supervisor's and the specialist's.
     const tree = screen.getByRole("navigation", { name: "This request's runs" });
     expect(within(tree).getByRole("button", { name: "Server Keeper" }).getAttribute("aria-current")).toBe("true");
