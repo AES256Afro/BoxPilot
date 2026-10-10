@@ -108,7 +108,7 @@ export interface Catalog {
   categories: Record<string, string>; outputFormats: Array<"text" | "json">; memoryTiers: Record<string, string>;
 }
 
-export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system" | "intent" | "plan" | "recall" | "memory" | "handoff" | "finding" | "action"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
+export interface RunStep { seq: number; kind: "model" | "tool" | "proposal" | "note" | "notify" | "system" | "intent" | "plan" | "recall" | "memory" | "handoff" | "finding" | "action" | "prompt"; name: string | null; state: "done" | "failed" | "refused"; input: unknown; output: string | null; flags: Record<string, unknown>; startedAt: string; durationMs: number | null; tokensIn: number | null; tokensOut: number | null }
 /**
  * How a card's step stands, from the job it was staged as, as the server keeps it (sweep 3): ready to
  * stage (no job yet, or one cancelled or never started), waiting for approval, approved, or failed

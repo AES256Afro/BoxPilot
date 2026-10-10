@@ -93,6 +93,8 @@ export const serviceLimits = Object.freeze({
   questionChars: 2_000,
   toolOutputChars: 4_000,
   stepTextChars: 6_000,
+  // M46.8: the task message kept with the run (its notes, memories and findings around the question).
+  promptChars: 16_000,
   modelStepsPerRun: 40,
   proposalTtlMs: 7 * 86_400_000,
   asksPerHour: 30,
@@ -1527,6 +1529,15 @@ export function createAgentService({
     // a tool is chosen. A supervisor's follow-up does not: it writes up what it was handed.
     const understand = run.kind !== "continue";
     const candidates = understand ? exampleCandidates(agent, run, offered) : [];
+    const taskContent = [taskMessage({ kind: run.kind, question: run.question, trigger: run.trigger, notes, memories: recalled.map(memoryLine), findings: findings.map((finding) => finding.wrapped), thread: context, now: now() }), ...handoffOutputs].join("\n\n");
+    // M46.8: what the run was shown beside its task - its notes, what it recalled, the other agents'
+    // findings, a specialist's answers - kept as a step, once per run (a lease that lapsed is claimed
+    // again): the trace can show what the model saw, and the acting conversation's training record
+    // is the prompt itself rather than one rebuilt without them.
+    if (!store.countSteps(run.id, "prompt")) {
+      const truncated = taskContent.length > limits.promptChars;
+      store.addStep(run.id, { kind: "prompt", name: "task", output: redact(truncated ? `${taskContent.slice(0, limits.promptChars - 1)}…` : taskContent), flags: { notes: notes.length, memories: recalled.length, findings: findings.length, handoffs: handoffSteps.length, thread: Boolean(context), ...(truncated ? { truncated: true } : {}) } });
+    }
     return {
       run: { id: run.id, kind: run.kind, question: run.question, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt },
       lease,
@@ -1534,7 +1545,7 @@ export function createAgentService({
       agent: { id: agent.id, name: spec.name, version: run.version, outputs: spec.outputs, purpose: spec.purpose ?? "", job: spec.job ?? "", steps: spec.prompt?.steps ?? [], useFindings: usesFindings },
       messages: [
         { role: "system", content: systemMessage(spec, { specialists, chat: chat.promptConnection(), useFindings: usesFindings }) },
-        { role: "user", content: [taskMessage({ kind: run.kind, question: run.question, trigger: run.trigger, notes, memories: recalled.map(memoryLine), findings: findings.map((finding) => finding.wrapped), thread: context, now: now() }), ...handoffOutputs].join("\n\n") },
+        { role: "user", content: taskContent },
       ],
       // The findings it was offered, F1, F2 ...: what the runner's check holds a claim citing one to.
       findings: findings.map(({ id, title, text }) => ({ id, title, text })),
