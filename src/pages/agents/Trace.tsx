@@ -14,7 +14,7 @@ import { Prose, inline } from "./Prose";
  */
 
 const stepKindWords: Record<RunStep["kind"], string> = {
-  intent: "intent", plan: "plan", recall: "memory", memory: "memory", model: "model", tool: "tool", handoff: "hand-off", proposal: "card", note: "note", notify: "notice", system: "runner", finding: "finding", action: "job",
+  intent: "intent", plan: "plan", recall: "memory", memory: "memory", model: "model", tool: "tool", handoff: "hand-off", proposal: "card", note: "note", notify: "notice", system: "runner", finding: "finding", action: "job", prompt: "prompt",
 };
 const ago = (value: unknown) => (typeof value === "string" && value ? value : null);
 const citable = new Set<RunStep["kind"]>(["tool", "memory", "handoff", "proposal", "note", "notify", "action"]);
@@ -30,6 +30,12 @@ function stepTitle(step: RunStep): string {
   if (step.kind === "intent") return step.state === "failed" ? "Could not say how it understood the request" : `Understood: ${(step.input as Intent | null)?.goal ?? step.output ?? ""}`;
   if (step.kind === "plan") return `Planned ${Array.isArray(step.input) ? step.input.length : 0} ${Array.isArray(step.input) && step.input.length === 1 ? "step" : "steps"}`;
   if (step.kind === "recall") return `Recalled ${Number(step.flags?.read ?? 0)} ${Number(step.flags?.read ?? 0) === 1 ? "memory" : "memories"}`;
+  // M46.8: the task as the model was shown it, with what went around it.
+  if (step.kind === "prompt") {
+    const count = (key: string, one: string, many: string) => { const n = Number(step.flags?.[key] ?? 0); return n ? `${n} ${n === 1 ? one : many}` : null; };
+    const around = [count("notes", "note", "notes"), count("memories", "memory", "memories"), count("findings", "finding", "findings"), count("handoffs", "specialist's answer", "specialists' answers"), step.flags?.thread ? "the conversation so far" : null].filter(Boolean);
+    return around.length ? `Was shown the task, ${around.join(", ")}` : "Was shown the task";
+  }
   if (step.kind === "memory") return `Searched memory for “${String((step.input as { query?: string } | null)?.query ?? "")}”`;
   // M44: another agent's finding offered before planning, and a hand-off answered from one.
   // M47.3: offered by the request's words before the plan, or by its meaning once it was embedded.
@@ -82,7 +88,7 @@ function StepDetail({ step }: { step: RunStep }) {
   return (
     <div className="agents-step__detail">
       {input && input !== "{}" && <><span className="agents-step__label">Asked</span><pre className="agents-step__text">{input}</pre></>}
-      {step.output && step.kind !== "system" && <><span className="agents-step__label">{step.kind === "model" ? "Said" : step.kind === "recall" ? "Recalled" : "Gave back"}</span><pre className="agents-step__text">{step.output}</pre></>}
+      {step.output && step.kind !== "system" && <><span className="agents-step__label">{step.kind === "model" ? "Said" : step.kind === "recall" ? "Recalled" : step.kind === "prompt" ? "Shown" : "Gave back"}</span><pre className="agents-step__text">{step.output}</pre></>}
     </div>
   );
 }
@@ -107,7 +113,7 @@ export function TraceView({ steps }: { steps: RunStep[] }) {
             <span className="ui-mark" aria-hidden="true" />
             <span className="agents-step__main">
               <span className="agents-step__head">
-                <Tag tone={step.kind === "intent" || step.kind === "plan" ? "accent" : step.kind === "recall" || step.kind === "memory" || step.kind === "finding" ? "info" : "neutral"}>{stepKindWords[step.kind]}</Tag>
+                <Tag tone={step.kind === "intent" || step.kind === "plan" ? "accent" : step.kind === "recall" || step.kind === "memory" || step.kind === "finding" || step.kind === "prompt" ? "info" : "neutral"}>{stepKindWords[step.kind]}</Tag>
                 {numbered && <code className="agents-step__cite">T{toolIndex}</code>}
                 {findingId && <code className="agents-step__cite">{findingId}</code>}
                 <span className="agents-step__title">{stepTitle(step)}</span>

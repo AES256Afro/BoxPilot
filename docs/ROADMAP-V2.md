@@ -2995,6 +2995,15 @@ every M37 to M45 agent test passing.
   `docs/TRAINING.md` section 6: train them with the book, loss on the assistant turns only. Tests:
   `acting-export.test.mjs` (the rebuilt conversation, each skip, the pairing, the API's count and
   file, the script).
+- ✅ **M46.8 The prompt kept with the run** (unreleased, `feat/prompt-step`). M46.7's records had to
+  rebuild the task from the question alone: a run did not keep the notes, memories and findings it
+  was shown around it. The web service now keeps that first message as a step of the run (`prompt`,
+  once per run, 16,000 characters at most, redacted like every other step) with how much went around
+  the task (notes, memories, findings, specialists' answers, the conversation). The trace shows it
+  ("Was shown the task, 1 memory, 2 findings", the text under it), so "what did the model actually
+  see?" has an answer when an answer is odd; and the acting export carries the prompt itself
+  (`meta.context: kept`), rebuilding only for runs from before (`omitted`). Tests:
+  `acting-export.test.mjs`, the run view in `AgentsPage.test.tsx`.
 - ✅ **M47.4 Feedback from Zulip** (v1.172.0, `feat/zulip-feedback`). Nobody on the owner's
   server had ever pressed the Test tab's thumbs, so the example book grew only from cards and
   evaluations. A reply under an agent's answer in Zulip - `+1`, `-1`, a thumb, `right`, `wrong`,

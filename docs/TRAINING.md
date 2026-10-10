@@ -155,9 +155,11 @@ the file with one), and switched to the way any model is: through an approval ca
 ## What is not here
 
 - No trainer runs on the box, and BoxPilot calls none. A CPU-only server keeps the base model.
-- The acting conversation's records (section 6) leave out what the prompt held beside the task:
-  the agent's notes, what it recalled, the other agents' findings, the specialists it could hand
-  to. A run does not keep them, so a record that showed them would be made up.
+- The acting conversation's records (section 6) of a run from before M46.8 leave out what the
+  prompt held beside the task (the agent's notes, what it recalled, the other agents' findings):
+  those runs did not keep it, so a record that showed them would be made up. A run since keeps the
+  task as it was shown it, and its record carries it. The specialists the system message named are
+  not kept either way.
 - Reinforcement learning on the acting conversation (GRPO on the answer against the tool output)
   is not here; the preference pairs below train the planner alone.
 
@@ -201,7 +203,8 @@ something that looked like an instruction, steps whose calls and outputs do not 
 The Memory tab offers "Export N answers with their tool output"; the API is
 `GET /api/v1/agents/<id>/examples/export?acting=true`; the script is
 `boxpilot-agents-examples.mjs acting <db>`. The same stand-ins hide the house's names; `meta.context`
-says what the record leaves out.
+says whether the task is the one the run kept (`kept:`, M46.8) or was rebuilt from the question
+(`omitted:`, a run from before).
 
 Train it with the book, in the same run (section 3): the records are the same chat shape, with
 `tool` turns and `tool_calls` the chat template renders as the model saw them. Keep the loss on the
