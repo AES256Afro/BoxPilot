@@ -3135,7 +3135,10 @@ Each item is its own pull request, released and deployed when green.
   backups.status, "Which app is eating the most memory?" against server.facts, "How much space
   would a clean-up free?" against storage.health, "Do I need to reboot the server?" against
   alerts.active), graded on the fact and the tool; twelve in all, which the Monday bench measures on
-  the real model. First real-model run (2026-10-09, main at 1.174.0, run 37967892445): 11 of 12
+  the real model. The Keeper's nightly evaluation asks the two new facts too ("Which apps have never
+  been backed up?", "Does the server need a reboot?"): nine questions, within its hour a day; the
+  budget tests count its questions instead of naming seven. First real-model run (2026-10-09, main
+  at 1.174.0, run 37967892445): 11 of 12
   right, the right tool 12 of 12; the miss was the grader's ("No reboot is currently required ...
   does not need a reboot" read as yes for "need a reboot"), fixed to take the words of no out
   before looking for yes.

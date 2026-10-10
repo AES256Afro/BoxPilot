@@ -17,6 +17,10 @@ import http from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
 import { agentsRuntimeKey, defaultRuntimeSettings } from "./service.mjs";
+import { templateQuestions } from "./templates.mjs";
+
+// The Server Keeper's nightly evaluation: its two built-in questions the template's own do not ask (drives, stopped apps), and the template's.
+const KEEPER_QUESTIONS = 2 + templateQuestions["server-keeper"].length;
 
 let h;
 afterEach(async () => { await h?.close(); h = null; });
@@ -68,13 +72,13 @@ describe("the nightly evaluation and an agent's runs a day (B1-1)", { timeout: 6
     await setup();
     h.service.saveModule(h.caller("owner"), { budget: { runsPerDay: 10 } });
     make("server-keeper");
-    // Seven questions of ten runs a day for every agent: three would be left.
+    // The Keeper's questions out of ten runs a day for every agent: fewer than five would be left.
     h.setTime(new Date(2026, 8, 30, 2, 30, 0));
     await h.service.tick();
     await h.service.tick();
     expect(active("eval")).toHaveLength(0);
     expect(skipped()).toHaveLength(1);
-    expect(skipped()[0].details).toMatchObject({ reason: "budget", questions: 7 });
+    expect(skipped()[0].details).toMatchObject({ reason: "budget", questions: KEEPER_QUESTIONS });
   });
 });
 
@@ -186,7 +190,7 @@ describe("the service's tick (B1-11)", () => {
     h.setTime(new Date(2026, 8, 30, 2, 30, 0));
     await Promise.all([h.service.tick(), h.service.tick()]);
     expect(h.store.listEvalRuns(keeper.id, 5)).toHaveLength(1);
-    expect(active("eval")).toHaveLength(7);
+    expect(active("eval")).toHaveLength(KEEPER_QUESTIONS);
   });
 });
 
@@ -200,10 +204,10 @@ describe("a routine that falls due while its agent's evaluation waits (R2B1-1)",
   it("is queued, not dropped as a full queue, and so is an event", async () => {
     await setup();
     const keeper = make("server-keeper");
-    // 02:30: the Server Keeper's seven questions are queued; none has run yet.
+    // 02:30: the Server Keeper's questions are queued; none has run yet.
     h.setTime(new Date(2026, 8, 30, 2, 30, 0));
     await h.service.tick();
-    expect(active("eval")).toHaveLength(7);
+    expect(active("eval")).toHaveLength(KEEPER_QUESTIONS);
     // 05:31: its morning digest is due. Before, the seven counted as its two runs in the queue.
     h.setTime(new Date(2026, 8, 30, 5, 31, 0));
     await h.service.tick();
@@ -253,7 +257,7 @@ describe("a tick that waits on something that never answers (R2B1-2)", { timeout
     expect(active("eval")).toHaveLength(0);
     // Its time up, it goes on without what the inventory would have said.
     expect(await settles(stuck, 5_000)).toBe(true);
-    expect(active("eval")).toHaveLength(7);
+    expect(active("eval")).toHaveLength(KEEPER_QUESTIONS);
   });
 
   it("gives up on facts that do not come in time, so the night's evaluation still starts", async () => {
@@ -262,7 +266,7 @@ describe("a tick that waits on something that never answers (R2B1-2)", { timeout
     h.inventory.inspect = () => new Promise(() => {});
     h.setTime(new Date(2026, 8, 30, 2, 10, 0));
     expect(await settles(h.service.tick())).toBe(true);
-    expect(active("eval")).toHaveLength(7);
+    expect(active("eval")).toHaveLength(KEEPER_QUESTIONS);
     // What the inventory would have said is unknown; what the other reads said is there.
     const [evaluation] = h.store.listEvalRuns(keeper.id, 1);
     const expected = (fact) => evaluation.results.find((result) => result.expected?.fact === fact)?.expected.value;
@@ -277,7 +281,7 @@ describe("a tick that waits on something that never answers (R2B1-2)", { timeout
     make("server-keeper");
     h.setTime(new Date(2026, 8, 30, 2, 10, 0));
     expect(await settles(h.service.tick())).toBe(true);
-    expect(active("eval")).toHaveLength(7);
+    expect(active("eval")).toHaveLength(KEEPER_QUESTIONS);
     // An hour on, the scan is still hanging: the next is not started beside it, and the owner is told why.
     h.setTime(new Date(2026, 8, 30, 3, 20, 0));
     expect(await settles(h.service.tick())).toBe(true);
@@ -317,7 +321,7 @@ describe("the nightly evaluation's model time (R2B1-7)", { timeout: 30_000 }, ()
     await h.service.runnerFinish(asked.run.id, asked.lease, { outcome: "completed", answer: "ok", usage: { modelMs: 500_000 } });
     h.setTime(new Date(2026, 8, 30, 2, 30, 0));
     await h.service.tick();
-    expect(active("eval")).toHaveLength(7);
+    expect(active("eval")).toHaveLength(KEEPER_QUESTIONS);
     // 3,100 s left, 1,800 kept for people.
     const first = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
     expect(first.run.kind).toBe("eval");
@@ -329,8 +333,8 @@ describe("the nightly evaluation's model time (R2B1-7)", { timeout: 30_000 }, ()
     // The half kept for people is not touched: none is left for the rest of the questions, which
     // are not handed out to fail for want of it (sweep 3, R3B1-6) but refused, and not graded.
     expect(await h.service.runnerNext(h.runnerId, { waitMs: 0 })).toBeNull();
-    expect(h.store.listRuns({ agentId: keeper.id, limit: 20 }).filter((run) => run.kind === "eval" && run.state === "refused")).toHaveLength(5);
+    expect(h.store.listRuns({ agentId: keeper.id, limit: 20 }).filter((run) => run.kind === "eval" && run.state === "refused")).toHaveLength(KEEPER_QUESTIONS - 2);
     const [evaluation] = h.service.getEvaluation(h.caller("owner"), keeper.id).runs;
-    expect(evaluation.results.filter((result) => result.skipped)).toHaveLength(5);
+    expect(evaluation.results.filter((result) => result.skipped)).toHaveLength(KEEPER_QUESTIONS - 2);
   });
 });
