@@ -11,10 +11,11 @@
  * A record must be faithful, so a run that does not line up makes none: a run that did not
  * complete, a follow-up run (its prompt held specialists' answers), part of a conversation, a JSON
  * answer, an answer the check doubted or that cites a finding, a run that read something that
- * looked like an instruction, or steps whose tool calls and outputs do not pair. What the prompt
- * held beside the task - the agent's notes, what it recalled, the other agents' findings, the
- * specialists it could hand to - is not kept with the run and is left out; `meta.context` says so.
- * The house's names go through the same stand-ins as the book (`createStandIns`).
+ * looked like an instruction, or steps whose tool calls and outputs do not pair. A run since M46.8
+ * keeps the task as it was shown it (the prompt step: the question with its notes, memories and
+ * findings around it), and the record carries that; an older run's task is rebuilt from the
+ * question alone, and `meta.context` says which. The specialists the system message named are not
+ * kept either way. The house's names go through the same stand-ins as the book (`createStandIns`).
  */
 import { createStandIns, wrapToolOutput } from "../../packages/harness/src/index.mjs";
 import { planMessage } from "./intent.mjs";
@@ -48,7 +49,8 @@ export function actingConversation({ spec, run, steps, understanding = null }) {
   const ordered = [...steps].sort((a, b) => a.seq - b.seq);
   const plan = ordered.find((step) => step.kind === "plan")?.input;
   const intent = understanding ?? ordered.find((step) => step.kind === "intent" && step.state === "done")?.input ?? null;
-  let task = taskMessage({ kind: run.kind, question: run.question, trigger: run.trigger, now: new Date(run.startedAt ?? run.queuedAt ?? Date.now()) });
+  const prompt = ordered.find((step) => step.kind === "prompt" && step.state === "done" && step.output && !step.flags?.truncated) ?? null;
+  let task = prompt ? String(prompt.output) : taskMessage({ kind: run.kind, question: run.question, trigger: run.trigger, now: new Date(run.startedAt ?? run.queuedAt ?? Date.now()) });
   if (intent && Array.isArray(plan)) task += `\n\n${planMessage({ ...intent, plan }, { hinted: [] })}`;
   const messages = [
     { role: "system", content: systemMessage(spec, { specialists: [], chat: null, useFindings: spec?.sharing?.useFindings !== false }) },
@@ -80,7 +82,7 @@ export function actingConversation({ spec, run, steps, understanding = null }) {
   }
   if (pending.length) return null;
   messages.push({ role: "assistant", content: String(run.answer) });
-  return { messages, toolOutputs: index };
+  return { messages, toolOutputs: index, kept: Boolean(prompt) };
 }
 
 /**
@@ -106,7 +108,7 @@ export function actingRecords({ agent, runs, names = {} }) {
       meta: {
         agent: hide(spec.name ?? agent.name), runId: entry.run.id, kind: entry.run.kind, signal: entry.signal ?? null, toolOutputs: built.toolOutputs,
         route: entry.run.usage?.route ? "claude" : "local", model: entry.run.usage?.model ?? entry.run.flags?.model ?? null, checked: entry.run.flags?.check ?? null,
-        context: "omitted: the notes, memories, findings and specialists the run was shown are not kept with it",
+        context: built.kept ? "kept: the task as the run was shown it, with its notes, memories and findings; the specialists named to it are not" : "omitted: the notes, memories, findings and specialists the run was shown are not kept with it",
       },
     });
   }
