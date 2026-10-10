@@ -668,6 +668,9 @@ export const templateQuestions = Object.freeze({
     { id: "apps", question: "How many BoxPilot apps are installed?", expect: { fact: "installedApps" } },
     { id: "pihole-where", question: "Is Pi-hole a BoxPilot app, another container, or running on the host?", expect: { fact: "piholePlacement" } },
     { id: "root-disk", question: "How full is the root disk, as a percentage?", expect: { fact: "rootDiskPercent" } },
+    // M47.6: the Keeper is the agent people ask, so its nightly evaluation covers the new eyes too.
+    { id: "never-backed-up", question: "Which apps have never been backed up?", expect: { fact: "neverBackedUp" } },
+    { id: "reboot", question: "Does the server need a reboot?", expect: { fact: "rebootRequired" } },
   ],
   "pihole-watcher": [
     { id: "pihole-where", question: "Where does Pi-hole run on this server?", expect: { fact: "piholePlacement" } },

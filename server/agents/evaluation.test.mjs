@@ -9,7 +9,7 @@ import { createAgentsHarness } from "../../test/agents-harness.mjs";
 import { boundarySet, describeEval, runEvalSet } from "../../test/agents-eval.mjs";
 import { ownerLikeStorage, ownersWrongAnswer } from "../../test/fixtures/agents-storage.mjs";
 import { gradeDrives, gradeFact } from "./service.mjs";
-import { builtInQuestions } from "./templates.mjs";
+import { builtInQuestions, templateQuestions } from "./templates.mjs";
 import { drivesOf } from "./tool-text.mjs";
 
 const drives = drivesOf({ storage: ownerLikeStorage() });
@@ -97,9 +97,9 @@ describe("the evaluation, night after night", { timeout: 60_000 }, () => {
     await h.service.tick();
     const queued = h.store.activeRuns().filter((run) => run.kind === "eval");
     const evaluation = h.service.getEvaluation(h.caller("owner"), keeper.id);
-    // Its two built-in questions the template's own do not already ask (drives, stopped apps), and the template's five.
+    // Its two built-in questions the template's own do not already ask (drives, stopped apps), and the template's seven.
     expect(evaluation.builtIn.map((question) => question.id)).toEqual(["builtin-drives", "builtin-stopped"]);
-    expect(queued.length).toBe(7);
+    expect(queued.length).toBe(2 + templateQuestions["server-keeper"].length);
     expect(queued.every((run) => run.requestedBy === null && run.readRole === "owner" && run.trigger.quietHours === true)).toBe(true);
     // The learning pass queued before it goes first: an evaluation is the last thing in the queue.
     const first = await h.runNext();
