@@ -188,6 +188,8 @@ export interface Usage {
   today: { runs: number; modelSeconds: number; tokens: number; perAgent: Array<{ agentId: string; name: string; runs: number; runsPerDay: number; modelSeconds: number; modelSecondsPerDay: number; tokens: number }> };
   /** M44: over the last `days`, runs not started because a specialist's finding answered, and answers that cited a finding. */
   findings?: { days: number; runsSaved: number; answers: number };
+  /** M48.6: the local model's context, and how many runs over `days` answered early because what they read filled it. */
+  context?: { tokens: number | null; days: number; limitedRuns: number };
   queue: { queued: number; running: number; dropped: number };
   module: ModuleState;
 }

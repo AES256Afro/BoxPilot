@@ -448,8 +448,9 @@ export const agentTemplates = Object.freeze([
       tools: { ...off, calc: "auto", "apps.usage": "auto", "apps.list": "auto", "server.facts": "auto", "alerts.active": "auto", "logs.query": "ask", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "plan.propose": "auto", "notify.owner": "auto" },
       // The evening, when the house uses the server: a night reading would show it idle. Not quiet hours, as the Pi-hole Watcher.
       triggers: { ask: true, schedule: { every: "daily", hour: 19, minute: 40, quietHours: false }, events: ["health.alert"] },
-      // Two reads, a note and the answer; usage lists every app, so 10,000 tokens; its three evaluation questions in 1,200 s a day.
-      budget: { runsPerDay: 4, modelSecondsPerDay: 1_200, stepsPerRun: 6, tokensPerRun: 10_000, runSeconds: 600 },
+      // Two reads, a note and the answer. 20,000 tokens, not 10,000: its first evening on the owner's
+      // server (18 apps) ran out at 18,800 (M48.6). Its three evaluation questions in 1,200 s a day.
+      budget: { runsPerDay: 4, modelSecondsPerDay: 1_200, stepsPerRun: 6, tokensPerRun: 20_000, runSeconds: 600 },
       outputs: { notes: true, digest: false, notify: "important", proposals: true },
       memory: { enabled: true, freshDays: 14, maxNotes: 10, share: true },
       sharing: { shareFindings: true, useFindings: true },
