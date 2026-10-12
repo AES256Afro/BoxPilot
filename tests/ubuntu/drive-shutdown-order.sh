@@ -580,8 +580,15 @@ if [ "$(cfield seen.afterUnmount.unit)" = active ] && [ -z "$(cfield seen.afterU
 else
   note "systemd caught up with the preparation's unmount this time (the unit said '$(cfield seen.afterUnmount.unit)', source '$(cfield seen.afterUnmount.source)'); the lag before the resume is checked next"
 fi
-check "and the resume began with systemd behind: the unit said '$(cfield seen.atResume.unit)' with the drive unmounted" bash -c "[ '$(cfield seen.atResume.unit)' = active ] && [ -z '$(cfield seen.atResume.source)' ]"
-check "the resume waited for systemd before starting the drive" grep -qE 'systemd took [0-9]+ ms to see /mnt/the-dump unmounted' "${WORK}/cancelled.out"
+# The lag made just before the resume can be outrun too (systemd 249 on 22.04 caught up once in CI,
+# 2026-10-12, on a change that touched no shell): the wait is then not exercised on this run, which
+# is noted rather than failed; 24.04 and 26.04 exercise it. What follows holds either way.
+if [ "$(cfield seen.atResume.unit)" = active ] && [ -z "$(cfield seen.atResume.source)" ]; then
+  check "and the resume began with systemd behind: the unit said 'active' with the drive unmounted" true
+  check "the resume waited for systemd before starting the drive" grep -qE 'systemd took [0-9]+ ms to see /mnt/the-dump unmounted' "${WORK}/cancelled.out"
+else
+  note "systemd ${SYSTEMD_VERSION} caught up before the resume too this time (the unit said '$(cfield seen.atResume.unit)', source '$(cfield seen.atResume.source)'): the wait it would have made is not exercised on this run"
+fi
 check "and started it once, with the unit saying '$(cfield seen.atStart.0.unit)'" bash -c "[ '$(cfield seen.atStart.length)' = 1 ] && [ '$(cfield seen.atStart.0.unit)' = inactive ]"
 check "Docker was started only with the drive mounted from ${PART} ($(cfield seen.atDocker.source))" test "$(cfield seen.atDocker.source)" = "$PART"
 check "the job says what happened: $(cfield outcome)" grep -q 'The drives were mounted again and Docker was started\.' <<< "$(cfield outcome)"
