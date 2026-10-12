@@ -175,7 +175,7 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
   const verdict: { status: Status; label: string } = !loaded ? { status: "unknown", label: "Reading…" }
     : behind.length ? { status: "danger", label: `${behind.length} backup${behind.length === 1 ? "" : "s"} stopped running` }
       : never.length ? { status: "warning", label: `${never.length} ${never.length === 1 ? "app" : "apps"} never backed up` }
-        : summary?.warning ? { status: "warning", label: offVerdict.state === "none" ? "Only on this server" : offVerdict.state === "never" ? "Never copied off" : offVerdict.state === "ok" && offVerdict.skipped ? "Off-box copy incomplete" : "Off-box copy behind" }
+        : summary?.warning ? { status: "warning", label: offVerdict.state === "none" ? "Only on this server" : offVerdict.state === "never" ? "Never copied off" : offVerdict.state === "ok" && offVerdict.skipped ? "Copy off this server incomplete" : "Copy off this server behind" }
           : stale.length ? { status: "warning", label: `${stale.length} not backed up recently` }
             : !appProtection?.available ? { status: "unknown", label: "Not read" }
               : { status: "good", label: "Protected" };
@@ -184,7 +184,7 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
   const tabs: Array<TabItem<TabId>> = [
     { id: "apps", label: "Apps", count: appProtection?.available ? verdicts.length : undefined, status: behind.length ? "danger" : never.length || stale.length ? "warning" : undefined, statusLabel: behind.length ? "a backup stopped running" : never.length || stale.length ? `${never.length + stale.length} need a backup` : undefined },
     { id: "server", label: "This server", count: backups ? backups.length + (machine?.snapshots.length ?? 0) : undefined },
-    { id: "offbox", label: "Off-box", status: summary?.warning ? "warning" : offBoxUnknown ? "unknown" : undefined, statusLabel: summary?.warning ?? (offBoxUnknown ? "not read" : undefined) },
+    { id: "offbox", label: "Off this server", status: summary?.warning ? "warning" : offBoxUnknown ? "unknown" : undefined, statusLabel: summary?.warning ?? (offBoxUnknown ? "not read" : undefined) },
     { id: "restore", label: "Restore", count: restores?.length ? restores.length : undefined, status: restores?.length ? "neutral" : undefined, statusLabel: restores?.length ? `${restores.length} left to review` : undefined },
   ];
 

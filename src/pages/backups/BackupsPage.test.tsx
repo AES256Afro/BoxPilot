@@ -96,7 +96,7 @@ describe("Backups page", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Backups" })).toBeTruthy();
     expect(screen.getByText("Protected").closest(".ui-chip")?.getAttribute("data-status")).toBe("good");
     expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("1 apps with data · 1 nightly · 1 database backups · 1 machine snapshots · off-box today");
-    expect(screen.getAllByRole("tab").map((tab) => /^[A-Za-z -]+/.exec(tab.textContent ?? "")?.[0].trim())).toEqual(["Apps", "This server", "Off-box", "Restore"]);
+    expect(screen.getAllByRole("tab").map((tab) => /^[A-Za-z -]+/.exec(tab.textContent ?? "")?.[0].trim())).toEqual(["Apps", "This server", "Off this server", "Restore"]);
     fireEvent.click(screen.getByRole("button", { name: "About Backups" }));
     expect(screen.getByText(/an app with no backup comes back installed and empty/).closest("[hidden]")).toBeNull();
   });
@@ -114,7 +114,7 @@ describe("Backups page", () => {
     render(<BackupsPage csrfToken="csrf-token" />);
     expect(await screen.findByText("The backups could not be read")).toBeTruthy();
     expect(screen.getByText("Not read")).toBeTruthy();
-    for (const tab of [/^This server/, /^Off-box/, /^Restore/]) openTab(tab);
+    for (const tab of [/^This server/, /^Off this server/, /^Restore/]) openTab(tab);
     expect(screen.getByText("Restore from a machine snapshot")).toBeTruthy();
   });
 
@@ -207,12 +207,12 @@ describe("Backups page", () => {
     });
   });
 
-  describe("Off-box", () => {
+  describe("Off this server", () => {
     it("syncs to the backup drive and says when the copy was made", async () => {
       const { staged } = mockFetch();
       render(<BackupsPage csrfToken="csrf-token" />);
       await screen.findByText("Protected");
-      openTab(/^Off-box/);
+      openTab(/^Off this server/);
       expect(screen.getByText("Copied off this server today")).toBeTruthy();
       expect(screen.getByText("A nightly copy is scheduled.")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Sync to backup drive" }));
@@ -226,8 +226,8 @@ describe("Backups page", () => {
       const said = "application-backups/immich/20260816T030000Z.tar.gz was not copied: it does not match the checksum recorded when it was written, so it may be damaged.";
       mockFetch({ machine: { ...machineState, sync: { ...machineState.sync, lastSync: { completedAt: daysAgo(0.1), copiedCount: 4, skippedCount: 1, skipped: [said] } } } });
       render(<BackupsPage csrfToken="csrf-token" />);
-      expect(await screen.findByText("Off-box copy incomplete")).toBeTruthy();
-      openTab(/^Off-box/);
+      expect(await screen.findByText("Copy off this server incomplete")).toBeTruthy();
+      openTab(/^Off this server/);
       const last = screen.getByText(/1 not copied/);
       expect(last.closest("[data-status]")?.getAttribute("data-status")).toBe("warning");
       expect(screen.getByText(said)).toBeTruthy();
@@ -238,7 +238,7 @@ describe("Backups page", () => {
       mockFetch({ machine: { ...machineState, sync: { ...machineState.sync, mount: { mounted: false, blocker: null }, lastSync: null } }, schedules: [{ operationId: "app.backup", parameters: { subject: "vaultwarden" }, enabled: true }] });
       render(<BackupsPage csrfToken="csrf-token" onNavigate={onNavigate} />);
       expect(await screen.findByText("Only on this server")).toBeTruthy();
-      openTab(/^Off-box/);
+      openTab(/^Off this server/);
       expect(screen.getByText("Backups are only on this server. A disk failure would take them with it")).toBeTruthy();
       expect(screen.getByText("No backup drive is mounted")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Open Storage" }));
@@ -254,8 +254,8 @@ describe("Backups page", () => {
         return null;
       } });
       render(<BackupsPage csrfToken="csrf-token" />);
-      await screen.findByRole("tab", { name: /^Off-box/ });
-      openTab(/^Off-box/);
+      await screen.findByRole("tab", { name: /^Off this server/ });
+      openTab(/^Off this server/);
       expect(await screen.findByLabelText("Mirror public key")).toBeTruthy();
       fireEvent.click(within(screen.getByRole("region", { name: "Another machine over SSH" })).getByRole("button", { name: "Set destination" }));
       const sheet = screen.getByRole("dialog", { name: "Set the destination" });
@@ -279,8 +279,8 @@ describe("Backups page", () => {
     it("names the cloud fields still missing, then stages the destination with its secret", async () => {
       const { bodies } = mockFetch();
       render(<BackupsPage csrfToken="csrf-token" />);
-      await screen.findByRole("tab", { name: /^Off-box/ });
-      openTab(/^Off-box/);
+      await screen.findByRole("tab", { name: /^Off this server/ });
+      openTab(/^Off this server/);
       const cloud = await screen.findByRole("region", { name: "Cloud bucket" });
       fireEvent.click(within(cloud).getByRole("button", { name: "Set destination" }));
       const sheet = screen.getByRole("dialog", { name: "Set the cloud destination" });
@@ -301,8 +301,8 @@ describe("Backups page", () => {
     it("puts the cloud destination's sheet back as it was filled in when its approval is cancelled", async () => {
       mockFetch();
       render(<BackupsPage csrfToken="csrf-token" />);
-      await screen.findByRole("tab", { name: /^Off-box/ });
-      openTab(/^Off-box/);
+      await screen.findByRole("tab", { name: /^Off this server/ });
+      openTab(/^Off this server/);
       const cloud = await screen.findByRole("region", { name: "Cloud bucket" });
       fireEvent.click(within(cloud).getByRole("button", { name: "Set destination" }));
       let sheet = screen.getByRole("dialog", { name: "Set the cloud destination" });
@@ -322,8 +322,8 @@ describe("Backups page", () => {
       const cloudSettings = { destination: { provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox" }, lastSync: { completedAt: daysAgo(1), filesTransferred: 7, bytesTransferred: "1.2 GiB", destination: "boxpilot:home-backups/homebox" } };
       mockFetch({ cloud: { rcloneInstalled: false, configured: true, provider: "b2", providers }, cloudSettings });
       render(<BackupsPage csrfToken="csrf-token" role="operator" />);
-      await screen.findByRole("tab", { name: /^Off-box/ });
-      openTab(/^Off-box/);
+      await screen.findByRole("tab", { name: /^Off this server/ });
+      openTab(/^Off this server/);
       const cloud = await screen.findByRole("region", { name: "Cloud bucket" });
       expect(within(cloud).getByText("home-backups")).toBeTruthy();
       expect(within(cloud).getByRole("button", { name: "Install rclone" })).toBeTruthy();
@@ -333,8 +333,8 @@ describe("Backups page", () => {
 
       const { staged } = mockFetch({ cloud: { rcloneInstalled: true, configured: true, provider: "b2", providers }, cloudSettings });
       render(<BackupsPage csrfToken="csrf-token" />);
-      await screen.findByRole("tab", { name: /^Off-box/ });
-      openTab(/^Off-box/);
+      await screen.findByRole("tab", { name: /^Off this server/ });
+      openTab(/^Off this server/);
       const owned = await screen.findByRole("region", { name: "Cloud bucket" });
       fireEvent.click(within(owned).getByRole("button", { name: "Test connection" }));
       await waitFor(() => expect(staged).toEqual(["backup.cloud.test"]));

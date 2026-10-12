@@ -3362,7 +3362,12 @@ button belongs, and errors swallowed so a panel vanishes or an empty state lies.
   (the id where the catalog has gone). The drive Reconnect switch read on while its automation was
   paused and pointed at pages in prose: "Set, but paused on Automations", with Open Automations, and
   Open Repair Center where a reconnect waits for a person. Repair's approval desk comes before the
-  Prerequisites table on a phone. Left: Repair's schedule dialog names an app by its id.
+  Prerequisites table on a phone.
+- ✅ **M49.4 One name for the copy off this server** (unreleased, `feat/m49-off-this-server`). Home
+  said "Off this server", the Backups tab "Off-box", Ops "off-box 20 hours ago", the warnings "the
+  off-box copy", a retry's button "Open Off-box": one thing under three names. It is "off this
+  server" everywhere: the tab, Ops' line, the header's "Copy off this server behind" and
+  "incomplete", the warnings' "the copy off this server", the transit look's stop.
 
 ## App catalogue candidates
 

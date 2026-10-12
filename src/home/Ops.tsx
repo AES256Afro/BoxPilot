@@ -269,7 +269,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
         </Panel>
 
         <Panel className="ops-backups" title="Backups" count={facts.protection.state === "failed" ? { status: "unknown", label: "not read" } : undefined}
-          meta={<>{offBox ? (offBox.state === "ok" ? `off-box ${relativeTime(offBox.lastSyncAt, clock)}` : offBox.state === "none" ? "no off-box copy" : "off-box copy behind") : "off-box not read"} · database {database?.lastBackupAt ? relativeTime(database.lastBackupAt, clock) : database ? "never backed up" : "not read"}</>}>
+          meta={<>{offBox ? (offBox.state === "ok" ? `off this server ${relativeTime(offBox.lastSyncAt, clock)}` : offBox.state === "none" ? "no copy off this server" : "copy off this server behind") : "off this server: not read"} · database {database?.lastBackupAt ? relativeTime(database.lastBackupAt, clock) : database ? "never backed up" : "not read"}</>}>
           <Table caption="Backups of each app, with its last runs" columns={backupColumns} rows={matrix} rowKey={(row) => row.id} rowStatus={(row) => row.status}
             empty={facts.protection.state === "failed" ? "Which apps have backups could not be read." : values.protection ? "No app holds data to back up." : "Reading…"} />
         </Panel>
