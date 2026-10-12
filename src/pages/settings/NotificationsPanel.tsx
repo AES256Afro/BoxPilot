@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Button, Field, KeyValue, Notice, Panel, SecretInput, Select, StatusChip, TextInput } from "../../ui";
 import HeartbeatPanel from "./HeartbeatPanel";
+import { openView } from "../../activityEvents";
+import { watchView } from "../../home/needs";
 
 interface NotificationState { configured: boolean; kind: "ntfy" | "gotify" | "webhook" | null; url: string | null; topic: string | null; hasToken: boolean }
 interface WatchCondition { key: string; label: string; active: boolean; details: Array<{ title: string; since: string | null }> }
@@ -259,6 +261,8 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
                 <li key={condition.key} className="settings-watch__item" title={condition.active ? condition.details.map((detail) => detail.title).join("; ") : "Clear"}>
                   <span>{condition.label}{condition.active && condition.details.length > 1 ? ` (${condition.details.length})` : ""}</span>
                   <StatusChip status={condition.active ? "warning" : "good"}>{condition.active ? "needs a look" : "clear"}</StatusChip>
+                  {/* The chip looked like a link and went nowhere (M49): the page the condition belongs to is a button away. */}
+                  {condition.active && <Button variant="ghost" onClick={() => openView(watchView(condition.key))} aria-label={`Open the page for ${condition.label}`}>Open</Button>}
                 </li>
               ))}
             </ul>
