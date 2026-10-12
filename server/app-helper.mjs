@@ -937,14 +937,34 @@ export function createAppHelper({
     if ((state.values?.networkMode ?? manifest.network) === "host" || manifest.network === "host") {
       return manifest.ports.map((port) => ({ id: port.id, host: port.container, protocol: port.protocol, bind: "*", fixed: true, web: web(port), hostNetwork: true }));
     }
-    const text = await readFileWithoutFollowing(path.join(dirFor(manifest.id), "compose.yaml")).catch(() => null);
-    const entries = text !== null
-      ? publishedPorts(text)
+    const parsed = await publishedPortsOf(manifest.id);
+    const entries = parsed !== null
+      ? parsed
       : manifest.ports.map((port) => ({ host: stored[port.id] ?? port.host, protocol: port.protocol, bind: bindingFor(port, state.values?.exposure ?? "lan", { lanAddress, tailnetAddress: null }).bind }));
     return entries.map((entry) => {
       const port = manifest.ports.find((candidate) => candidate.protocol === entry.protocol && (stored[candidate.id] ?? candidate.host) === entry.host) ?? null;
       return { id: port?.id ?? null, host: entry.host, protocol: entry.protocol, bind: normalizeBind(entry.bind), fixed: Boolean(port?.fixed), web: web(port) };
     });
+  }
+
+  /**
+   * The compose file's published ports, parsed once per change of the file (M50): every inspect
+   * read and YAML-parsed all eighteen files again, under polls every few seconds. Null when there
+   * is no file to read, as before.
+   */
+  const portsParsed = new Map();
+  async function publishedPortsOf(id) {
+    const file = path.join(dirFor(id), "compose.yaml");
+    let info;
+    try { info = await lstat(file); } catch { portsParsed.delete(id); return null; }
+    if (!info.isFile()) { portsParsed.delete(id); return null; }
+    const held = portsParsed.get(id);
+    if (held && held.mtimeMs === info.mtimeMs && held.size === info.size) return held.entries;
+    const text = await readFileWithoutFollowing(file).catch(() => null);
+    if (text === null) { portsParsed.delete(id); return null; }
+    const entries = publishedPorts(text);
+    portsParsed.set(id, { mtimeMs: info.mtimeMs, size: info.size, entries });
+    return entries;
   }
 
   async function describe(manifest, status = null, known = undefined, batch = null) {

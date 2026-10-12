@@ -3398,6 +3398,30 @@ reach the filesystem and processes, outbound requests and secrets).
   cannot see. Changing a password asks for it twice. The passkeys panel and the watch list say
   when their read failed, with Try again; the tailnet's empty state says what to do; "Copied"
   clears after two seconds. System's "Updates" tab, beside the Updates page, is "BoxPilot update".
+- ✅ **M50.2 Fewer processes on the timers** (unreleased, `feat/m50-perf`; the performance sweep's
+  first six). Most of the box's cost was child processes spawned on timers, not SQLite. Home read
+  the whole setup answer every five minutes for one boolean, about thirty root processes
+  (apt-cache, dpkg-query, virsh): `/api/v1/setup?view=first-run` asks the helper for the apps alone.
+  Home ran a second systemctl listing a minute for the failed-services count the inventory already
+  carries, and fetched the backup list twice a cycle: once each now. Four reads several callers ask
+  for at the same moment (`app.backup.protection`, `app.serve.inspect`, `apt.upgradable.inspect`,
+  `service.list`) are shared like the rest, and Home's five-minute timer starts half a minute after
+  its one-minute timer instead of landing fourteen loaders on the helper's read gate together. The
+  performance poll, asked every 5 s by Ops and every 3 s by Performance, read and YAML-parsed every
+  installed app's state and compose file each time: the apps' inspection is held ten seconds (the
+  live CPU and memory still come from docker stats each time), and the compose file's published
+  ports are parsed once per change of the file (`publishedPortsOf`, by mtime and size). The
+  inventory awaited Docker before its nine other reads: all go together. Home's facts provider
+  wrote a new state for an identical answer, so Home, the sidebar and the dock drew five times a
+  minute for nothing. The Agents page polled three reads every five seconds in a hidden tab. The
+  Zulip link started a root Node task a minute around the clock to read nothing: the wait doubles
+  after a quiet read up to ten minutes, and is a minute again after a message, "Check now" or a
+  read with more waiting. Tests: the back-off in `chat-ask.test.mjs`; the existing home, agents,
+  inventory, setup, app-helper, ops and routes suites unchanged. Left for later: the Repair scan's
+  thirty-day journal grep on Home's loop, `/catalog` building the full inventory for two strings,
+  Home's per-VM virsh calls, the agent vectors loaded whole per search, two job-event streams a
+  tab, the 200 full jobs Ops fetches, flows polling job state every second, the exec tail's copy per
+  line, the secret scrub of every job row at boot, and failed job logs kept in RAM until a reboot.
 
 ## App catalogue candidates
 

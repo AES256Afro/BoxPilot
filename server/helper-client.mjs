@@ -17,6 +17,8 @@ const sharableReads = new Set([
   "apt.unattended.inspect", "firewall.inspect", "nfs.inspect", "host.snapshot.inspect", "app.backups.counts",
   "prerequisite.docker.inspect", "prerequisite.restic.inspect", "prerequisite.smartmontools.inspect", "prerequisite.drive-tools.inspect", "prerequisite.virtualization.inspect", "prerequisite.nvidia.inspect",
   "virtualization.foundation.inspect",
+  // Asked for by Home's loaders and the Repair scan at the same moment (M50): each caller ran its own.
+  "app.backup.protection", "app.serve.inspect", "apt.upgradable.inspect", "service.list",
 ]);
 
 /**
