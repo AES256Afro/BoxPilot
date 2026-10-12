@@ -173,5 +173,17 @@ export function createSetupService({ helper, scheduler, installRisk = null }) {
     return { firstRun: appsKnown && installedApps === 0 && state.schedules.length === 0, installedApps, appsKnown, profiles };
   }
 
-  return { describe, resolveStep };
+  /**
+   * Whether nobody has set this server up yet (M50): the one boolean Home reads every five minutes.
+   * describe() answered it only after every prerequisite check, about thirty root processes; this
+   * asks the helper for the apps alone, which is shared with whoever else is asking.
+   */
+  async function firstRun() {
+    const apps = await helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null);
+    const appsKnown = Array.isArray(apps?.applications);
+    const installedApps = appsKnown ? apps.applications.filter((entry) => entry.installed).length : 0;
+    return { firstRun: appsKnown && installedApps === 0 && scheduler.list().length === 0, installedApps, appsKnown };
+  }
+
+  return { describe, resolveStep, firstRun };
 }

@@ -38,6 +38,11 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
   let stopped = false;
   let lastPoll = 0;
   let lastAskPoll = 0;
+  // How long to wait before reading Zulip again (M50): a minute while people write, doubling up to
+  // ten after quiet reads. Each read starts a root Node task, about 1,900 a day at a steady minute
+  // with nobody writing; a message, "Check now" or a poll with more waiting sets it back to a minute.
+  let askPollWaitMs = limits.askPollEveryMs;
+  const askPollWaitMaxMs = Math.max(limits.askPollEveryMs, 10 * 60_000);
 
   const saved = () => state.getSetting?.(zulipSettingKey, null) ?? null;
   /** The connection when the owner has connected Zulip; null otherwise. */
@@ -353,8 +358,9 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       const link = connection();
       const value = saved() ?? {};
       if (!link || !helper || !active() || value.twoWay === false || !ask) return { skipped: "off" };
-      if (!force && now().getTime() - lastAskPoll < limits.askPollEveryMs) return { skipped: "recent" };
+      if (!force && now().getTime() - lastAskPoll < askPollWaitMs) return { skipped: "recent" };
       lastAskPoll = now().getTime();
+      if (force) askPollWaitMs = limits.askPollEveryMs;
       const events = value.events ?? {};
       let answer;
       try {
@@ -397,6 +403,8 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
       }
       remember({ askers: askers.slice(0, askLimits.askers), events: { queueId: answer?.queueId ?? null, lastEventId: Number.isInteger(answer?.lastEventId) ? answer.lastEventId : null, after: after || null, lastPollAt: now().toISOString(), lastError: null, lastAsk, reopenedAt: answer?.reopened ? now().toISOString() : events.reopenedAt ?? null } });
       if (asked || refused) { audit("agents.zulip.asked", { details: { asked, refused } }); soon(); }
+      // Quiet reads stretch the wait; anything read, or more waiting, sets it back to a minute.
+      askPollWaitMs = (answer?.messages ?? []).length || answer?.more ? limits.askPollEveryMs : Math.min(askPollWaitMaxMs, askPollWaitMs * 2);
       // More waiting: the next tick reads on, rather than a loop now.
       if (answer?.more) lastAskPoll = 0;
       return { asked, refused };
