@@ -16,20 +16,19 @@ Nothing here belongs to anybody. Every value is invented, and no request reaches
 The looks' mockups (`docs/design-directions/05-looks.html`) are served beside the app at
 `/mockups/`.
 
-## The password
+## Who may see it
 
-Everything here, the app, its API, the frozen data and the mockups, is behind one password so
-scrapers and AI crawlers get a form and nothing else (`gate.js`). It is the Worker's secret
-`DEMO_PASSWORD`, never a file in this repository, and without it every page stays closed rather than
-opening up. Unlocking keeps a cookie for 30 days; changing the password signs everyone out. For
-`wrangler dev`, put `DEMO_PASSWORD=…` in `demo-site/.dev.vars`, which git ignores.
+Anyone with the link. From v1.155.0 to 2026-10-12 the whole demo sat behind one password (a
+`gate.js` checked on Cloudflare's side) to keep scrapers and AI crawlers out; the owner had it taken
+off. Crawlers are still asked to keep out: `robots.txt` disallows everything, and every answer
+carries `x-robots-tag: noindex, nofollow, noarchive, nosnippet, noai, noimageai`. The old unlock
+form's address (`/__unlock`) sends a stale bookmark to the demo.
 
 ## Publishing
 
 ```sh
 npm run demo:publish                        # front end, mockups, assets, frozen API
 cd demo-site
-npx wrangler secret put DEMO_PASSWORD       # once, or to change it; it asks for the value
 npx wrangler deploy
 ```
 
