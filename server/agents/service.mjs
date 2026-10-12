@@ -291,7 +291,7 @@ export function createAgentService({
   let issuing = null;   // the runner's key being issued, so two callers never make two keys
   // Step kinds whose output the model is given, numbered T1, T2 ... in the order they happened.
   const outputKinds = ["tool", "memory", "proposal", "note", "notify", "handoff", "action"];
-  const outputsSoFar = (runId) => store.listSteps(runId).filter((step) => outputKinds.includes(step.kind) && step.state === "done").length;
+  const outputsSoFar = (runId) => store.countOutputs(runId, outputKinds);
 
   // ---- settings ----
 
@@ -457,9 +457,9 @@ export function createAgentService({
     const used = store.usageSince(agentId, startOfLocalDay(now()).toISOString());
     return { ...used, runs: used.runs - used.nightlyEvals };
   }
-  function budgetOf(agent) {
+  function budgetOf(agent, module = null) {
     const own = budgetState(agent.spec.budget, usedToday(agent.id));
-    const all = moduleBudget();
+    const all = module ?? moduleBudget();
     // One budget across all agents: whichever runs out first stops the run.
     return { ...own, modelMsLeft: Math.min(own.modelMsLeft, all.modelMsLeft), refusal: own.refusal ?? all.refusal };
   }
@@ -1344,7 +1344,7 @@ export function createAgentService({
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
     if (!canEdit(person, agent)) refuse(403, "An agent's examples are for the owner and the person who made it", "forbidden");
-    const vectors = store.vectorsOf(["example"]);
+    const vectors = store.vectorKeys(["example"]);
     const counts = store.countExamples(agent.id);
     const visible = store.listExamples(agent.id).filter((example) => mayReadExample(person, example));
     return {
@@ -1355,7 +1355,7 @@ export function createAgentService({
       // M46.6: how many thumbs down have an approved neighbour with another plan: the pairs an export would carry.
       // M46.7: how many approved runs rebuild as a whole conversation the answer can be learned from.
       counts: person.role === "owner"
-        ? { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0), pairs: pairsFor(agent).length, acting: actingFor(agent).length }
+        ? { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0), ...trainingCountsOf(agent) }
         : { total: visible.length, seeds: visible.filter((example) => example.seed).length, pairs: 0, acting: 0 },
     };
   }
@@ -1413,6 +1413,20 @@ export function createAgentService({
     return runs;
   }
   const actingFor = (agent) => actingRecords({ agent: { name: agent.name, spec: agent.spec }, runs: approvedRuns(agent.id), names: houseNamesAll() });
+  /**
+   * How many preference pairs and acting records an export would carry (M48.5): built in full only
+   * when the book or the thumbs changed since last asked, since each build reads every approved run's
+   * trace and the Memory tab asks on every open and after every change.
+   */
+  const trainingCounts = new Map();
+  function trainingCountsOf(agent) {
+    const stamp = store.trainingStamp(agent.id);
+    const cached = trainingCounts.get(agent.id);
+    if (cached && cached.stamp === stamp) return cached.counts;
+    const counts = { pairs: pairsFor(agent).length, acting: actingFor(agent).length };
+    trainingCounts.set(agent.id, { stamp, counts });
+    return counts;
+  }
 
   function exportExamples(caller, agentId, { cover = null, seeds = true, pairs = false, acting = false } = {}) {
     const person = personOf(caller);
@@ -1643,7 +1657,7 @@ export function createAgentService({
     }
     for (const document of store.listDocuments().filter((entry) => entry.enabled)) chunksOf(document).forEach((text, index) => items.push({ key: `doc:${document.id}#${index}`, text: `${document.title}\n${text}` }));
     const kinds = ["note", "episode", "doc", "example"];
-    const vectors = store.vectorsOf(kinds);
+    const vectors = store.vectorKeys(kinds);
     return items.filter((item) => { const stored = vectors.get(item.key); return !stored || stored.model !== model || stored.textHash !== textHash(item.text); });
   }
 
@@ -3317,8 +3331,8 @@ export function createAgentService({
     };
   }
 
-  function presentAgent(caller, agent, { detail = false } = {}) {
-    const budget = budgetOf(agent);
+  function presentAgent(caller, agent, { detail = false, module = null } = {}) {
+    const budget = budgetOf(agent, module);
     const active = store.activeRuns().filter((run) => run.agentId === agent.id);
     const last = store.listRuns({ agentId: agent.id, limit: 10 }).find((run) => finishedStates.has(run.state) && canSeeRun(caller, run, agent));
     const settings = moduleSettings();
@@ -3382,7 +3396,9 @@ export function createAgentService({
 
   function overview(caller) {
     const person = personOf(caller);
-    const agents = store.listAgents().filter((agent) => person.role !== "viewer" || canAsk(person, agent)).map((agent) => presentAgent(person, agent));
+    // One reading of every agent's day for the whole list (M48.5): it scanned the day's runs once per agent, every 5 s while anything ran.
+    const module = moduleBudget();
+    const agents = store.listAgents().filter((agent) => person.role !== "viewer" || canAsk(person, agent)).map((agent) => presentAgent(person, agent, { module }));
     const { queued, running } = queueCounts();
     return {
       module: presentModule(person),
@@ -4258,25 +4274,29 @@ export function createAgentService({
   }
 
   /** What a golden question's fact is on this server right now, read as `role` reads. */
-  async function resolveFacts({ role }) {
+  async function resolveFacts({ role }, { wanted = null } = {}) {
     // Each read within its time, or unknown: an inventory whose df or docker never answered held the
     // nightly evaluation, and with it every later tick, for good (2026-10 sweep 2).
     const read = (fn) => inTime(fn, limits.factsTimeoutMs, new Error("It did not answer in time")).catch(() => null);
+    // Only the reads the questions' facts need (M48.5): nine reads, seven through the root helper,
+    // ran for every evaluation whatever it asked.
+    const want = (...facts) => !wanted || facts.some((fact) => wanted.has(fact));
+    const when = (needed, fn) => (needed ? read(fn) : Promise.resolve(null));
     const [snapshot, apps, pihole, placed, services, firewall, protection, updates, usage] = await Promise.all([
-      read(() => inventory?.inspect()),
-      read(() => tools.readApps()),
+      when(want("hostname", "operatingSystem", "rootDiskPercent", "drives"), () => inventory?.inspect()),
+      when(want("installedApps", "stoppedApps", "unhealthyApps", "appUpdates"), () => tools.readApps()),
       // An operator read (ADR-003); an evaluation is started by the owner or an operator anyway.
-      read(() => (helper && ["owner", "operator"].includes(role) ? helper.request("app.pihole.inspect", {}, { timeoutMs: 30_000 }) : null)),
-      read(() => tools.whereRuns("pihole")),
+      when(want("piholePlacement", "piholeBlocking"), () => (helper && ["owner", "operator"].includes(role) ? helper.request("app.pihole.inspect", {}, { timeoutMs: 30_000 }) : null)),
+      when(want("piholePlacement"), () => tools.whereRuns("pihole")),
       // The read services.status makes, open to every role.
-      read(() => (helper ? helper.request("service.list", {}, { timeoutMs: 30_000 }) : null)),
+      when(want("failedServices"), () => (helper ? helper.request("service.list", {}, { timeoutMs: 30_000 }) : null)),
       // M47: the read firewall.status makes, open to every role.
-      read(() => (helper ? helper.request("firewall.inspect", {}, { timeoutMs: 30_000 }) : null)),
+      when(want("firewallEnabled"), () => (helper ? helper.request("firewall.inspect", {}, { timeoutMs: 30_000 }) : null)),
       // M47.6: the reads backups.coverage and updates.status make, open to every role.
-      read(() => (helper ? helper.request("app.backup.protection", {}, { timeoutMs: 30_000 }) : null)),
-      read(() => (helper ? helper.request("apt.upgradable.inspect", {}, { timeoutMs: 30_000 }) : null)),
+      when(want("neverBackedUp"), () => (helper ? helper.request("app.backup.protection", {}, { timeoutMs: 30_000 }) : null)),
+      when(want("rebootRequired"), () => (helper ? helper.request("apt.upgradable.inspect", {}, { timeoutMs: 30_000 }) : null)),
       // M47.9: the read apps.usage makes, open to every role.
-      read(() => (helper ? helper.request("system.performance.inspect", {}, { timeoutMs: 30_000 }) : null)),
+      when(want("busiestApp"), () => (helper ? helper.request("system.performance.inspect", {}, { timeoutMs: 30_000 }) : null)),
     ]);
     const applications = Array.isArray(apps?.applications) ? apps.applications : null;
     return {
@@ -4341,7 +4361,7 @@ export function createAgentService({
    */
   async function startEvaluation(agent, questions, { person = null, reader = null, route = null, pairId = null } = {}) {
     const asWho = person ?? reader;
-    const facts = await resolveFacts(asWho);
+    const facts = await resolveFacts(asWho, { wanted: new Set(questions.map((question) => question.expect?.fact).filter(Boolean)) });
     const results = questions.map((question) => ({ questionId: question.id, question: question.question, expected: question.expect.fact ? { fact: question.expect.fact, value: facts[question.expect.fact] ?? null } : { includes: question.expect.includes }, runId: null, passed: null, found: null }));
     const model = route === "claude" ? cloud?.settings().model ?? "claude" : embedModelName();
     const evaluation = store.createEvalRun({ agentId: agent.id, version: agent.version, results, createdBy: person?.id ?? null, model, route, pairId });
