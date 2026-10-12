@@ -71,7 +71,7 @@ function place(line: LineId, stops: StopInput[], from: number, to: number, y: nu
   return placed;
 }
 
-export function transitMap({ tailnet, network, backups, unprotected, offBoxName = "Off-box copy" }: { tailnet: StopInput[]; network: StopInput[]; backups: StopInput[]; unprotected: StopInput[]; offBoxName?: string }): TransitMap {
+export function transitMap({ tailnet, network, backups, unprotected, offBoxName = "Copy off this server" }: { tailnet: StopInput[]; network: StopInput[]; backups: StopInput[]; unprotected: StopInput[]; offBoxName?: string }): TransitMap {
   const taken: Box[] = [];
   const edge = { min: 4, max: 516 };
   // Names either side of the interchange keep clear of it.

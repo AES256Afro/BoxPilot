@@ -298,7 +298,7 @@ export default function BlendHome({ csrfToken, role, onNavigate, now = Date.now 
             caption={inventory?.addresses[0] ? `${inventory.addresses[0].interface} ${inventory.addresses[0].address}` : reading(facts.inventory.state)} onSelect={() => onNavigate("network")} />
         )}
         <Cell label="Backups" value={glance.apps.bar ? `${glance.apps.bar.value}/${glance.apps.bar.max}` : "—"} unit={glance.apps.bar ? "apps" : undefined}
-          caption={!offBox ? glance.offBox.caption : offBox.state === "ok" && offBox.lastSyncAt ? `off-box ${shortAge(offBox.lastSyncAt, clock)} ago` : `off-box: ${glance.offBox.value.toLowerCase()}`}
+          caption={!offBox ? glance.offBox.caption : offBox.state === "ok" && offBox.lastSyncAt ? `off this server ${shortAge(offBox.lastSyncAt, clock)} ago` : `off-box: ${glance.offBox.value.toLowerCase()}`}
           status={glance.apps.status} bar={glance.apps.bar?.max ? (100 * glance.apps.bar.value) / glance.apps.bar.max : undefined} onSelect={() => onNavigate("backups")} />
         {hottest ? (
           <Cell label="Hottest" value={String(Math.round(hottest.celsius))} unit="°C" caption={hottest.label.split(":")[0]}
