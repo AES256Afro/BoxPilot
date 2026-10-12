@@ -118,13 +118,20 @@ describe("the evaluation, night after night", { timeout: 60_000 }, () => {
   it("waits a night when the budgets have no room, keeping half the day's model time for people", async () => {
     const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
     const current = h.service.getAgent(h.caller("owner"), keeper.id).spec;
-    // 300 s a day: five built-in questions at two minutes each would take all of it.
-    h.service.updateAgent(h.caller("owner"), keeper.id, { spec: { ...current, budget: { ...current.budget, modelSecondsPerDay: 300 } } });
+    // 200 s a day, half kept for people: not one question at two minutes fits, so it waits a night.
+    // 300 s: one fits tonight and the rest are marked not asked (M48.6).
+    h.service.updateAgent(h.caller("owner"), keeper.id, { spec: { ...current, budget: { ...current.budget, modelSecondsPerDay: 200 } } });
     h.setTime(new Date(2026, 8, 30, 2, 30, 0));
     await h.service.tick();
     await h.service.tick();
     expect(h.store.activeRuns().filter((run) => run.kind === "eval")).toHaveLength(0);
     expect(h.state.listAudit(200).filter((event) => event.type === "agents.evaluation.skipped")).toHaveLength(1);
+    h.service.updateAgent(h.caller("owner"), keeper.id, { spec: { ...current, budget: { ...current.budget, modelSecondsPerDay: 300 } } });
+    await h.service.tick();
+    expect(h.store.activeRuns().filter((run) => run.kind === "eval")).toHaveLength(1);
+    const [evaluation] = h.service.getEvaluation(h.caller("owner"), keeper.id).runs;
+    expect(evaluation.results.filter((result) => result.skipped)).toHaveLength(evaluation.results.length - 1);
+    expect(evaluation.results.find((result) => result.skipped).found).toMatch(/^Not asked tonight: the night's model time holds 1 of \d+ questions$/);
   });
 
   it("asks no nightly question the night's model time cannot pay for, and grades none it could not finish for want of it (R3B1-6)", async () => {

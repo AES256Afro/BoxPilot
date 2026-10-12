@@ -3244,11 +3244,23 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   are computed once. Left for later: a slimmer request for the planner (M48.2), `listRuns`
   over-fetching, `memoryItems` reading every document's text for the pinned ones. Tests:
   `resource-watch.test.mjs` (the evaluation's reads), the existing cover and book tests unchanged.
-- **M48.6 Budgets that follow the work.** The runtime's context (8,192 on the owner's server, in
-  30 GB of memory) has no control on any page; a run that hits it has no words for it; Resource
-  Watch's 10,000 tokens ran out on its first evening; Steve's digest runs out of tokens on a budget
-  from M43 the template has long outgrown; the nightly evaluation estimates 120 s a question where
-  the owner's Keeper takes 135, queues every question and refuses the last one every night.
+- ✅ **M48.6 Budgets that follow the work** (unreleased, `feat/m48-budgets`). The runtime's context
+  (8,192 tokens on the owner's server, in 30 GB of memory) had no control on any page: the Usage tab's
+  Settings gain "Model context" (8,192, 16,384, 32,768, with the memory each takes while the model is
+  loaded), and a notice when runs this week answered early because what they read filled it. A
+  scheduled run that ran out of tokens, steps or time, as the one before it did, has a budget its
+  work has outgrown: the field rises to its template's when lower, once, with a version note ("BoxPilot
+  raised its tokens a run from 12000 to 20000, the template's: its last two scheduled runs ran out");
+  a budget at or above the template's is left to the owner, and a person's question that ran out
+  raises nothing. Resource Watch's tokens a run are 20,000 (its first evening on the owner's 18-app
+  server ran out at 18,800). The nightly evaluation reckons a question at what this agent's recent
+  ones took here (the median, never below the 120 s estimate; the owner's Keeper takes 135) and asks
+  only as many as the night holds above the half kept for people, marking the rest "Not asked
+  tonight" instead of queuing them to be refused one by one; none fitting still waits a night. Tests:
+  `budgets.test.mjs` (the raise after two, not after one or above the template's, time as well as
+  tokens, never for a person's question; the Usage tab's count), the gate in `background.test.mjs`
+  and `evaluation.test.mjs` (five of nine asked with ten runs a day; one of nine at 300 s; none at
+  200 s).
 - **M48.7 Quality of life** (usability sweep). The Evaluation tab knows eleven facts of fifteen and
   shows the raw id for the rest; a paused agent is a dead end on Test and Evaluation ("Agents are
   off" when they are paused; Ask enabled and failing); the kill switch has no confirmation and only

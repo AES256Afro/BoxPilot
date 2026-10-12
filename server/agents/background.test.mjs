@@ -70,15 +70,23 @@ describe("the nightly evaluation and an agent's runs a day (B1-1)", { timeout: 6
 
   it("waits a night when every agent's runs a day would leave less than half for people", async () => {
     await setup();
-    h.service.saveModule(h.caller("owner"), { budget: { runsPerDay: 10 } });
-    make("server-keeper");
-    // The Keeper's questions out of ten runs a day for every agent: fewer than five would be left.
+    // A minute of model time a day for every agent: not even one question fits above the half, so it waits a night.
+    h.service.saveModule(h.caller("owner"), { budget: { runsPerDay: 10, modelSecondsPerDay: 60 } });
+    const keeper = make("server-keeper");
     h.setTime(new Date(2026, 8, 30, 2, 30, 0));
     await h.service.tick();
     await h.service.tick();
     expect(active("eval")).toHaveLength(0);
     expect(skipped()).toHaveLength(1);
     expect(skipped()[0].details).toMatchObject({ reason: "budget", questions: KEEPER_QUESTIONS });
+    // Ten runs a day for every agent, half kept for people: five of the Keeper's questions are asked
+    // tonight and the rest marked not asked (M48.6), instead of the whole evaluation waiting a night.
+    h.service.saveModule(h.caller("owner"), { budget: { runsPerDay: 10, modelSecondsPerDay: 10_800 } });
+    await h.service.tick();
+    expect(active("eval")).toHaveLength(5);
+    const [evaluation] = h.service.getEvaluation(h.caller("owner"), keeper.id).runs;
+    expect(evaluation.results).toHaveLength(KEEPER_QUESTIONS);
+    expect(evaluation.results.filter((result) => result.skipped && /^Not asked tonight: the night's model time holds 5 of/.test(result.found))).toHaveLength(KEEPER_QUESTIONS - 5);
   });
 });
 
