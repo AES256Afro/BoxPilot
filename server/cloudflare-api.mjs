@@ -7,6 +7,7 @@
  * into one header and nowhere else. Redirects are never followed while it rides along, and every
  * error is said in plain words, with the token scrubbed out of anything Cloudflare sent back.
  */
+import { readBounded } from "../packages/harness/src/index.mjs";
 import { sameName } from "./cloudflare-tunnel.mjs";
 
 export const cloudflareApiBase = "https://api.cloudflare.com/client/v4";
@@ -53,7 +54,8 @@ export function createCloudflareApi({ token, fetcher = fetch, timeoutMs = 20_000
         redirect: "manual",
         signal: controller.signal,
       });
-      raw = await response.text();
+      // Bounded (M50): an answer is kilobytes, and the whole of it was read before.
+      raw = await readBounded(response, 4 * 1024 * 1024);
     } catch (error) {
       throw new CloudflareError(error?.name === "AbortError"
         ? `Cloudflare did not answer within ${Math.round(timeoutMs / 1000)} seconds while ${what}`

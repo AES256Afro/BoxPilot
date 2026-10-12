@@ -465,7 +465,8 @@ async function loadChecklist(): Promise<ChecklistFacts> {
 
 type RawDomains = { domains?: Array<{ name?: string; state?: string; vcpus?: number; memoryKiB?: number }> };
 async function loadVms(): Promise<VmFacts> {
-  const body = await getJson<RawDomains>("/api/v1/virtualization/domains");
+  // The summary (M50): one virsh process a VM; Home shows name, state and size.
+  const body = await getJson<RawDomains>("/api/v1/virtualization/domains?view=summary");
   if (!Array.isArray(body?.domains)) throw new Error("The virtual machine list was missing");
   return { domains: body.domains.map((domain) => ({ name: text(domain.name, "unnamed"), state: text(domain.state, "unknown"), vcpus: number(domain.vcpus), memoryBytes: number(domain.memoryKiB) === null ? null : (domain.memoryKiB as number) * 1024 })) };
 }
