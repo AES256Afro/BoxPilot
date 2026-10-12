@@ -3178,7 +3178,7 @@ The four sweeps the same day (bugs, security, performance, usability; read-only,
 platform, the harness package, the routes, the M39 tasks and the Agents pages) found what follows,
 ranked by what the owner would feel first. The rest of the milestone works through them.
 
-- ✅ **M48.2 The planner reads a slim request** (unreleased, `feat/m48-planner`). The planner was
+- ✅ **M48.2 The planner reads a slim request** (1.180.0). The planner was
   asked the whole task message - the agent's notes, what it recalled, the other agents' findings in
   full, the folded conversation - and the acting calls then read the same text again behind another
   prefix: 1,700 to 3,400 tokens a run read twice, 25 to 80 s on the owner's processor. The claim now
@@ -3188,7 +3188,7 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   The acting calls keep the whole. A runner given a claim without it reads the task as before. Tests:
   `planner-task.test.mjs` (the request's words; a run whose planner sees the question and the
   finding's title but not the note's or the finding's body, while the acting call sees both).
-- ✅ **M48.3 What a run shows and sends** (unreleased, `feat/m48-security`; the security sweep's
+- ✅ **M48.3 What a run shows and sends** (1.180.0; the security sweep's
   findings). The example book shows a maker who is an operator only the examples kept from runs
   that read as an operator or a viewer, as the planner's pool and the memory already did: an
   example kept from the owner's question holds the owner's answer; the run behind an example is the
@@ -3205,7 +3205,7 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   `apps.list` does. Tests: `examples.test.mjs` (the maker's book), `cloud-run.test.mjs` (the finding
   held back and the trace note), `acting-export.test.mjs` (the documents), `tools-more-eyes.test.mjs`
   (the schedules, the allowlist), `cli.test.mjs` (the redacted task, the tainted run).
-- ✅ **M48.4 Defects** (unreleased, `feat/m48-bugs`; the bug sweep's findings). A Zulip reply is a
+- ✅ **M48.4 Defects** (1.180.0; the bug sweep's findings). A Zulip reply is a
   rating only when it is one: +1, -1, a thumb, right or wrong, alone or with a note after a colon or
   a dash ("No, I meant the USB drive" and "Right, and the backups?" go on talking to the agent). An
   example keeps eight plan steps, as a plan holds (six cut a seven-read survey short and made a false
@@ -3227,7 +3227,7 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   one of the newest hundred across every channel. The watchdog's undo unloads a driver the run
   loaded. Tests: `zulip.test.mjs`, `examples.test.mjs`, `tools-more-eyes.test.mjs`,
   `acting-export.test.mjs`, `stand-ins.test.mjs`, `remediations.test.mjs`, `resource-watch.test.mjs`.
-- ✅ **M48.5 Quick wins on the web process** (unreleased, `feat/m48-perf`; the performance sweep's
+- ✅ **M48.5 Quick wins on the web process** (1.180.0; the performance sweep's
   findings). Both SQLite stores run `synchronous = NORMAL` under WAL: durable at every checkpoint, no
   fsync for each of the twenty to fifty steps a run writes, and a power cut can lose only the last
   moments' steps, never leave a file inconsistent. Indexes for the queries that scanned whole tables:
@@ -3244,7 +3244,7 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   are computed once. Left for later: a slimmer request for the planner (M48.2), `listRuns`
   over-fetching, `memoryItems` reading every document's text for the pinned ones. Tests:
   `resource-watch.test.mjs` (the evaluation's reads), the existing cover and book tests unchanged.
-- ✅ **M48.6 Budgets that follow the work** (unreleased, `feat/m48-budgets`). The runtime's context
+- ✅ **M48.6 Budgets that follow the work** (1.180.0). The runtime's context
   (8,192 tokens on the owner's server, in 30 GB of memory) had no control on any page: the Usage tab's
   Settings gain "Model context" (8,192, 16,384, 32,768, with the memory each takes while the model is
   loaded), and a notice when runs this week answered early because what they read filled it. A
