@@ -112,6 +112,97 @@ const base = (extra: Record<string, Handler | unknown> = {}) => ({
   ...extra,
 });
 
+describe("quality of life (M48.7)", () => {
+  it("leads with the cards while any wait, and puts them under the table when none do", async () => {
+    serve(base());
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const cards = await screen.findByRole("region", { name: "Cards waiting" });
+    const table = screen.getByRole("table", { name: "Agents on this server" });
+    expect(Boolean(cards.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    cleanup();
+    serve(base({ "GET /api/v1/agents/proposals": { proposals: [] } }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const none = await screen.findByRole("region", { name: "Cards waiting" });
+    await screen.findByText(/^No cards\./);
+    expect(Boolean(none.compareDocumentPosition(screen.getByRole("table", { name: "Agents on this server" })) & Node.DOCUMENT_POSITION_PRECEDING)).toBe(true);
+  });
+
+  it("opens the evaluation from the accuracy chip", async () => {
+    serve(base({
+      "GET /api/v1/agents": overview({ agents: [summary(keeperId, "Server Keeper", { accuracy: { score: 0.6, at: ago(60), dropped: true } })] as Overview["agents"] }),
+      [`GET /api/v1/agents/${keeperId}/evaluation`]: { questions: [], runs: [], canEdit: true },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open the evaluation of Server Keeper: accuracy down to 60%" }));
+    expect(await screen.findByRole("region", { name: "Your questions" })).toBeTruthy();
+    expect(new URLSearchParams(window.location.search).get("tab")).toBe("evaluation");
+  });
+
+  it("says on the Test tab that every agent is paused, and resumes them there", async () => {
+    const calls = serve(base({
+      "GET /api/v1/agents": overview({ module: { ...module, paused: true, pausedUntil: null } }),
+      [`GET /api/v1/agents/${keeperId}/runs`]: { runs: [] },
+      "POST /api/v1/agents/module/resume": module,
+    }));
+    window.history.replaceState(null, "", `/?view=agents&tab=test&agent=${keeperId}`);
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const notice = await screen.findByText("Every agent is paused");
+    expect(notice.closest(".ui-notice")?.textContent).toContain("A question waits until they are resumed.");
+    expect(screen.queryByText(/Agents are off/)).toBeNull();
+    expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(notice.closest(".ui-notice") as HTMLElement).getByRole("button", { name: "Resume all" }));
+    await waitFor(() => expect(calls.some((call) => call.path === "/api/v1/agents/module/resume" && call.method === "POST")).toBe(true));
+  });
+
+  it("says on the Evaluation tab that this agent is paused, resumes it by name, and knows every fact's words", async () => {
+    const calls = serve(base({
+      "GET /api/v1/agents": overview({ agents: [summary(keeperId, "Server Keeper", { paused: true, status: "paused" })] as Overview["agents"] }),
+      [`GET /api/v1/agents/${keeperId}/evaluation`]: {
+        questions: [], canEdit: true,
+        builtIn: [{ id: "firewall", question: "Is the firewall turned on?", expect: { fact: "firewallEnabled" }, tool: "firewall.inspect", builtIn: true }, { id: "facts", question: "What is this server called?", expect: { fact: "hostname" }, tool: "server.facts", builtIn: true }],
+        runs: [{ id: "e1", version: 2, state: "done", score: 0.5, createdAt: ago(400), finishedAt: ago(390), createdBy: null, results: [
+          { questionId: "firewall", question: "Is the firewall turned on?", expected: { fact: "firewallEnabled", value: "absent" }, runId: "r1", passed: false, found: "It said yes" },
+          { questionId: "busiest", question: "Which app is using the most processor?", expected: { fact: "busiestApp", value: "jellyfin" }, runId: "r2", passed: true, found: "jellyfin" },
+        ] }],
+      },
+      [`POST /api/v1/agents/${keeperId}/resume`]: summary(keeperId, "Server Keeper"),
+    }));
+    window.history.replaceState(null, "", `/?view=agents&tab=evaluation&agent=${keeperId}`);
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const notice = await screen.findByText("Server Keeper is paused");
+    expect((screen.getByRole("button", { name: "Run the evaluation now" }) as HTMLButtonElement).disabled).toBe(true);
+    // The facts the server has learned to read since the labels were written (M43, M46), in words, and a tool by its title.
+    const builtIn = screen.getByRole("region", { name: "Built-in questions" });
+    expect(builtIn.textContent).toContain("Right means: whether the firewall is on, as BoxPilot reads it then · answered with firewall.inspect");
+    expect(builtIn.textContent).toContain("as BoxPilot reads it then · answered with Server facts");
+    const results = screen.getByRole("table", { name: "The latest evaluation's answers" });
+    expect(results.textContent).toContain("Whether the firewall is on: no firewall installed");
+    expect(results.textContent).toContain("Which app is using the most processor: jellyfin");
+    fireEvent.click(within(notice.closest(".ui-notice") as HTMLElement).getByRole("button", { name: "Resume Server Keeper" }));
+    await waitFor(() => expect(calls.some((call) => call.path === `/api/v1/agents/${keeperId}/resume` && call.method === "POST")).toBe(true));
+  });
+
+  it("keeps the agents and the templates within reach on the Build tab once an agent is open", async () => {
+    serve(base({ [`GET /api/v1/agents/${keeperId}`]: detail() }));
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const editor = await screen.findByRole("region", { name: "Server Keeper" });
+    expect(within(editor).getByLabelText("Which agent")).toBeTruthy();
+    fireEvent.click(within(editor).getByRole("button", { name: "New agent" }));
+    expect(await screen.findByRole("region", { name: "Start from a template" })).toBeTruthy();
+    expect(new URLSearchParams(window.location.search).get("agent")).toBeNull();
+  });
+
+  it("says the budget in minutes beside the seconds on the Build tab", async () => {
+    serve(base({ [`GET /api/v1/agents/${keeperId}`]: detail() }));
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const hint = await screen.findByText("30–1800 seconds, 600 by default");
+    expect(hint.parentElement?.textContent).toBe("30–1800 seconds, 600 by default · 10 min");
+    expect(screen.getByText("10–7200 seconds, 900 by default").parentElement?.textContent).toBe("10–7200 seconds, 900 by default · 30 min");
+  });
+});
+
 describe("Agents page", () => {
   it("says the overview could not be read when the server answers in another shape, instead of failing the page", async () => {
     serve(base({ "GET /api/v1/agents": { status: "ok" } }));
@@ -131,7 +222,8 @@ describe("Agents page", () => {
     const keeper = within(table).getAllByRole("row").find((row) => row.textContent?.includes("Server Keeper"));
     expect(keeper?.textContent).toContain("asked · daily at 05:30 · 1 event · quiet hours");
     expect(keeper?.textContent).toContain("answered");
-    expect(keeper?.textContent).toContain("3/24 runs · 42/1800 s");
+    // The budget in words (M48.7): "42/1800 s" asked the reader to divide.
+    expect(keeper?.textContent).toContain("3 of 24 runs · 42 s of 30 min");
     // The digest leads, its citations drawn as marks.
     expect(screen.getByRole("region", { name: "Latest digest" }).textContent).toContain("All well. Backups ran");
     const card = await screen.findByRole("article", { name: "Card: Back up Vaultwarden" });
@@ -148,10 +240,16 @@ describe("Agents page", () => {
       [`POST /api/v1/agents/${keeperId}/pause`]: summary(keeperId, "Server Keeper", { paused: true }),
     }));
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Until tomorrow" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Pause until tomorrow" }));
     await waitFor(() => expect(calls.find((call) => call.path === "/api/v1/agents/module/pause")?.body).toEqual({ until: "tomorrow" }));
+    // The kill switch asks first (M48.7): it cancels every run, and only the owner undoes it.
     fireEvent.click(screen.getByRole("button", { name: "Kill switch" }));
+    expect(calls.some((call) => call.path === "/api/v1/agents/module/kill")).toBe(false);
+    const stop = await screen.findByRole("dialog", { name: "Stop every agent now?" });
+    expect(stop.textContent).toContain("Only you, the owner, start them again.");
+    fireEvent.click(within(stop).getByRole("button", { name: "Stop every agent" }));
     await waitFor(() => expect(calls.some((call) => call.path === "/api/v1/agents/module/kill" && call.method === "POST")).toBe(true));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Stop every agent now?" })).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Pause Server Keeper until tomorrow" }));
     await waitFor(() => expect(calls.find((call) => call.path === `/api/v1/agents/${keeperId}/pause`)?.body).toEqual({ until: "tomorrow" }));
   });
@@ -342,7 +440,7 @@ describe("the test console", () => {
     fireEvent.click(screen.getByRole("button", { name: "Run with this question" }));
     await waitFor(() => expect(calls.find((call) => call.method === "POST" && call.path === `/api/v1/agents/${keeperId}/runs`)?.body).toEqual({ question: "What is this server called?" }), { timeout: 4000 });
     const trace = await screen.findByRole("list", { name: "What the agent did" }, { timeout: 8000 });
-    expect(within(trace).getByText("Asked for server.facts")).toBeTruthy();
+    expect(within(trace).getByText("Asked for Server facts")).toBeTruthy();
     expect(await screen.findAllByText("answered", {}, { timeout: 8000 })).not.toHaveLength(0);
     expect(screen.getByRole("list", { name: "What the agent did" }).textContent).toContain("T1");
     expect(document.querySelector(".agents-answer")?.textContent).toBe("It is homebox T1.");
@@ -849,9 +947,17 @@ describe("memory", () => {
     expect(screen.getByRole("region", { name: "Your conversation with it" }).textContent).toContain("Asked about the disks.");
     fireEvent.click(within(facts).getByRole("button", { name: "Pin The server" }));
     await waitFor(() => expect(calls.find((call) => call.method === "PUT")?.body).toEqual({ pinned: true }));
-    fireEvent.click(within(facts).getByRole("button", { name: "Forget the fact The server" }));
-    fireEvent.click(screen.getByRole("button", { name: "Forget this run" }));
-    fireEvent.click(within(screen.getByRole("region", { name: "Your conversation with it" })).getByRole("button", { name: "Forget it" }));
+    // Forgetting asks first (M48.7): each dialog says what goes, and the DELETE is sent on "Forget".
+    const forget = async (button: HTMLElement, title: string, says: string) => {
+      fireEvent.click(button);
+      const dialog = await screen.findByRole("dialog", { name: title });
+      expect(dialog.textContent).toContain(says);
+      fireEvent.click(within(dialog).getByRole("button", { name: "Forget" }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: title })).toBeNull());
+    };
+    await forget(within(facts).getByRole("button", { name: "Forget the fact The server" }), "Forget “The server”?", "the other agents no longer see it");
+    await forget(screen.getByRole("button", { name: "Forget this run" }), "Forget what this run found?", "The run itself stays in the history");
+    await forget(within(screen.getByRole("region", { name: "Your conversation with it" })).getByRole("button", { name: "Forget the conversation" }), "Forget your conversation?", "Other people's conversations with it are not touched");
     fireEvent.click(screen.getByRole("button", { name: "Index now" }));
     await waitFor(() => expect(calls.filter((call) => call.method === "DELETE").map((call) => call.path.split("/memory/")[1])).toEqual([`notes/${fact.id}`, "episodes/e1", "thread"]));
     await waitFor(() => expect(calls.some((call) => call.path.endsWith("/reindex"))).toBe(true));
@@ -872,11 +978,21 @@ describe("memory", () => {
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
     const book = await screen.findByRole("table", { name: "Examples Server Keeper plans from" });
     expect(book.textContent).toContain("Which BoxPilot apps are stopped?");
+    // A tool by its title where the catalog knows it (M48.7); the id where it does not.
     expect(book.textContent).toContain("plans apps.list · indexed");
     expect(book.textContent).toContain("a thumbs up");
     expect(book.textContent).toContain("from the template");
-    expect(screen.getByRole("button", { name: "Export as training data" })).toBeTruthy();
+    // The exports are one dialog that saves each file from the page (M48.7), never a page of JSON on an error.
+    fireEvent.click(screen.getByRole("button", { name: "Export training data" }));
+    const exports = await screen.findByRole("dialog", { name: "Export training data" });
+    expect(exports.textContent).toContain("The example book · 2 examples");
+    expect(within(exports).getByRole("button", { name: "Download the example book" }).hasAttribute("disabled")).toBe(false);
+    expect(within(exports).getByRole("button", { name: "Download preference pairs" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(within(exports).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(within(book).getByRole("button", { name: "Forget the example Which BoxPilot apps are stopped?" }));
+    const forgetExample = await screen.findByRole("dialog", { name: "Forget this example?" });
+    fireEvent.click(within(forgetExample).getByRole("button", { name: "Forget" }));
     await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.path.endsWith("/examples/x1"))).toBe(true));
   });
 
@@ -1025,7 +1141,11 @@ describe("findings (M44)", () => {
     expect(theirs.textContent).toContain("26 hours ago");
     expect(theirs.textContent).toContain("not sure");
     expect(screen.getByRole("region", { name: "How it recalls" }).textContent).toContain("Shares its findings");
+    // Forgetting asks first (M48.7), and says the other agents then look for themselves.
     fireEvent.click(within(mine).getByRole("button", { name: "Forget the finding Keep a picture of this server." }));
+    const dialog = await screen.findByRole("dialog", { name: "Forget “Keep a picture of this server.”?" });
+    expect(dialog.textContent).toContain("a run that would have used it looks for itself");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Forget" }));
     await waitFor(() => expect(calls.some((call) => call.method === "DELETE" && call.path.endsWith("/memory/notes/f-1"))).toBe(true));
   });
 

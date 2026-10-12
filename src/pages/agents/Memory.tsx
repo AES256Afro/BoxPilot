@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, KeyValue, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, type AgentSummary, type Example, type Examples, type Finding, type Memory as MemoryState, type MemoryNote } from "./api";
-import { errorText } from "./format";
+import { agentsApi, type AgentSummary, type Example, type Examples, type Finding, type Memory as MemoryState, type MemoryNote, type ToolInfo } from "./api";
+import { ConfirmSheet, type Confirmation } from "./Confirm";
+import { ExportSheet } from "./ExportSheet";
+import { errorText, toolTitle } from "./format";
 import { Prose } from "./Prose";
 
 /*
@@ -17,6 +19,9 @@ import { Prose } from "./Prose";
  * M46: the example book - the requests whose plans a person approved, and the template's own - that
  * the planner is shown the nearest few of before each plan. One can be forgotten; the owner exports
  * the book as training data (docs/TRAINING.md), with this house's names replaced.
+ *
+ * M48.7: forgetting asks first, since it cannot be undone; tools are named by their titles; the
+ * exports are one dialog that saves each file from the page.
  */
 
 export interface MemoryProps {
@@ -25,16 +30,20 @@ export interface MemoryProps {
   csrfToken: string;
   role: string;
   now: number;
+  /** The tool catalog, so a fact's or an example's tools are named by their titles. */
+  tools?: ToolInfo[] | null;
   onSelectAgent: (agentId: string) => void;
 }
 
-export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }: MemoryProps) {
+export function Memory({ agents, agentId, csrfToken, role, now, tools = null, onSelectAgent }: MemoryProps) {
   const usable = agents.filter((agent) => agent.canEdit);
   const agent = usable.find((entry) => entry.id === agentId) ?? usable[0] ?? null;
   const [state, setState] = useState<MemoryState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<MemoryNote | null>(null);
+  const [confirm, setConfirm] = useState<Confirmation | null>(null);
+  const [exporting, setExporting] = useState(false);
   // The example book arrives apart from the rest, and an older server has none to give.
   const [examples, setExamples] = useState<Examples | null>(null);
   const [draft, setDraft] = useState({ title: "", body: "", freshDays: "" });
@@ -64,7 +73,13 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
   const act = async (work: () => Promise<unknown>, done: string) => {
     try { await work(); setNotice(done); setError(null); await read(agent.id); } catch (requestError) { setError(errorText(requestError, "That did not work")); }
   };
+  /** Forgetting asks first: what goes, in a sentence; the work runs when confirmed, its error shown in the dialog. */
+  const forget = (title: string, body: string, work: () => Promise<unknown>, done: string) => setConfirm({
+    kicker: agent.name, title, body, confirmLabel: "Forget",
+    onConfirm: async () => { await work(); setNotice(done); setError(null); await read(agent.id); },
+  });
   const openEdit = (note: MemoryNote) => { setEditing(note); setDraft({ title: note.title, body: note.body, freshDays: "" }); };
+  const toolNames = (ids: string[]) => ids.map((id) => toolTitle(tools, id)).join(", ");
 
   const factColumns: Array<TableColumn<MemoryNote>> = [
     {
@@ -72,7 +87,7 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
         <span className="agents-note">
           <span className="agents-note__title">{note.title}{note.pinned && <Tag tone="accent">pinned</Tag>}{note.shared && <Tag tone="info">shared</Tag>}</span>
           <span className="agents-note__body">{note.body}</span>
-          <span className="agents-name__purpose">{note.source?.tools?.length ? `from ${note.source.tools.join(", ")}` : note.source?.by === "agent" ? "written by the agent" : ""}{note.source?.injection ? " · after suspicious tool output" : ""}{note.othersWords ? " · another account's words" : ""}{note.indexed ? " · indexed" : ""}</span>
+          <span className="agents-name__purpose">{note.source?.tools?.length ? `from ${toolNames(note.source.tools)}` : note.source?.by === "agent" ? "written by the agent" : ""}{note.source?.injection ? " · after suspicious tool output" : ""}{note.othersWords ? " · another account's words" : ""}{note.indexed ? " · indexed" : ""}</span>
         </span>
       ),
     },
@@ -84,7 +99,7 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
           <Button variant="ghost" onClick={() => openEdit(note)} aria-label={`Edit the fact ${note.title}`}>Edit</Button>
           {(note.source?.injection || note.othersWords) && <Button variant="ghost" onClick={() => void act(() => agentsApi.editMemory(csrfToken, agent.id, note.id, { trusted: true }), `“${note.title}” is trusted: runs that read it are no longer flagged.`)} aria-label={`Trust the fact ${note.title}`}>Trust</Button>}
           <Button variant="ghost" onClick={() => void act(() => agentsApi.editMemory(csrfToken, agent.id, note.id, { pinned: !note.pinned }), note.pinned ? `“${note.title}” is no longer pinned.` : `“${note.title}” is pinned: recalled first, never dropped.`)} aria-label={`${note.pinned ? "Unpin" : "Pin"} ${note.title}`}>{note.pinned ? "Unpin" : "Pin"}</Button>
-          <Button variant="ghost" onClick={() => void act(() => agentsApi.forget(csrfToken, agent.id, "notes", note.id), `Forgot “${note.title}”.`)} aria-label={`Forget the fact ${note.title}`}>Forget</Button>
+          <Button variant="ghost" onClick={() => forget(`Forget “${note.title}”?`, `The fact and its embedding are deleted${note.shared ? ", and the other agents no longer see it" : ""}. ${agent.name} learns it again only if it finds it again. This cannot be undone.`, () => agentsApi.forget(csrfToken, agent.id, "notes", note.id), `Forgot “${note.title}”.`)} aria-label={`Forget the fact ${note.title}`}>Forget</Button>
         </span>
       ),
     },
@@ -117,14 +132,14 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
     },
     ...(own ? [{
       id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (finding: Finding) => (
-        <Button variant="ghost" onClick={() => void act(() => agentsApi.forget(csrfToken, agent.id, "notes", finding.id), "Forgot that finding; the other agents no longer see it.")} aria-label={`Forget the finding ${finding.title}`}>Forget</Button>
+        <Button variant="ghost" onClick={() => forget(`Forget “${finding.title}”?`, `The finding is deleted and the other agents no longer see it; a run that would have used it looks for itself. ${agent.name} shares it again after its next routine run finds the same. This cannot be undone.`, () => agentsApi.forget(csrfToken, agent.id, "notes", finding.id), "Forgot that finding; the other agents no longer see it.")} aria-label={`Forget the finding ${finding.title}`}>Forget</Button>
       ),
     }] : []),
   ];
   const episodeColumns: Array<TableColumn<MemoryState["episodes"][number]>> = [
     { id: "text", header: "What the run found", cell: (episode) => <span className="agents-note"><span className="agents-note__body">{episode.text}</span></span> },
     { id: "when", header: "When", hideOnPhone: true, cell: (episode) => <span className="agents-dim">{relativeTime(episode.createdAt, now) ?? ""}</span> },
-    { id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (episode) => <Button variant="ghost" onClick={() => void act(() => agentsApi.forget(csrfToken, agent.id, "episodes", episode.id), "Forgot that run.")} aria-label="Forget this run">Forget</Button> },
+    { id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (episode) => <Button variant="ghost" onClick={() => forget("Forget what this run found?", `The line and its embedding are deleted, so later runs no longer recall it. The run itself stays in the history on the Test tab. This cannot be undone.`, () => agentsApi.forget(csrfToken, agent.id, "episodes", episode.id), "Forgot that run.")} aria-label="Forget this run">Forget</Button> },
   ];
 
   const signalWords: Record<Example["signal"], string> = { seed: "from the template", "card-staged": "a card you staged", "thumbs-up": "a thumbs up", "finding-kept": "an answer kept as a finding", "eval-passed": "an evaluation question answered right" };
@@ -133,13 +148,13 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
       id: "request", header: "Request", cell: (example) => (
         <span className="agents-note">
           <span className="agents-note__title">{example.request}{example.seed && <Tag tone="neutral">template</Tag>}</span>
-          <span className="agents-name__purpose">{example.tools.length ? `plans ${example.tools.join(", ")}` : "plans no tool"}{example.embedded ? " · indexed" : ""}</span>
+          <span className="agents-name__purpose">{example.tools.length ? `plans ${toolNames(example.tools)}` : "plans no tool"}{example.embedded ? " · indexed" : ""}</span>
         </span>
       ),
     },
     { id: "signal", header: "Kept after", hideOnPhone: true, cell: (example) => <span className="agents-dim">{signalWords[example.signal] ?? example.signal}</span> },
     { id: "when", header: "When", hideOnPhone: true, cell: (example) => <span className="agents-dim">{example.seed ? "" : relativeTime(example.createdAt, now) ?? ""}</span> },
-    { id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (example) => <Button variant="ghost" onClick={() => void act(() => agentsApi.forgetExample(csrfToken, agent.id, example.id), "Forgot that example; the planner is no longer shown it.")} aria-label={`Forget the example ${example.request}`}>Forget</Button> },
+    { id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (example) => <Button variant="ghost" onClick={() => forget("Forget this example?", `The planner is no longer shown it${example.seed ? ", though the template's own examples come back when the agent is made again" : ""}. It leaves the training export too. This cannot be undone.`, () => agentsApi.forgetExample(csrfToken, agent.id, example.id), "Forgot that example; the planner is no longer shown it.")} aria-label={`Forget the example ${example.request}`}>Forget</Button> },
   ];
 
   return (
@@ -220,20 +235,14 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
       {examples && (
         <Panel className="agents-examples" title="Examples it plans from" count={examples.counts.total}
           meta={`${examples.counts.seeds} from the template, ${examples.counts.total - examples.counts.seeds} approved; the planner is shown the nearest three`}
-          actions={role === "owner" && examples.counts.total > 0 ? (
-            <>
-              <Button onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id))}>Export as training data</Button>
-              {examples.counts.acting > 0 && <Button onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id, { acting: true }))}>Export {examples.counts.acting} {examples.counts.acting === 1 ? "answer" : "answers"} with their tool output</Button>}
-              {examples.counts.pairs > 0 && <Button onClick={() => window.location.assign(agentsApi.examplesExportUrl(agent.id, { pairs: true }))}>Export {examples.counts.pairs} preference {examples.counts.pairs === 1 ? "pair" : "pairs"}</Button>}
-            </>
-          ) : undefined}>
+          actions={role === "owner" && examples.counts.total > 0 ? <Button onClick={() => setExporting(true)}>Export training data</Button> : undefined}>
           <Table caption={`Examples ${agent.name} plans from`} columns={exampleColumns} rows={examples.examples} rowKey={(example) => example.id}
             empty={<EmptyState title="No examples yet">Stage a card, give an answer a thumbs up, or let an evaluation question pass: the request and its plan are kept here for the planner.</EmptyState>} />
         </Panel>
       )}
 
       <Panel className="agents-thread" title="Your conversation with it" padded
-        actions={state.thread ? <Button variant="ghost" onClick={() => void act(() => agentsApi.forgetThread(csrfToken, agent.id), "It forgot your conversation.")}>Forget it</Button> : undefined}>
+        actions={state.thread ? <Button variant="ghost" onClick={() => forget("Forget your conversation?", `${agent.name} forgets what you two have said and starts afresh at your next question. Other people's conversations with it are not touched. This cannot be undone.`, () => agentsApi.forgetThread(csrfToken, agent.id), "It forgot your conversation.")}>Forget the conversation</Button> : undefined}>
         {!state.thread ? <p className="agents-quiet">None yet. Ask it something in the console.</p> : (
           <>
             {state.thread.summary && <p className="agents-dim"><b>Earlier, in short:</b> {state.thread.summary}</p>}
@@ -244,6 +253,8 @@ export function Memory({ agents, agentId, csrfToken, role, now, onSelectAgent }:
         )}
       </Panel>
 
+      {confirm && <ConfirmSheet confirmation={confirm} onClose={() => setConfirm(null)} />}
+      {exporting && examples && <ExportSheet agent={agent} counts={examples.counts} onClose={() => setExporting(false)} />}
       {editing && (
         <Sheet kicker={agent.name} title="Edit a fact" onClose={() => setEditing(null)}
           footer={<><Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button><Button variant="primary" onClick={() => void act(async () => {
