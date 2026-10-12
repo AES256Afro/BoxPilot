@@ -3161,8 +3161,7 @@ first evening reading ran out of tokens; Steve's seventh evaluation question was
 every night. None of these is the model being wrong about the server. Each is the runtime letting a
 run fail instead of finishing. Each item is its own pull request, released and deployed when green.
 
-- ✅ **M48.1 The loop respects the context, and a repeated call is not run again** (unreleased,
-  `feat/loop-guards`). The act loop (`packages/harness/src/core/loop.mjs`) now knows the local
+- ✅ **M48.1 The loop respects the context, and a repeated call is not run again** (1.180.0). The act loop (`packages/harness/src/core/loop.mjs`) now knows the local
   model's context (`limits.contextTokens`, the runtime's setting, passed by the runner; none for
   Claude): a step whose prompt plus the room an answer needs would not fit is the last, told to
   answer with what it has (limit `context`, a trace note with the count), and each tool's output is
