@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
+import { openView } from "../../activityEvents";
 import { relativeTime } from "../../home/format";
 import { inspectOperation } from "../../operations";
 import { Button, Checkbox, Field, KeyValue, Notice, Panel, SecretInput, Select, riskOf, type Status } from "../../ui";
@@ -114,7 +115,7 @@ export default function HeartbeatPanel({ csrfToken, now = Date.now }: { csrfToke
       {dialog}
       {error && <Notice tone="danger" live title="The heartbeat could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{error}</Notice>}
       {!state && !error && <p className="settings-quiet">Reading…</p>}
-      {state && !state.installed && <Notice tone="warning" title="Not installed on this server yet">The heartbeat&apos;s timer arrives with the next BoxPilot upgrade.</Notice>}
+      {state && !state.installed && <Notice tone="warning" title="Not installed on this server yet" action={<Button variant="ghost" onClick={() => openView("updates")}>Open Updates</Button>}>The heartbeat&apos;s timer arrives with the next BoxPilot upgrade, which Updates offers.</Notice>}
       {state && on && (
         <>
           <KeyValue layout="rows" items={[

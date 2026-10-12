@@ -1,6 +1,7 @@
 import PageErrorBoundary from "./shell/PageErrorBoundary";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { viewLabel, type ViewName } from "./data";
+import { openViewEvent } from "./activityEvents";
 import { viewCopy } from "./pageCopy";
 import SignInPage, { SignInLoading, SignInUnavailable } from "./pages/signin/SignInPage";
 import ActivityDrawer from "./shell/ActivityDrawer";
@@ -127,6 +128,16 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     // went on showing it, until any later render jumped to Account, in the middle of trying a look.
     if (next === "settings") openSection((options.tab ?? "account") as SettingsSection);
   }, []);
+  // A page asked for from anywhere (M49): a button deep in Settings opens Updates, or the page a
+  // watched condition belongs to, as a tile on Home would.
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ view?: string; options?: { app?: string; tab?: string } }>).detail;
+      if (detail && typeof detail.view === "string") setView(detail.view as ViewName, detail.options ?? {});
+    };
+    window.addEventListener(openViewEvent, onOpen);
+    return () => window.removeEventListener(openViewEvent, onOpen);
+  }, [setView]);
   // A push tapped while the app is open: the service worker says which approval, and it opens here.
   useEffect(() => {
     const container = typeof navigator !== "undefined" && "serviceWorker" in navigator ? navigator.serviceWorker : null;
