@@ -407,12 +407,13 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     return runOf(prepare("SELECT * FROM agent_runs WHERE id = ?").get(String(id ?? "")));
   }
 
-  function listRuns({ agentId = null, limit = 50, states = null, requestedBy = undefined } = {}) {
+  function listRuns({ agentId = null, limit = 50, states = null, kind = null, requestedBy = undefined } = {}) {
     const safe = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
     const clauses = [];
     const values = [];
     if (agentId) { clauses.push("agent_id = ?"); values.push(agentId); }
     if (states?.length) { clauses.push(`state IN (${states.map(() => "?").join(", ")})`); values.push(...states); }
+    if (kind) { clauses.push("kind = ?"); values.push(kind); }
     if (requestedBy !== undefined) { clauses.push("requested_by IS ?"); values.push(requestedBy); }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     return prepare(`SELECT * FROM agent_runs ${where} ORDER BY queued_at DESC, rowid DESC LIMIT ?`).all(...values, safe).map(runOf);
@@ -868,7 +869,19 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       return { document: documentOf(prepare(`SELECT ${documentColumns} FROM agent_documents WHERE id = ?`).get(current.id)), changed: true };
     });
   }
-  const listDocuments = () => prepare(`SELECT ${documentColumns} FROM agent_documents ORDER BY created_at DESC LIMIT 500`).all().map(documentOf);
+  /**
+   * The library's documents, text and all, newest first; `enabled` and `pinned` narrow them in the
+   * query (M48.8), so a run that wants the pinned ones does not read every document's text.
+   */
+  function listDocuments({ enabled = null, pinned = null } = {}) {
+    const clauses = [];
+    if (enabled !== null) clauses.push(`enabled = ${enabled ? 1 : 0}`);
+    if (pinned !== null) clauses.push(`pinned = ${pinned ? 1 : 0}`);
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    return prepare(`SELECT ${documentColumns} FROM agent_documents ${where} ORDER BY created_at DESC LIMIT 500`).all().map(documentOf);
+  }
+  /** How many documents the library holds: the limit checks asked for every document's text to count them. */
+  const countDocuments = () => Number(prepare("SELECT count(*) AS n FROM agent_documents").get().n);
   const getDocument = (id) => { const row = prepare(`SELECT ${documentColumns} FROM agent_documents WHERE id = ?`).get(String(id ?? "")); return row ? documentOf(row) : null; };
   const findDocument = (title) => { const row = prepare(`SELECT ${documentColumns} FROM agent_documents WHERE enabled = 1 AND lower(title) = lower(?) ORDER BY created_at DESC`).get(String(title ?? "")); return row ? documentOf(row) : null; };
   /** An image document's bytes, for the quiet-hours run that describes it. */
@@ -1043,7 +1056,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     setFeedback, getFeedback, listFeedback,
     createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun, setProposalStepJob, listOpenProposalsForJob,
     latestAnsweredPost, vectorKeys, countOutputs, trainingStamp, countRunsWithLimit,
-    addDocument, upsertDocument, listDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
+    addDocument, upsertDocument, listDocuments, countDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
     getDocumentMedia, listUndescribed, describeDocument, countImageDocuments,
     queueChatPost, listChatPosts, getChatPost, markChatPost, chatPostsSince, countChatPosts, pruneChatPosts, dropQueuedChatPosts,
     setQuestions, getQuestions, createEvalRun, getEvalRun, setEvalResults, listEvalRuns, gradeEval,
