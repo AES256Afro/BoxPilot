@@ -227,7 +227,7 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
         title="System"
         status={verdict}
         meta={settings ? <><b>{settings.hostname.live ?? "—"}</b> · {settings.timezone ?? "time zone unknown"} · <b>{gib(memory?.memAvailableKiB)}</b> free of {gib(memory?.memTotalKiB)} · BoxPilot <b>{release?.current.version ?? __BOXPILOT_VERSION__}</b></> : undefined}
-        actions={<Button variant="ghost" busy={loading && Boolean(settings)} onClick={() => { void refresh(); void loadRelease(); void scan(); void lookForUps(); void loadPower(); if (tab === "power") void readHardware(); }}>Read again</Button>}
+        actions={<Button variant="ghost" busy={loading && Boolean(settings)} onClick={() => { void refresh(); void loadRelease(); void scan(); void lookForUps(); void loadPower(); if (tab === "power") void readHardware(); }}>Check again</Button>}
         about={<>
           <p>This server's own settings: BoxPilot's update, what can be cleaned up, the name, time zone and language, memory, swap and SSD trim, power (a UPS, the watchdog, and starting again after a power cut), and what runs on a schedule.</p>
           <p>Every change is a job with its tier: renaming, the time zone, swap and cleanup ask you to confirm; updating BoxPilot asks for your password and the release's tag typed out.</p>

@@ -110,8 +110,8 @@ describe("System page", () => {
     expect((change as HTMLButtonElement).disabled).toBe(true);
     expect(change.getAttribute("data-risk")).toBe("medium");
     fireEvent.change(zone, { target: { value: "Europe/Berlin" } });
-    fireEvent.click(screen.getByRole("button", { name: "Read again" }));
-    await waitFor(() => expect((screen.getByRole("button", { name: "Read again" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Check again" }) as HTMLButtonElement).disabled).toBe(false));
     expect((screen.getByLabelText("Set the time zone") as HTMLSelectElement).value).toBe("Europe/Berlin");
     fireEvent.click(screen.getByRole("button", { name: "Change time zone" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
@@ -127,8 +127,8 @@ describe("System page", () => {
     await waitFor(() => expect(field().value).toBe("60"));
     fireEvent.change(field(), { target: { value: "15" } });
     const readAgain = async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Read again" }));
-      await waitFor(() => expect((screen.getByRole("button", { name: "Read again" }) as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect((screen.getByRole("button", { name: "Check again" }) as HTMLButtonElement).disabled).toBe(false));
     };
     await readAgain();
     expect(field().value).toBe("15");
@@ -148,8 +148,8 @@ describe("System page", () => {
     await waitFor(() => expect(name().value).toBe("shiny-box"));
     fireEvent.change(name(), { target: { value: "new-na" } });
     const readAgain = async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Read again" }));
-      await waitFor(() => expect((screen.getByRole("button", { name: "Read again" }) as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect((screen.getByRole("button", { name: "Check again" }) as HTMLButtonElement).disabled).toBe(false));
     };
     current = { ...settings, timezone: "Europe/Berlin" };
     await readAgain();
