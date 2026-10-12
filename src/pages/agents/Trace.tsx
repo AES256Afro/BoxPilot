@@ -1,8 +1,8 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Button, Facts, KeyValue, Notice, StatusChip, Tag } from "../../ui";
-import type { AgentPlan, AgentPlanStep, Run, RunCheck, RunStep } from "./api";
-import { kindWords, runState, seconds, usd } from "./format";
-import { Prose, inline } from "./Prose";
+import type { AgentPlan, AgentPlanStep, Run, RunCheck, RunStep, ToolInfo } from "./api";
+import { kindWords, runState, seconds, toolTitle, usd } from "./format";
+import { CiteContext, Prose, inline } from "./Prose";
 
 /*
  * A run's trace (M37): every step as it happened - how the request was understood (the intent)
@@ -20,11 +20,15 @@ const ago = (value: unknown) => (typeof value === "string" && value ? value : nu
 const citable = new Set<RunStep["kind"]>(["tool", "memory", "handoff", "proposal", "note", "notify", "action"]);
 
 interface Intent { goal?: string; subject?: string; constraints?: string[]; tools?: string[]; confidence?: number | null; clarify?: string | null }
+type Tools = ToolInfo[] | null | undefined;
 
-function stepTitle(step: RunStep): string {
+/** The id of a tool as the catalog spells it: the model writes apps_usage for apps.usage. */
+const dotted = (id: string) => id.replace(/_/g, ".");
+
+function stepTitle(step: RunStep, tools: Tools): string {
   if (step.kind === "model") {
-    const calls = Array.isArray(step.input) ? step.input.map((call: { name?: string }) => String(call?.name ?? "").replace(/_/g, ".")).filter(Boolean) : [];
-    return calls.length ? `Asked for ${calls.join(", ")}` : "Wrote its answer";
+    const calls = Array.isArray(step.input) ? step.input.map((call: { name?: string }) => String(call?.name ?? "")).filter(Boolean) : [];
+    return calls.length ? `Asked for ${calls.map((call) => toolTitle(tools, call)).join(", ")}` : "Wrote its answer";
   }
   if (step.kind === "system") return typeof step.flags?.detail === "string" && step.flags.detail ? step.flags.detail : step.name ?? "The runner";
   if (step.kind === "intent") return step.state === "failed" ? "Could not say how it understood the request" : `Understood: ${(step.input as Intent | null)?.goal ?? step.output ?? ""}`;
@@ -43,17 +47,19 @@ function stepTitle(step: RunStep): string {
   if (step.kind === "handoff" && step.flags?.reused) return `Used ${String((step.input as { agent?: string } | null)?.agent ?? "a specialist")}'s finding from ${ago(step.flags.age) ?? "earlier"} instead of running it again`;
   if (step.kind === "handoff") return `Handed to ${String((step.input as { agent?: string } | null)?.agent ?? "a specialist")}`;
   if (step.kind === "tool" && step.name === "agents.handoff") return `${String((step.input as { agent?: string } | null)?.agent ?? "A specialist")}${step.flags?.reused ? "'s finding" : " answered"}`;
+  // M48.7: a tool by its title ("App usage"), its id beside it in the head.
+  if (step.kind === "tool" && step.name) return toolTitle(tools, step.name);
   return step.name ?? stepKindWords[step.kind];
 }
 
-function IntentDetail({ step }: { step: RunStep }) {
+function IntentDetail({ step, tools }: { step: RunStep; tools: Tools }) {
   const intent = (step.input ?? {}) as Intent;
   return (
     <KeyValue layout="rows" className="agents-step__intent" items={[
       { id: "goal", label: "Goal", value: intent.goal ?? "—" },
       { id: "subject", label: "About", value: intent.subject || "—" },
       ...(intent.constraints?.length ? [{ id: "constraints", label: "Limits", value: intent.constraints.join("; ") }] : []),
-      { id: "tools", label: "Tools it needs", value: intent.tools?.length ? intent.tools.map((tool) => tool.replace(/_/g, ".")).join(", ") : "none", mono: true },
+      { id: "tools", label: "Tools it needs", value: intent.tools?.length ? intent.tools.map((tool) => toolTitle(tools, tool)).join(", ") : "none" },
       { id: "confidence", label: "Confidence", value: typeof intent.confidence === "number" ? `${Math.round(intent.confidence * 100)}%` : "not said", mono: true, status: typeof intent.confidence === "number" && intent.confidence < 0.5 ? "warning" : undefined },
     ]} />
   );
@@ -77,12 +83,12 @@ function FindingDetail({ step }: { step: RunStep }) {
   );
 }
 
-function StepDetail({ step }: { step: RunStep }) {
-  if (step.kind === "intent" && step.state === "done") return <IntentDetail step={step} />;
+function StepDetail({ step, tools }: { step: RunStep; tools: Tools }) {
+  if (step.kind === "intent" && step.state === "done") return <IntentDetail step={step} tools={tools} />;
   if (step.kind === "finding") return <FindingDetail step={step} />;
   if (step.kind === "plan") {
     const plan = Array.isArray(step.input) ? step.input as Array<{ step: string; tool: string | null }> : [];
-    return <ol className="agents-step__plan">{plan.map((entry, index) => <li key={index}>{entry.step}{entry.tool ? <code> {entry.tool.replace(/_/g, ".")}</code> : null}</li>)}</ol>;
+    return <ol className="agents-step__plan">{plan.map((entry, index) => <li key={index}>{entry.step}{entry.tool ? <span className="agents-dim"> with {toolTitle(tools, entry.tool)}</span> : null}</li>)}</ol>;
   }
   const input = step.input === null || step.input === undefined ? null : typeof step.input === "string" ? step.input : JSON.stringify(step.input, null, 2);
   return (
@@ -93,11 +99,44 @@ function StepDetail({ step }: { step: RunStep }) {
   );
 }
 
-export function TraceView({ steps }: { steps: RunStep[] }) {
+/** Each citation an answer can make - T1, T2 for tool outputs, F1 for a finding - and the step it names. */
+function citesOf(steps: RunStep[]): Map<string, number> {
+  const cites = new Map<string, number>();
+  let toolIndex = 0;
+  for (const step of steps) {
+    if (citable.has(step.kind) && step.state === "done") { toolIndex += 1; cites.set(`T${toolIndex}`, step.seq); }
+    if (step.kind === "finding" && typeof step.flags?.finding === "string") cites.set(step.flags.finding, step.seq);
+  }
+  return cites;
+}
+
+/** A citation to open (M48.7): pressed on [T1] in the answer; `nonce` so the same one opens twice. */
+export interface Reveal { id: string; nonce: number }
+
+export function TraceView({ steps, tools = null, reveal = null }: { steps: RunStep[]; tools?: Tools; reveal?: Reveal | null }) {
   // The intent and the plan start open, as they arrive; everything else starts closed.
   const [toggled, setToggled] = useState<Set<number>>(new Set());
   const toggle = (seq: number) => setToggled((current) => { const next = new Set(current); if (next.has(seq)) next.delete(seq); else next.add(seq); return next; });
   const isOpen = (step: RunStep) => (step.kind === "intent" || step.kind === "plan") !== toggled.has(step.seq);
+  // A citation pressed in the answer opens its step and scrolls to it. The steps are read through a
+  // ref so a step arriving while a run is live does not open the same citation again.
+  const latestSteps = useRef(steps);
+  latestSteps.current = steps;
+  useEffect(() => {
+    if (!reveal) return;
+    const seq = citesOf(latestSteps.current).get(reveal.id);
+    if (seq === undefined) return;
+    const step = latestSteps.current.find((entry) => entry.seq === seq);
+    setToggled((current) => {
+      const next = new Set(current);
+      if (step?.kind === "intent" || step?.kind === "plan") next.delete(seq); else next.add(seq);
+      return next;
+    });
+    const element = document.getElementById(`agents-cite-${reveal.id}`);
+    const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    element?.scrollIntoView?.({ behavior: reduced ? "auto" : "smooth", block: "center" });
+    element?.focus?.({ preventScroll: true });
+  }, [reveal]);
   let toolIndex = 0;
   return (
     <ol className="agents-trace" aria-label="What the agent did">
@@ -106,17 +145,19 @@ export function TraceView({ steps }: { steps: RunStep[] }) {
         if (numbered) toolIndex += 1;
         // Another agent's finding is numbered F1, F2 in the order it was offered (M44).
         const findingId = step.kind === "finding" && typeof step.flags?.finding === "string" ? step.flags.finding : null;
+        const cite = numbered ? `T${toolIndex}` : findingId;
         const expandable = ["intent", "plan"].includes(step.kind) || (step.input !== null && step.input !== undefined && JSON.stringify(step.input) !== "{}") || (Boolean(step.output) && step.kind !== "system");
         const status = step.state === "failed" ? "danger" : step.state === "refused" ? "warning" : "good";
+        const title = stepTitle(step, tools);
         return (
-          <li key={step.seq} className="agents-step ui-marked" data-kind={step.kind} data-status={status}>
+          <li key={step.seq} id={cite ? `agents-cite-${cite}` : undefined} tabIndex={cite ? -1 : undefined} className="agents-step ui-marked" data-kind={step.kind} data-status={status}>
             <span className="ui-mark" aria-hidden="true" />
             <span className="agents-step__main">
               <span className="agents-step__head">
                 <Tag tone={step.kind === "intent" || step.kind === "plan" ? "accent" : step.kind === "recall" || step.kind === "memory" || step.kind === "finding" || step.kind === "prompt" ? "info" : "neutral"}>{stepKindWords[step.kind]}</Tag>
-                {numbered && <code className="agents-step__cite">T{toolIndex}</code>}
-                {findingId && <code className="agents-step__cite">{findingId}</code>}
-                <span className="agents-step__title">{stepTitle(step)}</span>
+                {cite && <code className="agents-step__cite">{cite}</code>}
+                <span className="agents-step__title">{title}</span>
+                {step.kind === "tool" && step.name && title !== dotted(step.name) && <code className="agents-step__tool">{dotted(step.name)}</code>}
                 {step.state !== "done" && <StatusChip status={status}>{step.state}</StatusChip>}
                 {Boolean(step.flags?.injection) && <StatusChip status="warning">looked like an instruction</StatusChip>}
                 <Facts as="span" className="agents-step__facts">
@@ -125,7 +166,7 @@ export function TraceView({ steps }: { steps: RunStep[] }) {
                 </Facts>
                 {expandable && <Button variant="ghost" className="agents-step__toggle" aria-expanded={isOpen(step)} onClick={() => toggle(step.seq)}>{isOpen(step) ? "Hide" : "Show"}</Button>}
               </span>
-              {isOpen(step) && <StepDetail step={step} />}
+              {isOpen(step) && <StepDetail step={step} tools={tools} />}
             </span>
           </li>
         );
@@ -206,10 +247,13 @@ export function PlanView({ plan, onStop }: { plan: AgentPlan; onStop?: (planId: 
   );
 }
 
-/** A run's outcome, its facts, its answer and its trace. */
-export function RunView({ run, onStopPlan }: { run: Run; onStopPlan?: (planId: string) => void }) {
+/** A run's outcome, its facts, its answer and its trace; `tools` names each tool by its title (M48.7). */
+export function RunView({ run, tools = null, onStopPlan }: { run: Run; tools?: Tools; onStopPlan?: (planId: string) => void }) {
   const state = runState(run.state);
   const usage = run.usage ?? {};
+  // A citation pressed in the answer: the trace opens that step (M48.7).
+  const [reveal, setReveal] = useState<Reveal | null>(null);
+  const hasTrace = Boolean(run.steps && run.steps.length);
   return (
     <div className="agents-run">
       <div className="agents-run__head">
@@ -228,7 +272,11 @@ export function RunView({ run, onStopPlan }: { run: Run; onStopPlan?: (planId: s
       {run.flags?.injection && <Notice tone="warning" title="Something it read looked like an instruction">The agent was told to treat it as data. The step is marked in the trace.</Notice>}
       {run.flags?.actHeld && !run.flags?.injection && <Notice tone="info" title="It carried out nothing on what it read">Words in your notes or documents read like an instruction, so this run changed nothing, whatever leave the agent has. Reword them if they were only advice.</Notice>}
       {run.reason && run.state !== "completed" && <p className="agents-run__reason">{run.reason}</p>}
-      {run.answer && <AnswerText text={run.answer} />}
+      {run.answer && (
+        <CiteContext.Provider value={hasTrace ? (id) => setReveal({ id, nonce: Date.now() }) : null}>
+          <AnswerText text={run.answer} />
+        </CiteContext.Provider>
+      )}
       {run.plan && <PlanView plan={run.plan} onStop={onStopPlan} />}
       {run.flags?.check && <CheckLine check={run.flags.check} />}
       {(run.flags?.citations?.unknown?.length ?? 0) > 0 && <p className="agents-run__reason">It cited {run.flags.citations?.unknown.join(", ")}, which it was never shown.</p>}
@@ -247,7 +295,7 @@ export function RunView({ run, onStopPlan }: { run: Run; onStopPlan?: (planId: s
         { id: "tools", label: "Tools", value: String(usage.toolCalls ?? 0), mono: true },
         { id: "version", label: "Version", value: `v${run.version}`, mono: true },
       ]} />
-      {run.steps && run.steps.length > 0 && <TraceView steps={run.steps} />}
+      {run.steps && run.steps.length > 0 && <TraceView steps={run.steps} tools={tools} reveal={reveal} />}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { relativeTime } from "../../home/format";
 import { Button, Checkbox, CodeBlock, CopyButton, Facts, Field, Notice, Panel, Segmented, Select, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
 import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type ChatKind, type ChatOutput, type ChatOutputs, type GrantLevel, type ModelRoute, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
-import { errorText, scheduleWords, triggerWords } from "./format";
+import { duration, errorText, scheduleWords, triggerWords } from "./format";
 
 /*
  * The Agent Builder (M37), in the order an agent is built:
@@ -33,6 +33,9 @@ export interface BuilderProps {
   onChanged: () => void;
   onDeleted: () => void;
   onTest: (agentId: string) => void;
+  /** M48.7: another agent to open here, and the templates again for a new one; the tab used to lose both once an agent was open. */
+  onPick?: (agentId: string) => void;
+  onNew?: () => void;
 }
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -394,7 +397,7 @@ function SpecForm({ draft, setDraft, catalog, disabled, others, template = null,
       <FormSection id="guardrails" title="Guardrails" step={5}>
         <div className="agents-form__grid">
           {(Object.keys(budgetWords) as Array<keyof AgentSpec["budget"]>).map((key) => (
-            <Field key={key} label={budgetWords[key].label} hint={`${limits[key].min}–${limits[key].max} ${budgetWords[key].unit}${Number.isFinite(limits[key].default) ? `, ${limits[key].default} by default` : ""}`}>
+            <Field key={key} label={budgetWords[key].label} hint={<><span>{limits[key].min}–{limits[key].max} {budgetWords[key].unit}{Number.isFinite(limits[key].default) ? `, ${limits[key].default} by default` : ""}</span>{budgetWords[key].unit === "seconds" && draft.budget[key] >= 60 ? <> · {duration(draft.budget[key])}</> : null}</>}>
               <TextInput mono type="number" min={limits[key].min} max={limits[key].max} value={String(draft.budget[key])}
                 onValueChange={(value) => setDraft((current) => ({ ...current, budget: { ...current.budget, [key]: numberOf(value, current.budget[key]) } }))} />
             </Field>
@@ -592,7 +595,7 @@ function Webhook({ agent, csrfToken, onChanged }: { agent: AgentDetail; csrfToke
 
 // ---- the builder ----
 
-export function Builder({ agentId, agents, catalog, canCreate, canGrant = false, csrfToken, now, onCreated, onChanged, onDeleted, onTest }: BuilderProps) {
+export function Builder({ agentId, agents, catalog, canCreate, canGrant = false, csrfToken, now, onCreated, onChanged, onDeleted, onTest, onPick, onNew }: BuilderProps) {
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [draft, setDraftState] = useState<AgentSpec | null>(null);
   const [note, setNote] = useState("");
@@ -601,8 +604,8 @@ export function Builder({ agentId, agents, catalog, canCreate, canGrant = false,
   const [busy, setBusy] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // "Test it" pressed with unsaved changes: the choice is shown instead of leaving.
-  const [leaving, setLeaving] = useState(false);
+  // "Test it", another agent or "New agent" pressed with unsaved changes: the choice is shown instead of leaving.
+  const [leaving, setLeaving] = useState<{ label: string; go: () => void } | null>(null);
 
   // The agent on show: an answer for the one chosen before is dropped rather than drawn under this one.
   const shown = useRef(agentId);
@@ -646,8 +649,9 @@ export function Builder({ agentId, agents, catalog, canCreate, canGrant = false,
       setBusy(false);
     }
   };
-  // Testing runs the saved version, and leaving the tab drops what is not saved: with changes, ask first.
-  const testIt = () => { if (dirty) setLeaving(true); else onTest(agent.id); };
+  // Testing runs the saved version, and leaving drops what is not saved: with changes, ask first.
+  const leave = (label: string, go: () => void) => { if (dirty) setLeaving({ label, go }); else go(); };
+  const testIt = () => leave("Save, then test", () => onTest(agent.id));
   const remove = async () => {
     try { await agentsApi.remove(csrfToken, agent.id); onDeleted(); } catch (requestError) { setError(errorText(requestError, "The agent could not be deleted")); setConfirmDelete(false); }
   };
@@ -672,7 +676,12 @@ export function Builder({ agentId, agents, catalog, canCreate, canGrant = false,
         title={agent.name}
         count={`v${agent.version}`}
         meta={agent.template ? `from the ${catalog.templates.find((template) => template.id === agent.template)?.title ?? agent.template} template` : "made from scratch"}
-        actions={<><Button variant="ghost" onClick={() => void exportIt()}>Export</Button><Button variant="ghost" onClick={testIt}>Test it</Button></>}
+        actions={<>
+          {onPick && agents.length > 1 && <Select aria-label="Which agent" value={agent.id} onValueChange={(id) => leave("Save, then switch", () => onPick(id))} options={agents.map((entry) => ({ value: entry.id, label: entry.name }))} />}
+          {onNew && canCreate && <Button variant="ghost" onClick={() => leave("Save, then start a new one", onNew)}>New agent</Button>}
+          <Button variant="ghost" onClick={() => void exportIt()}>Export</Button>
+          <Button variant="ghost" onClick={testIt}>Test it</Button>
+        </>}
         padded
         footer={agent.canEdit ? (
           <div className="agents-editor__foot">
@@ -686,8 +695,12 @@ export function Builder({ agentId, agents, catalog, canCreate, canGrant = false,
         {agent.warnings?.length > 0 && <Notice tone="warning" title="About its scope">{agent.warnings.join(" ")}</Notice>}
         {leaving && dirty && (
           <Notice tone="warning" live title="Your changes are not saved"
-            action={<><Button variant="ghost" onClick={() => setLeaving(false)}>Keep editing</Button><Button variant="primary" busy={busy} onClick={() => void save().then((ok) => { setLeaving(false); if (ok) onTest(agent.id); })}>Save, then test</Button></>}>
-            Testing runs the saved version, v{agent.version}, and leaving this tab drops the changes.
+            action={<>
+              <Button variant="ghost" onClick={() => setLeaving(null)}>Keep editing</Button>
+              <Button variant="ghost" onClick={() => { const { go } = leaving; setDraftState(clone(agent.spec)); setLeaving(null); go(); }}>Drop the changes</Button>
+              <Button variant="primary" busy={busy} onClick={() => void save().then((ok) => { const { go } = leaving; setLeaving(null); if (ok) go(); })}>{leaving.label}</Button>
+            </>}>
+            {leaving.label === "Save, then test" ? `Testing runs the saved version, v${agent.version}, and leaving this tab drops the changes.` : `Leaving drops the changes; the saved version, v${agent.version}, stays as it is.`}
           </Notice>
         )}
         {error && <Notice tone="danger" live title="Not saved">{error}</Notice>}

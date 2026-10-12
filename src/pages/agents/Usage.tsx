@@ -3,7 +3,7 @@ import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, Field, KeyValue, MetricStrip, MetricTile, Notice, Panel, Progress, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import { agentsApi, type LibraryModel, type ModuleState, type RuntimeDriver, type RuntimeState, type Usage as UsageState } from "./api";
-import { bytes, errorText, gibibytes, processorWords } from "./format";
+import { bytes, duration, errorText, gibibytes, processorWords } from "./format";
 import { PasswordSheet } from "./PasswordSheet";
 import { SetupAction, chainSteps, downloadStep, enableStep, installStep, modelParameters, setupSteps, unitUp, type SetupStep, type SetupStepId } from "./setup";
 
@@ -200,7 +200,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
             <div className="agents-budget agents-budget--all">
               <span className="agents-budget__name">All agents</span>
               <Progress label="All agents: runs" value={usage.module.budget.runsUsed} max={usage.module.budget.runsPerDay} detail={`${usage.module.budget.runsUsed}/${usage.module.budget.runsPerDay} runs`} status={usage.module.budget.runsUsed >= usage.module.budget.runsPerDay ? "warning" : "good"} />
-              <Progress label="All agents: model time" value={Math.round(usage.module.budget.modelMsUsed / 1000)} max={usage.module.budget.modelSecondsPerDay} detail={`${Math.round(usage.module.budget.modelMsUsed / 1000)}/${usage.module.budget.modelSecondsPerDay} s`} status={usage.module.budget.modelMsLeft <= 0 ? "warning" : "good"} />
+              <Progress label="All agents: model time" value={Math.round(usage.module.budget.modelMsUsed / 1000)} max={usage.module.budget.modelSecondsPerDay} detail={`${duration(Math.round(usage.module.budget.modelMsUsed / 1000))} of ${duration(usage.module.budget.modelSecondsPerDay)}`} status={usage.module.budget.modelMsLeft <= 0 ? "warning" : "good"} />
             </div>
           )}
           {perAgent.length === 0 ? <p className="agents-quiet">No agents yet.</p> : (
@@ -209,7 +209,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
                 <li key={entry.agentId} className="agents-budget">
                   <span className="agents-budget__name">{entry.name}</span>
                   <Progress label={`${entry.name}: runs`} value={entry.runs} max={entry.runsPerDay} detail={`${entry.runs}/${entry.runsPerDay} runs`} status={entry.runs >= entry.runsPerDay ? "warning" : "good"} />
-                  <Progress label={`${entry.name}: model time`} value={entry.modelSeconds} max={entry.modelSecondsPerDay} detail={`${entry.modelSeconds}/${entry.modelSecondsPerDay} s`} status={entry.modelSeconds >= entry.modelSecondsPerDay ? "warning" : "good"} />
+                  <Progress label={`${entry.name}: model time`} value={entry.modelSeconds} max={entry.modelSecondsPerDay} detail={`${duration(entry.modelSeconds)} of ${duration(entry.modelSecondsPerDay)}`} status={entry.modelSeconds >= entry.modelSecondsPerDay ? "warning" : "good"} />
                 </li>
               ))}
             </ul>
@@ -267,7 +267,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
           {saved && <Notice tone="success" live onDismiss={() => setSaved(null)}>{saved}</Notice>}
           {(usage.context?.limitedRuns ?? 0) > 0 && (
             <Notice tone="warning" title={`${usage.context!.limitedRuns} ${usage.context!.limitedRuns === 1 ? "run" : "runs"} this week answered early because what ${usage.context!.limitedRuns === 1 ? "it" : "they"} read filled the model's context`}>
-              The context is {Number(usage.context!.tokens ?? 0).toLocaleString()} tokens. A survey that reads seven tools needs more. A larger context is set below; the model takes about {contextMemory(usage.context!.tokens ?? 0, 16384)} more memory at 16,384 while it is loaded, and the memory tile above says what is free.
+              The context is {Number(usage.context!.tokens ?? 0).toLocaleString()} tokens. A survey that reads seven tools needs more. A larger context is set below: 16,384 is recommended, about {contextMemory(usage.context!.tokens ?? 0, 16384)} more memory while the model is loaded, which fits the runner's cap; the memory tile above says what is free.
             </Notice>
           )}
           <div className="agents-form__grid">
@@ -280,7 +280,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
             {draft.driver !== "external" && (
               <Field label="Model context" hint="what one run can read at once; more context, more memory while the model is loaded">
                 <Select value={draft.contextTokens} onValueChange={(value) => setDraft({ ...draft, contextTokens: value })}
-                  options={[...new Set([8192, 16384, 32768, Number.parseInt(draft.contextTokens, 10) || 8192])].sort((a, b) => a - b).map((tokens) => ({ value: String(tokens), label: `${tokens.toLocaleString()} tokens${tokens === 8192 ? " (the default)" : ` (about ${contextMemory(8192, tokens)} more memory)`}` }))} />
+                  options={[...new Set([8192, 16384, 32768, Number.parseInt(draft.contextTokens, 10) || 8192])].sort((a, b) => a - b).map((tokens) => ({ value: String(tokens), label: `${tokens.toLocaleString()} tokens${tokens === 8192 ? " (the default)" : tokens === 16384 ? ` (recommended: about ${contextMemory(8192, tokens)} more memory, inside the cap)` : ` (about ${contextMemory(8192, tokens)} more memory)`}` }))} />
               </Field>
             )}
             <Field label="Quiet hours from"><TextInput mono type="time" value={draft.quietStart} onValueChange={(value) => setDraft({ ...draft, quietStart: value })} /></Field>
@@ -288,7 +288,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
           </div>
           <div className="agents-form__grid">
             <Field label="Runs a day, all agents together" hint="10 to 2,000"><TextInput mono type="number" min={10} max={2000} value={draft.runsPerDay} onValueChange={(value) => setDraft({ ...draft, runsPerDay: value })} /></Field>
-            <Field label="Model seconds a day, all together" hint="60 to 86,400"><TextInput mono type="number" min={60} max={86400} value={draft.modelSecondsPerDay} onValueChange={(value) => setDraft({ ...draft, modelSecondsPerDay: value })} /></Field>
+            <Field label="Model seconds a day, all together" hint={<><span>60 to 86,400</span>{Number.isFinite(Number.parseInt(draft.modelSecondsPerDay, 10)) ? <> · {duration(Number.parseInt(draft.modelSecondsPerDay, 10))}</> : null}</>}><TextInput mono type="number" min={60} max={86400} value={draft.modelSecondsPerDay} onValueChange={(value) => setDraft({ ...draft, modelSecondsPerDay: value })} /></Field>
           </div>
           {cores && (
             <div className="agents-form__grid">

@@ -3,14 +3,15 @@ import type { PendingOperation } from "../../shell/ApproveDialog";
 import { Button, EmptyState, Notice, Panel, StatusChip, Table, type TableColumn } from "../../ui";
 import type { AgentSummary, Glance, Overview, Proposal } from "./api";
 import type { RunnerWait } from "./setup";
-import { agentState, runState, triggerWords } from "./format";
+import { agentState, duration, runState, triggerWords } from "./format";
 import { ProposalCard } from "./ProposalCard";
 import { AnswerText } from "./Trace";
 
 /*
  * The Agents tab (M37): every agent with what it is doing, how it starts, how its last run went and
  * how much of today's budget it has used; its own pause and resume; and the cards agents left,
- * each step staged at its own tier by a person. The latest digest leads when there is one.
+ * each step staged at its own tier by a person. The latest digest leads when there is one, and the
+ * cards lead the table while any wait (M48.7): they are what a person comes here to act on.
  */
 
 export interface AgentListProps {
@@ -20,7 +21,7 @@ export interface AgentListProps {
   csrfToken: string;
   role: string;
   now: number;
-  onOpen: (agentId: string, tab: "build" | "test", runId?: string) => void;
+  onOpen: (agentId: string, tab: "build" | "test" | "evaluation", runId?: string) => void;
   onNew: () => void;
   onPause: (agent: AgentSummary, until: string | null) => void;
   onResume: (agent: AgentSummary) => void;
@@ -56,8 +57,12 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
         return (
           <span className="agents-last">
             <StatusChip status={state.status}>{agent.paused && agent.pausedUntil ? `paused until ${new Date(agent.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}` : state.label}</StatusChip>
-            {/* M40: its evaluation's latest score, flagged when it dropped. */}
-            {agent.accuracy?.dropped && <StatusChip status="warning">accuracy down to {Math.round(agent.accuracy.score * 100)}%</StatusChip>}
+            {/* M40: its evaluation's latest score, flagged when it dropped; M48.7: a press opens the evaluation. */}
+            {agent.accuracy?.dropped && (
+              <button type="button" className="agents-chip-link" onClick={() => onOpen(agent.id, "evaluation")} aria-label={`Open the evaluation of ${agent.name}: accuracy down to ${Math.round(agent.accuracy.score * 100)}%`}>
+                <StatusChip status="warning">accuracy down to {Math.round(agent.accuracy.score * 100)}%</StatusChip>
+              </button>
+            )}
           </span>
         );
       },
@@ -70,7 +75,7 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
     },
     {
       id: "today", header: "Today", hideOnPhone: true, cell: (agent) => (
-        <span className="agents-mono">{agent.budgetToday.runsUsed}/{agent.budgetToday.runsPerDay} runs · {agent.budgetToday.modelSecondsUsed}/{agent.budgetToday.modelSecondsPerDay} s</span>
+        <span className="agents-mono">{agent.budgetToday.runsUsed} of {agent.budgetToday.runsPerDay} runs · {duration(agent.budgetToday.modelSecondsUsed)} of {duration(agent.budgetToday.modelSecondsPerDay)}</span>
       ),
     },
     {
@@ -88,6 +93,17 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
       ),
     },
   ];
+
+  const cardsPanel = staff && (
+    <Panel className="agents-cards" title="Cards waiting" count={proposals ? { status: open.length ? "warning" : "good", label: String(open.length) } : undefined}
+      meta={open.length ? "each step is staged at its own tier" : undefined} padded={open.length === 0}>
+      {proposals === null
+        ? <p className="agents-quiet">Reading…</p>
+        : open.length === 0
+          ? <p className="agents-quiet">No cards. When an agent finds something a registered operation fixes, it leaves a card here; nothing runs until you stage and approve it.</p>
+          : <div className="agents-cards__list">{open.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} csrfToken={csrfToken} role={role} onStage={onStage} onDecided={onProposalDecided} onOpenRun={(agentId, runId) => onOpen(agentId, "test", runId)} />)}</div>}
+    </Panel>
+  );
 
   return (
     <div className="agents-tab">
@@ -110,6 +126,8 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
         </Panel>
       )}
 
+      {open.length > 0 && cardsPanel}
+
       <Panel
         className="agents-list"
         title="Agents"
@@ -129,16 +147,7 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
         />
       </Panel>
 
-      {staff && (
-        <Panel className="agents-cards" title="Cards waiting" count={proposals ? { status: open.length ? "warning" : "good", label: String(open.length) } : undefined}
-          meta={open.length ? "each step is staged at its own tier" : undefined} padded={open.length === 0}>
-          {proposals === null
-            ? <p className="agents-quiet">Reading…</p>
-            : open.length === 0
-              ? <p className="agents-quiet">No cards. When an agent finds something a registered operation fixes, it leaves a card here; nothing runs until you stage and approve it.</p>
-              : <div className="agents-cards__list">{open.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} csrfToken={csrfToken} role={role} onStage={onStage} onDecided={onProposalDecided} onOpenRun={(agentId, runId) => onOpen(agentId, "test", runId)} />)}</div>}
-        </Panel>
-      )}
+      {open.length === 0 && cardsPanel}
     </div>
   );
 }

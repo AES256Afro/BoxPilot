@@ -145,4 +145,34 @@ export function seconds(ms: number | null | undefined): string {
   return total % 60 ? `${minutes} min ${total % 60} s` : `${minutes} min`;
 }
 
+/**
+ * A budget's seconds as a person reads them (M48.7): "45 s", "30 min", "1 h 30 min", "24 h". A
+ * budget is set in whole minutes or hours nearly always, so the seconds are dropped past ten
+ * minutes, where "1800 s" said nothing to anyone.
+ */
+export function duration(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const total = Math.max(0, Math.round(value));
+  if (total < 60) return `${total} s`;
+  if (total < 3600) {
+    const minutes = Math.floor(total / 60);
+    return total % 60 && total < 600 ? `${minutes} min ${total % 60} s` : `${Math.round(total / 60)} min`;
+  }
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.round((total % 3600) / 60);
+  if (minutes === 60) return `${hours + 1} h`;
+  return minutes ? `${hours} h ${minutes} min` : `${hours} h`;
+}
+
+/**
+ * A tool as the page names it (M48.7): its title from the catalog ("App usage") where the trace,
+ * the memory and the evaluation used to show its id ("apps.usage"), which the model also spells
+ * "apps_usage". The id when the catalog has not arrived or does not know it.
+ */
+export function toolTitle(tools: ReadonlyArray<{ id: string; title: string }> | null | undefined, id: string | null | undefined): string {
+  if (!id) return "";
+  const dotted = id.replace(/_/g, ".");
+  return tools?.find((tool) => tool.id === dotted || tool.id === id)?.title ?? dotted;
+}
+
 export const errorText = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);

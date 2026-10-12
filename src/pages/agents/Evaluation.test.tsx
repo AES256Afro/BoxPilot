@@ -25,11 +25,12 @@ afterEach(() => { cleanup(); mocked.pending.clear(); mocked.saved = []; vi.resto
 
 const steve = { id: "11111111-1111-4111-8111-111111111111", name: "Steve", canEdit: true } as unknown as AgentSummary;
 const watcher = { id: "33333333-3333-4333-8333-333333333333", name: "Pi-hole Watcher", canEdit: true } as unknown as AgentSummary;
+const live = { enabled: true, paused: false, pausedUntil: null, killedAt: null };
 const state = (question: string): EvaluationState => ({ questions: [{ id: "q1", question, expect: { includes: ["yes"] } }], runs: [], canEdit: true });
 
 describe("golden questions, when another agent is chosen while its read is on the way", () => {
   it("shows and saves the agent chosen now, never the late answer for the one before", async () => {
-    const props = { agents: [steve, watcher], csrfToken: "csrf", now: Date.parse("2026-09-29T16:00:00Z"), enabled: true, onSelectAgent: () => undefined, onOpenRun: () => undefined };
+    const props = { agents: [steve, watcher], csrfToken: "csrf", now: Date.parse("2026-09-29T16:00:00Z"), module: live, onSelectAgent: () => undefined, onOpenRun: () => undefined };
     const view = render(<Evaluation {...props} agentId={steve.id} />);
     await waitFor(() => expect(mocked.pending.has(steve.id)).toBe(true));
     view.rerender(<Evaluation {...props} agentId={watcher.id} />);
@@ -52,7 +53,7 @@ describe("adding a golden question", () => {
   // A new question was numbered from how many there were: after a removal it took the id of one
   // still there, and the two questions' grades were swapped.
   it("gives a new question an id no other question has, after one was removed, and after quick clicks", async () => {
-    const props = { agents: [steve], csrfToken: "csrf", now: Date.parse("2026-09-29T16:00:00Z"), enabled: true, onSelectAgent: () => undefined, onOpenRun: () => undefined };
+    const props = { agents: [steve], csrfToken: "csrf", now: Date.parse("2026-09-29T16:00:00Z"), module: live, onSelectAgent: () => undefined, onOpenRun: () => undefined };
     render(<Evaluation {...props} agentId={steve.id} />);
     await waitFor(() => expect(mocked.pending.has(steve.id)).toBe(true));
     mocked.pending.get(steve.id)!({ questions: [
@@ -80,7 +81,7 @@ describe("adding a golden question", () => {
 
 describe("a nightly evaluation the night's model time could not pay for in full (sweep 3)", () => {
   it("shows the questions it could not ask as not graded, and counts only the ones graded", async () => {
-    const props = { agents: [steve], csrfToken: "csrf", now: Date.parse("2026-09-30T08:00:00Z"), enabled: true, onSelectAgent: () => undefined, onOpenRun: () => undefined };
+    const props = { agents: [steve], csrfToken: "csrf", now: Date.parse("2026-09-30T08:00:00Z"), module: live, onSelectAgent: () => undefined, onOpenRun: () => undefined };
     render(<Evaluation {...props} agentId={steve.id} />);
     await waitFor(() => expect(mocked.pending.has(steve.id)).toBe(true));
     mocked.pending.get(steve.id)!({ questions: [], runs: [{

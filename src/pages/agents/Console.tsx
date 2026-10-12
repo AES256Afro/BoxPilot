@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, Notice, Panel, Select, StatusChip, Table, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, followRun, type AgentSummary, type Proposal, type Run } from "./api";
+import { agentsApi, followRun, type AgentSummary, type ModuleState, type Proposal, type Run, type ToolInfo } from "./api";
 import { errorText, finishedRunStates, kindWords, runState, seconds, waitingWords } from "./format";
 import type { RunnerWait } from "./setup";
+import { PausedNotice, isHeld } from "./Paused";
 import { ProposalCard } from "./ProposalCard";
 import { RunView } from "./Trace";
 
@@ -22,7 +23,15 @@ export interface ConsoleProps {
   csrfToken: string;
   role: string;
   now: number;
-  enabled: boolean;
+  /** Whether Agents are on, paused, or stopped: nothing starts while they are not running. */
+  module: Pick<ModuleState, "enabled" | "paused" | "pausedUntil" | "killedAt">;
+  /** The tool catalog, so the trace names each tool by its title. */
+  tools?: ToolInfo[] | null;
+  /** Whether this person may resume a paused agent (the owner and operators), and whether they are the owner. */
+  canPause?: boolean;
+  owner?: boolean;
+  onResumeAll?: () => void;
+  onResumeAgent?: (agent: AgentSummary) => void;
   /** Set while Agents are on and the runner is not answering. */
   runnerWait?: RunnerWait | null;
   onSelectAgent: (agentId: string) => void;
@@ -70,7 +79,7 @@ function Feedback({ run, csrfToken, canAddQuestion, onGiven }: { run: Run; csrfT
   );
 }
 
-export function Console({ agents, agentId, runId, csrfToken, role, now, enabled, runnerWait = null, onSelectAgent, onStage, onRunFinished }: ConsoleProps) {
+export function Console({ agents, agentId, runId, csrfToken, role, now, module, tools = null, canPause = false, owner = false, onResumeAll, onResumeAgent, runnerWait = null, onSelectAgent, onStage, onRunFinished }: ConsoleProps) {
   const staff = role === "owner" || role === "operator";
   const usable = agents.filter((agent) => agent.canAsk || (staff && agent.canEdit) || (staff && role === "owner"));
   const agent = usable.find((entry) => entry.id === agentId) ?? usable[0] ?? null;
@@ -171,6 +180,8 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   }
   const running = run !== null && !finishedRunStates.has(run.state);
   const mayTest = staff && (agent.canEdit || role === "owner");
+  // Off, paused, or this agent paused: the buttons wait, and the notice says why and offers the resume.
+  const held = isHeld(module, agent);
 
   const columns: Array<TableColumn<Run>> = [
     { id: "state", header: "Outcome", cell: (entry) => <StatusChip status={runState(entry.state).status}>{runState(entry.state).label}</StatusChip> },
@@ -193,11 +204,11 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
             <Textarea rows={3} maxLength={2000} value={question} placeholder={agent.name === "Pi-hole Watcher" ? "Is Pi-hole blocking, and are its lists fresh?" : "What runs on this server, and is anything failing?"} onValueChange={setQuestion} />
           </Field>
           <div className="agents-ask__actions">
-            {agent.canAsk && <Button variant="primary" busy={busy} disabled={!enabled || !question.trim() || running} onClick={() => void start("ask")}>Ask</Button>}
-            {mayTest && <Button variant={agent.canAsk ? "secondary" : "primary"} busy={busy} disabled={!enabled || running} onClick={() => void start("test")}>{question.trim() ? "Run with this question" : "Run once"}</Button>}
+            {agent.canAsk && <Button variant="primary" busy={busy} disabled={held || !question.trim() || running} onClick={() => void start("ask")}>Ask</Button>}
+            {mayTest && <Button variant={agent.canAsk ? "secondary" : "primary"} busy={busy} disabled={held || running} onClick={() => void start("test")}>{question.trim() ? "Run with this question" : "Run once"}</Button>}
             {running && <Button variant="ghost" onClick={() => void cancel()}>Stop</Button>}
           </div>
-          {!enabled && <Notice tone="info">Agents are off, so nothing runs. The owner turns them on at the top of this page.</Notice>}
+          {held && <PausedNotice module={module} agent={agent} what="a question" canPause={canPause} owner={owner} onResumeAll={onResumeAll} onResumeAgent={onResumeAgent ? () => onResumeAgent(agent) : undefined} />}
           {error && <Notice tone="danger" live>{error}</Notice>}
         </div>
       </Panel>
@@ -224,7 +235,7 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
                   </ol>
                 </nav>
               )}
-              <RunView run={run} onStopPlan={role === "viewer" ? undefined : (planId) => void stopPlan(planId)} />
+              <RunView run={run} tools={tools} onStopPlan={role === "viewer" ? undefined : (planId) => void stopPlan(planId)} />
               {/* Keyed by run: an open "Wrong" belongs to the run it was opened on. */}
               {finishedRunStates.has(run.state) && run.kind !== "index" && <Feedback key={run.id} run={run} csrfToken={csrfToken}
                 canAddQuestion={Boolean(run.question) && run.kind !== "eval" && Boolean(agents.find((entry) => entry.id === run.agentId)?.canEdit)}

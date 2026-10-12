@@ -3,6 +3,7 @@ import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, KeyValue, Notice, Panel, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, mayStart, riskOf, type TableColumn } from "../../ui";
 import { agentsApi, type Knowledge as KnowledgeState, type KnowledgeSource, type OwnerDocument } from "./api";
+import { ConfirmSheet, type Confirmation } from "./Confirm";
 import { errorText, runState } from "./format";
 import { PasswordSheet } from "./PasswordSheet";
 
@@ -44,6 +45,8 @@ export function Knowledge({ csrfToken, role, now, onStart, refreshKey = 0 }: Kno
   const [connectors, setConnectors] = useState<ConnectorDraft | null>(null);
   const [saveConnectors, setSaveConnectors] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Removing a document asks first (M48.7): it and its text go for good.
+  const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const file = useRef<HTMLInputElement | null>(null);
 
   const read = useCallback(async () => {
@@ -98,7 +101,11 @@ export function Knowledge({ csrfToken, role, now, onStart, refreshKey = 0 }: Kno
         <span className="agents-actions">
           <Switch label={<span className="ui-visually-hidden">Read {document.title}</span>} checked={document.enabled} onChange={(checked) => void act(() => agentsApi.toggleDocument(csrfToken, document.id, checked), checked ? `${document.title} is read again.` : `${document.title} is left out.`, "The document could not be changed")} />
           <Button variant="ghost" onClick={() => void act(() => agentsApi.pinDocument(csrfToken, document.id, !document.pinned), document.pinned ? `${document.title} is no longer pinned.` : `${document.title} is pinned: every agent that reads your documents recalls it first.`, "The document could not be changed")} aria-label={`${document.pinned ? "Unpin" : "Pin"} ${document.title}`}>{document.pinned ? "Unpin" : "Pin"}</Button>
-          <Button variant="ghost" onClick={() => void act(() => agentsApi.removeDocument(csrfToken, document.id), `${document.title} was removed.`, "The document could not be removed")} aria-label={`Remove ${document.title}`}>Remove</Button>
+          <Button variant="ghost" aria-label={`Remove ${document.title}`} onClick={() => setConfirm({
+            kicker: "Learning library", title: `Remove ${document.title}?`, confirmLabel: "Remove",
+            body: `Agents stop reading it, and its text is deleted from BoxPilot${document.mediaType ? ", the image and its description with it" : ""}. This cannot be undone; upload or paste it again to bring it back. To leave it out for a while instead, turn its switch off.`,
+            onConfirm: async () => { await agentsApi.removeDocument(csrfToken, document.id); setNotice(`${document.title} was removed.`); setError(null); await read(); },
+          })}>Remove</Button>
         </span>
       ) : null),
     },
@@ -218,6 +225,7 @@ export function Knowledge({ csrfToken, role, now, onStart, refreshKey = 0 }: Kno
           {connectors.webEnabled && <p>With web search on, the agents' queries go to the search engines your SearXNG asks. Nothing about this server should be in them, and the agents are told so.</p>}
         </PasswordSheet>
       )}
+      {confirm && <ConfirmSheet confirmation={confirm} onClose={() => setConfirm(null)} failed="The document could not be removed" />}
       {adding && (
         <Sheet kicker="Learning library" title="Paste a document" onClose={() => setAdding(false)}
           footer={<><Button variant="ghost" onClick={() => setAdding(false)}>Cancel</Button><Button variant="primary" disabled={!title.trim() || !text.trim()} onClick={() => void act(async () => { await agentsApi.addDocument(csrfToken, title.trim(), text); setAdding(false); setTitle(""); setText(""); }, "The document was added. Agents that read your documents see it from their next run.", "The document could not be added")}>Add it</Button></>}>

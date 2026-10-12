@@ -93,6 +93,16 @@ export function powerNews(events: PowerEvent[], now: number, { days = 7, limit =
     .map(({ event, index }) => ({ ...event, ...powerEventWords(event, events, index) }));
 }
 
+/**
+ * NUT's status tokens in words (M48.7): "OL" is on mains, "CHRG" charging, "RB" a battery to
+ * replace. The Ops page showed them as NUT prints them. One NUT does not document is shown as it is.
+ */
+const upsTokens: Record<string, string> = {
+  OL: "on mains", OB: "on battery", LB: "battery low", HB: "battery high", RB: "replace the battery", CHRG: "charging", DISCHRG: "discharging",
+  BYPASS: "on bypass", CAL: "calibrating", OFF: "output off", OVER: "overloaded", TRIM: "trimming the voltage", BOOST: "boosting the voltage", FSD: "shutting down", ALARM: "alarm",
+};
+export const upsTokenWords = (token: string): string => upsTokens[token.toUpperCase()] ?? token;
+
 /** The UPS's state in a word or two, as NUT's reader names it. */
 export function upsStateWords(state: string | null | undefined): { status: Status; label: string } {
   switch (state) {
