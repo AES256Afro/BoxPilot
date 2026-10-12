@@ -3178,11 +3178,16 @@ The four sweeps the same day (bugs, security, performance, usability; read-only,
 platform, the harness package, the routes, the M39 tasks and the Agents pages) found what follows,
 ranked by what the owner would feel first. The rest of the milestone works through them.
 
-- **M48.2 The planner reads a slim request.** The planner is asked the whole task message - notes,
-  memories, findings, the folded conversation - and the acting calls read the same text again behind
-  another prefix: 1,700 to 3,400 tokens a run read twice, 25 to 80 s on the owner's processor. The
-  planner gets the question or the trigger, the findings' titles and the conversation's summary;
-  the acting calls keep the whole.
+- ✅ **M48.2 The planner reads a slim request** (unreleased, `feat/m48-planner`). The planner was
+  asked the whole task message - the agent's notes, what it recalled, the other agents' findings in
+  full, the folded conversation - and the acting calls then read the same text again behind another
+  prefix: 1,700 to 3,400 tokens a run read twice, 25 to 80 s on the owner's processor. The claim now
+  carries the planner its own request (`plannerTaskMessage`, prompt.mjs): what started the run and
+  the question if any, the other agents' findings by title alone ("F1: Backups that restore (Backup
+  Auditor's finding)", so a plan can still lean on one), and the conversation so far in one line.
+  The acting calls keep the whole. A runner given a claim without it reads the task as before. Tests:
+  `planner-task.test.mjs` (the request's words; a run whose planner sees the question and the
+  finding's title but not the note's or the finding's body, while the acting call sees both).
 - ✅ **M48.3 What a run shows and sends** (unreleased, `feat/m48-security`; the security sweep's
   findings). The example book shows a maker who is an operator only the examples kept from runs
   that read as an operator or a viewer, as the planner's pool and the memory already did: an

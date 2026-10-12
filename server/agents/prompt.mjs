@@ -161,6 +161,29 @@ export function taskMessage({ kind, question = null, trigger = null, notes = [],
 }
 
 /**
+ * The request as the planner reads it (M48.2): what started the run and the question if any, the
+ * other agents' findings by title alone, and the conversation so far in one line. Not the notes,
+ * not the memories, not the findings' bodies: the planner names tools, and the acting calls, which
+ * answer, read the whole task message. On the owner's processor the whole message read twice was 25
+ * to 80 s a run.
+ */
+export function plannerTaskMessage({ kind, question = null, trigger = null, findings = [], thread = null, now = new Date() }) {
+  const plan = kind === "continue" ? trigger?.plan : null;
+  const opening = plan?.purpose === "check" ? `${planCheckLine} ${boxLine(plan.check ?? "", 300)}.`
+    : plan?.purpose === "report" ? planReportLine
+      : kind === "continue" && trigger?.acted ? (trigger.handedOff ? actedAndHandedLine : actedLine) : kindLines[kind] ?? kindLines.manual;
+  const lines = [`Now: ${now.toISOString()}`, opening];
+  if (trigger?.title) lines.push(`What happened: ${boxLine(trigger.title, 300)}`);
+  if (thread?.summary) lines.push(`Earlier, in short: ${sanitizeUntrusted(String(thread.summary), { maxChars: 600 }).text}`);
+  if (question) lines.push("", "<question>", sanitizeUntrusted(String(question).slice(0, 2_000), { maxChars: 2_400 }).text, "</question>");
+  // A finding's own first line is its title; `title` as offered says whose it is ("Backup Auditor's finding").
+  const titleOf = (finding) => boxLine(String(finding.text ?? "").split("\n")[0] || finding.title || "", 160);
+  const titles = (Array.isArray(findings) ? findings : []).map((finding, index) => `${finding.id ?? `F${index + 1}`}: ${titleOf(finding)}${finding.title && titleOf(finding) !== boxLine(finding.title, 160) ? ` (${boxLine(finding.title, 80)})` : ""}`).filter((line) => !/: $/.test(line));
+  if (titles.length) lines.push("", "What other agents found recently, by title (each is in full when you act; cite it as its F number):", ...titles.map((line) => `- ${line}`));
+  return lines.join("\n");
+}
+
+/**
  * What the runner adds to the end of the last tool round when the run has no tool calls left: the
  * end, so everything the model already read stays the same, and outside the tool's <tool_output>
  * box, so it is BoxPilot's words and not the tool's.
