@@ -160,7 +160,8 @@ export function renderNutConfig({ name = "ups", driver = "usbhid-ups", port = nu
     `\tport = ${port ?? (driver === "snmp-ups" ? "localhost" : "auto")}`,
     ...(vendorId ? [`\tvendorid = ${vendorId}`] : []),
     ...(productId ? [`\tproductid = ${productId}`] : []),
-    `\tdesc = "${description.replace(/"/g, "")}"`,
+    // The description as the page already limits it (M50): the task is where it is written, and it took anything but a quote.
+    `\tdesc = "${String(description).replace(/[^A-Za-z0-9 ._()/-]/g, "").slice(0, 60) || "UPS"}"`,
     "\tpollinterval = 5",
     // The owner's thresholds replace the UPS's own: the driver raises "low battery" itself when the
     // charge or the runtime left falls below them, and ignores the UPS's own low-battery flag.

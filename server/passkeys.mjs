@@ -93,10 +93,15 @@ export function createPasskeyService({
     return { origin, rpId: relyingPartyId(origin) };
   }
 
-  function issueChallenge({ type, ownerId = null, origin, rpId }) {
+  function issueChallenge({ type, ownerId = null, origin, rpId, caller = null }) {
     pruneChallenges();
+    if (caller) {
+      // One caller holds at most ten live challenges (M50): their own oldest goes, never another caller's.
+      const own = [...challenges].filter(([, record]) => record.caller === caller).map(([key]) => key);
+      for (const key of own.slice(0, Math.max(0, own.length - 9))) challenges.delete(key);
+    }
     const challenge = bufferToBase64url(randomBytes(32));
-    challenges.set(challenge, { type, ownerId, rpId, origin, expiresAt: now() + challengeTtlMs });
+    challenges.set(challenge, { type, ownerId, rpId, origin, caller, expiresAt: now() + challengeTtlMs });
     return challenge;
   }
 
@@ -152,9 +157,9 @@ export function createPasskeyService({
   }
 
   // ---- Authentication ------------------------------------------------------------------------
-  function authenticateOptions({ origin, allowedOrigins }) {
+  function authenticateOptions({ origin, allowedOrigins, caller = null }) {
     const rp = relyingParty(origin, allowedOrigins);
-    const challenge = issueChallenge({ type: "authenticate", origin: rp.origin, rpId: rp.rpId });
+    const challenge = issueChallenge({ type: "authenticate", origin: rp.origin, rpId: rp.rpId, caller });
     // Empty allowCredentials: the discoverable passkeys are offered by the platform, so no credential
     // id is revealed to an anonymous caller, and the owner picks an account in the browser's own UI.
     return { challenge, rpId: rp.rpId, allowCredentials: [], userVerification: "preferred", timeout: challengeTtlMs };

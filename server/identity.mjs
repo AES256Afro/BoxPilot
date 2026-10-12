@@ -251,7 +251,7 @@ export function createIdentityService({
       throw new Error("Too many GitHub link attempts in progress; try again in a minute");
     }
     const clientId = setting("githubClientId", "");
-    const response = await fetchImpl("https://github.com/login/device/code", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": `BoxPilot/${productVersion}` }, body: JSON.stringify({ client_id: clientId, scope: "read:user" }), signal: AbortSignal.timeout(10_000) });
+    const response = await fetchImpl("https://github.com/login/device/code", { redirect: "error", method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": `BoxPilot/${productVersion}` }, body: JSON.stringify({ client_id: clientId, scope: "read:user" }), signal: AbortSignal.timeout(10_000) });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.device_code) throw new Error(body.error_description ?? body.error ?? `GitHub returned ${response.status}`);
     const flowId = randomUUID();
@@ -269,14 +269,14 @@ export function createIdentityService({
     }
     if (now() < flow.nextPollAt) return { status: "pending", purpose: flow.purpose };
     flow.nextPollAt = now() + flow.intervalMs;
-    const response = await fetchImpl("https://github.com/login/oauth/access_token", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": `BoxPilot/${productVersion}` }, body: JSON.stringify({ client_id: flow.clientId, device_code: flow.deviceCode, grant_type: "urn:ietf:params:oauth:grant-type:device_code" }), signal: AbortSignal.timeout(10_000) });
+    const response = await fetchImpl("https://github.com/login/oauth/access_token", { redirect: "error", method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": `BoxPilot/${productVersion}` }, body: JSON.stringify({ client_id: flow.clientId, device_code: flow.deviceCode, grant_type: "urn:ietf:params:oauth:grant-type:device_code" }), signal: AbortSignal.timeout(10_000) });
     const body = await response.json().catch(() => ({}));
     if (body.error === "authorization_pending") return { status: "pending", purpose: flow.purpose };
     if (body.error === "slow_down") { flow.intervalMs += 5000; flow.nextPollAt = now() + flow.intervalMs; return { status: "pending", purpose: flow.purpose }; }
     if (body.error === "expired_token") { githubFlows.delete(flowId); return { status: "expired", purpose: flow.purpose }; }
     if (body.error === "access_denied") { githubFlows.delete(flowId); return { status: "denied", purpose: flow.purpose }; }
     if (!body.access_token) { githubFlows.delete(flowId); return { status: "error", error: body.error_description ?? body.error ?? "GitHub did not return a token", purpose: flow.purpose }; }
-    const user = await fetchImpl("https://api.github.com/user", { headers: { Authorization: `Bearer ${body.access_token}`, Accept: "application/vnd.github+json", "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(10_000) });
+    const user = await fetchImpl("https://api.github.com/user", { redirect: "error", headers: { Authorization: `Bearer ${body.access_token}`, Accept: "application/vnd.github+json", "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(10_000) });
     const profile = await user.json().catch(() => ({}));
     githubFlows.delete(flowId);
     if (!user.ok || typeof profile.login !== "string") return { status: "error", error: "Could not read the GitHub profile", purpose: flow.purpose };

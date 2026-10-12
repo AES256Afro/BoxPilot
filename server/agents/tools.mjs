@@ -10,7 +10,11 @@
 import { alertSources, asRequest, backupSummary, maskedParameters } from "../assistant/facts.mjs";
 import { createBm25, tokenize } from "../assistant/knowledge.mjs";
 import { seesEveryAccount } from "../routes/access.mjs";
+import { createRedactor, redactText } from "../../packages/harness/src/index.mjs";
 import { searxSearch } from "./connectors.mjs";
+
+// A query the model composed may quote a secret it was shown (M50): redacted before it is sent anywhere.
+const queryRedactor = createRedactor();
 import { exactTools } from "./deterministic.mjs";
 import { describePihole } from "./pihole.mjs";
 import { roleAtLeast } from "./tool-catalog.mjs";
@@ -263,7 +267,7 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     async "web.search"({ query, limit = 5 }) {
       const settings = webSearch();
       if (!settings.enabled) throw new ToolError("Web search is off on this server");
-      return searxSearch({ endpoint: settings.endpoint, query, limit }, { fetcher });
+      return searxSearch({ endpoint: settings.endpoint, query: redactText(String(query ?? ""), queryRedactor).slice(0, 400), limit }, { fetcher });
     },
 
     ...Object.fromEntries(Object.entries(exactTools).map(([id, fn]) => [id, (input) => Promise.resolve().then(() => fn(input, { now })).catch((error) => { throw new ToolError(error.message); })])),

@@ -149,14 +149,14 @@ export function createOidcAdminRouter({ oidc, auth }) {
     const issuer = originFrom(request);
     response.json({ issuer, discovery: `${issuer}/.well-known/openid-configuration`, clients: oidc.listClients(), status: oidc.status() });
   });
-  router.post("/oidc/clients", ownerOnly, (request, response) => {
+  router.post("/oidc/clients", ownerOnly, auth.requireCsrf, (request, response) => {
     try {
       response.status(201).json(oidc.registerClient({ name: request.body?.name, redirectUris: request.body?.redirectUris, ownerId: request.boxpilotSession.owner.id }));
     } catch (error) {
       response.status(400).json({ error: error.message, code: "invalid_client" });
     }
   });
-  router.delete("/oidc/clients/:id", ownerOnly, (request, response) => {
+  router.delete("/oidc/clients/:id", ownerOnly, auth.requireCsrf, (request, response) => {
     try {
       oidc.removeClient(request.params.id, request.boxpilotSession.owner.id);
       response.json({ removed: true });

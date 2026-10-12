@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, rename, stat, unlink } from "node:fs/promises";
+import { readBounded } from "../../packages/harness/src/index.mjs";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
@@ -44,9 +45,10 @@ export async function ensureCloudImage({ image } = {}, { run = fixedRun, log = n
   if (!spec) throw new Error(`Unsupported cloud image ${image}`);
   await mkdir(root, { recursive: true, mode: 0o755 });
   log?.(`Fetching checksum list for ${spec.label}`, "stdout");
-  const sumsResponse = await fetchImpl(spec.sums);
+  // A deadline, no redirects and a bound on the list (M50); the image itself is checked against it.
+  const sumsResponse = await fetchImpl(spec.sums, { redirect: "error", signal: AbortSignal.timeout(30_000) });
   if (!sumsResponse.ok) throw new Error(`Could not fetch ${spec.sums} (${sumsResponse.status})`);
-  const digest = expectedDigest(await sumsResponse.text(), spec.file);
+  const digest = expectedDigest(await readBounded(sumsResponse, 1024 * 1024), spec.file);
   if (!digest) throw new Error(`Checksum for ${spec.file} was not found in ${spec.sums}`);
   const target = path.join(root, `${image}-${digest.slice(0, 12)}.img`);
   try {
@@ -67,7 +69,7 @@ export async function ensureCloudImage({ image } = {}, { run = fixedRun, log = n
   const partial = `${target}.part`;
   await unlink(partial).catch(() => {});
   log?.(`Downloading ${spec.url}`, "stdout");
-  const download = await run("/usr/bin/curl", ["-fL", "--retry", "3", "--progress-bar", "-o", partial, spec.url], { timeout: 60 * 60_000, onLine: log ?? undefined });
+  const download = await run("/usr/bin/curl", ["-fL", "--proto", "=https", "--max-filesize", "8589934592", "--retry", "3", "--progress-bar", "-o", partial, spec.url], { timeout: 60 * 60_000, onLine: log ?? undefined });
   if (!download.ok) { await unlink(partial).catch(() => {}); throw new Error(`Download failed: ${download.stderr.split("\n").slice(-2).join(" ")}`); }
   log?.("Verifying checksum", "stdout");
   const actual = await digestFile(partial, spec.algorithm);

@@ -76,7 +76,11 @@ export function createIdentityRouter({ store, auth, identity }) {
     try { result = await identity.githubPoll(flowId); } catch (error) { return response.status(503).json({ status: "error", error: error.message }); }
     if (result.status !== "complete") return response.json({ status: result.status, error: result.error ?? null });
     if (result.purpose === "link") {
-      const session = await auth.requestSession(request);
+      // Linking changes the signed-in account, so it needs the CSRF token like any other change (M50).
+      let passed = false;
+      await auth.requireCsrf(request, response, () => { passed = true; });
+      if (!passed) return undefined;
+      const session = request.boxpilotSession;
       if (!session || session.owner.id !== result.ownerId) return response.status(403).json({ status: "error", error: "The link flow belongs to another session" });
       try {
         const linked = identity.linkGithub(session.owner.id, result.login, result.githubId ?? null);

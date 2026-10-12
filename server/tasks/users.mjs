@@ -2,6 +2,7 @@ import { readFile, unlink } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
+import { readBounded } from "../../packages/harness/src/index.mjs";
 
 /**
  * Root-side user and SSH tasks executed by scripts/boxpilot-run.mjs inside boxpilot-run@.service.
@@ -33,7 +34,8 @@ async function userEntry(run, username) {
 async function defaultFetchKeys(githubUser) {
   const response = await fetch(`https://github.com/${githubUser}.keys`, { signal: AbortSignal.timeout(15_000), redirect: "follow" });
   if (!response.ok) throw new Error(`GitHub returned ${response.status} for ${githubUser}.keys. Check the username`);
-  return response.text();
+  // Bounded (M50): a page of keys is kilobytes, and this runs as root.
+  return readBounded(response, 256 * 1024);
 }
 
 /**

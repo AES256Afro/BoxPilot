@@ -305,9 +305,13 @@ const interruptedJobs = state.recoverInterruptedJobs();
 // A job, schedule or flow written before secrets were refused (M29.1) can still hold one in clear,
 // and every controller backup copies it. Mask them before anything else reads them (M29.3).
 try {
-  const scrubbed = await scrubStoredSecrets({ store: state, registry, secretEnvNamesFor, holdsStagedSecrets: jobs.holdsStagedSecrets });
+  // Only the jobs written since the last pass that checked everything (M50): the pass read every
+  // job row ever written at every start, before the server listened.
+  const scrubMark = state.getSetting("secretsScrubbed", null);
+  const scrubbed = await scrubStoredSecrets({ store: state, registry, secretEnvNamesFor, holdsStagedSecrets: jobs.holdsStagedSecrets, afterJobRow: Number(scrubMark?.jobRow) || 0 });
   if (scrubbed.secrets) console.warn(`[boxpilot] masked ${scrubbed.secrets} stored secret(s) in ${scrubbed.jobs} job(s), ${scrubbed.schedules} schedule(s) and ${scrubbed.flows} flow(s)`);
   if (scrubbed.unchecked) console.warn(`[boxpilot] ${scrubbed.unchecked} stored parameter set(s) could not be checked for secrets; they are checked again at the next start`);
+  else if (Number.isFinite(scrubbed.lastJobRow)) state.setSetting("secretsScrubbed", { jobRow: scrubbed.lastJobRow, at: new Date().toISOString() });
 } catch (error) {
   console.warn(`[boxpilot] stored parameters could not be checked for secrets: ${error.message}`);
 }
@@ -423,7 +427,10 @@ const jsonBody = express.json({ limit: "256kb", strict: true });
 // machine alone; that one route takes up to 2 MiB, and only from loopback.
 const modelBody = express.json({ limit: "2mb", strict: true });
 const runnerModelPath = /^\/api\/v1\/agent-runner\/runs\/[^/]+\/model$/;
-const loopbackPeer = (request) => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket?.remoteAddress ?? "");
+// Not through a proxy either (M50): behind Tailscale Serve every request arrives from loopback, and
+// the runner's door refuses those, so the larger body is parsed only where that door would open.
+const proxyHeaders = ["x-forwarded-for", "x-forwarded-host", "forwarded", "tailscale-user-login", "x-real-ip"];
+const loopbackPeer = (request) => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket?.remoteAddress ?? "") && !proxyHeaders.some((name) => request.get(name) !== undefined);
 app.use((request, response, next) => (runnerModelPath.test(request.path) && loopbackPeer(request) ? modelBody : jsonBody)(request, response, next));
 // The policy's script hash comes from the shell as built, so the theme bootstrap that has always
 // been inline is allowed by its own digest rather than blocked - which is what `script-src 'self'`
@@ -518,7 +525,7 @@ app.use("/api/v1/people", auth.requireRole("owner"));
 app.use("/api/v1", createPeopleRouter({ state, auth }));
 app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }));
 app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, autoReconnect, helper, jobLogReader, auth }));
-app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
+app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit, auth }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, notificationHistory, weeklyReport, auth }));
 app.use("/api/v1", createPushRouter({ push: pushApprovals, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));

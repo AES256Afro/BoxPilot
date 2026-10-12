@@ -382,7 +382,9 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     // or one that has been disabled — takes the same ~20 ms as one that does. Short-circuiting
     // here made the two distinguishable by timing alone, and made a flood of attempts against
     // made-up usernames free for an attacker.
-    const ok = typeof password === "string"
+    // At most 256 characters (M50), the cap a password change already holds: scrypt over a megabyte
+    // of input is work an anonymous caller should not be able to order.
+    const ok = typeof password === "string" && password.length <= 256
       ? await verifyPassword(password, owner ? owner.passwordHash : await decoyHash())
       : false;
     throttle.record(keys, ok);

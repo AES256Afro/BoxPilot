@@ -74,7 +74,7 @@ export default function SignInMethodsPanel({ csrfToken }: { csrfToken: string })
       setFlow(started); setPassword("");
       const poll = async () => {
         try {
-          const result = await pollGithubSignIn(started.flowId);
+          const result = await pollGithubSignIn(started.flowId, csrfToken);
           if (!current()) return;
           if (result.status === "complete") { setFlow(null); setMessage(`Linked GitHub account ${result.login}.`); await refresh(); setBusy(false); return; }
           if (result.status === "pending") { pollTimer.current = window.setTimeout(() => void poll(), started.intervalSeconds * 1000); return; }

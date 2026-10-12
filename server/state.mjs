@@ -1574,9 +1574,13 @@ export function createStateStore({
    * M29.1 refused them (server/secret-scrub.mjs). What each row holds, not what it means: which
    * values are secrets is the registry's answer, and this file does not know the registry.
    */
-  function listStoredParameters() {
+  function listStoredParameters({ afterJobRow = 0 } = {}) {
+    // Jobs after a rowid (M50): the scrub at boot read every job row ever written, to check again
+    // rows it had checked at every start before. `lastJobRow` is the mark to keep once they pass.
+    const after = Number.isFinite(afterJobRow) && afterJobRow > 0 ? afterJobRow : 0;
     return {
-      jobs: database.prepare("SELECT id, type, parameters_json AS stored FROM jobs").all(),
+      jobs: database.prepare("SELECT id, type, parameters_json AS stored FROM jobs WHERE rowid > ? ORDER BY rowid").all(after),
+      lastJobRow: Number(database.prepare("SELECT COALESCE(MAX(rowid), 0) AS row FROM jobs").get().row),
       schedules: database.prepare("SELECT id, operation_id AS operationId, parameters_json AS stored FROM schedules").all(),
       flows: database.prepare("SELECT id, steps_json AS stored FROM flows").all(),
     };
