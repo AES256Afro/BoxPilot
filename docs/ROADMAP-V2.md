@@ -3487,7 +3487,7 @@ reach the filesystem and processes, outbound requests and secrets).
   request to another host or a process run; and one VM image upload at a time per account, since
   each holds a connection for hours. Tests: `rate-limit.test.mjs`; the routes, OIDC, settings,
   flows and matrix suites unchanged.
-- ✅ **M50.5 Home's VM list by dominfo alone** (unreleased, `feat/m50-last`; the last of the three
+- ✅ **M50.5 Home's VM list by dominfo alone** (shipped in 1.185.0; the last of the three
   hours). Home read the full virtual machine list every five minutes, six virsh processes a VM and
   one more per snapshot, to show each VM's name, state and size: `/virtualization/domains?view=summary`
   runs `list --all` and one `dominfo` per VM, and Home reads that; the VMs page keeps the whole
