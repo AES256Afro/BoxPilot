@@ -3183,14 +3183,23 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   another prefix: 1,700 to 3,400 tokens a run read twice, 25 to 80 s on the owner's processor. The
   planner gets the question or the trigger, the findings' titles and the conversation's summary;
   the acting calls keep the whole.
-- **M48.3 What a run shows and sends** (security sweep). An operator who made an agent reads, on the
-  Memory tab, examples kept from the owner's own questions and answers (`examplesOf` filters by
-  nothing; the planner's pool already filters by `readRole`); the house's public domains (the
-  tunnel's hostnames) are not stand-ins; a local-only agent's findings go to a Claude run; the acting
-  export carries the owner's documents whatever `claudeReadsDocuments` says; the CLI export keeps
-  the task, model text and call arguments unredacted and keeps tainted runs; `backups.coverage`
-  reads every account's schedules for a viewer; `apps.usage`, `backups.coverage` and
-  `space.reclaimable` ignore the agent's app allowlist.
+- ✅ **M48.3 What a run shows and sends** (unreleased, `feat/m48-security`; the security sweep's
+  findings). The example book shows a maker who is an operator only the examples kept from runs
+  that read as an operator or a viewer, as the planner's pool and the memory already did: an
+  example kept from the owner's question holds the owner's answer; the run behind an example is the
+  owner's to open, and what a person cannot see they cannot forget. The stand-ins hide the house's
+  public names too: the tunnel's hostnames (recorded whenever `tunnel.exposure` reads them, since
+  the tunnel's state file is root's) and the Zulip site, each with its registrable domain. A run on
+  Claude is offered no finding from an agent kept on the local model (its findings were written on
+  the promise that nothing of its leaves; the trace says how many were held back). The acting export
+  makes no record of a run that read the owner's documents unless the agent may send them
+  (`claudeReadsDocuments`). The CLI keeps the task, the model's words and its calls' arguments
+  redacted as it keeps tool output, keeps no tainted run as an example or a record, and exports
+  completed runs only. `backups.coverage` tells a run's person of their own schedules unless they
+  see every account's; `apps.usage` and `backups.coverage` keep to the agent's app allowlist as
+  `apps.list` does. Tests: `examples.test.mjs` (the maker's book), `cloud-run.test.mjs` (the finding
+  held back and the trace note), `acting-export.test.mjs` (the documents), `tools-more-eyes.test.mjs`
+  (the schedules, the allowlist), `cli.test.mjs` (the redacted task, the tainted run).
 - **M48.4 Defects** (bug sweep). A Zulip reply beginning "yes", "no", "right" is taken as a rating
   and never answered; an example's plan is cut to six steps while a plan holds eight, so a
   thumbs-down on a seven-read survey makes a false preference pair; the M47.6 migration replaces a

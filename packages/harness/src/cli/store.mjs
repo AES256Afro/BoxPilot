@@ -97,7 +97,8 @@ export function openStore(file, { now = () => Date.now() } = {}) {
      */
     keepExample(runId, signal = "good") {
       const run = this.getRun(runId);
-      if (!run || !run.answer || !["completed", "degraded"].includes(run.outcome)) return null;
+      // A run that read something that looked like an instruction is nothing to learn from (M48.3, as the server's book).
+      if (!run || !run.answer || !["completed", "degraded"].includes(run.outcome) || run.taint) return null;
       const tools = [...new Set(run.steps.filter((step) => step.kind === "tool" && step.state === "done" && step.name).map((step) => String(step.name)))];
       statements.keepExample.run(run.id, run.task, JSON.stringify(tools), String(run.answer).slice(0, 600), signal, iso());
       return exampleOf(statements.exampleOfRun.get(run.id));

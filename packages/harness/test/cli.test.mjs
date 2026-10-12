@@ -119,6 +119,12 @@ describe("a run on scripted turns", () => {
     expect(await readFile(path.join(folder, "README.md"), "utf8")).toMatch(/^Setup notes/);
     const json = JSON.parse((await cli(["show", (await cli(["runs"], { cwd: folder })).stdout.slice(0, 8), "--json"], { cwd: folder })).stdout);
     expect(json.taint).toMatchObject({ at: "T1" });
+    // M48.3: a tainted run is no example and no training record.
+    const id = (await cli(["runs"], { cwd: folder })).stdout.slice(0, 8);
+    const good = await cli(["good", id], { cwd: folder });
+    expect(good.code).toBe(1);
+    expect(good.stdout).toMatch(/read something that looked like an instruction \(T1\), so it is not kept as an example/);
+    expect((await cli(["export"], { cwd: folder })).stdout).toBe("");
   });
 
   it("keeps notes between runs in the folder's own file", async () => {
@@ -133,6 +139,19 @@ describe("a run on scripted turns", () => {
     ])], { cwd: folder });
     expect(later.stdout.trim()).toBe("On Sundays [T1].");
     expect((await cli(["notes", "backup"], { cwd: folder })).stdout).toMatch(/Backup day\n {2}Backups run on Sundays\./);
+  });
+
+  it("keeps the task redacted, so a token typed into it reaches neither the trace nor an export (M48.3)", async () => {
+    const folder = await folderWith({ "shopping.txt": "milk\neggs\n" });
+    const fake = await turnsFile(listReadAppend);
+    const run = await cli(["Add bread to my shopping list; my key is sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcd", "--fake", fake, "--yes"], { cwd: folder });
+    expect(run.code).toBe(0);
+    const id = (await cli(["runs"], { cwd: folder })).stdout.slice(0, 8);
+    const shown = await cli(["show", id], { cwd: folder });
+    expect(shown.stdout).not.toMatch(/sk-ant-api03-ABCDEFGHIJ/);
+    expect(shown.stdout).toMatch(/Task: Add bread to my shopping list; my key is /);
+    await cli(["good", id], { cwd: folder });
+    expect((await cli(["export"], { cwd: folder })).stdout).not.toMatch(/sk-ant-api03-ABCDEFGHIJ/);
   });
 
   it("keeps a good run as an example, shows it before a task like it, and takes it back on bad (M47.5)", async () => {
