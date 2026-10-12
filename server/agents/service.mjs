@@ -1042,14 +1042,23 @@ export function createAgentService({
    * may, from an agent that still exists and still shares. One agent's (`agentId`) or every other
    * agent's (`exceptAgentId`).
    */
-  function usableFindings(readRole, { agentId = null, exceptAgentId = null } = {}) {
+  /**
+   * The findings a run may be offered: fresh, shared by their agent, within the run's role; and, for
+   * a run on Claude (M48.3), only from agents that may themselves leave the box - an agent kept on
+   * the local model wrote its findings on the promise that nothing of its leaves.
+   */
+  function usableFindings(readRole, { agentId = null, exceptAgentId = null, toCloud = false } = {}) {
     const at = now().getTime();
     const agents = new Map(store.listAgents().map((entry) => [entry.id, entry]));
     return store.listFindings({ agentId, exceptAgentId }).filter((finding) => {
       const writer = agents.get(finding.agentId);
-      return Boolean(writer) && sharingFor(writer).shareFindings && Boolean(finding.freshUntil) && Date.parse(finding.freshUntil) > at && roleAtLeast(readRole, finding.readRole);
+      if (!writer || !sharingFor(writer).shareFindings || !finding.freshUntil || Date.parse(finding.freshUntil) <= at || !roleAtLeast(readRole, finding.readRole)) return false;
+      return !toCloud || (writer.spec?.model?.route ?? "local") !== "local";
     });
   }
+
+  /** Whether a run's calls go to Claude: claimed there, or made by an agent whose route is Claude. */
+  const runGoesToCloud = (run, spec) => cloudRuns.has(run.id) || spec?.model?.route === "claude";
 
   const findingAge = (finding) => ageWords(now().getTime() - Date.parse(finding.updatedAt));
 
@@ -1068,7 +1077,12 @@ export function createAgentService({
       if (step) emit(run.id, "step", step);
       return [];
     }
-    const candidates = usableFindings(run.readRole, { exceptAgentId: agent.id });
+    const toCloud = runGoesToCloud(run, spec);
+    const candidates = usableFindings(run.readRole, { exceptAgentId: agent.id, toCloud });
+    if (toCloud) {
+      const heldBack = usableFindings(run.readRole, { exceptAgentId: agent.id }).length - candidates.length;
+      if (heldBack > 0) { const step = store.addStep(run.id, { kind: "system", name: "findings", flags: { detail: `${heldBack} ${heldBack === 1 ? "finding was" : "findings were"} not offered: ${heldBack === 1 ? "its agent stays" : "their agents stay"} on the local model, so nothing of theirs goes to Claude.` } }); if (step) emit(run.id, "step", step); }
+    }
     if (!candidates.length) return [];
     const query = run.question ?? [run.trigger?.title, spec.job, spec.purpose, ...(spec.prompt?.steps ?? [])].filter(Boolean).join(" ");
     const ranked = candidates.map((finding) => ({ finding, ...findingScore(query, finding) })).filter((entry) => entry.shared > 0)
@@ -1123,7 +1137,7 @@ export function createAgentService({
     const root = run.rootRunId && run.rootRunId !== run.id ? store.getRun(run.rootRunId) : null;
     if (wantsFresh(run.question, root?.question)) return { findings: [] };
     const seen = new Set(store.listSteps(run.id).filter((step) => step.kind === "finding").map((step) => step.input?.noteId));
-    const candidates = usableFindings(run.readRole, { exceptAgentId: agent.id }).filter((finding) => !seen.has(finding.id));
+    const candidates = usableFindings(run.readRole, { exceptAgentId: agent.id, toCloud: runGoesToCloud(run, spec) }).filter((finding) => !seen.has(finding.id));
     if (!candidates.length) return { findings: [] };
     const items = withVectors(candidates.map((finding) => ({ key: `note:${finding.id}`, finding })), embedModelName()).filter((item) => item.vector);
     const query32 = Float32Array.from(queryVector);
@@ -1294,21 +1308,54 @@ export function createAgentService({
     return examples.filter((example) => chosen.has(example.id)).slice(0, limits.examplePool * 2).map(candidate);
   }
 
-  /** The example book as the Memory tab shows it: the owner's and the maker's to read and prune. */
+  /**
+   * The house's names for the stand-ins (M48.3): this server's and its accounts' (houseNamesFor), and
+   * its public names too - the tunnel's hostnames, recorded whenever tunnel.exposure reads them
+   * (the tunnel's state file is root's), and the Zulip site - each with its registrable domain, so
+   * "photos.smithfamily.net" and "smithfamily.net" leave as stand-ins like the host name does.
+   */
+  function houseNamesAll() {
+    const base = houseNamesFor();
+    const known = state.getSetting?.(knownDomainsKey, null);
+    const zulip = state.getSetting?.(zulipSettingKey, null);
+    const siteHost = (() => { try { return zulip?.site ? new URL(String(zulip.site)).hostname : null; } catch { return null; } })();
+    const domains = new Set(base.domains ?? []);
+    for (const host of [...(Array.isArray(known?.hosts) ? known.hosts : []), zulip?.host ?? null, siteHost]) {
+      const name = String(host ?? "").toLowerCase().replace(/\.$/, "");
+      if (!name || !name.includes(".")) continue;
+      domains.add(name);
+      const labels = name.split(".");
+      if (labels.length > 2) domains.add(labels.slice(-2).join("."));
+    }
+    return { ...base, domains: [...domains] };
+  }
+
+  /** An example a person may read: one kept from a run that read no more than they may (M48.3, as the planner's pool and memoryOf). */
+  const mayReadExample = (person, example) => roleAtLeast(person.role, example.readRole ?? "owner");
+
+  /**
+   * The example book as the Memory tab shows it: the owner's and the maker's to read and prune. A
+   * maker who is an operator sees only the examples kept from runs that read as an operator or a
+   * viewer: an example kept from the owner's own question holds the owner's answer (M48.3; sweep 2's
+   * rule for runs, canSeeRun). The run behind an example is the owner's to open.
+   */
   function examplesOf(caller, agentId) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
     if (!canEdit(person, agent)) refuse(403, "An agent's examples are for the owner and the person who made it", "forbidden");
     const vectors = store.vectorsOf(["example"]);
     const counts = store.countExamples(agent.id);
+    const visible = store.listExamples(agent.id).filter((example) => mayReadExample(person, example));
     return {
-      examples: store.listExamples(agent.id).map((example) => ({
+      examples: visible.map((example) => ({
         id: example.id, request: example.request, tools: [...new Set(example.plan.map((entry) => entry.tool).filter(Boolean))], plan: example.plan, answer: example.answer,
-        signal: example.signal, seed: example.seed, runId: example.seed ? null : example.source, route: example.route, readRole: example.readRole, createdAt: example.createdAt, embedded: vectors.has(`example:${example.id}`),
+        signal: example.signal, seed: example.seed, runId: example.seed || person.role !== "owner" ? null : example.source, route: example.route, readRole: example.readRole, createdAt: example.createdAt, embedded: vectors.has(`example:${example.id}`),
       })),
       // M46.6: how many thumbs down have an approved neighbour with another plan: the pairs an export would carry.
       // M46.7: how many approved runs rebuild as a whole conversation the answer can be learned from.
-      counts: { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0), pairs: pairsFor(agent).length, acting: actingFor(agent).length },
+      counts: person.role === "owner"
+        ? { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0), pairs: pairsFor(agent).length, acting: actingFor(agent).length }
+        : { total: visible.length, seeds: visible.filter((example) => example.seed).length, pairs: 0, acting: 0 },
     };
   }
 
@@ -1348,7 +1395,7 @@ export function createAgentService({
     return rejected;
   }
 
-  const pairsFor = (agent) => preferencePairs({ agent: { name: agent.name, spec: agent.spec }, examples: examplesWithVectors(agent.id), rejected: rejectedRuns(agent.id), names: houseNamesFor() });
+  const pairsFor = (agent) => preferencePairs({ agent: { name: agent.name, spec: agent.spec }, examples: examplesWithVectors(agent.id), rejected: rejectedRuns(agent.id), names: houseNamesAll() });
 
   /**
    * The approved runs behind the book's examples (M46.7), each with its steps and the spec it ran as,
@@ -1364,7 +1411,7 @@ export function createAgentService({
     }
     return runs;
   }
-  const actingFor = (agent) => actingRecords({ agent: { name: agent.name, spec: agent.spec }, runs: approvedRuns(agent.id), names: houseNamesFor() });
+  const actingFor = (agent) => actingRecords({ agent: { name: agent.name, spec: agent.spec }, runs: approvedRuns(agent.id), names: houseNamesAll() });
 
   function exportExamples(caller, agentId, { cover = null, seeds = true, pairs = false, acting = false } = {}) {
     const person = personOf(caller);
@@ -1386,7 +1433,7 @@ export function createAgentService({
     }
     const examples = examplesWithVectors(agent.id);
     const size = Number.isInteger(Number(cover)) && Number(cover) > 0 ? Math.min(Number(cover), 1_000) : null;
-    const records = trainingRecords({ agent: { name: agent.name, spec: agent.spec }, examples, names: houseNamesFor(), cover: size, seeds: seeds !== false && seeds !== "false" && seeds !== "0" });
+    const records = trainingRecords({ agent: { name: agent.name, spec: agent.spec }, examples, names: houseNamesAll(), cover: size, seeds: seeds !== false && seeds !== "false" && seeds !== "0" });
     audit("agents.examples.exported", { actorId: person.id, subjectId: agent.id, details: { records: records.length, cover: size, seeds: records.some((record) => record.meta.seed) } });
     return { filename: `boxpilot-examples-${slug}-${date}.jsonl`, records: records.length, jsonl: toJsonl(records) };
   }
@@ -1396,7 +1443,7 @@ export function createAgentService({
     const agent = agentFor(person, agentId);
     if (!canEdit(person, agent)) refuse(403, "An agent's examples are for the owner and the person who made it", "forbidden");
     const example = store.getExample(agent.id, exampleId);
-    if (!example) refuse(404, "There is no such example", "example_not_found");
+    if (!example || !mayReadExample(person, example)) refuse(404, "There is no such example", "example_not_found");
     store.deleteExample(agent.id, example.id);
     audit("agents.example.forgotten", { actorId: person.id, subjectId: agent.id, details: { exampleId: example.id, signal: example.signal } });
     return { deleted: true };
@@ -1798,6 +1845,8 @@ export function createAgentService({
 
   /** Runs given Claude, while they run: the model, how hard it thinks, the data policy, the stand-ins and the spend. */
   const cloudRuns = new Map();
+  /** The public host names tunnel.exposure has read (M48.3): kept so the stand-ins hide them too. */
+  const knownDomainsKey = "agentsKnownDomains";
   const lowEffortKinds = new Set(["schedule", "event", "webhook", "eval", "learn"]);
   /** What a plan's run on Claude may spend in tokens, all its calls together (M45.6): Claude paces itself to it. */
   const planTaskBudget = 40_000;
@@ -1835,7 +1884,7 @@ export function createAgentService({
     const effort = lowEffortKinds.has(run.kind) ? "low" : "medium";
     const dataPolicy = spec.model.dataPolicy === "as-is" ? "as-is" : "redacted";
     const mode = start.start === "remote" ? "claude" : "auto";
-    cloudRuns.set(run.id, { mode, model: chosen.model, effort, dataPolicy, standIns: createStandIns(houseNamesFor()), costUsd: 0, calls: 0, reason: null, ...(run.trigger?.plan?.id ? { taskBudget: planTaskBudget } : {}) });
+    cloudRuns.set(run.id, { mode, model: chosen.model, effort, dataPolicy, standIns: createStandIns(houseNamesAll()), costUsd: 0, calls: 0, reason: null, ...(run.trigger?.plan?.id ? { taskBudget: planTaskBudget } : {}) });
     const names = dataPolicy === "redacted" ? "Names that identify this house leave it as stand-ins; the answer is turned back here." : "What it reads leaves this server as it is, without secrets.";
     const documents = spec.model.claudeReadsDocuments === true ? " Your documents may be read and sent." : " Your documents stay on this server.";
     said(mode === "claude"

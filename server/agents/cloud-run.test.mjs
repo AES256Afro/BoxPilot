@@ -55,6 +55,29 @@ const pinnedDocument = () => {
 describe("a run on Claude", () => {
   beforeEach(async () => { await setUp(); });
 
+  it("is offered no finding from an agent kept on the local model, and the trace says so (M48.3)", async () => {
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    onClaude(keeper);
+    // With Claude connected a new agent routes "auto"; this one is kept on the local model on purpose.
+    const auditor = h.service.createAgent(h.caller("owner"), { template: "backup-auditor" });
+    h.service.updateAgent(h.caller("owner"), auditor.id, { spec: { ...h.service.getAgent(h.caller("owner"), auditor.id).spec, model: { thinking: false, route: "local", dataPolicy: "redacted", claudeForViewers: false } } });
+    const inAnHour = new Date(h.now().getTime() + 3_600_000).toISOString();
+    h.store.writeFinding(auditor.id, { kind: "routine", title: "Backups that restore", readRole: "owner", freshUntil: inAnHour, body: "Vaultwarden has no backup.", source: { agentId: auditor.id, agentName: "Backup Auditor", kind: "routine" } });
+    ask(keeper, "owner", "Which apps have no backup?");
+    const claim = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(claim.findings).toEqual([]);
+    expect(claim.messages.map((message) => message.content).join("\n")).not.toMatch(/Vaultwarden/);
+    const steps = h.service.getRun(h.caller("owner"), claim.run.id).steps;
+    expect(steps.find((step) => step.kind === "system" && step.name === "findings")?.flags?.detail).toMatch(/^1 finding was not offered: its agent stays on the local model, so nothing of theirs goes to Claude\.$/);
+    await h.service.runnerFinish(claim.run.id, claim.lease, { outcome: "completed", answer: "None that I can see.", usage: { modelMs: 1_000 } });
+    // An agent that may itself go to Claude shares as before.
+    onClaude(auditor);
+    ask(keeper, "owner", "Which apps have no backup at all?");
+    const second = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    expect(second.findings).toHaveLength(1);
+    expect(second.findings[0].text).toMatch(/Vaultwarden has no backup/);
+  });
+
   it("sends the house's names as stand-ins, turns the answer back, and never asks the local model", async () => {
     const agent = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
     onClaude(agent);

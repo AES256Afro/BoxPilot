@@ -200,14 +200,16 @@ async function runOnce({ task, opts, io, store, models, folderPath, approveMode 
   const now = io.now ?? (() => Date.now());
   const print = (line) => { if (!opts.quiet && !opts.json) io.stderr.write(`${line}\n`); };
   const folder = createFolder(folderPath);
-  const runId = store.startRun({ task, folder: folderPath, route: models.route });
+  // M48.3: the task is kept redacted, as every tool's output is: a token typed into it never reaches the trace or an export.
+  const redactor = createRedactor();
+  const redact = (text) => redactText(String(text ?? ""), redactor);
+  const runId = store.startRun({ task: redact(task), folder: folderPath, route: models.route });
   const programs = opts.allow?.length ? opts.allow : defaultPrograms;
   const tools = folderTools({ folder, store, runId, programs, web: Boolean(opts.web), fetch: io.fetch, lookup: io.lookup, env: io.env ?? process.env });
   const mode = approveMode ?? (opts.yes ? "yes" : opts["read-only"] ? "no" : "ask");
   const approver = createApprover({ mode, input: io.stdin, output: io.stderr, signal: io.signal ?? null });
-  const redactor = createRedactor();
   const toolbox = createToolbox({
-    tools, approve: approver.approve, redact: (text) => redactText(text, redactor), signal: io.signal ?? null, now,
+    tools, approve: approver.approve, redact, signal: io.signal ?? null, now,
     maxCalls: whole(opts["tool-calls"], "tool-calls", { max: 200 }) ?? runDefaults.maxToolCalls,
     onCall: (entry) => {
       store.step(runId, { kind: "tool", name: entry.name, state: entry.state, input: entry.input, index: entry.index, output: String(entry.output ?? "").slice(0, 4_000), flags: entry.flags, durationMs: entry.durationMs });
@@ -227,7 +229,8 @@ async function runOnce({ task, opts, io, store, models, folderPath, approveMode 
     models: { local: sides.local, remote: sides.remote },
     limits: { ...(opts.steps ? { steps: whole(opts.steps, "steps", { max: 50 }) } : {}), ...(opts.seconds ? { seconds: whole(opts.seconds, "seconds", { min: 5, max: 86_400 }) } : {}), ...(opts["tool-calls"] ? { maxToolCalls: whole(opts["tool-calls"], "tool-calls", { max: 200 }) } : {}) },
     trace: (step) => {
-      store.step(runId, step);
+      // The model's words and its calls' arguments redacted too (M48.3): a secret it echoed stays out of the trace.
+      store.step(runId, step.kind === "model" ? { ...step, text: step.text === null || step.text === undefined ? step.text : redact(step.text), toolCalls: (step.toolCalls ?? []).map((call) => ({ ...call, arguments: redact(call.arguments ?? "") })) } : step);
       if (step.kind === "system") print(`· ${step.name}: ${terminalSafe(step.detail)}`);
       else if (step.kind === "model") for (const call of step.toolCalls ?? []) print(`→ ${terminalSafe(call.name)} ${terminalSafe(call.arguments).slice(0, 160)}`);
     },
@@ -248,6 +251,7 @@ function rateRun(store, key, command, out) {
   const run = store.getRun(key);
   if (!run) { out(key ? `No run matches ${key}; "runs" lists them.` : "Say which run: boxpilot-harness good <run>"); return 64; }
   if (command === "bad") { out(store.forgetExample(run.id) ? `Taken back: ${run.id.slice(0, 8)} is no longer an example.` : `${run.id.slice(0, 8)} was not an example.`); return 0; }
+  if (run.taint) { out(`${run.id.slice(0, 8)} read something that looked like an instruction (${run.taint.at ?? "in a tool's output"}), so it is not kept as an example.`); return 1; }
   const kept = store.keepExample(run.id, "good");
   if (!kept) { out(`${run.id.slice(0, 8)} did not answer, so it is nothing to learn from.`); return 1; }
   out(`Kept as an example: "${terminalSafe(kept.task).slice(0, 80)}" -> ${kept.tools.join(", ") || "no tool"}. The agent is shown it before a task like it.`);
