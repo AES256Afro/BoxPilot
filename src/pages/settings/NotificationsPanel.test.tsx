@@ -1,11 +1,41 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import NotificationSettings from "./NotificationsPanel";
+import { openViewEvent } from "../../activityEvents";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 describe("Notification settings", () => {
+  it("offers to open the page a watched condition belongs to, and the weekly report's read failure says so (M49)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/notifications")) return json({ configured: false, kind: null, url: null, topic: null, hasToken: false });
+      if (url.endsWith("/settings/watch")) return json({ targetConfigured: true, activeCount: 1, conditions: [
+        { key: "schedule.failed", label: "A schedule keeps failing", active: true, details: [{ title: "Back up Jellyfin failed twice", since: null }] },
+        { key: "drive.reconnected", label: "A drive dropped and came back", active: false, details: [] },
+      ] });
+      if (url.endsWith("/settings/weekly-report")) return json({ error: "the report store is locked" }, 500);
+      if (url.includes("/api/v1/catalog")) return json({ applications: [], host: {} });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    const opened = vi.fn((event: Event) => (event as CustomEvent).detail);
+    window.addEventListener(openViewEvent, opened);
+    try {
+      render(<NotificationSettings csrfToken="csrf-token" />);
+      // The chip looked like a link and went nowhere: an active condition has Open, a clear one does not.
+      fireEvent.click(await screen.findByRole("button", { name: "Open the page for A schedule keeps failing" }));
+      expect(opened).toHaveBeenCalledTimes(1);
+      expect(opened.mock.results[0].value).toEqual({ view: "system", options: {} });
+      expect(screen.queryByRole("button", { name: "Open the page for A drive dropped and came back" })).toBeNull();
+      // The panel used to vanish when its read failed.
+      expect(await screen.findByText("The weekly report could not be read")).toBeTruthy();
+      expect(within(screen.getByRole("region", { name: "Weekly report" })).getByRole("button", { name: "Try again" })).toBeTruthy();
+    } finally {
+      window.removeEventListener(openViewEvent, opened);
+    }
+  });
+
   it("saves an ntfy target with the owner password", async () => {
     let saved: string | undefined;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
