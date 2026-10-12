@@ -78,7 +78,7 @@ function Mark({ id }: { id: string }) {
   const onCite = useContext(CiteContext);
   const title = id.startsWith("F") ? "Another agent's finding this comes from" : "The tool output this comes from, numbered as in the trace";
   if (!onCite) return <code className="agents-answer__cite" title={title}>{id}</code>;
-  return <button type="button" className="agents-answer__cite agents-answer__cite--link" title={`${title}. Opens it in the trace below.`} onClick={() => onCite(id)}>{id}</button>;
+  return <button type="button" className="agents-answer__cite agents-answer__cite--link" aria-label={`${id}: open it in the trace`} title={`${title}. Opens it in the trace below.`} onClick={() => onCite(id)}>{id}</button>;
 }
 
 /** One citation list, [T1, F2], as marks. */

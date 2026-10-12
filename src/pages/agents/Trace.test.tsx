@@ -107,21 +107,22 @@ describe("tools by their titles, and citations that open their step (M48.7)", ()
     render(<RunView run={run({ answer: "It is homebox [T1]; two drives [T2].", steps })} tools={tools} />);
     // Closed to begin with: the tool's output is not drawn.
     expect(screen.queryByText("sda, sdb")).toBeNull();
-    const cites = screen.getAllByRole("button", { name: "T2" });
+    const cites = screen.getAllByRole("button", { name: "T2: open it in the trace" });
     expect(cites).toHaveLength(1);
+    expect(cites[0].textContent).toBe("T2");
     fireEvent.click(cites[0]);
     expect(screen.getByText("sda, sdb")).toBeTruthy();
     expect(scrolled).toHaveBeenCalledTimes(1);
     expect(document.getElementById("agents-cite-T2")?.textContent).toContain("drives.list");
     // Pressed again, it stays open rather than closing: the reader asked to see it.
-    fireEvent.click(screen.getByRole("button", { name: "T2" }));
+    fireEvent.click(screen.getByRole("button", { name: "T2: open it in the trace" }));
     expect(screen.getByText("sda, sdb")).toBeTruthy();
     expect(scrolled).toHaveBeenCalledTimes(2);
   });
 
   it("draws a citation as a plain mark where there is no trace to open", () => {
     render(<RunView run={run({ answer: "It is homebox [T1].", steps: [] })} />);
-    expect(screen.queryByRole("button", { name: "T1" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^T1/ })).toBeNull();
     expect(document.querySelector("code.agents-answer__cite")?.textContent).toBe("T1");
   });
 });
