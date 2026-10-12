@@ -199,7 +199,8 @@ describe("Ops", () => {
     expect(within(power).getByText("The UPS is on mains power")).toBeTruthy();
     expect(within(power).getByText("96%")).toBeTruthy();
     expect(within(power).getByText("45m 00s")).toBeTruthy();
-    expect(within(power).getByText("CHRG OL")).toBeTruthy();
+    // NUT's tokens in words (M48.7): "CHRG OL" said nothing to anyone.
+    expect(within(power).getByText("charging, on mains")).toBeTruthy();
 
     const setup = await screen.findByRole("region", { name: /^Setup/ });
     expect(within(setup).getByRole("heading").textContent).toContain("1/2");

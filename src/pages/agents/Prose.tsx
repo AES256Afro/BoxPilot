@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, createContext, useContext, type ReactNode } from "react";
 
 /*
  * An agent's words as prose (M44). A small model writes markdown whether asked to or not - the
@@ -68,6 +68,19 @@ function match(pattern: RegExp, text: string, at: number): RegExpExecArray | nul
   return pattern.exec(text);
 }
 
+/**
+ * Where a citation leads (M48.7): the run view provides it, so a press on [T1] opens step T1 in the
+ * trace under the answer. Anywhere else - the digest on the Agents tab, a card - a mark is a mark.
+ */
+export const CiteContext = createContext<((id: string) => void) | null>(null);
+
+function Mark({ id }: { id: string }) {
+  const onCite = useContext(CiteContext);
+  const title = id.startsWith("F") ? "Another agent's finding this comes from" : "The tool output this comes from, numbered as in the trace";
+  if (!onCite) return <code className="agents-answer__cite" title={title}>{id}</code>;
+  return <button type="button" className="agents-answer__cite agents-answer__cite--link" title={`${title}. Opens it in the trace below.`} onClick={() => onCite(id)}>{id}</button>;
+}
+
 /** One citation list, [T1, F2], as marks. */
 function marks(ids: string, key: string): ReactNode {
   const each = ids.split(/\s*[,;]\s*/);
@@ -76,7 +89,7 @@ function marks(ids: string, key: string): ReactNode {
       {each.map((id, index) => (
         <Fragment key={id + index}>
           {index > 0 ? " " : null}
-          <code className="agents-answer__cite" title={id.startsWith("F") ? "Another agent's finding this comes from" : "The tool output this comes from, numbered as in the trace"}>{id}</code>
+          <Mark id={id} />
         </Fragment>
       ))}
     </Fragment>

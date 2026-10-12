@@ -9,6 +9,7 @@ import { Button, KeyValue, MetricStrip, MetricTile, PageHeader, Panel, Sparkline
 import { useFacts, valuesOf, type ServiceFact, type SmartDiskFact } from "./facts";
 import { elapsed, loadStatus, mountName, mountStatus, relativeTime, shortAge, size, uptime } from "./format";
 import { checklistSummary, diskDetail, diskHealth, serviceState, smartSummary, smartUnreadReason, upsSummary } from "./hostFacts";
+import { upsTokenWords } from "../powerEvents";
 import { NeedRow } from "./NeedRow";
 import { AgentsGlance } from "../pages/agents/AgentsGlance";
 import { buildNeeds, groupByTier, verdictFor, verdictSources, type Need } from "./needs";
@@ -294,7 +295,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
               { id: "charge", label: "Battery", value: ups.charge === null ? "—" : `${ups.charge}%`, mono: true },
               { id: "runtime", label: "Runtime", value: ups.runtimeSeconds === null ? "—" : elapsed(ups.runtimeSeconds * 1000), mono: true },
               { id: "load", label: "Load", value: ups.load === null ? "—" : `${ups.load}%`, mono: true },
-              { id: "status", label: "Status", value: ups.tokens.join(" ") || "—", mono: true },
+              { id: "status", label: "Status", value: ups.tokens.map(upsTokenWords).join(", ") || "—" },
             ]} />
           )}
           {inventory && !ups?.configured && <Button variant="ghost" onClick={() => onNavigate("system")}>Set up a UPS on System</Button>}

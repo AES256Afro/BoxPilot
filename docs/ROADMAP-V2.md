@@ -3261,14 +3261,36 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   tokens, never for a person's question; the Usage tab's count), the gate in `background.test.mjs`
   and `evaluation.test.mjs` (five of nine asked with ten runs a day; one of nine at 300 s; none at
   200 s).
-- **M48.7 Quality of life** (usability sweep). The Evaluation tab knows eleven facts of fifteen and
-  shows the raw id for the rest; a paused agent is a dead end on Test and Evaluation ("Agents are
-  off" when they are paused; Ask enabled and failing); the kill switch has no confirmation and only
-  the owner can undo it; budgets are raw seconds everywhere; tool ids where names belong and [T]
-  citations that cannot be followed; the Build tab loses the templates once an agent is open;
-  Forget and Remove act on one tap; three export buttons in one panel header that navigate away on
-  error; cards below the agents table; the accuracy chip is not a link; UPS status as NUT's raw
-  code; a dozen copy fixes.
+- ✅ **M48.7 Quality of life** (unreleased, `feat/m48-usability`; the usability sweep's findings).
+  The Evaluation tab knew eleven facts of fifteen and showed the raw id for the rest: it knows
+  whether the firewall is on, which apps were never backed up, whether a reboot is needed and
+  which app is using the most processor, says "no firewall installed" for the server's `absent`,
+  and names a built-in question's tool by its title. A paused agent was a dead end: the Test and
+  Evaluation tabs said "Agents are off" for off, paused and stopped alike, and let a paused agent
+  be asked only for the server to refuse; `PausedNotice` (Paused.tsx) says which it is, until
+  when, and offers Resume all or Resume <name> to whoever may, the owner alone after the kill
+  switch. The kill switch acted on one tap: it asks first (`ConfirmSheet`, Confirm.tsx), saying
+  what is cancelled, what is withdrawn, what stays, and that only the owner undoes it; "Until
+  tomorrow" beside "Pause all" reads "Pause until tomorrow". Budgets were raw seconds everywhere:
+  `duration()` says "42 s of 30 min" in the table, "3 h" in the Usage tab's bars, and "· 10 min"
+  beside the seconds on the Build tab. Tool ids where names belong: `toolTitle()` names a tool by
+  its catalog title in the trace (its id beside it), a plan's steps, the intent, a fact's source
+  and an example's tools, and the dotted id where the catalog does not know it. A [T1] in an
+  answer can be followed: in the run view it is a button (`CiteContext`, Prose.tsx) that opens the
+  step and scrolls to it; elsewhere a mark as before. The Build tab lost the templates once an
+  agent was open: its header gains the agent picker and "New agent", and leaving with unsaved
+  changes offers to save, drop them or stay. Forget and Remove acted on one tap: each asks first,
+  saying what goes and what stays (the fact and its embedding; the finding, which the other agents
+  then look for themselves; the line a run left, never the run; the example; your conversation,
+  nobody else's; the document's text). Three export buttons in one panel header sent the browser to
+  the file's address, so an error replaced the page with a line of JSON: one "Export training
+  data" dialog (ExportSheet.tsx) fetches each file and saves it from the page, the error shown
+  where it was pressed. The cards lead the table while any wait. The accuracy chip opens the
+  evaluation. The Ops page's UPS status said "CHRG OL": `upsTokenWords` says "charging, on mains".
+  The Usage tab's context control marks 16,384 recommended. Tests: `format.test.ts`,
+  `Paused.test.tsx`, the trace's titles and citations in `Trace.test.tsx`, the page's new block in
+  `AgentsPage.test.tsx` (cards first, the chip, the two paused notices and every fact's words, the
+  picker, the hint, the kill switch's dialog, each Forget's dialog, the export dialog), Ops.test.
 
 ## App catalogue candidates
 

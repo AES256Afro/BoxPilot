@@ -28,6 +28,7 @@ afterEach(() => { cleanup(); mocked.runs = []; mocked.followed = []; mocked.runs
 const now = Date.parse("2026-09-29T16:00:00Z");
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
 const agentId = "11111111-1111-4111-8111-111111111111";
+const live = { enabled: true, paused: false, pausedUntil: null, killedAt: null };
 const agent = { id: agentId, name: "Steve", purpose: "Knows this server.", canAsk: true, canEdit: true } as unknown as AgentSummary;
 const run = (id: string, question: string, minutes: number): Run => ({
   id, agentId, agentName: "Steve", version: 2, kind: "ask", trigger: {}, question, state: "completed", reason: null, readRole: "owner",
@@ -44,7 +45,7 @@ describe("earlier runs", () => {
     Element.prototype.scrollIntoView = scrolled;
     // The page opened the latest run itself (a card's "Open the run"), and hands a new callback on
     // every render, as AgentsPage does.
-    const props = { agents: [agent], agentId, runId: latest.id, csrfToken: "csrf", role: "owner", now, enabled: true, onSelectAgent: () => undefined, onStage: () => undefined };
+    const props = { agents: [agent], agentId, runId: latest.id, csrfToken: "csrf", role: "owner", now, module: live, onSelectAgent: () => undefined, onStage: () => undefined };
     const view = render(<Console {...props} onRunFinished={() => undefined} />);
     const table = await screen.findByRole("table", { name: "Runs of Steve" });
     await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(3));
@@ -78,7 +79,7 @@ describe("one request, several runs", () => {
       { id: delegated.id, parentRunId: supervisor.id, depth: 1, agentId: helperId, agentName: "Log Reader", kind: "ask", state: "completed", question: delegated.question, finishedAt: delegated.finishedAt },
     ] as Run["tree"];
     mocked.runs = [{ ...supervisor, tree }, { ...delegated, tree }];
-    const props = { agents: [agent], agentId, runId: null, csrfToken: "csrf", role: "owner", now, enabled: true, onSelectAgent: () => undefined, onStage: () => undefined, onRunFinished: () => undefined };
+    const props = { agents: [agent], agentId, runId: null, csrfToken: "csrf", role: "owner", now, module: live, onSelectAgent: () => undefined, onStage: () => undefined, onRunFinished: () => undefined };
     render(<Console {...props} />);
     const requestRuns = await screen.findByRole("navigation", { name: "This request's runs" });
     expect(mocked.followed).toEqual([supervisor.id]);
@@ -96,7 +97,7 @@ describe("one request, several runs", () => {
     mocked.runs = [steveLatest, watcherLatest];
     let answerSteve: (value: { runs: unknown[] }) => void = () => undefined;
     mocked.runsFor = (id) => (id === agentId ? new Promise((resolve) => { answerSteve = resolve; }) : Promise.resolve({ runs: [watcherLatest] }));
-    const props = { agents: [agent, other], runId: null, csrfToken: "csrf", role: "owner", now, enabled: true, onSelectAgent: () => undefined, onStage: () => undefined, onRunFinished: () => undefined };
+    const props = { agents: [agent, other], runId: null, csrfToken: "csrf", role: "owner", now, module: live, onSelectAgent: () => undefined, onStage: () => undefined, onRunFinished: () => undefined };
     const view = render(<Console {...props} agentId={agentId} />);
     // Chosen again before Steve's list came back; then Steve's arrives, late.
     view.rerender(<Console {...props} agentId={otherId} />);
@@ -111,7 +112,7 @@ describe("one request, several runs", () => {
 });
 
 describe("the run on show", () => {
-  const props = { agents: [agent], agentId, csrfToken: "csrf", role: "owner", now, enabled: true, onSelectAgent: () => undefined, onStage: () => undefined, onRunFinished: () => undefined };
+  const props = { agents: [agent], agentId, csrfToken: "csrf", role: "owner", now, module: live, onSelectAgent: () => undefined, onStage: () => undefined, onRunFinished: () => undefined };
 
   // The verdict form had no key: a "Wrong" opened on one run was still open, half-filled, on the next.
   it("starts each run's verdict afresh, without another run's open Wrong form", async () => {
