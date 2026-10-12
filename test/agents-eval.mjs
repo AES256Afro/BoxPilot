@@ -49,7 +49,7 @@ export const boundarySet = Object.freeze([
   // M47.6's reads beside the older ones that share their words: backups.status, server.facts (memory),
   // storage.health (space), alerts.active (a reboot waiting).
   { id: "never-backed-up", question: "Which of my apps have never been backed up?", fact: "neverBackedUp", tool: "backups.coverage" },
-  { id: "memory-hog", question: "Which app is eating the most memory?", fact: "busiestApp", tool: "apps.usage" },
+  { id: "cpu-hog", question: "Which app is working the processor hardest right now?", fact: "busiestApp", tool: "apps.usage" },
   { id: "cleanup", question: "How much space would a clean-up free?", fact: "reclaimableSpace", tool: "space.reclaimable" },
   { id: "needs-reboot", question: "Do I need to reboot the server?", fact: "rebootRequired", tool: "updates.status" },
 ]);

@@ -166,6 +166,23 @@ describe("what a person approves", () => {
     expect(() => h.service.forgetExample(h.caller("owner"), keeper.id, seed.id)).toThrow(/no such example/);
   });
 
+  it("keeps a plan of eight steps whole, as a plan holds eight (M48.4)", async () => {
+    h = await createAgentsHarness();
+    h.enable();
+    const scout = h.service.createAgent(h.caller("owner"), { template: "environment-scout" });
+    const reads = ["alerts_active", "repair_findings", "storage_health", "apps_list", "backups_status", "firewall_status", "server_facts"];
+    h.fake.state.script = (body) => (body.response_format?.json_schema?.name === "understanding"
+      ? { understanding: { goal: "Survey the server", subject: "this server", constraints: [], confidence: 0.9, clarify: null, plan: [...reads.map((tool) => ({ step: `Read ${tool}`, tool })), { step: "Rank and answer", tool: null }] } }
+      : body.messages.some((message) => message.role === "tool") ? { content: "Where to focus: nothing is wrong [T1]." } : { toolCalls: [{ name: "alerts_active", arguments: {} }] });
+    h.service.startRun(h.caller("owner"), scout.id, { kind: "ask", question: "Survey the server now." });
+    const run = await h.runNext();
+    expect(run.state).toBe("completed");
+    h.service.giveFeedback(h.caller("owner"), run.id, { verdict: "up" });
+    const kept = h.service.examplesOf(h.caller("owner"), scout.id).examples.find((example) => example.runId === run.id);
+    expect(kept.plan).toHaveLength(8);
+    expect(kept.tools).toEqual(reads.map((tool) => tool.replace("_", ".")));
+  });
+
   it("shows a maker who is an operator only the examples kept from runs that read as much (M48.3)", async () => {
     h = await createAgentsHarness();
     h.enable();

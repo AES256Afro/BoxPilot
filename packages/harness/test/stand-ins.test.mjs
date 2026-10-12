@@ -15,7 +15,16 @@ describe("stand-ins", () => {
     const hidden = standIns.hide("jamie's homebox (192.168.1.20, aa:bb:cc:dd:ee:01) mounts nas-attic over 10.0.0.5; see https://homebox.tail1234.ts.net and photos.example-family.org");
     expect(hidden).toBe("user-1's host-1 (192.0.2.1, 02:00:00:00:00:00) mounts host-2 over 192.0.2.2; see https://site-1.example and site-2.example");
     expect(standIns.hide("homebox at 192.168.1.20 again")).toBe("host-1 at 192.0.2.1 again");
-    expect(standIns.counts()).toEqual({ host: 2, site: 2, user: 1, address: 2, mac: 1 });
+    expect(standIns.counts()).toEqual({ host: 2, site: 2, user: 1, address: 2, address6: 0, mac: 1 });
+  });
+
+  it("replaces a name inside a hyphenated or underscored identifier, and private IPv6 addresses (M48.4)", () => {
+    const standIns = house();
+    expect(standIns.hide("jamie-laptop, homebox_backup and nas-attic.photos; christmas stays")).toBe("user-1-laptop, host-1_backup and host-2.photos; christmas stays");
+    const hidden = standIns.hide("tailnet fd7a:115c:a1e0::1234:abcd and fd00:1::5, link fe80::1%eth0, public 2a02:1234::7 stays, 2001:db8::9 is a stand-in already");
+    expect(hidden).toBe("tailnet 2001:db8::1 and 2001:db8::2, link 2001:db8::3, public 2a02:1234::7 stays, 2001:db8::9 is a stand-in already");
+    expect(standIns.show(hidden)).toMatch(/fd7a:115c:a1e0::1234:abcd and fd00:1::5, link fe80::1%eth0/);
+    expect(standIns.counts()).toMatchObject({ address6: 3 });
   });
 
   it("replaces a house's local names whole, by their shape", () => {

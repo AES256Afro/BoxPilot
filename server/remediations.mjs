@@ -988,9 +988,23 @@ function when(iso) {
  * The same judgement as src/backupProtection.ts: a backup older than `staleAfterDays` is stale, and
  * an app whose volumes are all caches is never counted.
  */
+/**
+ * The apps the schedules back up (M48.4): one answer for Repair and for the agents' backups.coverage,
+ * which disagreed - one counted app.backup.many, the other a schedule's older `subject` field.
+ */
+export function scheduledBackupApps(schedules = []) {
+  const apps = new Set();
+  for (const schedule of Array.isArray(schedules) ? schedules : []) {
+    if (!schedule || schedule.enabled === false) continue;
+    if (schedule.operationId === "app.backup") { const id = schedule.parameters?.id ?? schedule.parameters?.subject; if (typeof id === "string") apps.add(id); }
+    if (schedule.operationId === "app.backup.many") for (const id of Array.isArray(schedule.parameters?.ids) ? schedule.parameters.ids : []) if (typeof id === "string") apps.add(id);
+  }
+  return apps;
+}
+
 export function backupsDue({ protection = null, schedules = [], now = Date.now(), staleAfterDays = 14 } = {}) {
   if (!protection?.available || !Array.isArray(protection.apps)) return [];
-  const scheduled = new Set(schedules.filter((schedule) => schedule.operationId === "app.backup" && schedule.enabled !== false).map((schedule) => schedule.parameters?.id ?? schedule.parameters?.subject).filter((id) => typeof id === "string"));
+  const scheduled = scheduledBackupApps(schedules);
   const due = protection.apps.filter((app) => app.protectable).map((app) => {
     const newest = app.newestAt ? Date.parse(app.newestAt) : Number.NaN;
     const ageDays = Number.isFinite(newest) ? Math.floor((now - newest) / 86_400_000) : null;
@@ -1047,6 +1061,8 @@ export function bootPartitionUnclean({ mounts = [], unclean = null, tools = null
   if (!event) return [];
   const check = bootChecks?.[partition.source];
   if (check?.clean && Date.parse(check.checkedAt) > Date.parse(event.at)) return [];
+  // The last check, since the mark was made, found more than the mark: offering it again would refuse again (M48.4).
+  const stuck = Boolean(check) && check.clean === false && Date.parse(check.checkedAt) > Date.parse(event.at);
   const host = hostname || "the server";
   const checker = tools?.fsckFat !== false;
   const checkedAtBoot = (fstab.find((row) => row.mountpoint === partition.target)?.pass ?? 0) > 0;
@@ -1060,9 +1076,9 @@ export function bootPartitionUnclean({ mounts = [], unclean = null, tools = null
       `kernel, ${new Date(event.at).toLocaleString()}: ${event.message}`,
       `${target} is ${partition.fstype} on ${partition.source}`,
       ...(checker ? [] : ["fsck.fat not found in /usr/sbin or /sbin"]),
-      ...(check ? [`last check ${new Date(check.checkedAt).toLocaleString()}${check.clean ? " (clean)" : " (found more than the mark)"}`] : []),
+      ...(check ? [`last check ${new Date(check.checkedAt).toLocaleString()}${check.clean ? " (clean)" : ` (found more than the mark${Array.isArray(check.beyond) && check.beyond.length ? `: ${check.beyond.join(" / ")}` : ""})`}`] : []),
     ],
-    fixes: [checker
+    fixes: stuck ? [] : [checker
       ? {
         operationId: "storage.boot-mark.clear",
         parameters: {},

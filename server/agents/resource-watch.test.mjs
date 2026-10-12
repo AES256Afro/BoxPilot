@@ -41,6 +41,10 @@ describe("the Resource Watch template", () => {
       const other = h.service.createAgent(h.caller("owner"), { template: "resource-watch" });
       const again = await h.service.runEvaluation(h.caller("owner"), other.id);
       expect(again.results.find((result) => result.questionId === "busiest").expected).toEqual({ fact: "busiestApp", value: null });
+      // And the question is not graded rather than counted wrong (M48.4).
+      while (await h.runNext()) { /* the first evaluation's questions are still queued too */ }
+      const [graded] = h.service.getEvaluation(h.caller("owner"), other.id).runs;
+      expect(graded.results.find((result) => result.questionId === "busiest")).toMatchObject({ skipped: true, passed: null, found: expect.stringMatching(/^Not graded: the fact could not be read/) });
     } finally {
       await h.close();
     }

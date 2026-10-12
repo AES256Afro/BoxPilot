@@ -3200,18 +3200,28 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   `apps.list` does. Tests: `examples.test.mjs` (the maker's book), `cloud-run.test.mjs` (the finding
   held back and the trace note), `acting-export.test.mjs` (the documents), `tools-more-eyes.test.mjs`
   (the schedules, the allowlist), `cli.test.mjs` (the redacted task, the tainted run).
-- **M48.4 Defects** (bug sweep). A Zulip reply beginning "yes", "no", "right" is taken as a rating
-  and never answered; an example's plan is cut to six steps while a plan holds eight, so a
-  thumbs-down on a seven-read survey makes a false preference pair; the M47.6 migration replaces a
-  Storage Watch's edited steps and raises a budget the owner cut on purpose; the weekly bench's
-  evaluation step cannot fail (no pipefail); a fact that could not be read grades the answer wrong
-  instead of skipping; `busiestApp` ranks by processor while the boundary question asks about memory;
-  the `freed?` hint matches "free"; the acting export calls a run's prompt "kept" when findings by
-  meaning were added after it, and leaves refused outputs unboxed; the stand-ins miss IPv6 and names
-  inside hyphenated identifiers; a failed boot-partition check is never recorded; the agent and
-  Repair disagree on which apps a schedule backs up; `latestAnsweredPost` reads only the newest 100
-  posts across every channel; the watchdog's undo leaves its driver loaded; the CLI export keeps
-  degraded runs.
+- ✅ **M48.4 Defects** (unreleased, `feat/m48-bugs`; the bug sweep's findings). A Zulip reply is a
+  rating only when it is one: +1, -1, a thumb, right or wrong, alone or with a note after a colon or
+  a dash ("No, I meant the USB drive" and "Right, and the backups?" go on talking to the agent). An
+  example keeps eight plan steps, as a plan holds (six cut a seven-read survey short and made a false
+  preference pair). The M47.6 migration leaves a maker's edits alone: a Storage Watch gets the new
+  step only while its steps are the template's old ones word for word, and a budget rises only from
+  the old template's default, never from a cut the owner made. The weekly bench's two piped steps
+  set pipefail, so a crashed evaluation fails the run. A fact this server could not read when the
+  evaluation started is not graded (left out of the score) rather than counted wrong. The boundary
+  question for `busiestApp` asks about the processor, which is what the fact ranks; the hints and the
+  stand-in know "working the processor hardest". "free" alone no longer hints the clean-up. The acting
+  export boxes a refused tool's words as the model saw them and calls a prompt kept only when no
+  finding was added by meaning after it. The stand-ins replace a name inside a hyphenated or
+  underscored identifier ("chris-laptop") and private IPv6 addresses (unique local, a tailnet's,
+  link-local) with RFC 3849 stand-ins. A boot-partition check that stopped at more than the mark is
+  remembered from its failed job's own words: Repair's evidence says what it found and the fix is not
+  offered again (the manual step remains). Repair and `backups.coverage` share one answer to which
+  apps a schedule backs up (`scheduledBackupApps`: app.backup by id or its older subject,
+  app.backup.many by ids, nothing disabled). The newest answered Zulip post is the topic's own, not
+  one of the newest hundred across every channel. The watchdog's undo unloads a driver the run
+  loaded. Tests: `zulip.test.mjs`, `examples.test.mjs`, `tools-more-eyes.test.mjs`,
+  `acting-export.test.mjs`, `stand-ins.test.mjs`, `remediations.test.mjs`, `resource-watch.test.mjs`.
 - **M48.5 Quick wins on the web process** (performance sweep). `examplesOf` builds every preference
   pair and acting record to count them on each Memory tab open; `coverExamples` is pool × limit²;
   `actionsSince`, `runForJob`, `listTree`, `usageSince` scan whole tables for want of indexes every
