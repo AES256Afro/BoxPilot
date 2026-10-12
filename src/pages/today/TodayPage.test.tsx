@@ -67,7 +67,8 @@ describe("Today (M25.3)", () => {
   it("draws the backups the way Home does", async () => {
     vi.stubGlobal("fetch", stubFetch({ ...ran }));
     const onNavigate = renderToday();
-    const backups = await screen.findByRole("region", { name: "Off this server" });
+    // The panel is "Backups" (M49): it held the database tile too, which is not off this server.
+    const backups = await screen.findByRole("region", { name: "Backups" });
     const offBox = await within(backups).findByRole("button", { name: /Off this server/ });
     fireEvent.click(offBox);
     expect(onNavigate).toHaveBeenCalledWith("backups");

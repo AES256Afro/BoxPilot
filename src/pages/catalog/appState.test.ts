@@ -39,8 +39,16 @@ describe("an app's state, as the tile, the sheet and the verdict all say it", ()
     expect(appStatus(null)).toEqual({ status: "unknown", label: "Unknown" });
   });
 
-  it("says a paused app is paused, though Docker calls it running", () => {
-    expect(appStatus(live({ container: { exists: true, running: true, status: "paused", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "Paused" });
+  it("says a paused app is paused, though Docker calls it running, and not as a problem: a person paused it (M49)", () => {
+    expect(appStatus(live({ container: { exists: true, running: true, status: "paused", health: "none", restarts: 0, image: null } }))).toEqual({ status: "neutral", label: "Paused" });
+  });
+
+  it("says an app a person stopped on purpose is stopped, not a problem, as Home does (M49)", () => {
+    const stopped = { exists: true, running: false, status: "exited", health: "none", restarts: 0, image: null };
+    expect(appStatus(live({ container: stopped, stoppedOnPurpose: { at: "2026-10-12T10:00:00Z" } }))).toEqual({ status: "neutral", label: "Stopped" });
+    expect(appStatus(live({ container: stopped }))).toEqual({ status: "warning", label: "Stopped" });
+    // Crashing over and over is a problem whatever a person meant.
+    expect(appStatus(live({ container: { ...stopped, status: "restarting" }, stoppedOnPurpose: { at: "2026-10-12T10:00:00Z" } }))).toEqual({ status: "warning", label: "Stopped" });
   });
 
   it("says an installed app with no container has none, as Home does, and a stopped one is stopped", () => {

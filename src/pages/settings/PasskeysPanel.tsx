@@ -19,6 +19,10 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
   const [busy, setBusy] = useState(false);
   const [freshCodes, setFreshCodes] = useState<string[] | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
+  // Removing asks on the row, with its own password field (M49): "Enter your password below" sent
+  // people to a field under Recovery codes, after which Remove went with no confirmation.
+  const [removing, setRemoving] = useState<{ id: string; label: string } | null>(null);
+  const [removePassword, setRemovePassword] = useState("");
   const renameOpener = useRef<HTMLButtonElement | null>(null);
   const returnRenameFocus = useRef(false);
   const cancelRename = () => { returnRenameFocus.current = true; setRenaming(null); };
@@ -53,9 +57,10 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
     });
   };
   const remove = (id: string, name: string) => act(`Removed ${name}.`, async () => {
-    if (!password) throw new Error("Enter your password below to remove a passkey");
-    await deletePasskey(csrfToken, id, password);
-    setPassword("");
+    if (!removePassword) throw new Error("Enter your password to remove a passkey");
+    await deletePasskey(csrfToken, id, removePassword);
+    setRemovePassword("");
+    setRemoving(null);
   });
   const mintRecoveryCodes = () => act("New recovery codes generated. Save them now; the old ones no longer work.", async () => {
     if (!password) throw new Error("Enter your password below to generate recovery codes");
@@ -96,8 +101,17 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
               </div>
               <div className="settings-row__actions">
                 <Button variant="ghost" disabled={busy} onClick={(event) => { renameOpener.current = event.currentTarget; setRenaming({ id: key.id, label: key.label }); }}>Rename</Button>
-                <Button variant="ghost" disabled={busy} onClick={() => void remove(key.id, key.label)}>Remove</Button>
+                <Button variant="ghost" disabled={busy} onClick={() => { setRemoving({ id: key.id, label: key.label }); setRemovePassword(""); }} aria-label={`Remove ${key.label}`}>Remove</Button>
               </div>
+              {removing?.id === key.id && (
+                <form className="settings-inline" aria-label={`Remove ${key.label}`} onSubmit={(event) => { event.preventDefault(); void remove(key.id, key.label); }} onKeyDown={(event) => { if (event.key === "Escape" && !busy) { event.preventDefault(); setRemoving(null); } }}>
+                  <Field label={`Your password, to remove ${key.label}`} hint="It stops signing you in at once; a device that used it needs another way in.">
+                    <SecretInput autoComplete="current-password" value={removePassword} onValueChange={setRemovePassword} autoFocus />
+                  </Field>
+                  <Button variant="ghost" type="button" disabled={busy} onClick={() => setRemoving(null)}>Keep it</Button>
+                  <Button variant="primary" type="submit" disabled={busy || !removePassword}>Remove {key.label}</Button>
+                </form>
+              )}
               {renaming?.id === key.id && (
                 <form className="settings-inline" aria-label="Rename passkey" onSubmit={(event) => { event.preventDefault(); saveRename(); }} onKeyDown={(event) => { if (event.key === "Escape" && !busy) { event.preventDefault(); event.stopPropagation(); cancelRename(); } }}>
                   <Field label="New passkey name">
@@ -136,7 +150,7 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
             </div>
           )}
           <div className="settings-form settings-form--row">
-            <Field label="Password for passkey changes" hint="Your password: needed to remove a passkey or to generate recovery codes.">
+            <Field label="Password for recovery codes" hint="Your password: needed to generate recovery codes.">
               <SecretInput autoComplete="current-password" value={password} onValueChange={setPassword} />
             </Field>
             <Button disabled={busy} onClick={() => void mintRecoveryCodes()}>Generate recovery codes</Button>

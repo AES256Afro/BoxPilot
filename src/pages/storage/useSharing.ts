@@ -81,10 +81,13 @@ export function useSamba(csrfToken: string): SambaControl {
     } catch { setAutoCleanError(share); }
   };
   const unscheduleAutoClean = async (scheduleId: string) => {
+    // A refusal is said, not swallowed (M49): the row kept saying "cleans weekly" with no word why.
+    const share = Object.entries(autoClean).find(([, id]) => id === scheduleId)?.[0] ?? null;
     try {
-      await fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
+      const response = await fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
+      setAutoCleanError(response.ok ? null : share);
       await loadAutoClean();
-    } catch { /* left as it was */ }
+    } catch { setAutoCleanError(share); }
   };
 
   return {

@@ -101,7 +101,7 @@ describe("Ops", () => {
     const running = (await within(table).findByRole("button", { name: "app.update: open its log" })).closest("tr")!;
     expect(within(running).getByText("Running")).toBeTruthy();
     expect(within(running).getByText("jellyfin")).toBeTruthy();
-    const waiting = within(table).getByRole("button", { name: "storage.remount: open its log" }).closest("tr")!;
+    const waiting = within(table).getByRole("button", { name: "Reconnect a drive: open its log" }).closest("tr")!;
     expect(within(waiting).getByText("Awaiting approval")).toBeTruthy();
     expect(within(waiting).getByText("media")).toBeTruthy();
     // The failed backup comes from the longer history, read once beside the live feed.

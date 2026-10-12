@@ -21,9 +21,17 @@ function WeeklyReport({ csrfToken, targetConfigured }: { csrfToken: string; targ
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // A read that fails is said with a way to try again (M49): the panel used to vanish without a word.
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    fetch("/api/v1/settings/weekly-report").then((response) => (response.ok ? response.json() : null)).then((body: WeeklyReportStatus | null) => setStatus(body)).catch(() => {});
-  }, []);
+    let gone = false;
+    fetch("/api/v1/settings/weekly-report")
+      .then(async (response) => { if (!response.ok) throw new Error(`The server answered ${response.status}`); return response.json() as Promise<WeeklyReportStatus>; })
+      .then((body) => { if (!gone) { setStatus(body); setStatusError(null); } })
+      .catch((requestError: unknown) => { if (!gone) setStatusError(requestError instanceof Error ? requestError.message : "Could not read the weekly report"); });
+    return () => { gone = true; };
+  }, [attempt]);
 
   const call = async <T,>(url: string, init: RequestInit, done: (body: T) => void, failure: string) => {
     setBusy(true); setError(null); setMessage(null);
@@ -42,7 +50,11 @@ function WeeklyReport({ csrfToken, targetConfigured }: { csrfToken: string; targ
   const show = () => call("/api/v1/settings/weekly-report/preview", {}, (body: { title: string; message: string }) => setPreview(body), "Could not put the report together");
   const send = () => call("/api/v1/settings/weekly-report/send", { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } }, (body: { title: string; message: string }) => { setPreview(body); setMessage("Sent. Check your device."); }, "The report could not be sent");
 
-  if (!status) return null;
+  if (!status) {
+    return statusError
+      ? <Panel title="Weekly report" padded className="settings-panel"><Notice tone="danger" live title="The weekly report could not be read" action={<Button onClick={() => setAttempt((count) => count + 1)}>Try again</Button>}>{statusError}</Notice></Panel>
+      : null;
+  }
   return (
     <Panel
       title="Weekly report"

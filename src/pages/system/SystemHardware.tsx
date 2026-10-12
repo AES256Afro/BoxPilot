@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button, EmptyState, Field, KeyValue, Panel, Switch, Table, TextInput, mayStart, riskOf } from "../../ui";
-import { gib, type StartOperation, type SystemSettings } from "./systemTypes";
+import { gib, nextRunWords, type StartOperation, type SystemSettings } from "./systemTypes";
 
 type SwapDevice = SystemSettings["swap"][number];
 
@@ -93,7 +93,7 @@ export function SystemHardware({ settings, loading, role, start }: {
         {mayStart(role, "service.action") && settings ? (
           <Switch
             label="Weekly trim"
-            description={trimOn ? `fstrim.timer is enabled${settings.fstrim.nextRun ? `; next run ${settings.fstrim.nextRun}` : ""}.` : "fstrim.timer is disabled. Weekly trim keeps SSDs fast and healthy."}
+            description={trimOn ? `Weekly trim is on${nextRunWords(settings.fstrim.nextRun) ? `; next ${nextRunWords(settings.fstrim.nextRun)}` : ""}.` : "Weekly trim is off. It keeps SSDs fast and healthy."}
             checked={trimOn}
             risk={riskOf("service.action")}
             disabled={loading}
