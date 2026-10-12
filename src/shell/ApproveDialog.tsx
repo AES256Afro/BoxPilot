@@ -299,7 +299,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           <div className="approve-heading">
             <span className="approve-kicker">{kicker}</span>
             <h2 id={titleId} className="approve-title">{title}</h2>
-            <Facts className="approve-facts"><code>{operation}</code>{job && <> · job <code>{job.id.slice(0, 8)}</code></>}</Facts>
+            {/* The job's short id, which Activity lists it by; the operation's id is with its parameters (M49). */}
+            {job && <Facts className="approve-facts">job <code>{job.id.slice(0, 8)}</code></Facts>}
           </div>
           <button ref={closeRef} className="approve-close" type="button" onClick={dismiss} aria-label="Close dialog" disabled={busy}><CloseIcon /></button>
         </header>
@@ -333,12 +334,14 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
               {showParameters && proposedBy && (
                 <div className="approve-staged">
                   <strong>Exactly what it is given ({stagedCount})</strong>
+                  <p className="approve-operation">Operation <code>{operation}</code></p>
                   <ParameterList parameters={staged!} />
                 </div>
               )}
               {showParameters && !proposedBy && (
                 <details className="approve-more">
                   <summary>Exactly what it is given ({stagedCount})</summary>
+                  <p className="approve-operation">Operation <code>{operation}</code></p>
                   <ParameterList parameters={staged!} />
                 </details>
               )}

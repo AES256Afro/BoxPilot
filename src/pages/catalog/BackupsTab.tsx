@@ -139,7 +139,7 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
       {verification && (
         <Notice tone={verification.verified ? "success" : "danger"} title={verification.verified ? "Last rehearsal passed" : "Last rehearsal failed"}>
           {verification.verified
-            ? <><code>{verification.backup}</code> unpacked cleanly on {new Date(verification.checkedAt).toLocaleString()}.</>
+            ? <>The backup of {backups?.find((backup) => backup.artifact === verification.backup) ? when(backups.find((backup) => backup.artifact === verification.backup)!) : verification.backup} unpacked cleanly on {new Date(verification.checkedAt).toLocaleString()}.</>
             : <>On {new Date(verification.checkedAt).toLocaleString()}: {verification.reason}</>}
         </Notice>
       )}
@@ -157,7 +157,7 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
       {(backups?.length ?? 0) > 0 && (
         <div className="catalog-inline catalog-rehearsal">
           {schedule
-            ? <><StatusChip status="good">rehearsed automatically</StatusChip><span className="catalog-row__dim">{schedule.cadence}</span>{role !== "viewer" && <Button variant="ghost" disabled={scheduling} onClick={() => void schedules.stopRehearsal(schedule.id)}>Stop</Button>}</>
+            ? <><StatusChip status="good">rehearsed automatically</StatusChip><span className="catalog-row__dim">{schedule.cadence}</span>{role !== "viewer" && <Button variant="ghost" disabled={scheduling} onClick={() => void schedules.stopRehearsal(schedule.id)}>Stop the weekly rehearsal</Button>}</>
             : <><StatusChip status="neutral">not rehearsed on a schedule</StatusChip><span className="catalog-row__dim">Nothing checks these on their own.</span>{role !== "viewer" && <Button disabled={scheduling} onClick={() => void schedules.rehearse(manifest.id)}>Rehearse weekly</Button>}</>}
         </div>
       )}
@@ -166,7 +166,7 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
       {refused && <ComposeRefusal title={`${name} cannot be restored from ${refused.backup}`} review={refused.review} />}
 
       {browsing && (
-        <Panel level={3} title={`Files in ${browsing.backup}`} count={browsing.files.filter((file) => file.type !== "directory").length} className="catalog-files" actions={<Button variant="ghost" onClick={() => setBrowsing(null)}>Close the file list</Button>}>
+        <Panel level={3} title={`Files in the backup of ${backups?.find((backup) => backup.artifact === browsing.backup) ? when(backups.find((backup) => backup.artifact === browsing.backup)!) : browsing.backup}`} count={browsing.files.filter((file) => file.type !== "directory").length} className="catalog-files" actions={<Button variant="ghost" onClick={() => setBrowsing(null)}>Close the file list</Button>}>
           <div className="catalog-files__search"><SearchField label="Filter files" value={filter} onValueChange={setFilter} /></div>
           <ul className="catalog-rows">
             {shownFiles.map((file) => (

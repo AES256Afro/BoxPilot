@@ -180,7 +180,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
               <Button risk={riskOf("samba.recycle.empty")} aria-label={`Empty the recycle bin of ${share.name}`} onClick={() => start({ operationId: "samba.recycle.empty", title: `Empty the recycle bin for ${share.name}`, parameters: { share: share.name }, preview: <span>Permanently deletes {formatBytes(bin)} of recycled files from <code>{liveShare?.path ?? share.path}/.recycle</code>. Files deleted over the share after this are recoverable again.</span> })}>Empty bin</Button>
             )}
             {bin !== null && (scheduled
-              ? <span className="storage-dim">cleans weekly, keeps 30 days {may("samba.recycle.empty") && <Button variant="ghost" aria-label={`Stop cleaning ${share.name}'s bin weekly`} onClick={() => void samba.unscheduleAutoClean(scheduled)}>Stop</Button>}</span>
+              ? <span className="storage-dim">cleans weekly, keeps 30 days {may("samba.recycle.empty") && <Button variant="ghost" aria-label={`Stop cleaning ${share.name}'s bin weekly`} onClick={() => void samba.unscheduleAutoClean(scheduled)}>Stop the weekly clean</Button>}</span>
               : may("samba.recycle.empty") && <Button variant="ghost" title="Every week, permanently delete recycled files older than 30 days, so the bin never fills the drive." aria-label={`Clean ${share.name}'s bin weekly`} onClick={() => void samba.scheduleAutoClean(share.name)}>Clean weekly</Button>)}
             {samba.autoCleanError === share.name && <span className="storage-error" role="alert">The weekly clean could not be scheduled.</span>}
             {canApply && <Button variant="ghost" aria-label={`Remove ${share.name} from the list`} onClick={() => samba.setDraft((current) => current.filter((row) => row.name !== share.name))}>Remove</Button>}
@@ -363,6 +363,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
                   ? <Segmented<Scope> label="NFS reachable from" value={nfs.scope} onChange={nfs.setScope} options={scopeOptions} />
                   : <span className="storage-settings__value">{nfs.scope === "lan" ? "Tailscale + LAN" : "Tailscale only"}</span>}
                 <span className="storage-dim">{nfs.scope === "lan" ? "Also tick “NFS file sharing” on the Firewall page." : "Recommended: nothing to open on the firewall."}</span>
+                {nfs.scope === "lan" && onNavigate && <Button variant="ghost" onClick={() => onNavigate("firewall")}>Open the Firewall page</Button>}
               </div>
             </div>
             <Table

@@ -55,11 +55,13 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
     { id: "copy", header: <span className="ui-visually-hidden">Copy</span>, label: "Copy", className: "network-actions-cell", cell: (way) => <span className="network-actions"><CopyValue value={way.url} label={`Copy ${way.url}`} /></span> },
   ];
 
+  /** The kernel's neighbour states in words (M49): "stale" and "probe" said nothing to anyone. */
+  const neighbourWords = (state: string) => ({ REACHABLE: "reachable", STALE: "seen recently", DELAY: "checking", PROBE: "checking", FAILED: "not answering", PERMANENT: "static", NOARP: "no address lookup", INCOMPLETE: "looking up" } as Record<string, string>)[state] ?? state.toLowerCase();
   const deviceColumns: Array<TableColumn<Device>> = [
     { id: "address", header: "Address", sortValue: (device) => device.address, cell: (device) => <code className="network-strong">{device.address}</code> },
     { id: "mac", header: "MAC", sortValue: (device) => device.mac, cell: (device) => <code>{device.mac}</code> },
     { id: "interface", header: "Interface", hideOnPhone: true, cell: (device) => (device.interface ? <code>{device.interface}</code> : "—") },
-    { id: "state", header: "State", sortValue: (device) => (device.state === "REACHABLE" ? 0 : 1), cell: (device) => <StatusChip status={device.state === "REACHABLE" ? "good" : "neutral"}>{device.state.toLowerCase()}</StatusChip> },
+    { id: "state", header: "State", sortValue: (device) => (device.state === "REACHABLE" ? 0 : 1), cell: (device) => <StatusChip status={device.state === "REACHABLE" ? "good" : device.state === "FAILED" ? "warning" : "neutral"}>{neighbourWords(device.state)}</StatusChip> },
     {
       id: "wake", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "network-actions-cell", cell: (device) => (
         <span className="network-actions">

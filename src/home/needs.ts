@@ -247,11 +247,11 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   if (updates && updates.count > 0) {
     needs.push({ id: "updates", kind: "updates", severity: updates.security > 0 ? "warning" : "neutral", title: `${countOf(updates.count, "update")} available`,
       detail: updates.security > 0 ? `${countOf(updates.security, "security fix", "security fixes")} among them` : "None of them are security fixes", view: "updates",
-      action: act("apt.upgrade", "Install", "Install all updates", {}, `Upgrades ${countOf(updates.count, "package")} with apt-get upgrade --with-new-pkgs after refreshing the lists.`) });
+      action: act("apt.upgrade", "Install", "Install all updates", {}, `Refreshes the package lists, then installs ${countOf(updates.count, "update")}; a service may restart while it does.`) });
   }
   if (facts.unattended && !facts.unattended.enabled) {
     needs.push({ id: "unattended", kind: "updates", severity: "neutral", title: "Security fixes wait for you", detail: "Automatic security updates are off", view: "updates",
-      action: act("apt.unattended.set", "Turn on", "Turn on automatic updates", { enabled: true }, "Sets APT::Periodic::Unattended-Upgrade \"1\" so security updates install nightly.") });
+      action: act("apt.unattended.set", "Turn on", "Turn on automatic updates", { enabled: true }, "Turns on nightly security updates: Ubuntu's unattended-upgrades installs them while you sleep.") });
   }
 
   // ── Backups: failed runs first, then what is not covered. ──
@@ -325,7 +325,7 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     if (days === null || days > 7) {
       needs.push({ id: "database", kind: "backup", severity: "warning", title: days === null ? "BoxPilot's own database has no backup yet" : `BoxPilot's database was last backed up ${countOf(days, "day")} ago`,
         detail: "It holds your schedules, jobs, people and settings", view: "backups",
-        action: act("controller.backup.create", "Back up now", "Back up the BoxPilot database", {}, "Snapshots the live database with VACUUM INTO (no downtime) and restore-drills the copy before recording it.") });
+        action: act("controller.backup.create", "Back up now", "Back up the BoxPilot database", {}, "Takes a copy of the live database without stopping BoxPilot, then opens the copy to prove it restores before keeping it.") });
     }
   }
 
