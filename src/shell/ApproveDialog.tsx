@@ -293,7 +293,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const submit = (event: FormEvent) => { event.preventDefault(); if (canApprove) void approve(); };
 
   return createPortal(
-    <div className="approve-backdrop" role="presentation" onMouseDown={busy ? undefined : dismiss}>
+    <div className="approve-backdrop" role="presentation">
+      {/* A click outside no longer dismisses (M50): it withdrew the staged job and lost the typed confirmation and password. Escape and Close do. */}
       <section ref={dialogRef} tabIndex={-1} className="approve-dialog look-console" role="dialog" aria-modal="true" aria-labelledby={titleId} data-phase={phase} data-tier={policy ? tier : undefined} onMouseDown={(event) => event.stopPropagation()}>
         <header className="approve-head">
           <div className="approve-heading">

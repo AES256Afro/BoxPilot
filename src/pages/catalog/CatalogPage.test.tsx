@@ -489,7 +489,7 @@ describe("App catalog: an installed app's sheet", () => {
     expect(within(sheet).getByRole("button", { name: "Settings" })).toBeTruthy();
     expect(within(sheet).queryByRole("button", { name: "Install" })).toBeNull();
     expect(within(sheet).getByText("Setup wizard on first run")).toBeTruthy();
-    for (const tab of ["Reach", "Backups", "Logs", "Config"]) expect(within(sheet).getByRole("tab", { name: tab })).toBeTruthy();
+    for (const tab of ["Reach", "Backups", "Logs", "Compose"]) expect(within(sheet).getByRole("tab", { name: tab })).toBeTruthy();
   });
 
   // M38: what an app's manifest offers to do inside it, like Zulip's "Create your organization".
@@ -998,7 +998,7 @@ describe("App catalog: configuration", () => {
     });
     render(<CatalogPage csrfToken="csrf-token" />);
     const sheet = await openApp("Dockge");
-    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Compose" }));
     fireEvent.click(await within(sheet).findByRole("button", { name: "Read Compose file" }));
     expect(within(sheet).queryByText("ignore-legacy-raw-response")).toBeNull();
     fireEvent.change(await within(sheet).findByLabelText("Owner password for Compose"), { target: { value: "correct horse battery" } });
@@ -1020,7 +1020,7 @@ describe("App catalog: configuration", () => {
     });
     render(<CatalogPage csrfToken="csrf-token" />);
     const sheet = await openApp("Dockge");
-    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Compose" }));
     fireEvent.click(await within(sheet).findByRole("button", { name: "Read Compose file" }));
     fireEvent.click(await within(sheet).findByRole("button", { name: "Edit raw" }));
     const edited = `${compose}    restart: always\n`;
@@ -1028,7 +1028,7 @@ describe("App catalog: configuration", () => {
     fireEvent.click(within(sheet).getByRole("button", { name: "Apply" }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
     const back = await screen.findByRole("dialog", { name: "Dockge" });
-    expect(within(back).getByRole("tab", { name: "Config" }).getAttribute("aria-selected")).toBe("true");
+    expect(within(back).getByRole("tab", { name: "Compose" }).getAttribute("aria-selected")).toBe("true");
     expect((await within(back).findByLabelText("Compose file") as HTMLTextAreaElement).value).toBe(edited);
   });
 
@@ -1040,7 +1040,7 @@ describe("App catalog: configuration", () => {
     });
     render(<CatalogPage csrfToken="csrf-token" />);
     const sheet = await openApp("Dockge");
-    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Compose" }));
     expect(await within(sheet).findByText("The helper did not answer")).toBeTruthy();
     fireEvent.click(within(sheet).getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(within(sheet).queryByText("The helper did not answer")).toBeNull());
@@ -1067,7 +1067,7 @@ describe("App catalog: configuration", () => {
       observer.disconnect(); fireEvent.click(read); clicked = true;
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Compose" }));
     await waitFor(() => expect(clicked).toBe(true));
     expect(await within(sheet).findByLabelText("Owner password for Compose")).toBeTruthy();
   });
@@ -1085,7 +1085,7 @@ describe("App catalog: configuration", () => {
     fireEvent.click(opener);
     const sheet = await screen.findByRole("dialog", { name: "Dockge" });
     await waitFor(() => expect(document.activeElement).toBe(sheet));
-    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Compose" }));
     fireEvent.click(await within(sheet).findByRole("button", { name: "Read Compose file" }));
     await waitFor(() => expect(signal).toBeTruthy());
     fireEvent.keyDown(sheet, { key: "Escape" });
@@ -1099,7 +1099,7 @@ describe("App catalog: configuration", () => {
     withConfig((url) => (url.includes("app.config.inspect") ? json({ result: { id: "dockge", name: "Dockge" } }) : undefined));
     render(<CatalogPage csrfToken="csrf-token" />);
     const sheet = await openApp("Dockge");
-    fireEvent.click(within(sheet).getByRole("tab", { name: "Config" }));
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Compose" }));
     expect(await within(sheet).findByText("—")).toBeTruthy();
     expect(within(sheet).getByRole("region", { name: "compose.yaml" })).toBeTruthy();
   });

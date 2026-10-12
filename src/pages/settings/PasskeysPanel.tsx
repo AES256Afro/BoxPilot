@@ -35,8 +35,10 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
   const supported = passkeysSupported();
   const host = typeof window !== "undefined" ? window.location.host : "";
 
+  // A read that fails is said with Try again (M50): the panel said "Reading…" for good.
+  const [readError, setReadError] = useState<string | null>(null);
   const refresh = useCallback(async () => {
-    try { setStatus(await fetchPasskeyStatus()); } catch { /* a signed-in account always has this */ }
+    try { setStatus(await fetchPasskeyStatus()); setReadError(null); } catch (requestError) { setReadError(requestError instanceof Error ? requestError.message : "The passkeys could not be read"); }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -126,7 +128,9 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
             </li>
           ))}
         </ul>
-      ) : status ? <EmptyState title="No passkeys yet">Add one to sign in with your fingerprint, face, or a security key.</EmptyState> : <p className="settings-quiet">Reading…</p>}
+      ) : status ? <EmptyState title="No passkeys yet">Add one to sign in with your fingerprint, face, or a security key.</EmptyState>
+        : readError ? <Notice tone="danger" live title="The passkeys could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{readError}</Notice>
+          : <p className="settings-quiet">Reading…</p>}
 
       <div className="settings-body">
         <form className="settings-form settings-form--row" onSubmit={(event) => { event.preventDefault(); void addPasskey(); }}>

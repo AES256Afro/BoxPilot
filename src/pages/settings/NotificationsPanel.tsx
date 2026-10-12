@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button, Field, KeyValue, Notice, Panel, SecretInput, Select, StatusChip, TextInput } from "../../ui";
 import HeartbeatPanel from "./HeartbeatPanel";
 import { openView } from "../../activityEvents";
@@ -112,9 +112,15 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
   // loopback without anything being exposed, so the target is one click of prefill plus a password.
   const [localServer, setLocalServer] = useState<{ kind: "ntfy" | "gotify"; name: string; sendUrl: string; reachAddress: string | null } | null>(null);
   const refresh = () => fetch("/api/v1/settings/notifications").then((response) => response.json()).then((body: NotificationState) => setCurrent(body)).catch(() => setError("Could not read the notification settings"));
+  // The watch list is read apart, with Try again when it fails (M50): it used to vanish without a word.
+  const [watchError, setWatchError] = useState<string | null>(null);
+  const readWatch = useCallback(() => fetch("/api/v1/settings/watch")
+    .then(async (response) => { if (!response.ok) throw new Error(`The server answered ${response.status}`); return response.json() as Promise<WatchStatus>; })
+    .then((body) => { setWatch(body && Array.isArray(body.conditions) ? body : null); setWatchError(null); })
+    .catch((requestError: unknown) => setWatchError(requestError instanceof Error ? requestError.message : "The watch list could not be read")), []);
   useEffect(() => {
     void refresh();
-    fetch("/api/v1/settings/watch").then((response) => (response.ok ? response.json() : null)).then((body: WatchStatus | null) => setWatch(body && Array.isArray(body.conditions) ? body : null)).catch(() => {});
+    void readWatch();
     // ntfy and Gotify are both in the catalog and both can be the target; if one is installed and
     // running, offer to point BoxPilot straight at it rather than making the owner type its address.
     fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((data: { applications?: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean }; urls: Array<{ host: number }> } | null }>; host?: { lanAddress: string | null; tailscaleDnsName: string | null } } | null) => {
@@ -248,6 +254,11 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
       <div className="settings-column">
         {/* M39.3: something outside this server that notices when it goes quiet. */}
         <HeartbeatPanel csrfToken={csrfToken} />
+        {!watch && watchError && (
+          <Panel title="What BoxPilot watches" padded className="settings-panel">
+            <Notice tone="danger" live title="The watch list could not be read" action={<Button onClick={() => void readWatch()}>Try again</Button>}>{watchError}</Notice>
+          </Panel>
+        )}
         {watch && (
           <Panel
             title="What BoxPilot watches"
