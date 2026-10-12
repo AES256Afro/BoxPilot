@@ -54,7 +54,7 @@ export function createModelSession({
    * @returns {Promise<{ result: import("../provider.mjs").ChatResult, took: number, cached: number | null, read: number, maxTokens: number, model: object } | null>}
    */
   async function ask(conversation, options) {
-    const { maxTokens, toolChoice = "auto", extra: asked = null, purpose = "call", optional = false, minTokens = pace.minAnswerTokens } = options;
+    const { maxTokens, toolChoice = "auto", extra: asked = null, purpose = "call", optional = false, minTokens = pace.minAnswerTokens, retried = false } = options;
     const extra = typeof asked === "function" ? asked(settings) : asked ?? settings.extra ?? {};
     const chars = promptChars(conversation);
     const newChars = conversation.last ? Math.max(0, chars - conversation.last.chars) : chars;
@@ -113,6 +113,15 @@ export function createModelSession({
       if (signal?.aborted) throw error;
       // The host has another model that can take the same call (a remote model stopped answering).
       if (await recover(error)) { conversation.last = null; return ask(conversation, options); }
+      // A 5xx is the server's own trouble, and one more try often clears it (M48.9): llama-server
+      // answers 500 when the model's tool call is not JSON it can parse, which the next sample
+      // usually is. The owner's Scout lost an eight-step survey to one. Once, and never for a
+      // timeout or a cancel, which the tests above and below keep apart.
+      if (!retried && Number(error?.status) >= 500 && Number(error?.status) <= 599) {
+        await note("model", `The model server answered ${error.status} during the ${purpose}: asking once more. (${String(error?.message ?? "").slice(0, 160)})`);
+        conversation.last = null;
+        return ask(conversation, { ...options, retried: true });
+      }
       if (!optional) run.degraded = /timed? ?out|aborted|TimeoutError/i.test(`${error?.name} ${error?.message}`) ? "timeout" : "model-error";
       await note("model", `The model stopped${optional ? ` during the ${purpose}` : ""}: ${String(error?.message ?? error).slice(0, 200)}`, "failed");
       return null;

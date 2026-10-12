@@ -20,8 +20,8 @@ export const streamLimits = Object.freeze({
   toolCalls: 8,
 });
 
-function modelError(message, code = "model_error") {
-  return Object.assign(new Error(message), { code });
+function modelError(message, code = "model_error", { status = null } = {}) {
+  return Object.assign(new Error(message), { code, ...(status ? { status } : {}) });
 }
 
 const count = (value) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null);
@@ -72,9 +72,10 @@ export function createOpenAiClient({
     const text = await readBounded(response, 16 * 1024).catch(() => "");
     let message = text;
     try { const parsed = JSON.parse(text); message = parsed?.error?.message ?? parsed?.error ?? parsed?.detail ?? text; } catch { /* plain text */ }
-    if (response.status === 404 && model) return modelError(`The model ${model} is not on the model server`, "model_missing");
-    if (response.status === 401 || response.status === 403) return modelError("The model server refused the request's key");
-    return modelError(`The model server answered ${response.status}${message ? `: ${String(typeof message === "string" ? message : JSON.stringify(message)).slice(0, 200)}` : ""}`);
+    if (response.status === 404 && model) return modelError(`The model ${model} is not on the model server`, "model_missing", { status: 404 });
+    if (response.status === 401 || response.status === 403) return modelError("The model server refused the request's key", "model_error", { status: response.status });
+    // The status rides along (M48.9): a 5xx is the server's own trouble, which one more try may clear.
+    return modelError(`The model server answered ${response.status}${message ? `: ${String(typeof message === "string" ? message : JSON.stringify(message)).slice(0, 200)}` : ""}`, "model_error", { status: response.status });
   }
 
   /** The models the server offers, by id. */
