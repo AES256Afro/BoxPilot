@@ -810,7 +810,7 @@ export function createAgentService({
       // The owner's own uploads are the owner's words. A document a folder or a connector brings in
       // is whoever wrote it there - anyone who may post in that channel or edit that page - and it is
       // read again as it changes, pin and all: held to its words (sweep 4).
-      for (const document of store.listDocuments().filter((entry) => entry.enabled && entry.pinned)) {
+      for (const document of store.listDocuments({ enabled: true, pinned: true })) {
         const owners = ownersDocument(document);
         chunksOf(document).forEach((text, index) => items.push({ key: `doc:${document.id}#${index}`, tier: "pinned", title: document.title, text, from: owners ? "the owner" : `a document from ${document.source}`, at: document.createdAt, freshUntil: null, weight: 1.2, held: !owners }));
       }
@@ -1656,7 +1656,7 @@ export function createAgentService({
       // The example book (M46): the request alone, which is what a new request is compared with.
       for (const example of store.listExamples(agent.id, { limit: 400 })) items.push({ key: `example:${example.id}`, text: example.request });
     }
-    for (const document of store.listDocuments().filter((entry) => entry.enabled)) chunksOf(document).forEach((text, index) => items.push({ key: `doc:${document.id}#${index}`, text: `${document.title}\n${text}` }));
+    for (const document of store.listDocuments({ enabled: true })) chunksOf(document).forEach((text, index) => items.push({ key: `doc:${document.id}#${index}`, text: `${document.title}\n${text}` }));
     const kinds = ["note", "episode", "doc", "example"];
     const vectors = store.vectorKeys(kinds);
     return items.filter((item) => { const stored = vectors.get(item.key); return !stored || stored.model !== model || stored.textHash !== textHash(item.text); });
@@ -3431,10 +3431,20 @@ export function createAgentService({
     return presentAgent(person, agentFor(person, agentId), { detail: true });
   }
 
+  /**
+   * An agent's runs, newest first, as far as `caller` may see them. The owner sees every run, so no
+   * more are read than asked for; anyone else sees some, so twice as many are read, and the rest
+   * only when those do not fill the list (M48.8: it read two hundred for every list of thirty).
+   */
   function listRuns(caller, agentId, { limit = 30 } = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
-    return store.listRuns({ agentId: agent.id, limit: 200 }).filter((run) => canSeeRun(person, run, agent)).slice(0, Math.min(limit, 100)).map((run) => presentRun(person, run));
+    const wanted = Math.max(1, Math.min(limit, 100));
+    const first = person.role === "owner" ? wanted : Math.min(wanted * 2, 200);
+    const fetched = store.listRuns({ agentId: agent.id, limit: first });
+    let visible = fetched.filter((run) => canSeeRun(person, run, agent));
+    if (visible.length < wanted && fetched.length === first && first < 200) visible = store.listRuns({ agentId: agent.id, limit: 200 }).filter((run) => canSeeRun(person, run, agent));
+    return visible.slice(0, wanted).map((run) => presentRun(person, run));
   }
 
   function getRun(caller, runId) {
@@ -3689,7 +3699,7 @@ export function createAgentService({
     let read;
     try { read = textOfUpload(buffer, name); } catch (error) { refuse(400, error.message, "invalid_document"); }
     if (!read.text) refuse(400, "The file has no text", "invalid_document");
-    if (store.listDocuments().length >= 300) refuse(409, "Three hundred documents is the most the library keeps", "document_limit");
+    if (store.countDocuments() >= 300) refuse(409, "Three hundred documents is the most the library keeps", "document_limit");
     const cleanTitle = clip(String(title ?? name ?? "Uploaded document").replace(/\.(pdf|md|markdown|txt)$/i, "").replace(/[\u0000-\u001f\u007f]/g, " ").trim() || "Uploaded document", 120);
     const document = store.addDocument({ title: cleanTitle, text: redact(read.text), createdBy: person.id, source: /\.pdf$/i.test(name ?? "") || buffer.subarray(0, 5).toString("latin1") === "%PDF-" ? "pdf" : "upload" });
     audit("agents.document.added", { actorId: person.id, subjectId: document.id, details: { characters: document.characters, source: document.source } });
@@ -3917,7 +3927,7 @@ export function createAgentService({
     const stats = knowledge ? await knowledge.ensure().catch(() => knowledge.stats()) : null;
     const documents = store.listDocuments();
     const notes = store.listAgents().flatMap((agent) => store.listNotes(agent.id).map((note) => ({ ...note, agentName: agent.name })));
-    const lastLearn = store.listAgents().map((agent) => ({ agentId: agent.id, name: agent.name, run: store.listRuns({ agentId: agent.id, limit: 50 }).find((run) => run.kind === "learn") ?? null }))
+    const lastLearn = store.listAgents().map((agent) => ({ agentId: agent.id, name: agent.name, run: store.listRuns({ agentId: agent.id, kind: "learn", limit: 1 })[0] ?? null }))
       .map((entry) => ({ agentId: entry.agentId, name: entry.name, state: entry.run?.state ?? null, at: entry.run?.finishedAt ?? entry.run?.queuedAt ?? null }));
     return {
       sources: [
@@ -4067,7 +4077,7 @@ export function createAgentService({
     const cleanText = typeof text === "string" ? text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim() : "";
     if (!cleanTitle || cleanTitle.length > 120) refuse(400, "Give the document a title under 120 characters", "invalid_document");
     if (!cleanText || cleanText.length > 64_000) refuse(400, "A document is some text, at most 64,000 characters", "invalid_document");
-    if (store.listDocuments().length >= 100) refuse(409, "A hundred documents is the most the library keeps", "document_limit");
+    if (store.countDocuments() >= 100) refuse(409, "A hundred documents is the most the library keeps", "document_limit");
     const document = store.addDocument({ title: cleanTitle, text: redact(cleanText), createdBy: person.id });
     audit("agents.document.added", { actorId: person.id, subjectId: document.id, details: { characters: document.characters } });
     const { text: _text, ...rest } = document;
