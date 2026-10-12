@@ -3360,6 +3360,11 @@ button belongs, and errors swallowed so a panel vanishes or an empty state lies.
 - **M49.3 The rest of the sweep.** The restore sheet's and Repair's schedule dialog's app ids where
   names belong; the drive Reconnect switch that shows on while paused and points at pages in prose;
   Repair's approval desk under the Prerequisites table on a phone.
+- ✅ **M49.4 One name for the copy off this server** (unreleased, `feat/m49-off-this-server`). Home
+  said "Off this server", the Backups tab "Off-box", Ops "off-box 20 hours ago", the warnings "the
+  off-box copy", a retry's button "Open Off-box": one thing under three names. It is "off this
+  server" everywhere: the tab, Ops' line, the header's "Copy off this server behind" and
+  "incomplete", the warnings' "the copy off this server", the transit look's stop.
 
 ## App catalogue candidates
 

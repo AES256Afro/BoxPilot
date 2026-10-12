@@ -185,7 +185,7 @@ describe("what needs you", () => {
 
   it("offers to copy the backups off the box when a destination is set up but behind", () => {
     const needs = buildNeeds(facts({ offBox: { verdict: { configured: true, lastSyncAt: hoursAgo(24 * 10), ageDays: 10, where: ["another machine"], state: "stale", behindHours: null }, inputs: { ssh: { configured: true, lastSyncAt: hoursAgo(240) } } } }), { now, role: "owner" });
-    expect(needs[0]).toMatchObject({ id: "off-box", title: "The off-box copy of your backups is 10 days old", action: { operationId: "backup.remote.sync", label: "Copy now", risk: "medium" } });
+    expect(needs[0]).toMatchObject({ id: "off-box", title: "The copy of your backups off this server is 10 days old", action: { operationId: "backup.remote.sync", label: "Copy now", risk: "medium" } });
   });
 
   // R5B4-7: a recent copy that left files out said nothing on Home.
