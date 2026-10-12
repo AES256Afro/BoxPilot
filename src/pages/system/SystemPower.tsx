@@ -289,7 +289,7 @@ function PowerOnPanel({ role, operator, start, overview, hardware, loading }: { 
         <p className="system-note">{guidance?.alsoHelps ?? "Wake-on-LAN lets another device on your network start the server after a clean shutdown."}</p>
         {!operator ? <p className="system-note">An owner or operator can read and set each network port's Wake-on-LAN.</p>
           : !hardware ? <p className="system-note">{loading ? "Reading the network ports…" : "The network ports have not been read."}</p>
-            : !hardware.wakeOnLan.ethtool ? <Notice tone="info" title="ethtool is not installed">Install the ethtool package from Updates to read and set Wake-on-LAN.</Notice>
+            : !hardware.wakeOnLan.ethtool ? <Notice tone="info" title="ethtool is not installed" action={mayStart(role, "apt.install") ? <Button risk={riskOf("apt.install")} onClick={() => start({ operationId: "apt.install", title: "Install ethtool (network port tools)", parameters: { packages: ["ethtool"] }, preview: <span><code>apt-get install --no-install-recommends ethtool</code>. Come back here afterwards to read and set Wake-on-LAN.</span> })}>Install ethtool</Button> : undefined}>Wake-on-LAN is read and set with the ethtool package, which is not installed.</Notice>
               : ports.length === 0 ? <EmptyState title="No wired network port">Wake-on-LAN needs a wired port; Wi-Fi cannot wake a server that is off.</EmptyState>
                 : ports.map((port) => <WakeRow key={port.name} port={port} role={role} start={start} />)}
       </div>

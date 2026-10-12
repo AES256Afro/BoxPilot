@@ -9,7 +9,7 @@ import { SystemHousekeeping } from "./SystemHousekeeping";
 import { SystemPower, thresholdWords, watchdogWords } from "./SystemPower";
 import { SystemTime } from "./SystemTime";
 import { releaseState, SystemUpdates, updateLogFacts } from "./SystemUpdates";
-import { gib, upsLabel, type DockerDisk, type Housekeeping, type PowerHardware, type PowerOverview, type ReleaseUpdate, type StartOperation, type SystemSettings, type UpdateStatus, type UpsDetection } from "./systemTypes";
+import { gib, nextRunWords, upsLabel, type DockerDisk, type Housekeeping, type PowerHardware, type PowerOverview, type ReleaseUpdate, type StartOperation, type SystemSettings, type UpdateStatus, type UpsDetection } from "./systemTypes";
 import { upsStateWords } from "../../powerEvents";
 import "./system.css";
 
@@ -265,7 +265,7 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
             </MetricStrip>
             <Panel padded title="Also on this server">
               <KeyValue layout="columns" items={[
-                { id: "trim", label: "SSD trim", status: settings ? (trimOn ? "good" : "neutral") : "unknown", value: settings ? (trimOn ? "weekly" : "off") : "—", hint: trimOn && settings?.fstrim.nextRun ? `next ${settings.fstrim.nextRun}` : undefined },
+                { id: "trim", label: "SSD trim", status: settings ? (trimOn ? "good" : "neutral") : "unknown", value: settings ? (trimOn ? "weekly" : "off") : "—", hint: trimOn && nextRunWords(settings?.fstrim.nextRun) ? `next ${nextRunWords(settings?.fstrim.nextRun)}` : undefined },
                 { id: "ups", label: "UPS", status: upsWatching ? upsWords.status : ups ? "neutral" : "unknown", value: upsDevice ? upsLabel(upsDevice) : upsWatching ? upsWords.label : ups ? "none on USB" : upsError ? "not read" : "—", hint: upsWatching ? `${upsWords.label.toLowerCase()}, watched` : upsDevice ? (ups?.nutInstalled ? "NUT installed, not set up" : "NUT not installed") : undefined },
                 { id: "watchdog", label: "Watchdog", status: powerHardware ? watchdogWords(powerHardware.watchdog).status : undefined, value: powerHardware ? watchdogWords(powerHardware.watchdog).label : operator ? "on the Power tab" : "an operator's to read" },
                 { id: "docker-logs", label: "Docker logs", status: dockerDisk?.logging ? (dockerDisk.logging.configured ? "good" : "warning") : undefined, value: !dockerDisk ? "not read" : !dockerDisk.available ? "Docker not answering" : dockerDisk.logging?.configured ? `capped at ${dockerDisk.logging.maxSize}` : "unlimited" },

@@ -301,7 +301,7 @@ describe("System page", () => {
     render(<SystemPage csrfToken="csrf-token" />);
     const trim = await screen.findByRole("switch", { name: "Weekly trim" });
     expect(trim.getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByText(/Weekly trim keeps SSDs/)).toBeTruthy();
+    expect(screen.getByText(/Weekly trim is off\. It keeps SSDs/)).toBeTruthy();
     fireEvent.click(trim);
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(staged["service.action"]).toEqual({ parameters: { unit: "fstrim.timer", action: "enable" } });

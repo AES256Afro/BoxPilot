@@ -43,6 +43,8 @@ export interface LiveState {
   folderProblems?: Array<{ path: string; volume: string; reason: string }>;
   backupVerification?: (Verification & { history?: Verification[] }) | null;
   killSwitchDrill?: { held: boolean; leaked: boolean; downForMs: number | null; at: string } | null;
+  /** Set when a person stopped it on purpose (the Stop button, a schedule): not a problem to flag (M49). */
+  stoppedOnPurpose?: { at?: string | null } | null;
 }
 
 export interface Entry { manifest: Manifest; live: LiveState | null }

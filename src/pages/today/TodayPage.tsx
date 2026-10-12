@@ -4,6 +4,7 @@ import { countOf, type ViewName } from "../../data";
 import { useFacts } from "../../home/facts";
 import { relativeTime } from "../../home/format";
 import { useJobHistory, useMergedJobs } from "../../home/jobHistory";
+import { useCheckAgain } from "../../home/useCheckAgain";
 import { NeedRow } from "../../home/NeedRow";
 import type { Need } from "../../home/needs";
 import { useNeedActions } from "../../home/useNeedActions";
@@ -66,7 +67,9 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
   const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
   const attention = allAttention ? model.attention : model.attention.slice(0, shownAttention);
   const approvals = model.approvals.length;
-  const read = () => { refresh(); reload(); };
+  // The same "Check again" as Home and Ops, with something to show for the click (M49): on a phone,
+  // "Refresh" read everything again in the background and looked ignored.
+  const again = useCheckAgain(async () => { reload(); await refresh(); });
 
   return (
     <div className="today-page cc" data-density="compact">
@@ -76,7 +79,7 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
         status={{ status: stale ? "unknown" : model.verdict.status, label: stale ? "Not live" : model.verdict.label }}
         summary={model.verdict.sentence}
         meta={stale ? <>as BoxPilot said it at <b>{keptAt}</b></> : undefined}
-        actions={<Button variant="ghost" onClick={read}>Refresh</Button>}
+        actions={<>{again.said}<Button variant="ghost" busy={again.checking} onClick={again.run}>{again.checking ? "Checking…" : "Check again"}</Button></>}
         about="The morning glance: what waits for your approval, what ran overnight, and whether the backups are off this server and current. Kept on this device for a day so it can be read without a connection."
       />
 
@@ -121,7 +124,7 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
             : model.ran.map((group) => <RanList key={group.kind} group={group} clock={clock} />)}
         </Panel>
 
-        <Panel className="today-backups" title="Off this server" padded>
+        <Panel className="today-backups" title="Backups" padded>
           <MetricStrip label="Backups at a glance" minTile="9.5rem">
             <MetricTile label="Off this server" {...model.backups.offBox} onSelect={() => onNavigate("backups")} />
             <MetricTile label="Apps backed up" {...model.backups.apps} onSelect={() => onNavigate("backups")} />
