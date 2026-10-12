@@ -3320,7 +3320,7 @@ how often a person meets each times how much it hurts): pages that disagree abou
 machine vocabulary where words belong, removals that go on one tap, pointers in prose where a
 button belongs, and errors swallowed so a panel vanishes or an empty state lies.
 
-- ✅ **M49.1 The first twenty** (unreleased, `feat/m49-house-usability`). The App catalog counted
+- ✅ **M49.1 The first twenty** (1.182.0). The App catalog counted
   paused apps and apps a person stopped on purpose as "need a look" and drew them amber, while
   Home called the same apps grey: both are neutral now (`appState.ts` reads `stoppedOnPurpose`).
   Deleting a schedule went on one tap beside Pause: it asks first, says what stops and what is not
@@ -3351,19 +3351,19 @@ button belongs, and errors swallowed so a panel vanishes or an empty state lies.
   gone. Removing a passkey sent people to a password field under Recovery codes and then went
   with no confirmation: the row opens its own form, with the password and what removal means. The
   System page's "Read again" is "Check again" too.
-- ✅ **M49.2 A page from anywhere** (unreleased, `feat/m49-open-view`). Two pointers in prose had no
+- ✅ **M49.2 A page from anywhere** (1.183.0). Two pointers in prose had no
   button because the Settings panels have no way to change the page: `openView` (activityEvents.ts)
   asks the app to, as a tile on Home would. "What BoxPilot watches" gains Open on each active
   condition, to the page it belongs to (`watchView`); the heartbeat panel's "arrives with the next
   upgrade" gains Open Updates. Test: the Open button's event and its view, none for a clear
   condition, and the Weekly report's read failure said with Try again.
-- ✅ **M49.3 The rest of the sweep** (unreleased, `feat/m49-rest`). The restore sheet listed app ids
+- ✅ **M49.3 The rest of the sweep** (1.183.0). The restore sheet listed app ids
   in code font where a person chooses what to bring back: it names them from the catalog's summary
   (the id where the catalog has gone). The drive Reconnect switch read on while its automation was
   paused and pointed at pages in prose: "Set, but paused on Automations", with Open Automations, and
   Open Repair Center where a reconnect waits for a person. Repair's approval desk comes before the
   Prerequisites table on a phone.
-- ✅ **M49.4 One name for the copy off this server** (unreleased, `feat/m49-off-this-server`). Home
+- ✅ **M49.4 One name for the copy off this server** (1.183.0). Home
   said "Off this server", the Backups tab "Off-box", Ops "off-box 20 hours ago", the warnings "the
   off-box copy", a retry's button "Open Off-box": one thing under three names. It is "off this
   server" everywhere: the tab, Ops' line, the header's "Copy off this server behind" and
