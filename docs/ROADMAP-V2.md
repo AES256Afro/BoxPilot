@@ -3260,7 +3260,7 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   tokens, never for a person's question; the Usage tab's count), the gate in `background.test.mjs`
   and `evaluation.test.mjs` (five of nine asked with ten runs a day; one of nine at 300 s; none at
   200 s).
-- ✅ **M48.7 Quality of life** (unreleased, `feat/m48-usability`; the usability sweep's findings).
+- ✅ **M48.7 Quality of life** (1.181.0; the usability sweep's findings).
   The Evaluation tab knew eleven facts of fifteen and showed the raw id for the rest: it knows
   whether the firewall is on, which apps were never backed up, whether a reboot is needed and
   which app is using the most processor, says "no firewall installed" for the server's `absent`,
@@ -3290,7 +3290,7 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   `Paused.test.tsx`, the trace's titles and citations in `Trace.test.tsx`, the page's new block in
   `AgentsPage.test.tsx` (cards first, the chip, the two paused notices and every fact's words, the
   picker, the hint, the kill switch's dialog, each Forget's dialog, the export dialog), Ops.test.
-- ✅ **M48.8 The reads M48.5 left for later** (unreleased, `feat/m48-perf-leftovers`). A list of
+- ✅ **M48.8 The reads M48.5 left for later** (1.181.0). A list of
   thirty runs read two hundred for everyone, to filter by who may see them: the owner sees every
   run, so no more are read than asked for; anyone else has twice the list read, and the rest only
   when those do not fill it. A run that wanted the pinned documents, the embeddings index that wanted
@@ -3300,7 +3300,7 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   `listRuns` takes a `kind`. Tests: `perf-leftovers.test.mjs` (the filters and the count; the owner's
   one read of two, an operator's four then two hundred, and four alone once the first page fills;
   the learning run by kind, as the Knowledge tab says it).
-- ✅ **M48.9 One more try after the model server's 5xx** (unreleased, `feat/m48-model-retry`). The
+- ✅ **M48.9 One more try after the model server's 5xx** (1.181.0). The
   Scout's eight-step survey died on a tool call whose JSON llama-server could not parse: a 500 from
   the model server ended the call, and the run, with "The model stopped". The next sample is
   nearly always JSON it can parse, so the session asks once more after a 5xx (`session.mjs`; the
