@@ -3357,9 +3357,12 @@ button belongs, and errors swallowed so a panel vanishes or an empty state lies.
   condition, to the page it belongs to (`watchView`); the heartbeat panel's "arrives with the next
   upgrade" gains Open Updates. Test: the Open button's event and its view, none for a clear
   condition, and the Weekly report's read failure said with Try again.
-- **M49.3 The rest of the sweep.** The restore sheet's and Repair's schedule dialog's app ids where
-  names belong; the drive Reconnect switch that shows on while paused and points at pages in prose;
-  Repair's approval desk under the Prerequisites table on a phone.
+- ✅ **M49.3 The rest of the sweep** (unreleased, `feat/m49-rest`). The restore sheet listed app ids
+  in code font where a person chooses what to bring back: it names them from the catalog's summary
+  (the id where the catalog has gone). The drive Reconnect switch read on while its automation was
+  paused and pointed at pages in prose: "Set, but paused on Automations", with Open Automations, and
+  Open Repair Center where a reconnect waits for a person. Repair's approval desk comes before the
+  Prerequisites table on a phone. Left: Repair's schedule dialog names an app by its id.
 
 ## App catalogue candidates
 
