@@ -50,7 +50,7 @@ export default function TransitHome(props: HomeProps) {
   const backedUp = rows.filter((row) => row.backup?.state === "ok").map(stop);
   const unprotected = rows.filter((row) => row.backup && row.backup.state !== "ok").map(stop);
   const offBox = values.offBox?.verdict ?? null;
-  const map = transitMap({ tailnet, network, backups: backedUp, unprotected, offBoxName: offBox && offBox.state === "none" ? "No off-box copy" : "Off-box copy" });
+  const map = transitMap({ tailnet, network, backups: backedUp, unprotected, offBoxName: offBox && offBox.state === "none" ? "No copy off this server" : "Off-box copy" });
   const tailscale = inventory?.tailscale ?? null;
   const tailnetDown = tailscale !== null && !tailscale.connected;
   const byId = new Map(rows.map((row) => [row.app.id, row]));
