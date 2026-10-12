@@ -883,9 +883,13 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
    * the same), so "+1" rates the answer above it.
    */
   function latestAnsweredPost({ channel = null, topic = null, to = null } = {}) {
-    const rows = prepare("SELECT * FROM agent_chat_posts WHERE run_id IS NOT NULL AND kind IN ('reply', 'findings') AND state = 'sent' ORDER BY sent_at DESC, created_at DESC, rowid DESC LIMIT 100").all().map(chatPostOf);
+    // The topic's own newest answer (M48.4): a hundred posts across every channel left a quieter topic with none.
+    if (!(Array.isArray(to) && to.length)) {
+      return chatPostOf(prepare("SELECT * FROM agent_chat_posts WHERE run_id IS NOT NULL AND kind IN ('reply', 'findings') AND state = 'sent' AND channel = ? AND topic = ? ORDER BY sent_at DESC, created_at DESC, rowid DESC LIMIT 1").get(String(channel ?? ""), String(topic ?? ""))) ?? null;
+    }
+    const rows = prepare("SELECT * FROM agent_chat_posts WHERE run_id IS NOT NULL AND kind IN ('reply', 'findings') AND state = 'sent' AND recipients_json IS NOT NULL ORDER BY sent_at DESC, created_at DESC, rowid DESC LIMIT 500").all().map(chatPostOf);
     const same = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && [...a].sort().every((value, index) => value === [...b].sort()[index]);
-    return rows.find((post) => (Array.isArray(to) && to.length ? same(post.to, to) : post.channel === String(channel ?? "") && post.topic === String(topic ?? ""))) ?? null;
+    return rows.find((post) => same(post.to, to)) ?? null;
   }
   const listChatPosts = ({ state = null, limit = 50 } = {}) => (state
     ? prepare("SELECT * FROM agent_chat_posts WHERE state = ? ORDER BY created_at, rowid LIMIT ?").all(state, limit)

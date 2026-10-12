@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { createRedactor } from "../redaction.mjs";
 import { finalRedaction } from "../assistant/prompt.mjs";
 import { chatParagraph, systemMessage } from "./prompt.mjs";
+import { feedbackIn } from "./zulip.mjs";
 import { normalizeSpec, SpecError } from "./spec.mjs";
 import { agentTemplates, templateById } from "./templates.mjs";
 import { ackMessage, cardMessage, chatOutputsOf, destinationFor, findingMessage, neutralizeMentions, noteMessage, readChannelName, replyMessage, traceMessage, uploadKind, uploadsIn } from "./zulip.mjs";
@@ -157,5 +158,21 @@ describe("what an agent is told about its team chat", () => {
     // An agent that does not read the owner's documents is not told about #agent-files.
     const noDocuments = normalizeSpec({ ...templateById("server-keeper").spec, knowledge: { documents: false } });
     expect(chatParagraph(noDocuments, connection)).not.toContain("#agent-files");
+  });
+});
+
+describe("a rating under an answer", () => {
+  it("is +1, -1, a thumb, right or wrong, alone or with a note; an answer that starts with yes or no is not one (M48.4)", () => {
+    expect(feedbackIn("+1")).toEqual({ verdict: "up", note: null });
+    expect(feedbackIn("👎")).toEqual({ verdict: "down", note: null });
+    expect(feedbackIn("Right.")).toEqual({ verdict: "up", note: null });
+    expect(feedbackIn("wrong: it is the USB drive")).toEqual({ verdict: "down", note: "it is the USB drive" });
+    expect(feedbackIn("@**Steve** -1, too long")).toEqual({ verdict: "down", note: "too long" });
+    // Answers to the agent, not thumbs.
+    expect(feedbackIn("No, I meant the USB drive")).toBeNull();
+    expect(feedbackIn("yes")).toBeNull();
+    expect(feedbackIn("Good question. The backups ran.")).toBeNull();
+    expect(feedbackIn("Right, and what about the backups?")).toBeNull();
+    expect(feedbackIn("rightly so")).toBeNull();
   });
 });

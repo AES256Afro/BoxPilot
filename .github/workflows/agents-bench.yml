@@ -116,6 +116,7 @@ jobs:
           THREADS: ${{ inputs.threads || '4' }}
           BASELINE: ${{ inputs.baseline }}
         run: |
+          set -o pipefail
           mkdir -p "$RUNNER_TEMP/bench"
           { echo '## Agents evaluation on the real model'; echo; echo "$(lscpu | grep '^Model name' | sed 's/  */ /g'), $(nproc) processors"; echo; } >>"$GITHUB_STEP_SUMMARY"
           for SET in $SETS; do
@@ -155,6 +156,7 @@ jobs:
         env:
           THREADS: ${{ inputs.threads || '4,1' }}
         run: |
+          set -o pipefail
           mkdir -p "$RUNNER_TEMP/bench"
           {
             echo '## Agents benchmark'

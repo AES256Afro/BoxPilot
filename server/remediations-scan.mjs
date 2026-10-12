@@ -96,6 +96,16 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   facts.schedules = schedules.map((schedule) => ({ operationId: schedule.operationId, parameters: schedule.parameters ?? {}, enabled: schedule.enabled !== false }));
   // The jobs this caller may see, newest first: the last try at each fix, and when Docker's cleanup ran.
   const visibleJobs = Array.isArray(visibleJobsGiven) ? visibleJobsGiven : [];
+  // M48.4: a boot-partition check that stopped at more than the mark fails its job and records nothing,
+  // so the finding read it as never tried. The failed job's own words are the record: the device it
+  // names, when, and what it found.
+  for (const job of visibleJobs.filter((entry) => entry.type === "op:storage.boot-mark.clear" && entry.state === "failed" && typeof entry.error === "string")) {
+    const found = /found more than the not-properly-unmounted mark on (\/dev\/[^\s:]+): (.+?)\. Nothing was changed/.exec(job.error);
+    if (!found) continue;
+    const at = job.finishedAt ?? job.updatedAt ?? job.createdAt;
+    const known = facts.bootChecks[found[1]];
+    if (!known || Date.parse(at) > Date.parse(known.checkedAt)) facts.bootChecks = { ...facts.bootChecks, [found[1]]: { checkedAt: at, clean: false, cleared: false, beyond: found[2].split(" / ").slice(0, 4) } };
+  }
   // Each clean-up, and whether a schedule started it (its last job, or a job begun at its time),
   // so an app it removed can be told "removed by the nightly clean-up" (M35).
   const pruneSchedules = schedules.filter((schedule) => schedule.operationId === "docker.prune");

@@ -82,12 +82,15 @@ export function actingConversation({ spec, run, steps, understanding = null }) {
       index += 1;
       messages.push({ role: "tool", tool_call_id: callId, content: wrapToolOutput({ index, tool: fnOf(step.name), text: step.output ?? "", flags: step.flags ?? {} }) });
     } else {
-      messages.push({ role: "tool", tool_call_id: callId, content: step.output || `${fnOf(step.name)} was ${step.state}.` });
+      // Boxed as the service boxed it for the model (runnerTool): a refusal is data too.
+      messages.push({ role: "tool", tool_call_id: callId, content: `<tool_output tool="${fnOf(step.name)}" trust="untrusted">\nThe tool did not run: ${step.output || `${fnOf(step.name)} was ${step.state}.`}\n</tool_output>` });
     }
   }
   if (pending.length) return null;
   messages.push({ role: "assistant", content: String(run.answer) });
-  return { messages, toolOutputs: index, kept: Boolean(prompt) };
+  // Findings offered by meaning (M47.3) were added after the prompt step: a record with them missing is rebuilt, not kept.
+  const addedAfter = ordered.some((step) => step.kind === "finding" && step.input?.by === "meaning");
+  return { messages, toolOutputs: index, kept: Boolean(prompt) && !addedAfter };
 }
 
 /**
