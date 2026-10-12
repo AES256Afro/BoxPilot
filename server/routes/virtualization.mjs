@@ -22,8 +22,9 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
     });
   });
 
-  router.get("/virtualization/domains", async (_request, response) => {
-    const result = await libvirt.listDomains();
+  // `?view=summary` is what Home reads (M50): dominfo alone per VM, not the addresses, disks and snapshots.
+  router.get("/virtualization/domains", async (request, response) => {
+    const result = await libvirt.listDomains({ summary: request.query?.view === "summary" });
     response.status(result.connected ? 200 : 503).json(result);
   });
 
