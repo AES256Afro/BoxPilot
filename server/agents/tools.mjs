@@ -133,11 +133,30 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     async "updates.status"(_input, context) { return describeUpdates(await read("apt.upgradable.inspect", {}, context)); },
     async "protection.status"(_input, context) { return describeProtection(await read("fail2ban.inspect", {}, context)); },
     async "users.access"(_input, context) { return describeUsers(await read("users.inspect", {}, context)); },
-    async "tunnel.exposure"(_input, context) { return describeTunnel(await read("cloudflare.tunnel.inspect", {}, context)); },
+    async "tunnel.exposure"(_input, context) {
+      const result = await read("cloudflare.tunnel.inspect", {}, context);
+      // M48.3: the published names are the house's too; kept so the stand-ins hide them on every run on Claude and in every export.
+      const hosts = (Array.isArray(result?.routes) ? result.routes : []).map((route) => String(route?.hostname ?? "").toLowerCase()).filter((host) => /^[a-z0-9.-]{3,253}$/.test(host) && host.includes("."));
+      if (hosts.length && state.setSetting) {
+        const known = state.getSetting?.("agentsKnownDomains", null);
+        const merged = [...new Set([...(Array.isArray(known?.hosts) ? known.hosts : []), ...hosts])].slice(0, 200);
+        if (merged.length !== (known?.hosts?.length ?? 0)) state.setSetting("agentsKnownDomains", { hosts: merged }, { updatedBy: null });
+      }
+      return describeTunnel(result);
+    },
     // M47.6: the three the templates still said they could not see. Each the registered read the
     // Performance, Backups and Storage pages make; the clean-up's read is an operator's (ADR-003).
-    async "apps.usage"(_input, context) { return describeUsage(await read("system.performance.inspect", {}, context)); },
-    async "backups.coverage"(_input, context) { return describeCoverage(await read("app.backup.protection", {}, context), { schedules: state.listSchedules?.() ?? [], now: now().getTime() }); },
+    // M48.3: each within the agent's app allowlist, as apps.list is; the schedules as the run's person may see them.
+    async "apps.usage"(_input, context) {
+      const result = await read("system.performance.inspect", {}, context);
+      return describeUsage(result ? { ...result, apps: (Array.isArray(result.apps) ? result.apps : []).filter((app) => appAllowed(context.spec, app.id)) } : result);
+    },
+    async "backups.coverage"(_input, context) {
+      const result = await read("app.backup.protection", {}, context);
+      const request = asRequest({ id: context.readAs, role: context.readRole });
+      const schedules = (state.listSchedules?.() ?? []).filter((schedule) => seesEveryAccount(request) || schedule.createdBy === context.readAs);
+      return describeCoverage(result ? { ...result, apps: (Array.isArray(result.apps) ? result.apps : []).filter((app) => appAllowed(context.spec, app.id)) } : result, { schedules, now: now().getTime() });
+    },
     async "space.reclaimable"(_input, context) {
       // Docker's figures are the second half: when they cannot be read the first half still answers.
       const [housekeeping, docker] = await Promise.all([read("housekeeping.inspect", {}, context), read("docker.disk.inspect", {}, context).catch(() => null)]);

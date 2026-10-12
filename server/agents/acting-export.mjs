@@ -27,9 +27,14 @@ export const outputKinds = Object.freeze(["tool", "memory", "proposal", "note", 
 const answers = new Set(outputKinds);
 const fnOf = (name) => toolById(name)?.fn ?? String(name ?? "").replace(/\./g, "_");
 
-/** Why a run makes no record, or null when it may. */
-export function actingSkipReason(run, spec = {}) {
+/** Whether a step read one of the owner's documents: document.read, or a docs.search that found one. */
+const readsDocuments = (steps) => (Array.isArray(steps) ? steps : []).some((step) => step.kind === "tool" && step.state === "done" && (step.name === "document.read" || (step.name === "docs.search" && /^## Owner's document: /m.test(String(step.output ?? "")))));
+
+/** Why a run makes no record, or null when it may. `steps` lets it see what the run read. */
+export function actingSkipReason(run, spec = {}, steps = []) {
   if (!run || run.state !== "completed") return "the run did not complete";
+  // M48.3: the owner's documents leave only when the agent may send them (claudeReadsDocuments, ADR-013).
+  if (spec?.model?.claudeReadsDocuments !== true && readsDocuments(steps)) return "read the owner's documents";
   if (!["ask", "manual", "schedule", "eval"].includes(run.kind)) return "a follow-up run";
   if (!run.answer) return "no answer";
   if (run.threadId) return "part of a conversation";
@@ -96,7 +101,7 @@ export function actingRecords({ agent, runs, names = {} }) {
   const records = [];
   for (const entry of runs) {
     const spec = entry.spec ?? agent.spec ?? {};
-    if (actingSkipReason(entry.run, spec)) continue;
+    if (actingSkipReason(entry.run, spec, entry.steps ?? [])) continue;
     const built = actingConversation({ spec, run: entry.run, steps: entry.steps ?? [], understanding: entry.understanding ?? null });
     if (!built) continue;
     records.push({

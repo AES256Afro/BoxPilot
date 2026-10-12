@@ -91,6 +91,13 @@ describe("the rebuilt conversation", () => {
     expect(actingSkipReason({ ...run, flags: { check: { mismatches: 1 } } }, keeperSpec)).toBe("the check doubted it");
     expect(actingSkipReason({ ...run, flags: { check: { mismatches: 0, unsure: true } } }, keeperSpec)).toBe("the check doubted it");
     expect(actingSkipReason({ ...run, flags: { injection: true } }, keeperSpec)).toBe("read something that looked like an instruction");
+    // M48.3: a run that read the owner's documents makes no record unless the agent may send them.
+    const readDoc = [{ seq: 6, kind: "tool", name: "document.read", state: "done", input: { title: "Media notes" }, output: "The spare key is under the blue pot.", flags: {} }];
+    const foundDoc = [{ seq: 6, kind: "tool", name: "docs.search", state: "done", input: { query: "key" }, output: "## Owner's document: Media notes\nThe spare key is under the blue pot.", flags: {} }];
+    expect(actingSkipReason(run, keeperSpec, readDoc)).toBe("read the owner's documents");
+    expect(actingSkipReason(run, keeperSpec, foundDoc)).toBe("read the owner's documents");
+    expect(actingSkipReason(run, keeperSpec, [{ seq: 6, kind: "tool", name: "docs.search", state: "done", input: {}, output: "## docs/BACKUPS.md › Restore\nOpen the card.", flags: {} }])).toBeNull();
+    expect(actingSkipReason(run, { ...keeperSpec, model: { ...keeperSpec.model, claudeReadsDocuments: true } }, readDoc)).toBeNull();
   });
 
   it("are records with the house's names hidden and what was left out said", () => {
