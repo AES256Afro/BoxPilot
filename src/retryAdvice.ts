@@ -45,7 +45,7 @@ const rules: Rule[] = [
   { test: /\bPort \d+(?:\/udp)? (?:is taken|is also claimed|is already in use)\b/, retry: false, next: repair },
   // A tool or a step that has to come first, named by the page it lives on.
   { test: /from (?:the )?Repair(?: Center)? first|use Reinstall in Repair|Docker Engine is not available/i, retry: false, next: repair },
-  { test: /install it from the Backups page first|Generate the mirror key first/i, retry: false, next: { label: "Open Off-box", view: "backups", tab: "offbox" } },
+  { test: /install it from the Backups page first|Generate the mirror key first/i, retry: false, next: { label: "Open Off this server", view: "backups", tab: "offbox" } },
   { test: /nothing to mirror yet/i, retry: false, next: { label: "Open Backups", view: "backups", tab: "server" } },
   { test: /install (?:it|cifs-utils|nfs-common) from the Storage page|cifs-utils is missing|nfs-common is missing/i, retry: false, next: shares },
   { test: /refused the credentials|share does not exist on that host/i, retry: false, next: shares },

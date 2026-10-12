@@ -90,8 +90,8 @@ export function offBoxVerdict(
 export function offBoxWarning(verdict: OffBoxVerdict): string | null {
   if (verdict.state === "none") return "Backups are only on this server. A disk failure would take them with it";
   if (verdict.state === "never") return "Backups have never been copied off this server";
-  if (verdict.state === "behind") return `Backups newer than the off-box copy have been waiting ${verdict.behindHours} hours; the sync that should have followed them has not run`;
-  if (verdict.state === "stale") return `The off-box copy of your backups is ${verdict.ageDays} days old`;
+  if (verdict.state === "behind") return `Backups newer than the copy off this server have been waiting ${verdict.behindHours} hours; the sync that should have followed them has not run`;
+  if (verdict.state === "stale") return `The copy of your backups off this server is ${verdict.ageDays} days old`;
   if (verdict.skipped) return `The last copy off this server left ${verdict.skipped} file${verdict.skipped === 1 ? "" : "s"} out`;
   return null;
 }
