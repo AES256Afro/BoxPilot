@@ -84,6 +84,8 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
   const [sources, setSources] = useState<SnapshotSources | null>(null);
   const [discovered, setDiscovered] = useState<DiscoveredSnapshots | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A scan of the mounted drives that failed is said (M49): it used to look like "no snapshots" on the rebuilt server that needed one most.
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const [chosen, setChosen] = useState<Option | null>(null);
   const [described, setDescribed] = useState<DescribedSnapshot | null>(null);
@@ -106,7 +108,8 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
     try {
       const { result } = await inspectOperation<DiscoveredSnapshots>("host.snapshot.discover");
       setDiscovered({ locations: (Array.isArray(result?.locations) ? result.locations : []).map((location) => ({ ...location, snapshots: Array.isArray(location.snapshots) ? location.snapshots : [] })), unanswered: Array.isArray(result?.unanswered) ? result.unanswered : [] });
-    } catch { setDiscovered({ locations: [] }); }
+      setDiscoverError(null);
+    } catch (requestError) { setDiscovered({ locations: [] }); setDiscoverError(requestError instanceof Error ? requestError.message : "The drives could not be scanned"); }
     setReading(false);
   }, [canRead]);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -191,6 +194,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
         ) : (
           <>
             {error && <Notice tone="danger" live className="backups-inset" title="The snapshots could not be listed" action={<Button onClick={() => void refresh()}>Try again</Button>}>{error}</Notice>}
+            {discoverError && <Notice tone="warning" live className="backups-inset" title="The mounted drives could not be scanned for snapshots" action={<Button onClick={() => void refresh()}>Try again</Button>}>{discoverError}. A snapshot on a drive or a network share is not listed until the scan works.</Notice>}
             {foundElsewhere > 0 && <Notice tone="info" className="backups-inset" title={`Also found ${countOf(foundElsewhere, "snapshot")} this server did not write`}>On {(discovered?.locations ?? []).map((location) => location.mount.source).join(", ")}: a rebuilt server finds the old one's this way.</Notice>}
             {(discovered?.unanswered ?? []).map((drive) => (
               <Notice key={drive.target} tone="warning" className="backups-inset" title={`${drive.source} did not answer when read`}>

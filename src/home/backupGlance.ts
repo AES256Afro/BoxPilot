@@ -53,7 +53,8 @@ export function backupGlance(
     },
     database: {
       value: !database ? "—" : database.lastBackupAt ? relativeTime(database.lastBackupAt, clock) ?? "—" : "Never",
-      caption: !database ? notRead(states.database) : "last backed up, with a restore drill",
+      // "Never" under "last backed up, with a restore drill" read as though a drilled backup existed (M49).
+      caption: !database ? notRead(states.database) : database.lastBackupAt ? "last backed up, with a restore drill" : "no backup yet: Back up now, on Backups",
       status: !database ? "unknown" : databaseAge !== null && databaseAge <= 7 ? "good" : "warning",
     },
   };

@@ -45,13 +45,16 @@ export function appStatus(live: LiveState | null | undefined): { status: Status;
   if (!live.installed) return { status: "neutral", label: live.dataPresent ? "Not installed · data kept" : "Not installed" };
   if (live.killSwitchDrill?.leaked) return { status: "danger", label: "Leaked outside its VPN" };
   if ((live.folderProblems ?? []).length > 0) return { status: "danger", label: "Cannot write to its folder" };
-  if (isPaused(live)) return { status: "warning", label: "Paused" };
+  // Paused by a person, or stopped by one on purpose (M49): not a problem, as Home already says of
+  // the same apps; the catalog counted them in "need a look" and drew them amber.
+  if (isPaused(live)) return { status: "neutral", label: "Paused" };
   const troubled = troubledSidecar(live);
   if (live.container.running && troubled) return { status: "warning", label: `Running · ${troubled.id} ${troubled.status === "restarting" ? "is restarting" : "is down"}` };
   if (live.container.running) return live.container.health === "unhealthy" ? { status: "warning", label: "Running · unhealthy" } : { status: "good", label: "Running" };
   // Home calls an installed app with no container "No container" (the nightly clean-up removed it);
   // the catalog said "Stopped" of the same app, which Start does not look like it would fix.
   if (live.container.exists === false) return { status: "warning", label: "No container" };
+  if (live.stoppedOnPurpose && live.container.status !== "restarting") return { status: "neutral", label: "Stopped" };
   return { status: "warning", label: "Stopped" };
 }
 

@@ -3312,6 +3312,51 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   `model-retry.test.mjs` (through the runner: one 500 and the run still answers, with the retry in
   its trace; every call a 500 and the run degrades as before).
 
+
+## M49: Quality of life across the house
+
+The usability sweep of everything outside the Agents section (2026-10-12, thirty findings, ranked by
+how often a person meets each times how much it hurts): pages that disagree about the same thing,
+machine vocabulary where words belong, removals that go on one tap, pointers in prose where a
+button belongs, and errors swallowed so a panel vanishes or an empty state lies.
+
+- ✅ **M49.1 The first twenty** (unreleased, `feat/m49-house-usability`). The App catalog counted
+  paused apps and apps a person stopped on purpose as "need a look" and drew them amber, while
+  Home called the same apps grey: both are neutral now (`appState.ts` reads `stoppedOnPurpose`).
+  Deleting a schedule went on one tap beside Pause: it asks first, says what stops and what is not
+  undone, and offers Pause instead; so do removing a single sign-on app (its client id stops for
+  good) and signing out every other device (the devices listed). Stop and Restart in an app's sheet
+  opened an approval with no words: each says what happens to the app and its data; Unmount names
+  the apps and shares that lose the drive. The approval dialog led every title with the operation
+  id and a job id: the job's short id stays (Activity lists it by that), the operation id moves in
+  with its parameters. Ops listed jobs by `app.backup` where "Back up Vaultwarden" belongs, said
+  "Boot static" and "activating": the job's title, "started when needed", "starting", "ran" for a
+  one-shot that exited. The database tile said "Never" under "last backed up, with a restore
+  drill". One refresh had three names and Today's gave no feedback: "Check again" everywhere, with
+  the busy state and the status line Home has. Repair told the owner "the owner can" of a finding
+  with no fix at all. Restore said "No machine snapshots" when the scan of the mounted drives had
+  failed: the failure is said with Try again. The UPS tile and Ops' button land on the Power tab;
+  Drive health on Storage. Home's most-pressed confirmations led with `apt-get upgrade
+  --with-new-pkgs`, `APT::Periodic::Unattended-Upgrade "1"` and `VACUUM INTO`: plain words. The
+  trim switch quoted systemd's "Mon 2026-10-19 00:23:12 UTC": "on Monday at 00:23"
+  (`nextRunWords`). The Weekly report panel vanished when its read failed: it says so with Try
+  again. The Backups tab named archives "20260815T030000Z.tar.gz" where a date belongs; its "Stop"
+  beside Restore reads "Stop the weekly rehearsal", the Samba bin's "Stop the weekly clean", and a
+  refused unschedule is said rather than swallowed. The Power tab's ethtool dead end has an Install
+  button; NFS on the LAN gets the same "Open the Firewall page" button Samba's notice has; the
+  restic dead end names Repair's Prerequisites. On a phone, Ops puts the alerts and the inbox
+  before the tables. Today's "Off this server" panel, which held the database tile too, is
+  "Backups". The Network page's "stale", "probe", "wildcard" and "host-address" are "seen
+  recently", "checking", "every address", "this server's address"; the staging-gate sentence is
+  gone. Removing a passkey sent people to a password field under Recovery codes and then went
+  with no confirmation: the row opens its own form, with the password and what removal means. The
+  System page's "Read again" is "Check again" too.
+- **M49.2 The rest of the sweep.** The restore sheet's and Repair's schedule dialog's app ids where names belong; the
+  drive Reconnect switch that shows on while paused and points at pages in prose; "What BoxPilot
+  watches" chips that look clickable; the heartbeat panel's "arrives with the next upgrade" with no
+  way to Updates; Repair's approval desk under the Prerequisites table on a phone; an app's Backups
+  tab's "Stop" beside Restore said apart from the app's own Stop.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

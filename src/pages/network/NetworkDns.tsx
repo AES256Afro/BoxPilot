@@ -232,10 +232,12 @@ export function NetworkDns({ csrfToken, topology, role, start, refreshKey, resil
   const canNames = mayStart(role, "dns.names.apply");
   const canClear = mayStart(role, "dns.names.clear");
 
+  /** Where a listener answers, in words (M49): "wildcard" and "host-address" are the probe's names, not a person's. */
+  const scopeWords = (scope: string) => ({ wildcard: "every address", "host-address": "this server's address", loopback: "this server only", "link-local": "this link only" } as Record<string, string>)[scope] ?? scope;
   const listenerColumns: Array<TableColumn<Listener>> = [
     { id: "address", header: "Address", sortValue: (listener) => listener.address, cell: (listener) => <code className="network-strong">{listener.address}:{listener.port}</code> },
     { id: "protocol", header: "Protocol", cell: (listener) => <Tag>{listener.protocol.toUpperCase()}</Tag> },
-    { id: "scope", header: "Scope", sortValue: (listener) => listener.scope, cell: (listener) => <StatusChip status={listener.scope === "wildcard" || listener.scope === "host-address" ? "warning" : "neutral"}>{listener.scope}</StatusChip> },
+    { id: "scope", header: "Scope", sortValue: (listener) => listener.scope, cell: (listener) => <StatusChip status={listener.scope === "wildcard" || listener.scope === "host-address" ? "warning" : "neutral"}>{scopeWords(listener.scope)}</StatusChip> },
     { id: "interface", header: "Interface", hideOnPhone: true, cell: (listener) => (listener.interface ? <code>{listener.interface}</code> : <span className="network-dim">no interface match</span>) },
   ];
 
@@ -340,7 +342,7 @@ export function NetworkDns({ csrfToken, topology, role, start, refreshKey, resil
             <p className="network-tags">
               <StatusChip status="warning">Router writes locked</StatusChip>
               <StatusChip status="warning">DNS cutover locked</StatusChip>
-              <span className="network-dim">{ready && plan.output.dns.role === "pihole-on-host" ? `Assessment ${plan.id} is ready for the Applications staging gate.` : "This assessment never changes the network."}</span>
+              <span className="network-dim">This assessment never changes the network.</span>
             </p>
           </div>
         )}

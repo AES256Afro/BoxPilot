@@ -171,8 +171,8 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
           </>
           : running
             ? <>
-              <Button risk={riskOf("app.action")} onClick={() => lifecycle("restart", `Restart ${name}`)}>Restart</Button>
-              <Button risk={riskOf("app.action")} onClick={() => lifecycle("stop", `Stop ${name}`)}>Stop</Button>
+              <Button risk={riskOf("app.action")} onClick={() => lifecycle("restart", `Restart ${name}`, <span>Stops and starts {name}; anyone using it is cut off for a few seconds. Its data and settings are kept.</span>)}>Restart</Button>
+              <Button risk={riskOf("app.action")} onClick={() => lifecycle("stop", `Stop ${name}`, <span>Stops {name} and frees its memory. Its data and settings are kept, and it stays stopped until you start it again.</span>)}>Stop</Button>
             </>
             : <Button risk={riskOf("app.action")} onClick={() => lifecycle("start", `Start ${name}`)}>Start</Button>)}
         {installed && may("app.update") && (

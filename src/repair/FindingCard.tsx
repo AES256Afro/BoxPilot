@@ -107,6 +107,8 @@ export function FindingCard({ finding, role, run, onFix, onDismiss, onRestore, e
   const elsewhere = advice?.next && advice.next.view !== "repairs" ? advice.next : null;
   const canAct = role === "owner" || role === "operator";
   const hasFixes = !leftRunning && fixesOf(finding).some((fix) => mayStart(role, fix.operationId));
+  // Whether any fix exists at all: the owner was told "the owner can" of a finding with none (M49).
+  const anyFixes = fixesOf(finding).length > 0;
   // More time where the server offered it, as Activity offers it: only where the helper keeps the two runs apart.
   const moreTime = failedBefore && attempt ? moreTimeOffered(attempt) : null;
   const offerMoreTime = Boolean(onMoreTime && moreTime !== null && attempt && !finding.dismissal && mayStart(role, attempt.operationId));
@@ -147,7 +149,9 @@ export function FindingCard({ finding, role, run, onFix, onDismiss, onRestore, e
       )}
       {!gone && extra}
       {finding.manual && !gone && <p className="rp-finding__manual"><strong>{hasFixes ? "If that does not do it:" : "What to do:"}</strong> {finding.manual}</p>}
-      {!hasFixes && !leftRunning && !finding.manual && !gone && canAct && <p className="rp-finding__manual">Your role cannot start this fix; the owner can.</p>}
+      {!hasFixes && !leftRunning && !finding.manual && !gone && canAct && (anyFixes
+        ? <p className="rp-finding__manual">Your role cannot start this fix; the owner can.</p>
+        : <p className="rp-finding__manual">No automatic fix for this one; the evidence says what was found.</p>)}
       {run && <FixProgress run={run} title={finding.title} />}
     </article>
   );

@@ -83,3 +83,17 @@ export function bytesWords(bytes: number): string {
 export function upsLabel(device: DetectedUps): string {
   return [device.manufacturer, device.product].filter(Boolean).join(" ") || `USB ${device.vendorId}:${device.productId}`;
 }
+
+/**
+ * When a systemd timer next fires, in words (M49): systemd says "Mon 2026-10-19 00:23:12 UTC", and
+ * the trim switch showed it as it was. "on Monday at 00:23" in the browser's zone; the words as
+ * given when they are not a time this can read.
+ */
+export function nextRunWords(nextRun: string | null | undefined): string | null {
+  if (!nextRun) return null;
+  const match = /^(?:[A-Za-z]{3} )?(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}):?(\d{2})? ?([A-Z]{2,5})?$/.exec(nextRun.trim());
+  const at = match ? Date.parse(`${match[1]}T${match[2]}:${match[3] ?? "00"}${!match[4] || match[4] === "UTC" ? "Z" : ""}`) : Date.parse(nextRun);
+  if (!Number.isFinite(at)) return nextRun;
+  const when = new Date(at);
+  return `on ${when.toLocaleDateString([], { weekday: "long" })} at ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+}

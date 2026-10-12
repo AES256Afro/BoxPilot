@@ -8,7 +8,7 @@ import { inspectOperation, type Job } from "../operations";
 import { Button, KeyValue, MetricStrip, MetricTile, PageHeader, Panel, Sparkline, StatusChip, Table, type RiskTier, type Status, type TableColumn } from "../ui";
 import { useFacts, valuesOf, type ServiceFact, type SmartDiskFact } from "./facts";
 import { elapsed, loadStatus, mountName, mountStatus, relativeTime, shortAge, size, uptime } from "./format";
-import { checklistSummary, diskDetail, diskHealth, serviceState, smartSummary, smartUnreadReason, upsSummary } from "./hostFacts";
+import { bootWords, checklistSummary, diskDetail, diskHealth, serviceState, smartSummary, smartUnreadReason, upsSummary } from "./hostFacts";
 import { upsTokenWords } from "../powerEvents";
 import { NeedRow } from "./NeedRow";
 import { AgentsGlance } from "../pages/agents/AgentsGlance";
@@ -142,8 +142,9 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   ];
 
   const jobColumns: Array<TableColumn<Job>> = [
-    { id: "job", header: "Job", hideOnPhone: true, cell: (job) => <span className="ops-mono">#{job.id.slice(0, 6)}</span> },
-    { id: "operation", header: "Operation", cell: (job) => <button type="button" className="ops-link ops-link--mono" onClick={() => openActivity(job.id)} title={job.title} aria-label={`${job.type.replace(/^op:/, "")}: open its log`}>{job.type.replace(/^op:/, "")}</button> },
+    { id: "job", header: "Id", hideOnPhone: true, cell: (job) => <span className="ops-mono">#{job.id.slice(0, 6)}</span> },
+    // The job by its title (M49), the operation id in the tooltip: "Back up Vaultwarden" where it said "app.backup".
+    { id: "operation", header: "Job", cell: (job) => <button type="button" className="ops-link" onClick={() => openActivity(job.id)} title={job.type.replace(/^op:/, "")} aria-label={`${job.title || job.type.replace(/^op:/, "")}: open its log`}>{job.title || job.type.replace(/^op:/, "")}</button> },
     { id: "target", header: "Target", className: "ops-mono-cell", cell: (job) => jobTarget(job) },
     { id: "state", header: "State", cell: (job) => { const state = jobState(job); return <StatusChip status={state.status}>{state.label}</StatusChip>; } },
     { id: "started", header: "Started", numeric: true, cell: (job) => shortAge(job.createdAt, clock) ?? "—" },
@@ -187,7 +188,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   const serviceColumns: Array<TableColumn<ServiceFact>> = [
     { id: "unit", header: "Unit", cell: (service) => <button type="button" className="ops-link ops-link--mono" onClick={() => onNavigate("services")} title={service.unit}>{service.unit.replace(/\.service$/, "")}</button> },
     { id: "state", header: "State", cell: (service) => { const state = serviceState(service); return <StatusChip status={state.status}>{state.label}</StatusChip>; } },
-    { id: "boot", header: "Boot", hideOnPhone: true, cell: (service) => service.enabled || "—" },
+    { id: "boot", header: "At boot", hideOnPhone: true, cell: (service) => bootWords(service.enabled) },
   ];
   const ups = inventory?.ups ?? null;
   const power = upsSummary(ups);
@@ -206,7 +207,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
         host={inventory?.hostname ?? null}
         status={{ status: verdict.status, label: verdict.label }}
         summary={verdict.sentence}
-        actions={<>{again.said}<Button variant="ghost" busy={again.checking} onClick={again.run}>{again.checking ? "Reading…" : "Read again"}</Button></>}
+        actions={<>{again.said}<Button variant="ghost" busy={again.checking} onClick={again.run}>{again.checking ? "Checking…" : "Check again"}</Button></>}
         barFacts={inventory
           ? <>{inventory.operatingSystem} · up <b>{uptime(inventory.uptimeSeconds)}</b> · kernel <b>{inventory.kernel}</b><span className="cc-kv__version"> · boxpilot <b>{__BOXPILOT_VERSION__}</b></span></>
           : <span className="cc-kv__version">boxpilot <b>{__BOXPILOT_VERSION__}</b></span>}
@@ -298,7 +299,7 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
               { id: "status", label: "Status", value: ups.tokens.map(upsTokenWords).join(", ") || "—" },
             ]} />
           )}
-          {inventory && !ups?.configured && <Button variant="ghost" onClick={() => onNavigate("system")}>Set up a UPS on System</Button>}
+          {inventory && !ups?.configured && <Button variant="ghost" onClick={() => onNavigate("system", { tab: "power" })}>Set up a UPS on the Power tab</Button>}
         </Panel>
 
         <Panel className="ops-setup" title="Setup" count={values.checklist ? { status: setup.status, label: setup.label } : undefined}

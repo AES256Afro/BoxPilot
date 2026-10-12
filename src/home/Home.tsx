@@ -162,11 +162,11 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
               {/* From the Classic overview (M33.8): the drives' health and the UPS, when there is one. */}
               {inventory?.smart?.available && (
                 <MetricTile label="Drive health" value={diskWords.label} caption={inventory.smart.readAt ? `read ${relativeTime(inventory.smart.readAt, clock)}` : "not read yet"}
-                  status={diskWords.status} onSelect={() => onNavigate("ops")} />
+                  status={diskWords.status} onSelect={() => onNavigate("storage")} />
               )}
               {inventory?.ups?.configured && (
                 <MetricTile label="UPS" value={power.label} caption={inventory.ups.charge === null ? power.headline : `battery ${inventory.ups.charge}%${inventory.ups.runtimeSeconds ? ` · ${Math.round(inventory.ups.runtimeSeconds / 60)} min` : ""}`}
-                  status={power.status} bar={inventory.ups.charge === null ? undefined : { value: inventory.ups.charge }} onSelect={() => onNavigate("ops")} />
+                  status={power.status} bar={inventory.ups.charge === null ? undefined : { value: inventory.ups.charge }} onSelect={() => onNavigate("system", { tab: "power" })} />
               )}
             </div>
             {news.length > 0 && (

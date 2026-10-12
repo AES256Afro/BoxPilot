@@ -2463,6 +2463,9 @@ a.ui-tile:hover {
 
 @media (max-width: 760px) {
   .ops-grid > * { grid-column: 1 / -1; }
+  /* On a phone, what a person acts on comes before what they only read (M49): the alerts, then the inbox, then the tables. */
+  .ops-grid > .ops-alerts { order: -2; }
+  .ops-grid > .ops-inbox { order: -1; }
 }
 
 /* ═════════════════════════════════════════════════════════════════════════ */

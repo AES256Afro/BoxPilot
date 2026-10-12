@@ -82,6 +82,8 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
   const canChange = role !== "viewer";
   const [installedApps, setInstalledApps] = useState<Array<{ id: string; name: string }>>([]);
   const [log, setLog] = useState<Schedule | null>(null);
+  // Deleting asks first (M49): it sat beside Pause and went on one tap, and a nightly backup stopped for good.
+  const [removing, setRemoving] = useState<Schedule | null>(null);
   const [adding, setAdding] = useState(false);
   const [templateKey, setTemplateKey] = useState("");
   const [frequency, setFrequency] = useState<Frequency>("daily");
@@ -195,7 +197,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
         <span className="automations-actions">
           {schedule.lastJobId && <Button variant="ghost" aria-label={`View log: ${schedule.title}`} onClick={() => setLog(schedule)}>Log</Button>}
           {canChange && <Button aria-label={`${schedule.enabled ? "Pause" : "Resume"} ${schedule.title}`} onClick={() => void toggle(schedule)}>{schedule.enabled ? "Pause" : "Resume"}</Button>}
-          {canChange && <Button aria-label={`Delete the schedule: ${schedule.title}`} onClick={() => void remove(schedule)}>Delete</Button>}
+          {canChange && <Button aria-label={`Delete the schedule: ${schedule.title}`} onClick={() => setRemoving(schedule)}>Delete</Button>}
         </span>
       ),
     },
@@ -219,6 +221,12 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
         empty={schedules === null ? "Loading schedules…" : <EmptyState title="Nothing scheduled yet" action={canChange ? <Button onClick={() => setAdding(true)}>Add a schedule</Button> : undefined}>Backups, update refreshes and cleanup can run on their own, each run a job in Activity.</EmptyState>}
       />
 
+      {removing && (
+        <Sheet side="center" size="sm" kicker="Schedules" title={`Delete the schedule: ${removing.title}?`} onClose={() => setRemoving(null)}
+          footer={<><Button variant="ghost" onClick={() => setRemoving(null)}>Keep it</Button><Button variant="primary" onClick={() => void remove(removing).then(() => setRemoving(null))}>Delete</Button></>}>
+          <p>It stops running for good: nothing does this on its own any more, and the schedule's own history goes with it. What it already did is not undone. To stop it for a while instead, pause it.</p>
+        </Sheet>
+      )}
       {log?.lastJobId && (
         <Sheet kicker="Last run" title={log.title} size="lg" onClose={() => setLog(null)}>
           <JobLogView jobId={log.lastJobId} title={log.title} />

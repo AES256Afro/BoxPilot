@@ -60,11 +60,16 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
 
   // The check Repair offers after a drop or an unclean unmount, on demand for any drive BoxPilot
   // mounted. The preview names the apps it pauses, since those are what the owner will notice.
-  const checkDrive = (name: string, mount: MountRow) => {
+  /** The apps whose folders are on the drive, and the shares of it: what a person will notice go. */
+  const dependents = (mount: MountRow) => {
     const on = (path: string) => path === mount.target || path.startsWith(`${mount.target}/`);
     const users = mapApps.filter((app) => app.paths.some(on)).map((app) => app.name);
     // A share of a folder on the drive, or of one above it, keeps it busy while a PC has it open.
     const shares = sambaShares.filter((share) => on(share.path) || mount.target.startsWith(`${share.path.replace(/\/+$/, "")}/`)).map((share) => share.name);
+    return { users, shares };
+  };
+  const checkDrive = (name: string, mount: MountRow) => {
+    const { users, shares } = dependents(mount);
     const checker = mount.fstype === "exfat" ? "fsck.exfat -n" : mount.fstype === "vfat" ? "fsck.fat -n" : "e2fsck -fn";
     start({
       operationId: "storage.check",
@@ -73,12 +78,17 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
       preview: <span>{users.length ? `Pauses ${users.join(", ")} while ` : "No app uses it, so nothing is paused while "}<code>{mount.target}</code> is unmounted, runs {checker} on it, then mounts it again{users.length ? " and starts them" : ""}.{shares.length ? ` Computers using the ${shares.join(", ")} share${shares.length === 1 ? "" : "s"} are disconnected for it and reconnect by themselves.` : ""} The check only reads: nothing on the drive is repaired or written.</span>,
     });
   };
-  const unmount = (name: string, mount: MountRow) => start({
-    operationId: "storage.unmount",
-    title: `Unmount ${mount.target}`,
-    parameters: { name },
-    preview: <span>Unmounts <code>{mount.target}</code> and removes its fstab entry. Data on the disk and the empty directory are kept.</span>,
-  });
+  // The preview names what loses the drive (M49): an app writing there would write to the system
+  // disk instead, and a share of it stops answering.
+  const unmount = (name: string, mount: MountRow) => {
+    const { users, shares } = dependents(mount);
+    start({
+      operationId: "storage.unmount",
+      title: `Unmount ${mount.target}`,
+      parameters: { name },
+      preview: <span>Unmounts <code>{mount.target}</code> and removes its fstab entry. Data on the disk and the empty directory are kept.{users.length ? ` ${users.join(", ")} ${users.length === 1 ? "keeps" : "keep"} data there: stop ${users.length === 1 ? "it" : "them"} first, or ${users.length === 1 ? "it" : "they"} would write to the system disk instead.` : ""}{shares.length ? ` The share${shares.length === 1 ? "" : "s"} ${shares.join(", ")} stop${shares.length === 1 ? "s" : ""} answering until it is mounted again.` : ""}</span>,
+    });
+  };
   const format = (device: DeviceRow) => start({
     operationId: "storage.format",
     title: `Erase and format ${device.path}`,
