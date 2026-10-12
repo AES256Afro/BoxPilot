@@ -35,7 +35,7 @@ import { cosine, decodeVector, encodeVector, episodeOf, foldThread, hybridSearch
 import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
 import { agentsNamed, chainOf, checkHandoff, nameKey, reservedNameProblem, specialistsFor, treeOf } from "./orchestrator.mjs";
 import { exportDefinition, readDefinition } from "./portable.mjs";
-import { systemMessage, taskMessage } from "./prompt.mjs";
+import { plannerTaskMessage, systemMessage, taskMessage } from "./prompt.mjs";
 import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
 import { digestToken, finishedStates } from "./store.mjs";
 import { agentTemplates, builtInQuestions, evaluationFacts, seedExamples, templateById, templateQuestions } from "./templates.mjs";
@@ -1618,7 +1618,8 @@ export function createAgentService({
       tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(["operations.run", "operations.plan"].includes(tool.id) ? actTool(tool, spec) : tool) })),
       // Intent, then plan, then act: the runner asks for the structured understanding first, shown a
       // few of the agent's examples (M46), which it picks from these where the model is.
-      understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })), ...(candidates.length ? { examples: { candidates, limit: limits.examplesInPrompt } } : {}) } : null,
+      // M48.2: the planner's own request - the question or the trigger, the findings' titles, the conversation in a line - in place of the whole task message.
+      understand: understand ? { tools: offered.map((tool) => ({ fn: tool.fn, title: tool.title, ...(tool.use ? { use: tool.use } : {}) })), task: plannerTaskMessage({ kind: run.kind, question: run.question, trigger: run.trigger, findings, thread: context, now: now() }), ...(candidates.length ? { examples: { candidates, limit: limits.examplesInPrompt } } : {}) } : null,
       output: outputFor(spec, run),
       runtime,
       // M45.4: both models, when the run may change from one to the other.

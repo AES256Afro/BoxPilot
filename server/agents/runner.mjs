@@ -390,7 +390,8 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
           if (vectors?.[0]) queryVector = vectors[0];
         }
         shown = pool.length ? selectExamples({ query: request, queryVector, candidates: pool, limit: claim.understand.examples?.limit ?? 3 }) : [];
-        const planner = { tools: null, messages: plannerMessages(claim.agent ?? {}, tools, task, { hints, examples: shown }), last: null };
+        // The slim request when BoxPilot sends one (M48.2); the whole task message from a BoxPilot that does not.
+        const planner = { tools: null, messages: plannerMessages(claim.agent ?? {}, tools, typeof claim.understand.task === "string" && claim.understand.task ? claim.understand.task : task, { hints, examples: shown }), last: null };
         const format = understandingFormatFor(tools.map((tool) => tool.fn));
         const asked = await session.ask(planner, { maxTokens: settings.understandTokens, extra: (runtimeClaim) => ({ ...thinkingOff(runtimeClaim.extra ?? {}), response_format: format }), purpose: "plan" });
         if (asked) {
