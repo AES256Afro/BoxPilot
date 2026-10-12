@@ -87,6 +87,20 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
   // A scan of the mounted drives that failed is said (M49): it used to look like "no snapshots" on the rebuilt server that needed one most.
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
+  // Apps by their names (M49): the sheet listed ids ("pi-hole") in code font where a person chooses
+  // what to bring back. The catalog's summary names them; its id where the catalog has gone.
+  const [names, setNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let gone = false;
+    fetch("/api/v1/catalog?view=summary")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { applications?: Array<{ manifest: { id: string; name: string } }> } | null) => {
+        if (!gone && Array.isArray(data?.applications)) setNames(Object.fromEntries(data.applications.map((entry) => [entry.manifest.id, entry.manifest.name])));
+      })
+      .catch(() => { /* the ids stay */ });
+    return () => { gone = true; };
+  }, []);
+  const nameOf = (id: string) => names[id] ?? id;
   const [chosen, setChosen] = useState<Option | null>(null);
   const [described, setDescribed] = useState<DescribedSnapshot | null>(null);
   const [describeError, setDescribeError] = useState<string | null>(null);
@@ -156,8 +170,8 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
       title: `Restore ${countOf(apps.length, "app")} from snapshot`,
       parameters: { source: option.source, artifact: option.snapshot.artifact, ...(option.root ? { root: option.root } : {}), apps, restoreData, ...(toAllow.length ? { allowCompose } : {}) },
       preview: <>
-        <span>Reinstalls {apps.join(", ")} from <code>{option.snapshot.artifact}</code>{option.root ? <> on <code>{option.where}</code></> : null}{restoreData ? " and restores each one's data from the archive the snapshot names, or an older one it lists where that one is gone (a safety copy of any existing data is taken first)" : " without touching data"}. Apps already installed on this box are skipped.</span>
-        {toAllow.map((app) => <ComposeAllowance key={app.id} name={app.id} review={app.compose!} />)}
+        <span>Reinstalls {apps.map(nameOf).join(", ")} from <code>{option.snapshot.artifact}</code>{option.root ? <> on <code>{option.where}</code></> : null}{restoreData ? " and restores each one's data from the archive the snapshot names, or an older one it lists where that one is gone (a safety copy of any existing data is taken first)" : " without touching data"}. Apps already installed on this box are skipped.</span>
+        {toAllow.map((app) => <ComposeAllowance key={app.id} name={nameOf(app.id)} review={app.compose!} />)}
       </>,
     });
   };
@@ -273,7 +287,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
                 caption={`Apps in ${chosen.snapshot.artifact}`}
                 columns={[
                   { id: "pick", header: <span className="ui-visually-hidden">Restore</span>, label: "Restore", className: "backups-pick", cell: (app) => <Checkbox label={<span className="ui-visually-hidden">Restore {app.id}</span>} checked={selected.has(app.id)} disabled={!canRestore} onChange={(on) => setSelected((current) => { const next = new Set(current); if (on) next.add(app.id); else next.delete(app.id); return next; })} /> },
-                  { id: "app", header: "App", sortValue: (app) => app.id, cell: (app) => <code>{app.id}</code> },
+                  { id: "app", header: "App", sortValue: (app) => nameOf(app.id), cell: (app) => nameOf(app.id) },
                   { id: "installed", header: "In snapshot", cell: (app) => (app.installed ? "installed" : "not installed") },
                   { id: "data", header: "Data archive", cell: (app) => <DataArchive app={app} /> },
                 ]}
@@ -282,10 +296,10 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
                 empty={<EmptyState title="This snapshot has no apps" />}
               />
               <Checkbox label="Restore each app's data after installing it" description="From the data archive the snapshot names, or an older one it lists where that one is gone. A safety copy of any data already there is taken first." checked={restoreData} disabled={!canRestore} onChange={setRestoreData} />
-              {refusedApps.map((app) => <ComposeRefusal key={app.id} title={`${app.id} cannot be restored from this snapshot's data; leave it out`} review={app.compose!} />)}
+              {refusedApps.map((app) => <ComposeRefusal key={app.id} title={`${nameOf(app.id)} cannot be restored from this snapshot's data; leave it out`} review={app.compose!} />)}
               {toAllow.map((app) => (
-                <ComposeAllowance key={app.id} name={app.id} review={app.compose!}>
-                  <Checkbox label={`Start ${app.id} with these settings`} checked={allowed.has(app.id)} disabled={!canRestore} onChange={(on) => setAllowed((current) => { const next = new Set(current); if (on) next.add(app.id); else next.delete(app.id); return next; })} />
+                <ComposeAllowance key={app.id} name={nameOf(app.id)} review={app.compose!}>
+                  <Checkbox label={`Start ${nameOf(app.id)} with these settings`} checked={allowed.has(app.id)} disabled={!canRestore} onChange={(on) => setAllowed((current) => { const next = new Set(current); if (on) next.add(app.id); else next.delete(app.id); return next; })} />
                 </ComposeAllowance>
               ))}
               <p className="backups-note">Network, firewall, fstab, VM definitions{described.vms?.domains?.length ? ` (${described.vms.domains.join(", ")})` : ""}, and the database copy are staged under the snapshot folder for you to review. They are never applied automatically.</p>
