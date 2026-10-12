@@ -38,7 +38,8 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // Removing a flow and regenerating its webhook cannot be undone: each asks once, inline.
-  const [confirming, setConfirming] = useState<{ flowId: string; action: "remove" | "regenerate" } | null>(null);
+  // "webhook" (M50): removing the webhook asks first, as regenerating it does; it broke whatever called the URL on one tap.
+  const [confirming, setConfirming] = useState<{ flowId: string; action: "remove" | "regenerate" | "webhook" } | null>(null);
   // A new webhook URL exists only here, so it stays on screen until the owner dismisses it.
   const [webhook, setWebhook] = useState<{ flowId: string; name: string; url: string } | null>(null);
   // Which automation the latest message is about. It is said in that automation's card, beside the
@@ -265,7 +266,7 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
                     {mayManage && flow.frequency && <Button disabled={flow.running} onClick={() => void change(flow, { enabled: !flow.enabled }, "Could not change the schedule")}>{flow.enabled ? "Pause the schedule" : "Resume the schedule"}</Button>}
                     {mayManage && flow.frequency && <Button variant="ghost" disabled={flow.running} onClick={() => void change(flow, { cadence: null }, "Could not change the schedule")}>Stop scheduling it</Button>}
                     {mayManage && <Button variant="ghost" onClick={() => (flow.webhookEnabled ? setConfirming({ flowId: flow.id, action: "regenerate" }) : void mintWebhook(flow))}>{flow.webhookEnabled ? "Regenerate the webhook" : "Create a webhook"}</Button>}
-                    {mayManage && flow.webhookEnabled && <Button variant="ghost" onClick={() => void removeWebhook(flow)}>Remove the webhook</Button>}
+                    {mayManage && flow.webhookEnabled && <Button variant="ghost" onClick={() => setConfirming({ flowId: flow.id, action: "webhook" })}>Remove the webhook</Button>}
                     {mayManage && <Button variant="ghost" disabled={flow.running} onClick={() => setConfirming({ flowId: flow.id, action: "remove" })}>Remove</Button>}
                   </div>
                   {role === "owner" && (flow.ownerToKeep ?? []).map((unkept) => {
@@ -293,16 +294,16 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
                     </Notice>
                   )}
                   {confirming?.flowId === flow.id && (
-                    <div role="group" aria-label={confirming.action === "remove" ? `Confirm removing ${flow.name}` : `Confirm regenerating the webhook for ${flow.name}`}>
+                    <div role="group" aria-label={confirming.action === "remove" ? `Confirm removing ${flow.name}` : confirming.action === "webhook" ? `Confirm removing the webhook for ${flow.name}` : `Confirm regenerating the webhook for ${flow.name}`}>
                       <Notice
                         tone="warning"
-                        title={confirming.action === "remove" ? `Remove ${flow.name}?` : `Regenerate the webhook for ${flow.name}?`}
+                        title={confirming.action === "remove" ? `Remove ${flow.name}?` : confirming.action === "webhook" ? `Remove the webhook for ${flow.name}?` : `Regenerate the webhook for ${flow.name}?`}
                         action={<>
                           <Button onClick={() => setConfirming(null)}>Cancel</Button>
-                          <Button variant="primary" disabled={confirming.action === "remove" && flow.running} onClick={() => { setConfirming(null); void (confirming.action === "remove" ? removeFlow(flow) : mintWebhook(flow)); }}>{confirming.action === "remove" ? "Remove it" : "Regenerate it"}</Button>
+                          <Button variant="primary" disabled={confirming.action === "remove" && flow.running} onClick={() => { setConfirming(null); void (confirming.action === "remove" ? removeFlow(flow) : confirming.action === "webhook" ? removeWebhook(flow) : mintWebhook(flow)); }}>{confirming.action === "remove" ? "Remove it" : confirming.action === "webhook" ? "Remove the webhook" : "Regenerate it"}</Button>
                         </>}
                       >
-                        {confirming.action === "remove" ? "Its schedule, triggers and webhook stop with it. This cannot be undone." : "The current URL stops working at once; whatever calls it needs the new one."}
+                        {confirming.action === "remove" ? "Its schedule, triggers and webhook stop with it. This cannot be undone." : confirming.action === "webhook" ? "The URL stops working at once, and whatever calls it gets nothing until a new one is made here." : "The current URL stops working at once; whatever calls it needs the new one."}
                       </Notice>
                     </div>
                   )}

@@ -57,7 +57,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
     ...((installed || live?.dataPresent) && canRead ? [{ id: "backups" as const, label: "Backups", status: live?.backupVerification && !live.backupVerification.verified ? "danger" as const : undefined, statusLabel: live?.backupVerification && !live.backupVerification.verified ? "last rehearsal failed" : undefined }] : []),
     ...(installed && manifest.networkVia ? [{ id: "vpn" as const, label: "VPN", status: live?.killSwitchDrill?.leaked ? "danger" as const : undefined, statusLabel: live?.killSwitchDrill?.leaked ? "leaked" : undefined }] : []),
     ...(installed && canRead ? [{ id: "logs" as const, label: "Logs" }] : []),
-    ...(installed ? [{ id: "config" as const, label: "Config" }] : []),
+    ...(installed ? [{ id: "config" as const, label: "Compose" }] : []),
     ...(installed && manifest.modelRunner && canRead ? [{ id: "models" as const, label: "Models" }] : []),
     ...(installed && manifest.signIn ? [{ id: "signin" as const, label: "Sign-in" }] : []),
     ...(installed && owner && manifest.env.some((env) => env.secret) ? [{ id: "secrets" as const, label: "Secrets" }] : []),

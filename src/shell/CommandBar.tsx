@@ -86,6 +86,8 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
   const [active, setActive] = useState(0);
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [appActions, setAppActions] = useState<AppActionFacts[]>([]);
+  // The apps could not be listed (M50): said in the empty result, where "Nothing matches" made an installed app look absent.
+  const [catalogFailed, setCatalogFailed] = useState(false);
   const [assistant, setAssistant] = useState<AssistantStatus | "failed" | null>(null);
   const [asked, setAsked] = useState<{ question: string; result: AskResult | null; error: string | null } | null>(null);
   const asking = useRef<AbortController | null>(null);
@@ -105,9 +107,9 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
         // stop, start or resume it, update it when one is ready.
         const backedUp = new Set((body.applications ?? []).filter((entry) => (entry.manifest as { keepsBackup?: boolean } | undefined)?.keepsBackup === true).map((entry) => entry.manifest?.id));
         const actions = [...installed.values()].map((app) => ({ id: app.id, name: app.name, running: app.running, paused: app.paused, updateAvailable: app.updateAvailable, backup: backedUp.has(app.id) }));
-        if (!cancelled) { setCatalog(entries); setAppActions(actions); }
+        if (!cancelled) { setCatalog(entries); setAppActions(actions); setCatalogFailed(false); }
       })
-      .catch(() => undefined);
+      .catch(() => { if (!cancelled) setCatalogFailed(true); });
     fetch("/api/v1/assistant/status")
       .then((response) => readJson<AssistantStatus>(response))
       .then((status) => { if (!cancelled) setAssistant(typeof status?.ready === "boolean" ? status : "failed"); })
@@ -274,7 +276,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
                 ))}
               </div>
             ))}
-            {options.length === 0 && <p className="command-empty">Nothing matches <q>{typed}</q>.</p>}
+            {options.length === 0 && <p className="command-empty">Nothing matches <q>{typed}</q>.{catalogFailed ? " The apps could not be listed, so none of them is found here; pages and settings still are." : ""}</p>}
           </div>
         )}
         <footer className="command-foot" role="status">{assistantLine}</footer>

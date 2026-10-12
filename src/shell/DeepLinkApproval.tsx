@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getJob, type Job } from "../operations";
+import { openActivity } from "../activityEvents";
 import { Button, Notice, Progress, Sheet } from "../ui";
 import { ApproveDialog } from "./ApproveDialog";
 import "./look.css";
@@ -70,7 +71,7 @@ export function DeepLinkApproval({ jobId, csrfToken, onClose }: { jobId: string;
   }
   return (
     <Sheet title="Approval" kicker="From a push" side="center" size="sm" className="look-console" onClose={onClose}
-      footer={<Button variant="primary" onClick={onClose}>Close</Button>}>
+      footer={<>{state.phase === "gone" && <Button variant="ghost" onClick={() => { onClose(); openActivity(jobId); }}>Open in Activity</Button>}<Button variant="primary" onClick={onClose}>Close</Button></>}>
       {state.phase === "reading"
         ? <Progress label="Reading the job…" />
         : <Notice tone="warning" title="Nothing to approve">{state.message}</Notice>}

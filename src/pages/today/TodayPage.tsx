@@ -163,7 +163,7 @@ function RanList({ group, clock }: { group: RanGroup; clock: number }) {
         ))}
       </ul>
       {group.jobs.length < group.completed + group.failed + group.running && (
-        <p className="today-group__rest">{countOf(group.completed + group.failed + group.running - group.jobs.length, "more job")} in Activity.</p>
+        <p className="today-group__rest">{countOf(group.completed + group.failed + group.running - group.jobs.length, "more job")} in Activity. <Button variant="ghost" onClick={() => openActivity()}>Open Activity</Button></p>
       )}
     </section>
   );

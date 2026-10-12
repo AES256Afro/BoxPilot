@@ -19,6 +19,7 @@ describe("owner authentication screen", () => {
     render(<AuthScreen bootstrapRequired onAuthenticated={onAuthenticated} />);
 
     expect(screen.getByText(/boxpilot-owner.mjs create-bootstrap-token/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "operator" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct horse battery" } });
     fireEvent.change(screen.getByLabelText("Bootstrap token"), { target: { value: "server-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Create owner" }));
@@ -88,7 +89,9 @@ describe("the sign-in page's ways in (M33.13)", () => {
   it("makes the password the main way in when it is the only one", async () => {
     identity({ tailscale: { available: false, login: null, displayName: null, node: null, linked: false }, github: { configured: false } });
     render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
-    expect(await screen.findByText(/sign-in is not set up yet/)).toBeTruthy();
+    // The GitHub set-up hint lives in Settings now (M50): the sign-in page sent viewers to a panel they cannot see.
+    await screen.findByLabelText("Password");
+    expect(screen.queryByText(/sign-in is not set up yet/)).toBeNull();
     expect(screen.queryByRole("group", { name: "Ways to sign in" })).toBeNull();
     expect(screen.getByRole("button", { name: "Sign in" }).className).toContain("ui-button--primary");
   });

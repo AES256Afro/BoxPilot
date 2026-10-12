@@ -3369,6 +3369,36 @@ button belongs, and errors swallowed so a panel vanishes or an empty state lies.
   server" everywhere: the tab, Ops' line, the header's "Copy off this server behind" and
   "incomplete", the warnings' "the copy off this server", the transit look's stop.
 
+
+## M50: The second sweeps
+
+Asked for 2026-10-12 ("another performance, security, and quality of life sweep"), run as three
+read-only sweeps over what M48 and M49 had not covered. The usability sweep found thirty more
+things; the performance sweep found that most of the box's cost is child processes spawned on
+timers, not SQLite; the security sweep is run as three checklists (routes and CSRF, inputs that
+reach the filesystem and processes, outbound requests and secrets).
+
+- ✅ **M50.1 Quality of life, the second thirty** (unreleased, `feat/m50-sweeps`). A stray click
+  outside a sheet with a form in it threw the typing away, and outside the approval dialog it
+  withdrew the staged job with the password typed: the backdrop closes only a sheet with nothing
+  typed, and the approval dialog only on Escape or Close. The top bar said "Tiered approvals",
+  which explained nothing and led nowhere: it says "Password for high risk" ("No password until
+  14:30 · Lock" while elevated) and opens Settings' Approvals. The bell opened on the phone
+  set-up: the list leads, the set-up folds under it. Activity showed the server's step names
+  ("preflight completed"): "Checked the request · done". "Check Activity" is a button wherever it
+  was words (an approval that lost track of its job, a push's approval that is gone, Today's "more
+  jobs"). Services' Stop and Disable previews were the systemctl command: they say every app stops
+  with Docker, the tailnet goes quiet with tailscaled, and whether it starts again at boot; the
+  table says "ran", "starting" and "starts at boot" where it said systemd's words. Firewall
+  previews say who loses or gains the port, with the rule's note. The command bar says when the
+  apps could not be listed instead of "Nothing matches". The app sheet's "Config" tab, beside a
+  "Settings" button, is "Compose". Notifications open the Power, Schedules and BoxPilot update
+  tabs rather than System's overview. Removing an automation's webhook asks first, as regenerating
+  does. The sign-in page no longer prefills "operator" nor sends viewers to a Settings panel they
+  cannot see. Changing a password asks for it twice. The passkeys panel and the watch list say
+  when their read failed, with Try again; the tailnet's empty state says what to do; "Copied"
+  clears after two seconds. System's "Updates" tab, beside the Updates page, is "BoxPilot update".
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
