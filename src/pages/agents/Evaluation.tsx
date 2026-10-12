@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, Notice, Panel, Progress, Select, StatusChip, Table, TextInput, type TableColumn } from "../../ui";
-import { agentsApi, type AccuracyPoint, type AgentSummary, type Comparison, type ComparisonSide, type EvalResult, type EvalRun, type Evaluation as EvaluationState, type Question } from "./api";
-import { errorText, usd } from "./format";
+import { agentsApi, type AccuracyPoint, type AgentSummary, type Comparison, type ComparisonSide, type EvalResult, type EvalRun, type Evaluation as EvaluationState, type ModuleState, type Question, type ToolInfo } from "./api";
+import { errorText, toolTitle, usd } from "./format";
+import { PausedNotice, isHeld } from "./Paused";
 
 /*
  * Evaluation (M37, M40): questions an agent should answer right, each with what right means - a
@@ -20,11 +21,20 @@ export interface EvaluationProps {
   agentId: string | null;
   csrfToken: string;
   now: number;
-  enabled: boolean;
+  /** Whether Agents are on, paused, or stopped: the evaluation cannot start while they are not running. */
+  module: Pick<ModuleState, "enabled" | "paused" | "pausedUntil" | "killedAt">;
+  /** The tool catalog, for a built-in question's tool by its title. */
+  tools?: ToolInfo[] | null;
+  /** Whether this person may resume a paused agent (the owner and operators), and whether they are the owner. */
+  canPause?: boolean;
+  owner?: boolean;
+  onResumeAll?: () => void;
+  onResumeAgent?: (agent: AgentSummary) => void;
   onSelectAgent: (agentId: string) => void;
   onOpenRun: (agentId: string, runId: string) => void;
 }
 
+/** Every fact BoxPilot can read for a question (service.mjs resolveFacts), in the words the page uses. */
 const facts: Array<{ value: string; label: string }> = [
   { value: "drives", label: "Which drives are connected" },
   { value: "rootDiskPercent", label: "How full the root filesystem is" },
@@ -37,8 +47,14 @@ const facts: Array<{ value: string; label: string }> = [
   { value: "unhealthyApps", label: "Which apps are unhealthy" },
   { value: "appUpdates", label: "Which apps have an update" },
   { value: "failedServices", label: "Which system services have failed" },
+  { value: "firewallEnabled", label: "Whether the firewall is on" },
+  { value: "neverBackedUp", label: "Which apps have never been backed up" },
+  { value: "rebootRequired", label: "Whether the server needs a reboot" },
+  { value: "busiestApp", label: "Which app is using the most processor" },
 ];
 const factLabel = (fact: string | undefined) => facts.find((entry) => entry.value === fact)?.label ?? fact ?? "";
+/** The one-word answers the server gives, as a person reads them. */
+const wordValues: Record<string, string> = { absent: "no firewall installed", on: "on", off: "off", yes: "yes", no: "no" };
 /** A fact's value as a person reads it: the drives by device, the apps by name. */
 function valueWords(value: unknown): string {
   if (value === null || value === undefined) return "not known on this server";
@@ -46,6 +62,7 @@ function valueWords(value: unknown): string {
     if (!value.length) return "none";
     return value.map((entry) => (entry && typeof entry === "object" && "device" in entry ? `${String((entry as { device: string }).device)}${(entry as { system?: boolean }).system ? " (system)" : ""}` : String(entry))).join(", ");
   }
+  if (typeof value === "string" && wordValues[value]) return wordValues[value];
   return String(value);
 }
 const percent = (score: number) => `${Math.round(score * 100)}%`;
@@ -83,7 +100,7 @@ function AccuracyChart({ history }: { history: AccuracyPoint[] }) {
   );
 }
 
-export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectAgent, onOpenRun }: EvaluationProps) {
+export function Evaluation({ agents, agentId, csrfToken, now, module, tools = null, canPause = false, owner = false, onResumeAll, onResumeAgent, onSelectAgent, onOpenRun }: EvaluationProps) {
   const usable = agents.filter((agent) => agent.canEdit);
   const agent = usable.find((entry) => entry.id === agentId) ?? usable[0] ?? null;
   const [state, setState] = useState<EvaluationState | null>(null);
@@ -164,11 +181,14 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
   const graded = latest ? latest.results.filter((result) => !result.skipped).length : 0;
   const skipped = latest ? latest.results.length - graded : 0;
   const quiet = state.nightly?.quietHours;
+  // Off, paused, or this agent paused: the buttons wait, and the notice says why and offers the resume.
+  const held = isHeld(module, agent);
 
   return (
     <div className="agents-tab agents-evaluation">
       {error && <Notice tone="danger" live onDismiss={() => setError(null)}>{error}</Notice>}
       {notice && <Notice tone="success" live onDismiss={() => setNotice(null)}>{notice}</Notice>}
+      {held && <PausedNotice module={module} agent={agent} what="the evaluation" canPause={canPause} owner={owner} onResumeAll={onResumeAll} onResumeAgent={onResumeAgent ? () => onResumeAgent(agent) : undefined} />}
       {drop && (
         <Notice tone="warning" title={`Accuracy dropped to ${percent(drop.to)}`}>
           The evaluation {relativeTime(drop.at, now) ?? "just now"} scored {percent(drop.to)}, against {percent(drop.from)} before.
@@ -193,7 +213,7 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
           : <ul className="agents-builtin__list">
               {builtIn.map((question) => (
                 <li key={question.id} className="agents-builtin__item">
-                  <span className="agents-name"><span>{question.question}</span><span className="agents-name__purpose">Right means: {factLabel(question.expect.fact).toLowerCase()}, as BoxPilot reads it then{question.tool ? ` · answered with ${question.tool}` : ""}</span></span>
+                  <span className="agents-name"><span>{question.question}</span><span className="agents-name__purpose">Right means: {factLabel(question.expect.fact).toLowerCase()}, as BoxPilot reads it then{question.tool ? ` · answered with ${toolTitle(tools, question.tool)}` : ""}</span></span>
                 </li>
               ))}
             </ul>}
@@ -206,8 +226,8 @@ export function Evaluation({ agents, agentId, csrfToken, now, enabled, onSelectA
           <div className="agents-editor__foot">
             <Button variant="ghost" disabled={drafts.length >= 10} onClick={() => setDrafts([...drafts, { id: freshId(drafts), question: "", kind: "includes", fact: "drives", includes: "" }])}>Add a question</Button>
             <Button busy={busy === "save"} onClick={() => void save()}>Save the questions</Button>
-            <Button variant="primary" busy={busy === "run"} disabled={!enabled || !(state.questions.length + builtIn.length) || latest?.state === "running"} onClick={() => void run()}>Run the evaluation now</Button>
-            {state.canCompare && <Button busy={busy === "compare"} disabled={!enabled || !(state.questions.length + builtIn.length) || latest?.state === "running"} onClick={() => void run(true)}>Compare with Claude</Button>}
+            <Button variant="primary" busy={busy === "run"} disabled={held || !(state.questions.length + builtIn.length) || latest?.state === "running"} onClick={() => void run()}>Run the evaluation now</Button>
+            {state.canCompare && <Button busy={busy === "compare"} disabled={held || !(state.questions.length + builtIn.length) || latest?.state === "running"} onClick={() => void run(true)}>Compare with Claude</Button>}
           </div>
         ) : undefined} padded>
         {drafts.length === 0 ? <EmptyState title="None of your own yet">Add up to ten, each with the answer you expect: a fact BoxPilot reads, or words a right answer holds. Saying "Wrong" on an answer in the Test tab can add one too.</EmptyState> : (

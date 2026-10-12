@@ -4,6 +4,7 @@ import { Button, Notice, PageHeader, Tabs, mayStart, useUrlParam, type TabItem }
 import { AgentList } from "./AgentList";
 import { agentsApi, type AgentSummary, type Catalog, type Glance, type Overview, type Proposal, type RuntimeState } from "./api";
 import { Builder } from "./Builder";
+import { ConfirmSheet } from "./Confirm";
 import { Console } from "./Console";
 import { Evaluation } from "./Evaluation";
 import { capsWords, errorText, moduleVerdict, waitingWords } from "./format";
@@ -72,6 +73,8 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
   const [agentId, setAgentIdState] = useState<string | null>(readAgentParam);
   const [runId, setRunId] = useState<string | null>(readRunParam);
   const [turningOn, setTurningOn] = useState(false);
+  // The kill switch asks first (M48.7): it cancels every run, and only the owner undoes it.
+  const [confirmKill, setConfirmKill] = useState(false);
   const [busy, setBusy] = useState(false);
   const [jobsFinished, setJobsFinished] = useState(0);
 
@@ -124,7 +127,9 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
     try { await work(); setNotice(done); await refresh(); } catch (requestError) { setError(errorText(requestError, "That did not work")); }
   };
 
-  const open = (id: string, next: "build" | "test", run?: string) => { setAgentId(id); setRunId(run ?? null); setTab(next); };
+  const open = (id: string, next: "build" | "test" | "evaluation", run?: string) => { setAgentId(id); setRunId(run ?? null); setTab(next); };
+  const resumeAll = () => void moduleAction(() => agentsApi.resumeAll(csrfToken), "Agents are running again.");
+  const resumeAgent = (agent: AgentSummary) => void agentAction(() => agentsApi.resume(csrfToken, agent.id), `${agent.name} is running again.`);
 
   /**
    * Turn Agents on, then walk the owner through what is still missing to run them: the first step's
@@ -185,13 +190,13 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
       {fix}
       {can.pause && module.enabled && !module.paused && <>
         <Button busy={busy} onClick={() => void moduleAction(() => agentsApi.pauseAll(csrfToken, null), "Every agent is paused. Nothing new starts until you resume them.")}>Pause all</Button>
-        <Button variant="ghost" busy={busy} onClick={() => void moduleAction(() => agentsApi.pauseAll(csrfToken, "tomorrow"), "Every agent is paused until 07:00 tomorrow.")}>Until tomorrow</Button>
+        <Button variant="ghost" busy={busy} onClick={() => void moduleAction(() => agentsApi.pauseAll(csrfToken, "tomorrow"), "Every agent is paused until 07:00 tomorrow.")}>Pause until tomorrow</Button>
       </>}
       {can.pause && module.enabled && !module.killedAt && (
-        <Button variant="ghost" busy={busy} onClick={() => void moduleAction(() => agentsApi.kill(csrfToken), "Stopped: runs cancelled, the model told to stop. Only the owner starts agents again.")}>Kill switch</Button>
+        <Button variant="ghost" busy={busy} onClick={() => setConfirmKill(true)}>Kill switch</Button>
       )}
       {can.pause && module.enabled && module.paused && (owner || !module.killedAt) && (
-        <Button variant="primary" busy={busy} onClick={() => void moduleAction(() => agentsApi.resumeAll(csrfToken), "Agents are running again.")}>Resume all</Button>
+        <Button variant="primary" busy={busy} onClick={resumeAll}>Resume all</Button>
       )}
     </>
   );
@@ -225,17 +230,20 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
             return <Builder agentId={selected} agents={agents} catalog={catalog} canCreate={can.create} canGrant={can.configure} csrfToken={csrfToken} now={now()}
               onCreated={(id) => { setAgentId(id); setNotice("Made. Change anything below; each save is a version you can roll back."); void refresh(); }}
               onChanged={() => void refresh()} onDeleted={() => { setAgentId(null); setTab("agents"); setNotice("Deleted."); void refresh(); }}
-              onTest={(id) => open(id, "test")} />;
+              onTest={(id) => open(id, "test")} onPick={setAgentId} onNew={() => setAgentId(null)} />;
           }
           if (current === "test") {
-            return <Console agents={agents} agentId={selected} runId={runId} csrfToken={csrfToken} role={role} now={now()} enabled={module.enabled && !module.paused} runnerWait={runnerWait}
+            return <Console agents={agents} agentId={selected} runId={runId} csrfToken={csrfToken} role={role} now={now()} module={module} tools={catalog?.tools ?? null} runnerWait={runnerWait}
+              canPause={can.pause} owner={owner} onResumeAll={resumeAll} onResumeAgent={resumeAgent}
               onSelectAgent={(id) => { setAgentId(id); setRunId(null); }} onStage={start} onRunFinished={() => void refresh()} />;
           }
-          if (current === "memory") return <Memory agents={agents} agentId={selected} csrfToken={csrfToken} role={role} now={now()} onSelectAgent={setAgentId} />;
+          if (current === "memory") return <Memory agents={agents} agentId={selected} csrfToken={csrfToken} role={role} now={now()} tools={catalog?.tools ?? null} onSelectAgent={setAgentId} />;
           if (current === "knowledge") return <Knowledge csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} />;
           if (current === "usage") return <Usage module={module} csrfToken={csrfToken} role={role} now={now()} onStart={start} onModuleChanged={() => void refresh()} refreshKey={jobsFinished} />;
           if (current === "evaluation") {
-            return <Evaluation agents={agents} agentId={selected} csrfToken={csrfToken} now={now()} enabled={module.enabled && !module.paused} onSelectAgent={setAgentId} onOpenRun={(id, run) => open(id, "test", run)} />;
+            return <Evaluation agents={agents} agentId={selected} csrfToken={csrfToken} now={now()} module={module} tools={catalog?.tools ?? null}
+              canPause={can.pause} owner={owner} onResumeAll={resumeAll} onResumeAgent={resumeAgent}
+              onSelectAgent={setAgentId} onOpenRun={(id, run) => open(id, "test", run)} />;
           }
           return <>
             <AgentList overview={overview} proposals={proposals} glance={glance} csrfToken={csrfToken} role={role} now={now()} runnerWait={runnerWait}
@@ -251,6 +259,18 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
         }}
       </Tabs>
 
+      {confirmKill && (
+        <ConfirmSheet onClose={() => setConfirmKill(false)} failed="The agents could not be stopped" confirmation={{
+          title: "Stop every agent now?",
+          body: <>
+            <p>Every run is cancelled, a run in progress is told to stop, and every agent is paused. Steps the agents staged that still wait for approval are withdrawn, and every plan stops. The cards stay.</p>
+            <p>{owner ? "Only you, the owner, start them again." : "Only the owner starts them again."} Pause all is the gentler switch: it holds new work, and anyone who may pause can resume.</p>
+          </>,
+          confirmLabel: "Stop every agent",
+          cancelLabel: "Keep running",
+          onConfirm: async () => { await agentsApi.kill(csrfToken); setNotice("Stopped: runs cancelled, the model told to stop. Only the owner starts agents again."); await refresh(); },
+        }} />
+      )}
       {turningOn && (
         <PasswordSheet title="Turn Agents on" confirmLabel="Turn on" onClose={() => setTurningOn(false)} onConfirm={turnOn}>
           <p>Agents read this server's facts and send them to the model on this machine, nowhere else. The runner has hard caps ({capsWords(caps)}); each agent has a budget. You can pause everything at any time.</p>

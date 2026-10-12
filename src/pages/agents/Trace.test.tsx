@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentPlan, Run } from "./api";
 import { RunView } from "./Trace";
@@ -74,6 +74,56 @@ describe("a run held from acting (M45.7)", () => {
   it("says it carried out nothing on words in the owner's notes or documents", () => {
     render(<RunView run={run({ flags: { actHeld: true } })} />);
     expect(screen.getByText("It carried out nothing on what it read")).toBeTruthy();
+  });
+});
+
+describe("tools by their titles, and citations that open their step (M48.7)", () => {
+  const tools = [{ id: "server.facts", title: "Server facts" }, { id: "apps.usage", title: "App usage" }] as unknown as NonNullable<Parameters<typeof RunView>[0]["tools"]>;
+  const steps = [
+    { seq: 1, kind: "plan", name: null, state: "done", input: [{ step: "Read the server's facts", tool: "server_facts" }], output: null, flags: {}, startedAt: "2026-09-29T16:00:00Z", durationMs: 900, tokensIn: 300, tokensOut: 40 },
+    { seq: 2, kind: "model", name: "unsloth/Qwen3.5-4B-GGUF", state: "done", input: [{ name: "server_facts", arguments: "{}" }], output: null, flags: {}, startedAt: "2026-09-29T16:00:01Z", durationMs: 4000, tokensIn: 600, tokensOut: 12 },
+    { seq: 3, kind: "tool", name: "server.facts", state: "done", input: {}, output: "hostname: homebox", flags: {}, startedAt: "2026-09-29T16:00:05Z", durationMs: 30, tokensIn: null, tokensOut: null },
+    { seq: 4, kind: "tool", name: "drives.list", state: "done", input: {}, output: "sda, sdb", flags: {}, startedAt: "2026-09-29T16:00:06Z", durationMs: 30, tokensIn: null, tokensOut: null },
+  ] as Run["steps"];
+
+  it("names a tool by its title where the catalog knows it, with its id beside, and by its dotted id where it does not", () => {
+    render(<RunView run={run({ answer: "It is homebox [T1]; two drives [T2].", steps })} tools={tools} />);
+    expect(screen.getByText("Asked for Server facts")).toBeTruthy();
+    expect(screen.getByText("with Server facts")).toBeTruthy();
+    const trace = screen.getByRole("list", { name: "What the agent did" });
+    const factsStep = within(trace).getAllByRole("listitem").find((item) => item.textContent?.includes("T1"));
+    expect(factsStep?.textContent).toContain("Server facts");
+    expect(factsStep?.textContent).toContain("server.facts");
+    expect(screen.getByText("drives.list")).toBeTruthy();
+    cleanup();
+    // Without the catalog: the ids as before, dotted.
+    render(<RunView run={run({ answer: "It is homebox [T1].", steps })} />);
+    expect(screen.getByText("Asked for server.facts")).toBeTruthy();
+  });
+
+  it("opens the cited step and scrolls to it when a citation in the answer is pressed", () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    render(<RunView run={run({ answer: "It is homebox [T1]; two drives [T2].", steps })} tools={tools} />);
+    // Closed to begin with: the tool's output is not drawn.
+    expect(screen.queryByText("sda, sdb")).toBeNull();
+    const cites = screen.getAllByRole("button", { name: "T2: open it in the trace" });
+    expect(cites).toHaveLength(1);
+    expect(cites[0].textContent).toBe("T2");
+    fireEvent.click(cites[0]);
+    expect(screen.getByText("sda, sdb")).toBeTruthy();
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    expect(document.getElementById("agents-cite-T2")?.textContent).toContain("drives.list");
+    // Pressed again, it stays open rather than closing: the reader asked to see it.
+    fireEvent.click(screen.getByRole("button", { name: "T2: open it in the trace" }));
+    expect(screen.getByText("sda, sdb")).toBeTruthy();
+    expect(scrolled).toHaveBeenCalledTimes(2);
+  });
+
+  it("draws a citation as a plain mark where there is no trace to open", () => {
+    render(<RunView run={run({ answer: "It is homebox [T1].", steps: [] })} />);
+    expect(screen.queryByRole("button", { name: /^T1/ })).toBeNull();
+    expect(document.querySelector("code.agents-answer__cite")?.textContent).toBe("T1");
   });
 });
 
