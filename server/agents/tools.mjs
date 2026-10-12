@@ -185,7 +185,7 @@ export function createToolRunner({ state, store, registry, helper = null, invent
         for (const hit of found.slice(0, limit)) hits.push({ score: hit.score, title: hit.chunk.title, text: hit.chunk.text });
       }
       if (sources.documents) {
-        const documents = store.listDocuments().filter((document) => document.enabled);
+        const documents = store.listDocuments({ enabled: true });
         if (documents.length) {
           const chunks = documents.map((document) => ({ title: `Owner's document: ${document.title}`, text: document.text.slice(0, 4_000), weight: 1.2 }));
           for (const [index, score] of createBm25(chunks).search(tokenize(query))) hits.push({ score, title: chunks[index].title, text: chunks[index].text });

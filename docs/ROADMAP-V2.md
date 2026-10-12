@@ -3269,6 +3269,16 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   Forget and Remove act on one tap; three export buttons in one panel header that navigate away on
   error; cards below the agents table; the accuracy chip is not a link; UPS status as NUT's raw
   code; a dozen copy fixes.
+- ✅ **M48.8 The reads M48.5 left for later** (unreleased, `feat/m48-perf-leftovers`). A list of
+  thirty runs read two hundred for everyone, to filter by who may see them: the owner sees every
+  run, so no more are read than asked for; anyone else has twice the list read, and the rest only
+  when those do not fill it. A run that wanted the pinned documents, the embeddings index that wanted
+  the enabled ones, and the three limit checks that counted them, each read every document's text:
+  `store.listDocuments({ enabled, pinned })` narrows in the query and `countDocuments()` counts. The
+  Knowledge tab's "when each agent last learned" read fifty runs an agent to find the learning one:
+  `listRuns` takes a `kind`. Tests: `perf-leftovers.test.mjs` (the filters and the count; the owner's
+  one read of two, an operator's four then two hundred, and four alone once the first page fills;
+  the learning run by kind, as the Knowledge tab says it).
 
 ## App catalogue candidates
 
