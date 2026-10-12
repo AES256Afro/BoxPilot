@@ -19,7 +19,8 @@ const baseTools = ["files_list", "files_read", "files_write", "shell_run", "note
 
 /** One run's conversation, or null when its trace does not line up. */
 export function conversationOf(run, { tools = baseTools } = {}) {
-  if (!run?.answer || !["completed", "degraded"].includes(run.outcome)) return null;
+  // Completed runs only, and none that read something that looked like an instruction (M48.3): a fallback answer and a tainted trace teach nothing good.
+  if (!run?.answer || run.outcome !== "completed" || run.taint) return null;
   const steps = [...(run.steps ?? [])].sort((a, b) => a.seq - b.seq);
   const web = steps.some((step) => step.kind === "tool" && step.name === "web_fetch");
   const named = web && !tools.includes("web_fetch") ? [...tools.slice(0, 4), "web_fetch", ...tools.slice(4)] : tools;

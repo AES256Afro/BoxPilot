@@ -18,7 +18,7 @@ import { createToolRunner } from "./tools.mjs";
 
 const answers = defaultHelperAnswers();
 const helper = { request: async (operation) => { const answer = answers[operation]; if (!answer) throw new Error(`no stub for ${operation}`); return answer({}); } };
-const schedules = [{ id: "s1", operationId: "app.backup", parameters: { id: "pi-hole" }, enabled: true }, { id: "s2", operationId: "app.backup.many", parameters: { ids: ["immich"] }, enabled: false }];
+const schedules = [{ id: "s1", operationId: "app.backup", parameters: { id: "pi-hole" }, enabled: true, createdBy: "owner-1" }, { id: "s2", operationId: "app.backup.many", parameters: { ids: ["immich"] }, enabled: false }];
 const runner = createToolRunner({ state: { listJobs: () => [], listSchedules: () => schedules }, store: { listDocuments: () => [] }, registry, helper, now: () => new Date("2026-09-29T10:00:00Z") });
 const run = (tool, readRole = "owner") => runner.run(tool, {}, { spec: {}, readRole, readAs: "person-1" });
 
@@ -70,7 +70,14 @@ describe("the words of each read", () => {
 describe("the tools, held to the run's role", () => {
   it("read for a viewer what the pages show a viewer, and keep the clean-up's read to an operator", async () => {
     expect(await run("apps.usage", "viewer")).toMatch(/^Machine: processor 12% busy/);
-    expect(await run("backups.coverage", "viewer")).toMatch(/^Backup coverage: 2 apps hold data worth keeping; 1 never backed up; 1 with no backup schedule\.\n- nextcloud: never backed up, no schedule\n- pi-hole: 3 backups, newest 2 days old \(2026-09-27\), scheduled/);
+    // The owner's schedule is the owner's to know of (M48.3): a viewer's run is told pi-hole has none, as the Schedules page tells a viewer.
+    expect(await run("backups.coverage")).toMatch(/^Backup coverage: 2 apps hold data worth keeping; 1 never backed up; 1 with no backup schedule\.\n- nextcloud: never backed up, no schedule\n- pi-hole: 3 backups, newest 2 days old \(2026-09-27\), scheduled/);
+    expect(await run("backups.coverage", "viewer")).toMatch(/2 with no backup schedule\.\n- nextcloud: never backed up, no schedule\n- pi-hole: 3 backups, newest 2 days old \(2026-09-27\), no schedule/);
+    // The agent's app allowlist holds for the new reads as for apps.list (M48.3).
+    const only = (tool, apps) => runner.run(tool, {}, { spec: { allow: { apps } }, readRole: "owner", readAs: "person-1" });
+    expect(await only("apps.usage", ["pi-hole"])).toMatch(/1 app running.*\n- pi-hole: /);
+    expect(await only("apps.usage", ["pi-hole"])).not.toMatch(/jellyfin|nextcloud/);
+    expect(await only("backups.coverage", ["pi-hole"])).toMatch(/^Backup coverage: 1 app holds data worth keeping; every one has been backed up; each has a schedule\.\n- pi-hole: /);
     expect(await run("space.reclaimable", "operator")).toMatch(/^Reclaimable by the Storage page's clean-up: 2\.5 GB/);
     await expect(run("space.reclaimable", "viewer")).rejects.toThrow(/needs an operator/);
     expect(toolById("space.reclaimable").role).toBe(registry.get("housekeeping.inspect").minimumRole);

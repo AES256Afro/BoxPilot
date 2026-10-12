@@ -166,6 +166,34 @@ describe("what a person approves", () => {
     expect(() => h.service.forgetExample(h.caller("owner"), keeper.id, seed.id)).toThrow(/no such example/);
   });
 
+  it("shows a maker who is an operator only the examples kept from runs that read as much (M48.3)", async () => {
+    h = await createAgentsHarness();
+    h.enable();
+    // An operator makes a Keeper; the owner asks it, so the run reads as the owner and its example holds the owner's answer.
+    const keeper = h.service.createAgent(h.caller("operator"), { template: "server-keeper" });
+    h.service.startRun(h.caller("owner"), keeper.id, { kind: "ask", question: "Which BoxPilot apps are stopped?" });
+    const asOwner = await h.runNext();
+    expect(asOwner.state).toBe("completed");
+    h.service.giveFeedback(h.caller("owner"), asOwner.id, { verdict: "up" });
+    // The operator asks too: that run reads as the operator, and its example is theirs to see.
+    h.service.startRun(h.caller("operator"), keeper.id, { kind: "ask", question: "Which drives are connected?" });
+    const asOperator = await h.runNext();
+    expect(asOperator.state).toBe("completed");
+    h.service.giveFeedback(h.caller("operator"), asOperator.id, { verdict: "up" });
+    const ownersBook = h.service.examplesOf(h.caller("owner"), keeper.id);
+    const makersBook = h.service.examplesOf(h.caller("operator"), keeper.id);
+    expect(ownersBook.examples.some((example) => example.runId === asOwner.id && example.readRole === "owner")).toBe(true);
+    expect(makersBook.examples.some((example) => example.request === "Which BoxPilot apps are stopped?")).toBe(false);
+    expect(makersBook.examples.some((example) => example.request === "Which drives are connected?")).toBe(true);
+    expect(makersBook.examples.every((example) => example.runId === null)).toBe(true);
+    expect(makersBook.counts.total).toBe(makersBook.examples.length);
+    expect(ownersBook.counts.total).toBeGreaterThan(makersBook.counts.total);
+    // Nor may the maker forget what they cannot see.
+    const hidden = ownersBook.examples.find((example) => example.runId === asOwner.id);
+    expect(() => h.service.forgetExample(h.caller("operator"), keeper.id, hidden.id)).toThrow(/no such example/);
+    expect(h.service.forgetExample(h.caller("owner"), keeper.id, hidden.id)).toEqual({ deleted: true });
+  });
+
   it("never keeps a request that reads like an instruction", async () => {
     h = await createAgentsHarness();
     h.enable();
