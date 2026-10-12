@@ -101,6 +101,8 @@
 
 @media (max-width: 900px) {
   .rp-grid { grid-template-columns: minmax(0, 1fr); }
+  /* A job waiting for approval comes before the Prerequisites table on a phone (M49): it is what a person came to do. */
+  .rp-grid > .rp-desk { order: -1; }
 }
 
 @media (max-width: 620px) {

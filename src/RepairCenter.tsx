@@ -470,7 +470,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
           {checks.length > 0 && <Table caption="Prerequisites" columns={prerequisiteColumns} rows={checks} rowKey={(item) => item.id} />}
         </Panel>
 
-        <Panel title={awaitingApproval ? "Approval desk" : "Helper"} label={awaitingApproval ? "Approval desk" : "Helper check"}
+        <Panel title={awaitingApproval ? "Approval desk" : "Helper"} label={awaitingApproval ? "Approval desk" : "Helper check"} className={awaitingApproval ? "rp-desk" : undefined}
           count={awaitingApproval ? { status: "warning", label: "1 waiting" } : undefined}
           meta={awaitingApproval ? undefined : "connection and logging"}>
           <div className="rp-body">
