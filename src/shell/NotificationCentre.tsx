@@ -47,7 +47,8 @@ export function destinationOf(entry: NotificationEntry): { kind: "activity"; job
   if (entry.family.startsWith("docker.")) return { kind: "view", view: "catalog", label: "Open the App catalog" };
   if (entry.family === "system.services" || entry.family === "boxpilot.restart") return { kind: "view", view: "services", label: "Open Services" };
   if (entry.family === "system.reboot") return { kind: "view", view: "updates", label: "Open Updates" };
-  if (entry.family === "power.ups") return { kind: "view", view: "system", label: "Open System" };
+  // The tab the entry is about, not System's overview (M50).
+  if (entry.family === "power.ups") return { kind: "view", view: "system", label: "Open the Power tab", tab: "power" };
   if (entry.family === "schedule.overdue") return { kind: "view", view: "backups", label: "Open Backups" };
   // As Home's list sends them (src/home/needs.ts watchView), without loading Home to know it.
   const view: ViewName = entry.family === "schedule.failed" || entry.family === "release.available" ? "system"
@@ -55,8 +56,9 @@ export function destinationOf(entry: NotificationEntry): { kind: "activity"; job
       : entry.family === "drive.reconnected" ? "storage"
         : entry.family === "signin.new" || entry.family === "report.weekly" ? "settings" : "repairs";
   // Settings opens at the tab the entry is about (M33.13).
-  const tab = entry.family === "report.weekly" ? "notifications" : entry.family === "signin.new" ? "account" : undefined;
-  return { kind: "view", view, label: `Open ${viewLabel(view)}`, ...(tab ? { tab } : {}) };
+  const tab = entry.family === "report.weekly" ? "notifications" : entry.family === "signin.new" ? "account" : entry.family === "release.available" ? "updates" : entry.family === "schedule.failed" ? "schedules" : undefined;
+  const label = entry.family === "release.available" ? "Open the BoxPilot update" : entry.family === "schedule.failed" ? "Open Schedules" : `Open ${viewLabel(view)}`;
+  return { kind: "view", view, label, ...(tab ? { tab } : {}) };
 }
 
 /** Whether it arrived, in words, with the status that goes with them. */
@@ -126,8 +128,6 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
       </button>
       {open && (
         <Sheet title="Notifications" kicker={unseen ? `${unseen} new` : "The last thirty days"} side="right" className="look-console notifications-sheet" onClose={() => setOpen(false)}>
-          {/* Approvals pushed to a phone (M25.2): on for this device, the devices, the owner's choices. */}
-          {role !== "viewer" && <PushPanel csrfToken={csrfToken} role={role} />}
           {(list || unseen > 0) && (
             <div className="notifications-head">
               {list && <Facts><b>{list.entries.length}</b> {list.entries.length === 1 ? "entry" : "entries"} · <b>{unseen}</b> new · target <b>{list.targetConfigured ? "set" : "not set"}</b></Facts>}
@@ -168,6 +168,8 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
               })}
             </ul>
           )}
+          {/* Approvals pushed to a phone (M25.2), folded under what happened (M50): the bell opened on the set-up, and the list was a scroll away. */}
+          {role !== "viewer" && <details className="notifications-push"><summary>Approvals on your phone</summary><PushPanel csrfToken={csrfToken} role={role} /></details>}
         </Sheet>
       )}
     </>

@@ -133,7 +133,7 @@ export function NetworkTailnet({ tailscale, tailnet, tailnetError, role, start, 
         count={tailnet?.available ? { status: online > 0 ? "good" : "neutral", label: `${online} of ${nodes.length} online` } : undefined}
         meta={tailnet?.available ? "new devices appear as they join" : undefined}
       >
-        {tailnetError ? <EmptyState title="The tailnet could not be read" />
+        {tailnetError ? <EmptyState title="The tailnet could not be read">Tailscale did not answer. Check again from the top of the page; if it keeps failing, the Services page shows whether tailscaled is running.</EmptyState>
           : !tailnet ? <p className="network-dim network-pad">Reading…</p>
             : !tailnet.available ? <EmptyState title="Tailscale is not on this server">Its devices show here once this server joins a tailnet.</EmptyState>
               : (

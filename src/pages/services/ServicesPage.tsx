@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
+import { bootWords } from "../../home/hostFacts";
 import { inspectOperation } from "../../operations";
 import { Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, Segmented, Sheet, StatusChip, Table, Tag, Toolbar, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import "./services.css";
@@ -24,9 +25,12 @@ const interesting = /^(docker|containerd|libvirtd|virtqemud|tailscaled|ssh|cron|
 const scopeWords: Record<Scope, string> = { common: "Common", active: "Active", failed: "Failed", all: "All" };
 
 function stateOf(unit: Unit): { status: Status; label: string } {
-  if (unit.active === "active") return { status: "good", label: unit.sub || "active" };
+  // systemd's words said plainly (M50): "exited" is a one-shot that ran, "activating" is starting.
+  if (unit.active === "active") return { status: "good", label: unit.sub === "exited" ? "ran" : unit.sub || "active" };
   if (unit.active === "failed") return { status: "danger", label: "failed" };
-  if (unit.active === "activating" || unit.active === "deactivating" || unit.active === "reloading") return { status: "warning", label: unit.active };
+  if (unit.active === "activating") return { status: "warning", label: "starting" };
+  if (unit.active === "deactivating") return { status: "warning", label: "stopping" };
+  if (unit.active === "reloading") return { status: "warning", label: "reloading" };
   return { status: "neutral", label: unit.sub || unit.active || "unknown" };
 }
 
@@ -90,11 +94,25 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
   const protectedUnits = units.filter((unit) => unit.critical).length;
   const failed = data?.counts.failed ?? 0;
 
+  // The preview says what the person loses or keeps (M50): it used to be the systemctl command alone,
+  // so "Stop docker.service" never said every app stops with it.
+  const effectOf = (unit: Unit, action: Action): string => {
+    const name = unit.unit.replace(/\.service$/, "");
+    const also = /^(docker|containerd)$/.test(name) ? " Every app stops with it until it runs again." : name === "tailscaled" ? " BoxPilot stops answering over the tailnet until it runs again." : /^ssh/.test(name) ? " Open SSH sessions stay; new ones are refused until it runs again." : "";
+    switch (action) {
+      case "start": return `Starts ${name} now${unit.enabled === "enabled" ? "" : "; it still does not start at boot"}.`;
+      case "stop": return `Stops ${name} now${unit.enabled === "enabled" ? "; it starts again at the next boot" : ""}.${also}`;
+      case "restart": return `Stops and starts ${name}; anything using it is cut off for a moment.${/^(docker|containerd)$/.test(name) ? " Every app restarts with it." : ""}`;
+      case "enable": return `${name} starts at every boot from now on${unit.active === "active" ? "" : "; it is not started now"}.`;
+      case "disable": return `${name} no longer starts at boot${unit.active === "active" ? "; it keeps running now" : ""}.`;
+      default: return "";
+    }
+  };
   const act = (unit: Unit, action: Action) => start({
     operationId: "service.action",
     title: `${action[0].toUpperCase()}${action.slice(1)} ${unit.unit}`,
     parameters: { unit: unit.unit, action },
-    preview: <span><code>systemctl {action} {unit.unit}</code>{unit.description ? `, ${unit.description}` : ""}</span>,
+    preview: <span>{effectOf(unit, action)}{unit.description ? ` (${unit.description}.)` : ""} <code>systemctl {action} {unit.unit}</code></span>,
   });
 
   const risk = riskOf("service.action");
@@ -111,7 +129,7 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
       ),
     },
     { id: "state", header: "State", sortValue: (unit) => (unit.active === "failed" ? 0 : unit.active === "active" ? 2 : 1), cell: (unit) => { const state = stateOf(unit); return <StatusChip status={state.status}>{state.label}</StatusChip>; } },
-    { id: "boot", header: "On boot", sortValue: (unit) => unit.enabled, hideOnPhone: false, cell: (unit) => <span className="services-boot">{unit.enabled || "—"}</span> },
+    { id: "boot", header: "At boot", sortValue: (unit) => unit.enabled, hideOnPhone: false, cell: (unit) => <span className="services-boot">{bootWords(unit.enabled)}</span> },
     {
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "services-actions-cell", cell: (unit) => (
         <span className="services-actions">
