@@ -3418,12 +3418,14 @@ reach the filesystem and processes, outbound requests and secrets).
   after a quiet read up to ten minutes, and is a minute again after a message, "Check now" or a
   read with more waiting. The exec tail joined and re-split its whole text on every line a long
   command printed: it keeps the last lines as a list. The secret scrub at boot read every job row
-  ever written: it starts after the last row it checked (`secretsScrubbed.jobRow`). Tests: the
+  ever written: it starts after the last row it checked (`secretsScrubbed.jobRow`). A flow step
+  waiting on its job read the record every second for as long as the job took, hours for a sync:
+  it is woken by the store's own job event, with a five-second poll as the fallback. Tests: the
   back-off in `chat-ask.test.mjs`, `firstRun` in `setup-profiles.test.mjs`; the existing home,
-  agents, inventory, setup, app-helper, ops and routes suites unchanged. Left for later: the Repair
-  scan's thirty-day journal grep on Home's loop, `/catalog` building the full inventory for two
-  strings, Home's per-VM virsh calls, the agent vectors loaded whole per search, two job-event
-  streams a tab, the 200 full jobs Ops fetches, flows polling job state every second, and failed
+  agents, inventory, setup, app-helper, ops, flows and routes suites unchanged. Left for later: the
+  Repair scan's thirty-day journal grep on Home's loop, `/catalog` reading the inventory for two
+  strings (it is held ten seconds, so this is small), Home's per-VM virsh calls, the agent vectors
+  loaded whole per search, two job-event streams a tab, the 200 full jobs Ops fetches, and failed
   job logs kept in RAM until a reboot.
 - ✅ **M50.3 Security, the three checklists** (unreleased, `feat/m50-security`). What the three
   read-only checklists found, fixed where a fix fits in a day. *Outbound.* http.request, the
@@ -3445,7 +3447,9 @@ reach the filesystem and processes, outbound requests and secrets).
   holds at most ten live challenges. The approval password was verified in the job service with
   its own per-account count, no caller key and no audit row, before the job was even looked up: the
   route checks it through the sign-in throttle, and the service checks the job first. A password
-  over 256 characters is wrong before scrypt sees it. A session with no role was treated as the
+  over 256 characters is wrong before scrypt sees it. Over HTTPS only the host-pinned session
+  cookie is read: a plain-name one there was set over HTTP, and reading it let one planted on the
+  plain port ride into the secure one. A session with no role was treated as the
   owner in eight places (impossible today, the column defaults): it is treated as disabled, and a
   schedule's vanished creator manages nothing. A set-aside Repair finding comes back by whoever set
   it aside or the owner. The knowledge upload checked the owner after buffering 11 MB: before. A
@@ -3467,8 +3471,7 @@ reach the filesystem and processes, outbound requests and secrets).
   body); the cloud mirror copies machine snapshots (every app's `.env`, the controller database)
   with no encryption layer, which wants an rclone `crypt` remote; the Unsloth installer and the
   install and upgrade tarballs are unpinned; HSTS is not sent, on purpose, since the plain-HTTP
-  port on the same host would be upgraded too; the plain session cookie is still read over HTTPS;
-  registering a sign-in client asks for no password; the endpoint guards resolve, then fetch
+  port on the same host would be upgraded too; registering a sign-in client asks for no password; the endpoint guards resolve, then fetch
   resolves again; notification tokens live in settings, not the credential store; `/auth/bootstrap`,
   `/oidc/token`, `/oidc/userinfo`, the webhooks before their token matches, and the outbound sends
   (notification test, weekly report, push test, share listing) have no limit; a VM upload has no

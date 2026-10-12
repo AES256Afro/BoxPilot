@@ -192,7 +192,9 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
   async function requestSession(request) {
     const cookies = parseCookies(request.get("cookie"));
     // The host-pinned name wins; the plain one keeps sessions issued before this alive.
-    const token = cookies[hostCookieName] ?? cookies[cookieName];
+    // Over HTTPS only the host-pinned name counts (M50): a plain-name cookie there was set over HTTP,
+    // and reading it let one planted on the plain port ride into the secure one.
+    const token = cookies[hostCookieName] ?? (cookieSecure(request) ? undefined : cookies[cookieName]);
     const session = store.getSession(token);
     if (!session) {
       if (typeof token === "string" && token.length >= 20 && endedForAddressBefore(token)) request.boxpilotSignedOut = "address-changed";
