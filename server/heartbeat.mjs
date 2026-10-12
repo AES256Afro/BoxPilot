@@ -22,9 +22,11 @@
  * or upgrade does not trip the owner's alarm, and a server whose BoxPilot has crashed still reports
  * itself alive. It costs one short node process every few minutes.
  */
+import { lookup as dnsLookup } from "node:dns/promises";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createCredentialStore } from "./credentials.mjs";
+import { fetchGuarded, isLinkLocalAddress } from "./outbound-guard.mjs";
 
 export const heartbeatCredential = "heartbeat-url";
 export const heartbeatService = "boxpilot-heartbeat.service";
@@ -48,7 +50,7 @@ export function validateHeartbeatUrl(url) {
   const parsed = new URL(url);
   if (!["http:", "https:"].includes(parsed.protocol)) return "must start with https:// or http://";
   if (parsed.username || parsed.password) return "must not carry a user name or password";
-  if (/^169\.254\./.test(parsed.hostname) || parsed.hostname === "metadata.google.internal" || /^\[?fe80:/i.test(parsed.hostname)) return "must not be a link-local address";
+  if (isLinkLocalAddress(parsed.hostname) || /^169\.254\./.test(parsed.hostname) || parsed.hostname === "metadata.google.internal" || /^\[?fe80:/i.test(parsed.hostname)) return "must not be a link-local address";
   return null;
 }
 
@@ -66,10 +68,12 @@ function failureWords(error, timeoutMs) {
 }
 
 /** One bare GET. Resolves to what happened; never throws, never retries. */
-export async function sendHeartbeat(url, { fetcher = fetch, timeoutMs = pingTimeoutMs, now = () => new Date() } = {}) {
+export async function sendHeartbeat(url, { fetcher = fetch, lookup = dnsLookup, timeoutMs = pingTimeoutMs, now = () => new Date() } = {}) {
   const started = now().getTime();
   try {
-    const response = await fetcher(url, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
+    // Each redirect is checked before it is followed (M50): a name is resolved and refused if it
+    // leads to the link-local range, which the saved address was only checked for by its text.
+    const response = await fetchGuarded(url, { method: "GET", signal: AbortSignal.timeout(timeoutMs) }, { fetcher, lookup });
     // The body is never read: only whether the switch took it. Released so the socket closes.
     await response.body?.cancel?.().catch(() => {});
     return { at: new Date(started).toISOString(), ok: response.ok, status: response.status, ms: now().getTime() - started, error: response.ok ? null : `it answered ${response.status}` };

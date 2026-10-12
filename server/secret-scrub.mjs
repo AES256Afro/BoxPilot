@@ -32,7 +32,7 @@ function parse(text) {
  * the audit entry records - rows rewritten per table and secrets masked - plus `unchecked`: rows
  * left as they were because the catalog could not be read, for the next start to try again.
  */
-export async function scrubStoredSecrets({ store, registry = defaultRegistry, secretEnvNamesFor = null, holdsStagedSecrets = () => false }) {
+export async function scrubStoredSecrets({ store, registry = defaultRegistry, secretEnvNamesFor = null, holdsStagedSecrets = () => false, afterJobRow = 0 }) {
   // One catalog answer per app for the whole pass: a history of nightly reconfigures asks once.
   const answers = new Map();
   const lookup = typeof secretEnvNamesFor === "function"
@@ -59,7 +59,9 @@ export async function scrubStoredSecrets({ store, registry = defaultRegistry, se
     return clear.length ? { parameters: maskSecrets(parameters, clear), secrets: clear.length } : null;
   }
 
-  const stored = store.listStoredParameters();
+  // Only the jobs written since the last pass that checked everything (M50): the rest were checked
+  // at the start they were written before. Schedules and flows are few and always read.
+  const stored = store.listStoredParameters({ afterJobRow });
   const changes = { jobs: [], schedules: [], flows: [] };
   for (const job of stored.jobs) {
     if (typeof job.type !== "string" || !job.type.startsWith("op:")) continue;
@@ -84,5 +86,5 @@ export async function scrubStoredSecrets({ store, registry = defaultRegistry, se
   }
   // Nothing from here to the write waits on anything, so no job can be staged in between.
   changes.jobs = changes.jobs.filter((change) => !holdsStagedSecrets(change.id));
-  return { ...store.maskStoredSecrets(changes), unchecked };
+  return { ...store.maskStoredSecrets(changes), unchecked, lastJobRow: Number.isFinite(stored.lastJobRow) ? stored.lastJobRow : null };
 }

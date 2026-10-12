@@ -63,6 +63,11 @@ export function createPasskeyRouter({ store, auth, passkeys, identity = null, pu
     const address = identity ? await identity.clientAddress(request).catch(() => null) : null;
     return `recovery:${address ?? request.socket?.remoteAddress ?? request.ip ?? "unknown"}`;
   }
+  // Sign-in ceremonies are throttled per caller too (M50): options and verify had no limit, and a
+  // flood of options requests could push a real sign-in's challenge out of the bounded map. Every
+  // options request counts as an attempt; a verified sign-in clears the count.
+  const ceremonyThrottle = createLoginThrottle({ maxFailures: 30, baseDelayMs: 2_000, maxDelayMs: 60_000 });
+  const ceremonyKey = async (request) => `passkey:${(await callerKey(request)).slice("recovery:".length)}`;
 
   async function ownerWithPassword(request, response) {
     const session = request.boxpilotSession;
@@ -75,18 +80,27 @@ export function createPasskeyRouter({ store, auth, passkeys, identity = null, pu
 
   // ---- Sign in with a passkey (open) ---------------------------------------------------------
   router.post("/auth/passkey/options", async (request, response) => {
+    const key = await ceremonyKey(request);
+    const gate = ceremonyThrottle.check([key]);
+    if (gate.blocked) return auth.rejectThrottled(response, gate);
+    ceremonyThrottle.record([key], false);
     try {
-      response.json(passkeys.authenticateOptions({ origin: request.body?.origin, allowedOrigins: await ownOrigins(request) }));
+      response.json(passkeys.authenticateOptions({ origin: request.body?.origin, allowedOrigins: await ownOrigins(request), caller: key }));
     } catch (error) {
       response.status(400).json({ error: error.message, code: "passkey_unavailable" });
     }
   });
 
   router.post("/auth/passkey/verify", async (request, response) => {
+    const key = await ceremonyKey(request);
+    const gate = ceremonyThrottle.check([key]);
+    if (gate.blocked) return auth.rejectThrottled(response, gate);
     let result;
     try {
       result = passkeys.authenticateVerify({ origin: request.body?.origin, allowedOrigins: await ownOrigins(request), response: request.body?.response });
+      ceremonyThrottle.record([key], true);
     } catch (error) {
+      ceremonyThrottle.record([key], false);
       return response.status(401).json({ error: error.message, code: "passkey_rejected" });
     }
     try {

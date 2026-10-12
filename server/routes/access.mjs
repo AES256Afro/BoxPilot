@@ -36,7 +36,7 @@ function withoutTrailingSlashes(path) {
  */
 export function apiRolePolicy() {
   return function rolePolicy(request, response, next) {
-    const role = request.boxpilotSession?.owner?.role ?? "owner";
+    const role = request.boxpilotSession?.owner?.role ?? "disabled";
     const reading = reads.has(request.method);
     const pathname = withoutTrailingSlashes(request.path.toLowerCase());
     const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(pathname);

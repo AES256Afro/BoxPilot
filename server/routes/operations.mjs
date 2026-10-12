@@ -20,7 +20,7 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
   function refuseRead(request, response, operation) {
     // BoxPilot's own plumbing (the agents' Zulip reads) runs when BoxPilot calls it, not from here (sweep 3).
     if (operation.internal) { response.status(403).json({ error: internalRefusal(operation), code: "operation_internal" }); return true; }
-    const role = request.boxpilotSession?.owner?.role ?? "owner";
+    const role = request.boxpilotSession?.owner?.role ?? "disabled";
     if (operation.minimumRole === "owner" && role !== "owner") { response.status(403).json({ error: "Only the owner can read this", code: "forbidden" }); return true; }
     // Name what was refused. This used to say "not read raw system logs" for every operator-gated
     // read, which is baffling when what you asked for was the contents of a backup.

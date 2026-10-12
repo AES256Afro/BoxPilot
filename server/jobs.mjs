@@ -189,21 +189,24 @@ export function createJobService(store, helper, {
    *   A bare string is treated as a password (legacy callers).
    */
   async function prepareApproval(jobId, ownerId, approval = {}) {
-    const { password = null, session = null, confirmText = null } = typeof approval === "string" ? { password: approval } : approval ?? {};
+    const { password = null, session = null, confirmText = null, passwordVerified = false } = typeof approval === "string" ? { password: approval } : approval ?? {};
     const owner = store.findOwnerById(ownerId);
     if (!owner) throw Object.assign(new Error("Wrong password"), { code: "wrong_password" });
     const passwordProvided = typeof password === "string" && password.length > 0;
-    if (passwordProvided) {
+    const job = store.getJob(jobId);
+    if (!job) throw new Error("Job not found");
+    const approverRole = session?.owner?.role ?? owner.role ?? "owner";
+    if (job.createdBy !== ownerId && approverRole !== "owner") throw new Error("Job not found");
+    // The job first, then the password (M50): a wrong guess at someone else's job used to count. The
+    // route checks the password through the sign-in throttle and says so; this is for callers that did not.
+    if (passwordProvided && !passwordVerified) {
+      if (password.length > 256) throw Object.assign(new Error("Wrong password"), { code: "wrong_password" });
       const gate = throttle.check([`user:${owner.id}`]);
       if (gate.blocked) throw Object.assign(new Error(`Too many wrong passwords. Try again in ${Math.ceil(gate.retryAfterMs / 1000)} s`), { code: "wrong_password" });
       const ok = await verifyPassword(password, owner.passwordHash);
       throttle.record([`user:${owner.id}`], ok);
       if (!ok) throw Object.assign(new Error("Wrong password"), { code: "wrong_password" });
     }
-    const job = store.getJob(jobId);
-    if (!job) throw new Error("Job not found");
-    const approverRole = session?.owner?.role ?? owner.role ?? "owner";
-    if (job.createdBy !== ownerId && approverRole !== "owner") throw new Error("Job not found");
     const policy = approvalPolicy(job, session);
     if (policy.expired) {
       expireSecretJob(job);

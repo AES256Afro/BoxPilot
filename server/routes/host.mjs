@@ -18,6 +18,7 @@ import { scanRemediations } from "../remediations-scan.mjs";
 import { latestOutageCheck } from "../outage-dns.mjs";
 import { attemptsKey, dismissalFrom, dismissalsKey, findingIdPattern, jobIdPattern, withAttempt, withDismissal } from "../repair-ledger.mjs";
 import { callerId, readsThroughHelper, seesEveryAccount, withOwnActors } from "./access.mjs";
+import { readBounded } from "../../packages/harness/src/index.mjs";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -172,14 +173,15 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   });
 
   // Fetch a GitHub user's public SSH keys (server-side because github.com has no CORS for browsers).
-  router.get("/ssh-keys/github/:user", async (request, response) => {
+  // Operators and the owner: adding a key is theirs, and each call is a request to GitHub (M50).
+  router.get("/ssh-keys/github/:user", auth.requireRole("owner", "operator"), async (request, response) => {
     const user = request.params.user;
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(user)) return response.status(400).json({ error: "Invalid GitHub user name", code: "invalid_user" });
     try {
       const upstream = await fetch(`https://github.com/${user}.keys`, { headers: { "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(10_000) });
       if (upstream.status === 404) return response.status(404).json({ error: `GitHub user ${user} was not found`, code: "github_user_not_found" });
       if (!upstream.ok) return response.status(502).json({ error: `GitHub returned ${upstream.status}`, code: "github_unavailable" });
-      const keys = (await upstream.text()).split("\n").map((line) => line.trim()).filter((line) => /^(ssh-|ecdsa-|sk-)/.test(line)).slice(0, 20);
+      const keys = (await readBounded(upstream, 256 * 1024)).split("\n").map((line) => line.trim()).filter((line) => /^(ssh-|ecdsa-|sk-)/.test(line)).slice(0, 20);
       return response.json({ user, keys });
     } catch (error) {
       return response.status(502).json({ error: `Could not reach GitHub: ${error.message}`, code: "github_unavailable" });
@@ -219,6 +221,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     const key = String(request.params.id ?? "");
     const entries = state.getSetting(dismissalsKey, {}) ?? {};
     if (!Object.hasOwn(entries, key)) return response.status(404).json({ error: "Nothing is set aside under that name", code: "dismissal_not_found" });
+    // Whoever set it aside brings it back, or the owner (M50); any operator could before.
+    if ((request.boxpilotSession?.owner?.role ?? "disabled") !== "owner" && entries[key]?.by !== callerId(request)) return response.status(404).json({ error: "Nothing is set aside under that name", code: "dismissal_not_found" });
     state.updateSetting(dismissalsKey, {}, (current) => { const { [key]: _gone, ...rest } = current ?? {}; return { value: rest }; }, callerId(request));
     state.recordAudit?.("repair.restored", { actorId: callerId(request), subjectId: key });
     return response.json({ restored: key });
@@ -279,7 +283,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
 
   // Self-update: the running version against the latest published GitHub release (cached 15 min).
   router.get("/system/update", async (request, response) => {
-    response.json(await releaseUpdates.inspect({ refresh: request.query.refresh === "1" }));
+    // A viewer reads the kept answer (M50): the fresh look is a request to GitHub.
+    response.json(await releaseUpdates.inspect({ refresh: request.query.refresh === "1" && (request.boxpilotSession?.owner?.role ?? "disabled") !== "viewer" }));
   });
 
   // First-run setup profiles resolved against live state (M4.2).
@@ -331,7 +336,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   router.get("/network/dns-resilience", async (request, response) => {
     if (!dnsResilience) return response.status(404).json({ error: "Not found", code: "not_found" });
     try {
-      const verdict = await dnsResilience.check({ fresh: request.query?.fresh === "1" });
+      const verdict = await dnsResilience.check({ fresh: request.query?.fresh === "1" && (request.boxpilotSession?.owner?.role ?? "disabled") !== "viewer" });
       return response.json({ ...verdict, afterOutage: latestOutageCheck(state) });
     } catch (error) {
       return response.status(500).json({ error: `The DNS check could not run: ${error.message}`, code: "dns_resilience_failed" });
@@ -354,7 +359,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     }));
   });
 
-  router.post("/network/plans", async (request, response) => {
+  router.post("/network/plans", auth.requireCsrf, async (request, response) => {
     try {
       const plan = await network.plan(request.body, request.boxpilotSession.owner.id);
       response.status(201).json({ plan });

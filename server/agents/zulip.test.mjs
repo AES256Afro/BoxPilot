@@ -133,7 +133,7 @@ describe("the words posted", () => {
 
 describe("files in #agent-files", () => {
   it("are Zulip's own uploads, each once, never a path out of them", () => {
-    const content = "See [notes.md](/user_uploads/2/ab/xyz/notes.md) and again [notes.md](/user_uploads/2/ab/xyz/notes.md), [evil](/user_uploads/2/../../etc/passwd), [elsewhere](https://example.com/a.pdf) and [photo.JPG](/user_uploads/2/cd/p/photo.JPG)";
+    const content = "See [notes.md](/user_uploads/2/ab/xyz/notes.md) and again [notes.md](/user_uploads/2/ab/xyz/notes.md), [evil](/user_uploads/2/../../etc/passwd), [encoded](/user_uploads/2/%2e%2e/%2e%2e/etc/passwd), [elsewhere](https://example.com/a.pdf) and [photo.JPG](/user_uploads/2/cd/p/photo.JPG)";
     expect(uploadsIn(content).map((upload) => [upload.name, upload.path])).toEqual([["notes.md", "/user_uploads/2/ab/xyz/notes.md"], ["photo.JPG", "/user_uploads/2/cd/p/photo.JPG"]]);
     expect(["a.pdf", "b.MD", "c.txt", "d.png", "e.jpeg", "f.webp", "g.gif", "h.zip", "i.exe", "j"].map(uploadKind)).toEqual(["pdf", "text", "text", "image", "image", "image", "image", null, null, null]);
   });

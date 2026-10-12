@@ -38,30 +38,42 @@ export function httpsJson({ expectFingerprint = null, onFingerprint = null } = {
   return (url, body) => new Promise((resolve, reject) => {
     const target = new URL(url);
     const payload = JSON.stringify(body);
+    let settled = false;
+    const fail = (error) => { if (!settled) { settled = true; reject(error); } };
     const request = https.request({
       host: target.hostname, port: target.port || 443, path: target.pathname, method: "POST",
-      rejectUnauthorized: false, timeout: 20_000,
+      // A fresh connection each time, so the handshake below always happens here.
+      rejectUnauthorized: false, timeout: 20_000, agent: false,
       headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) },
     }, (response) => {
-      const certificate = response.socket.getPeerCertificate?.();
-      const fingerprint = certificate?.raw ? createHash("sha256").update(certificate.raw).digest("hex") : null;
-      if (expectFingerprint && fingerprint && fingerprint !== expectFingerprint) {
-        request.destroy();
-        reject(new Error("The router presented a different certificate than the one recorded when it was connected. Something on the network may be answering for it; reconnect only if you changed the router's certificate yourself."));
-        return;
-      }
-      if (fingerprint) onFingerprint?.(fingerprint);
       let text = "";
       response.setEncoding("utf8");
       response.on("data", (chunk) => { text += chunk; if (text.length > 4 * 1024 * 1024) request.destroy(); });
       response.on("end", () => {
+        if (settled) return;
+        settled = true;
         try { resolve(JSON.parse(text)); }
         catch { reject(new Error(`The router answered with something that is not JSON (HTTP ${response.statusCode})`)); }
       });
     });
-    request.on("timeout", () => { request.destroy(); reject(new Error("The router did not answer in time")); });
-    request.on("error", (error) => reject(new Error(`Could not reach the router: ${error.message}`)));
-    request.end(payload);
+    // The certificate is checked when the handshake ends, before a byte of the request (and the
+    // password in it) is written (M50): checked on the response, as before, they had already gone.
+    // No certificate at all is refused too; a recorded pin is matched or nothing is sent.
+    request.on("socket", (socket) => {
+      socket.once("secureConnect", () => {
+        const certificate = socket.getPeerCertificate?.();
+        const fingerprint = certificate?.raw ? createHash("sha256").update(certificate.raw).digest("hex") : null;
+        if (expectFingerprint && fingerprint !== expectFingerprint) {
+          fail(new Error("The router presented a different certificate than the one recorded when it was connected. Something on the network may be answering for it; reconnect only if you changed the router's certificate yourself."));
+          request.destroy();
+          return;
+        }
+        if (fingerprint) onFingerprint?.(fingerprint);
+        request.end(payload);
+      });
+    });
+    request.on("timeout", () => { request.destroy(); fail(new Error("The router did not answer in time")); });
+    request.on("error", (error) => fail(new Error(`Could not reach the router: ${error.message}`)));
   });
 }
 
@@ -94,6 +106,10 @@ export function validateRouter({ kind, host, username, password } = {}) {
 
 /** crypt(3) with the router's own salt. The password goes in on stdin, never in argv. */
 async function cryptPassword(run, password, alg, salt) {
+  // The hash type comes from the router's own reply: only crypt's 1 (MD5), 5 (SHA-256) and 6
+  // (SHA-512) become an openssl flag (M50); anything else would be read as some other option.
+  if (!["1", "5", "6"].includes(String(alg))) throw new Error(`The router asks for a password hash type this server cannot produce (${String(alg).slice(0, 20)})`);
+  if (!/^[A-Za-z0-9./]{1,32}$/.test(String(salt))) throw new Error("The router's password salt is not one this server can use");
   const result = await run("/usr/bin/openssl", ["passwd", `-${alg}`, "-salt", salt, "-stdin"], { timeout: 15_000, input: `${password}` });
   if (!result.ok) throw new Error("Could not hash the router password on this server");
   return result.stdout.trim().split("\n").pop();

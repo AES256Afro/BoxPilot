@@ -74,7 +74,16 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
       resolve({ ok: false, code: null, stdout: "", stderr: error.message });
       return;
     }
-    const tails = { stdout: "", stderr: "" };
+    // The tail as lines with a running byte count (M50): a string re-sliced per line copied the whole
+    // 256 KB for every line once full, gigabytes over an image pull or an apt upgrade.
+    const tails = { stdout: { lines: [], bytes: 0 }, stderr: { lines: [], bytes: 0 } };
+    const keep = (stream, line) => {
+      const tail = tails[stream];
+      tail.lines.push(line);
+      tail.bytes += line.length + 1;
+      while (tail.lines.length > 1 && tail.bytes > tailBytes) tail.bytes -= tail.lines.shift().length + 1;
+    };
+    const tailText = (stream) => `${tails[stream].lines.join("\n")}\n`.slice(-tailBytes);
     const partial = { stdout: "", stderr: "" };
     const lastRedrawAt = { stdout: 0, stderr: 0 };
     let settled = false;
@@ -84,7 +93,7 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
       const clean = stripTerminalCodes(line).trimEnd();
       // A blank line is still output: it goes into the tail the caller reads, even though there is
       // nothing worth handing to a log writer.
-      tails[stream] = (tails[stream] + clean + "\n").slice(-tailBytes);
+      keep(stream, clean);
       if (clean) { try { onLine(clean, stream); } catch { /* logging must never break the command */ } }
     };
     const consume = (stream, chunk) => {
@@ -114,7 +123,7 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
     const finish = (code, error) => {
       if (settled) return; settled = true; clearTimeout(timer);
       for (const stream of ["stdout", "stderr"]) if (partial[stream]) { consume(stream, "\n"); }
-      resolve({ ok: code === 0 && !error, code: typeof code === "number" ? code : null, ...(timedOut ? { timedOut: true } : {}), stdout: tails.stdout.trim(), stderr: `${timedOut ? `timed out after ${timeout} ms\n` : ""}${error ? `${error.message}\n` : ""}${tails.stderr.trim()}`.trim() });
+      resolve({ ok: code === 0 && !error, code: typeof code === "number" ? code : null, ...(timedOut ? { timedOut: true } : {}), stdout: tailText("stdout").trim(), stderr: `${timedOut ? `timed out after ${timeout} ms\n` : ""}${error ? `${error.message}\n` : ""}${tailText("stderr").trim()}`.trim() });
     };
     child.on("error", (error) => finish(null, error));
     child.on("close", (code) => finish(code, null));

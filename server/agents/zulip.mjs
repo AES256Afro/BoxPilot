@@ -420,7 +420,10 @@ export function uploadsIn(content) {
   const found = [];
   const seen = new Set();
   for (const match of String(content ?? "").matchAll(/\[([^\]\n]{1,200})\]\((\/user_uploads\/(\d{1,10})\/([A-Za-z0-9._~%/-]{1,300}))\)/g)) {
-    if (match[4].split("/").some((segment) => segment === ".." || segment === ".")) continue;
+    // The segments are checked decoded as well (M50): a percent-encoded ".." passed the raw check.
+    let decoded;
+    try { decoded = decodeURIComponent(match[4]); } catch { continue; }
+    if ([match[4], decoded].some((form) => form.split("/").some((segment) => segment === ".." || segment === "." || segment === "")) || decoded.includes("\\")) continue;
     if (seen.has(match[2])) continue;
     seen.add(match[2]);
     found.push({ name: match[1].trim(), path: match[2], realmId: match[3], file: match[4] });

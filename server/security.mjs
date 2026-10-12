@@ -1,4 +1,5 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { createRateLimit } from "./rate-limit.mjs";
 import { isIP } from "node:net";
 import { defaultThrottle as throttle, defaultSprayThrottle as sprayThrottle } from "./login-throttle.mjs";
 import { normalizeAddress, tailnetClientAddress } from "./identity.mjs";
@@ -191,7 +192,9 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
   async function requestSession(request) {
     const cookies = parseCookies(request.get("cookie"));
     // The host-pinned name wins; the plain one keeps sessions issued before this alive.
-    const token = cookies[hostCookieName] ?? cookies[cookieName];
+    // Over HTTPS only the host-pinned name counts (M50): a plain-name cookie there was set over HTTP,
+    // and reading it let one planted on the plain port ride into the secure one.
+    const token = cookies[hostCookieName] ?? (cookieSecure(request) ? undefined : cookies[cookieName]);
     const session = store.getSession(token);
     if (!session) {
       if (typeof token === "string" && token.length >= 20 && endedForAddressBefore(token)) request.boxpilotSignedOut = "address-changed";
@@ -305,9 +308,16 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     next();
   }
 
+  // The set-up call had no limit at all (M50): twenty a minute per address is many more than a set-up needs.
+  const bootstrapLimit = createRateLimit({ count: 20, perMs: 60_000 });
   async function bootstrap(request, response) {
     if (store.ownerCount() > 0) {
       response.status(409).json({ error: "Owner bootstrap is already complete", code: "already_bootstrapped" });
+      return;
+    }
+    if (!bootstrapLimit.take(`bootstrap:${request.ip ?? "unknown"}`)) {
+      response.setHeader("Retry-After", "60");
+      response.status(429).json({ error: "Too many set-up attempts; wait a minute", code: "too_many_attempts" });
       return;
     }
     const { username, password, bootstrapToken } = request.body ?? {};
@@ -382,7 +392,9 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     // or one that has been disabled — takes the same ~20 ms as one that does. Short-circuiting
     // here made the two distinguishable by timing alone, and made a flood of attempts against
     // made-up usernames free for an attacker.
-    const ok = typeof password === "string"
+    // At most 256 characters (M50), the cap a password change already holds: scrypt over a megabyte
+    // of input is work an anonymous caller should not be able to order.
+    const ok = typeof password === "string" && password.length <= 256
       ? await verifyPassword(password, owner ? owner.passwordHash : await decoyHash())
       : false;
     throttle.record(keys, ok);

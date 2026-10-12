@@ -10,7 +10,9 @@ import { buildConsoleGuidanceResponse } from "../helper-libvirt.mjs";
 import { validateVmPlanInput } from "../vm-plan.mjs";
 import { withOwnActors } from "./access.mjs";
 
-export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }) {
+export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit, auth = null }) {
+  // The CSRF check named on the route (M50), as every other change route has; the global one stays.
+  const csrf = auth?.requireCsrf ?? ((_request, _response, next) => next());
   const router = Router();
 
   router.get("/virtualization/status", async (_request, response) => {
@@ -55,18 +57,26 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
     }
   });
 
-  router.post("/virtualization/media/uploads", async (request, response) => {
+  // One upload at a time per account (M50): each holds a connection for hours and writes to the pool.
+  const uploading = new Set();
+  router.post("/virtualization/media/uploads", csrf, async (request, response) => {
+    const account = request.boxpilotSession?.owner?.id ?? "anonymous";
+    if (uploading.has(account)) return response.status(409).json({ error: "An upload of yours is already in progress; let it finish first", code: "vm_media_upload_busy" });
+    uploading.add(account);
     try {
       request.setTimeout(12 * 60 * 60 * 1000);
       response.status(201).json({ upload: await vmMedia.upload(request) });
     } catch (error) {
       const status = error.message.includes("already exists") ? 409 : error.message.includes("space") ? 507 : 400;
       response.status(status).json({ error: error.message, code: "vm_media_upload_failed" });
+    } finally {
+      uploading.delete(account);
     }
+    return undefined;
   });
 
   // Host-checked creation preview for the planner UI; nothing is stored. Approval revalidates.
-  router.post("/virtualization/plans", async (request, response) => {
+  router.post("/virtualization/plans", csrf, async (request, response) => {
     const inputErrors = validateVmPlanInput(request.body);
     if (inputErrors.length) {
       response.status(400).json({ ok: false, errors: inputErrors });

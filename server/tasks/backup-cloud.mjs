@@ -33,6 +33,8 @@ export async function backupCloudSetup(parameters = {}, { run = fixedRun, log = 
   const destination = normalizeCloudDestination(parameters);
   await requireRclone(rclone);
   const secrets = {};
+  // One line each (M50): the task writes them into the rclone file, and only the operation's check refused a line break before.
+  for (const name of ["key", "secretAccessKey", "password"]) if (typeof parameters[name] === "string" && /[\r\n]/.test(parameters[name])) throw new Error(`The ${name === "key" ? "application key" : name === "secretAccessKey" ? "secret access key" : "password"} holds a line break`);
   if (destination.provider === "b2") { if (typeof parameters.key !== "string" || !parameters.key) throw new Error("The application key is required"); secrets.key = parameters.key; }
   if (destination.provider === "s3") { if (typeof parameters.secretAccessKey !== "string" || !parameters.secretAccessKey) throw new Error("The secret access key is required"); secrets.secretAccessKey = parameters.secretAccessKey; }
   if (destination.provider === "webdav") {
