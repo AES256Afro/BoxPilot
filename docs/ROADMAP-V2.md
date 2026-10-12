@@ -3351,11 +3351,15 @@ button belongs, and errors swallowed so a panel vanishes or an empty state lies.
   gone. Removing a passkey sent people to a password field under Recovery codes and then went
   with no confirmation: the row opens its own form, with the password and what removal means. The
   System page's "Read again" is "Check again" too.
-- **M49.2 The rest of the sweep.** The restore sheet's and Repair's schedule dialog's app ids where names belong; the
-  drive Reconnect switch that shows on while paused and points at pages in prose; "What BoxPilot
-  watches" chips that look clickable; the heartbeat panel's "arrives with the next upgrade" with no
-  way to Updates; Repair's approval desk under the Prerequisites table on a phone; an app's Backups
-  tab's "Stop" beside Restore said apart from the app's own Stop.
+- ✅ **M49.2 A page from anywhere** (unreleased, `feat/m49-open-view`). Two pointers in prose had no
+  button because the Settings panels have no way to change the page: `openView` (activityEvents.ts)
+  asks the app to, as a tile on Home would. "What BoxPilot watches" gains Open on each active
+  condition, to the page it belongs to (`watchView`); the heartbeat panel's "arrives with the next
+  upgrade" gains Open Updates. Test: the Open button's event and its view, none for a clear
+  condition, and the Weekly report's read failure said with Try again.
+- **M49.3 The rest of the sweep.** The restore sheet's and Repair's schedule dialog's app ids where
+  names belong; the drive Reconnect switch that shows on while paused and points at pages in prose;
+  Repair's approval desk under the Prerequisites table on a phone.
 
 ## App catalogue candidates
 
