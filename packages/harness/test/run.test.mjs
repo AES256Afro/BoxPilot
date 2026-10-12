@@ -88,6 +88,40 @@ describe("the loop", () => {
     expect(run).toMatchObject({ limitReached: true, limitKind: "steps" });
   });
 
+  it("points the model at an output it asks for again, and ends the run the third time (M48.1)", async () => {
+    const { acted, calls, run, toolbox, notes } = await actWith([
+      { toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] },
+      { toolCalls: [{ id: "c2", name: "disks_list", arguments: "{ }" }] },
+      { toolCalls: [{ id: "c3", name: "disks_list", arguments: "{}" }] },
+      { content: "The system disk is /dev/nvme0n1 [T1]." },
+    ]);
+    // Read once; the second and third asks were answered by BoxPilot, not the tool.
+    expect(toolbox.outputs()).toHaveLength(1);
+    expect(calls[2].messages.at(-1)).toMatchObject({ role: "tool", tool_call_id: "c2" });
+    expect(calls[2].messages.at(-1).content).toMatch(/^BoxPilot: you already asked for exactly this, and its output is above as T1\. Use what it said/);
+    expect(calls[3].toolChoice).toBe("none");
+    expect(acted.answer).toMatch(/nvme0n1/);
+    expect(acted.toolCalls).toBe(1);
+    expect(run).toMatchObject({ limitReached: true, limitKind: "repeat", degraded: null });
+    expect(notes.find((entry) => entry.name === "repeat").detail).toMatch(/third time/);
+  });
+
+  it("answers before the conversation outgrows the model's context, and clips a tool's output to what still fits (M48.1)", async () => {
+    const { acted, calls, run, notes } = await actWith([
+      { toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] },
+      { content: "The system disk is /dev/nvme0n1 [T1]." },
+    ], { limits: { contextTokens: 400, steps: 6 } });
+    // A 512-token answer and the prompt do not both fit in 400: after the first tool round the next call is the last.
+    expect(calls[1].toolChoice).toBe("none");
+    expect(calls[1].messages.at(-1).content).toMatch(/no tool calls left\. Answer now/);
+    expect(acted.answer).toMatch(/nvme0n1/);
+    expect(run).toMatchObject({ limitReached: true, limitKind: "context", degraded: null });
+    expect(notes.find((entry) => entry.name === "context").detail).toMatch(/tokens of the model's 400: answering with what it has/);
+    // Without a context given, nothing changes.
+    const plain = await actWith([{ toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] }, { content: "Fine [T1]." }]);
+    expect(plain.run.limitReached).toBe(false);
+  });
+
   it("asks again for the host's JSON when the model wrote prose", async () => {
     const fields = [{ name: "disk", description: "The system disk" }];
     const { acted, calls } = await actWith([

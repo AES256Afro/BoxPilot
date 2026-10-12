@@ -2669,7 +2669,7 @@ export function createAgentService({
     const degradedReason = typeof result.degradedReason === "string" ? result.degradedReason.slice(0, 40) : null;
     const limitReached = Boolean(degradedReason === "budget" || degradedReason === "timeout" || result.limitReached);
     // Which: its steps, its tool calls or its tokens (M44), so the card can say what to raise.
-    const limitKind = limitReached && ["steps", "toolCalls", "tokens"].includes(result.limit) ? result.limit : null;
+    const limitKind = limitReached && ["steps", "toolCalls", "tokens", "context", "repeat"].includes(result.limit) ? result.limit : null;
     const finished = store.finishRun(run.id, {
       state: outcome,
       reason: outcome === "failed" ? clip(redact(String(result.error ?? "The run failed")), 300) : degradedReason ? `degraded: ${degradedReason}` : null,
@@ -2903,6 +2903,9 @@ export function createAgentService({
     if (flags.limit === "steps") return `It reached its limit of ${budget.stepsPerRun === 1 ? "one step" : `${budget.stepsPerRun ?? "its"} steps`} a run before it finished.${raise("Steps a run")}`;
     if (flags.limit === "tokens") return `It reached its limit of ${budget.tokensPerRun ?? "its"} tokens a run and had to answer early.${raise("Tokens a run")}`;
     if (flags.limit === "toolCalls") return `It reached the most tool calls a run may make before it finished.${raise("Steps a run")}`;
+    // M48.1: the model's context and a model asking for the same output over and over.
+    if (flags.limit === "context") return `What it had read filled the model's context (${runtimeSettings().contextTokens ?? "its"} tokens), so it answered with what it had. A larger context is set on the Usage tab, under Settings.`;
+    if (flags.limit === "repeat") return "It kept asking for the same tool output, so it was told to answer with what it had.";
     return "It reached a limit before it finished.";
   }
 

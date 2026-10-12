@@ -25,6 +25,14 @@ import { clipToolOutput, paceDefaults } from "./pace.mjs";
 /** A small model sometimes writes its tool call as text: never part of an answer. */
 export const stripToolMarkup = (text) => String(text ?? "").replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, "").trim();
 
+/** A call's arguments as one string whatever their spelling, so the same call is seen as the same. */
+function normalizedArguments(raw) {
+  const stable = (value) => (Array.isArray(value) ? value.map(stable)
+    : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]))
+      : value);
+  try { return JSON.stringify(stable(typeof raw === "string" ? JSON.parse(raw || "{}") : raw ?? {})); } catch { return String(raw ?? ""); }
+}
+
 /**
  * What is added to the end of the last tool round when the run has no tool calls left: at the end,
  * so everything the model already read stays the same, and outside the tool's box.
@@ -110,7 +118,7 @@ export async function checkAnswer({ session, draft, sources, structured = false,
  *   sources: () => Array<{ id: string, title?: string, text: string }>,
  *   record: (step: object) => Promise<unknown>,
  *   note: (name: string, detail: string, state?: string) => Promise<unknown>,
- *   limits: { steps: number, tokens: number, maxToolCalls: number, toolCallsPerStep?: number },
+ *   limits: { steps: number, tokens: number, maxToolCalls: number, toolCallsPerStep?: number, contextTokens?: number | null },
  *   tokensUsed: () => number,
  *   signal?: AbortSignal,
  *   fields?: Array<{ name: string, description?: string }> | null,
@@ -133,15 +141,32 @@ export async function act({
   const boxes = [];
   const unboxed = (text) => { const stripped = stripWrapperBlocks(text); boxes.push(...stripped.removed); return stripped.text; };
   const maxTokens = (floor) => Math.max(floor, Math.min(session.settings.maxTokens ?? 1024, limits.tokens - tokensUsed()));
+  // The model's context (M48.1): a prompt that outgrows it is a 400 from the model server and a
+  // run that ends with nothing. The room the answer needs is kept back, so the last call fits.
+  const answerRoom = () => Math.min(session.settings.maxTokens ?? 1024, 1_024) + 256;
+  const contextLeft = () => (Number.isFinite(limits.contextTokens) && limits.contextTokens > 0 ? limits.contextTokens - session.tokensOf(conversation) - answerRoom() : null);
+  // The same call twice (M48.1): a model that asks again for an output it already has, and again,
+  // until the context is spent. The second time it is pointed at the output; the third ends the run.
+  const answered = new Map();
+  let repeats = 0;
   let answer = null;
   let toolCalls = 0;
   for (let step = 0; step < limits.steps && !answer; step += 1) {
     if (signal?.aborted) break;
     const byTokens = tokensUsed() >= limits.tokens * 0.85;
-    const lastStep = step === limits.steps - 1 || byTokens || toolCalls >= limits.maxToolCalls;
+    const left = contextLeft();
+    const byContext = left !== null && left <= 0;
+    const byRepeats = repeats >= 2;
+    const lastStep = step === limits.steps - 1 || byTokens || toolCalls >= limits.maxToolCalls || byContext || byRepeats;
     // The last step it may take: told to answer with what it has, which is a limit reached - its
-    // steps, its tool calls, or its tokens nearly spent.
-    if (lastStep) { run.limitReached = true; run.limitKind ??= step === limits.steps - 1 ? "steps" : toolCalls >= limits.maxToolCalls ? "toolCalls" : "tokens"; }
+    // steps, its tool calls, its tokens nearly spent, the model's context nearly full, or the same
+    // tool asked for again and again.
+    if (lastStep) {
+      run.limitReached = true;
+      run.limitKind ??= step === limits.steps - 1 ? "steps" : toolCalls >= limits.maxToolCalls ? "toolCalls" : byTokens ? "tokens" : byContext ? "context" : "repeat";
+      if (byContext && run.limitKind === "context") await note("context", `The conversation is about ${session.tokensOf(conversation)} tokens of the model's ${limits.contextTokens}: answering with what it has.`);
+      if (byRepeats && run.limitKind === "repeat") await note("repeat", "The model asked for the same tool output a third time: answering with what it has.");
+    }
     const final = lastStep && step > 0 && Boolean(conversation.tools);
     if (final) {
       // Told at the end of the last tool round, so nothing before it changes.
@@ -164,9 +189,21 @@ export async function act({
     conversation.messages.push(assistantTurn(result, calls));
     for (const call of calls) {
       if (signal?.aborted) break;
+      const key = `${call.name}|${normalizedArguments(call.arguments)}`;
+      const before = answered.get(key);
+      if (before) {
+        // Not run again: the model is pointed at the output it already has.
+        repeats += 1;
+        conversation.messages.push({ role: "tool", tool_call_id: call.id, content: `BoxPilot: you already asked for exactly this${before.index ? `, and its output is above as T${before.index}` : ""}. Use what it said; do not ask for it again.` });
+        continue;
+      }
       toolCalls += 1;
       const reply = await callTool(call);
-      conversation.messages.push({ role: "tool", tool_call_id: call.id, content: clipToolOutput(reply.content, session.readChars(pace.toolReadSeconds)) });
+      answered.set(key, { index: reply?.index ?? null });
+      // Clipped to what the model can read in the time, and to what the context still holds.
+      const room = contextLeft();
+      const chars = room === null ? session.readChars(pace.toolReadSeconds) : Math.min(session.readChars(pace.toolReadSeconds), Math.max(1_200, Math.floor(room * session.charsPerToken)));
+      conversation.messages.push({ role: "tool", tool_call_id: call.id, content: clipToolOutput(reply.content, chars) });
     }
   }
   // A structured answer that is not the host's JSON: the same prompt again, held to the JSON.

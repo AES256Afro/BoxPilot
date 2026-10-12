@@ -19,7 +19,12 @@ const ask = (agent, role, question = "How is the server?") => h.service.startRun
 const thrown = (fn) => { try { fn(); } catch (error) { return error; } return null; };
 const withBudget = (agent, budget) => h.service.updateAgent(h.caller("owner"), agent.id, { spec: { ...agent.spec, budget: { ...agent.spec.budget, ...budget } } });
 /** A model that asks for a tool whenever it is offered one, and answers only when it is not. */
-const toolHungry = (body) => (body.tools?.length ? { toolCalls: [{ name: "server_facts", arguments: {} }, { name: "alerts_active", arguments: {} }] } : { content: "Out of steps, so here is what I have [T1]." });
+// Two new reads every step (a repeated call is answered without running since M48.1, so each asks something new).
+const toolHungry = (body) => {
+  if (!body.tools?.length) return { content: "Out of steps, so here is what I have [T1]." };
+  const asked = body.messages.filter((message) => message.role === "tool").length;
+  return { toolCalls: [{ name: "docs_search", arguments: { query: `question ${asked + 1}` } }, { name: "docs_search", arguments: { query: `question ${asked + 2}` } }] };
+};
 
 describe("steps, tool calls and tokens a run", () => {
   it("stops a model that keeps calling tools at its steps, and asks it for an answer without tools", async () => {
