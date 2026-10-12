@@ -18,6 +18,12 @@ BoxPilot already has most of a harness. It does not have a name, it is woven int
 - **A loop:** plan (`intent.mjs`, a schema-bound plan of up to eight steps with a confidence; five
   before M47.2) → act (one growing conversation, 3 tool calls a step, 12 steps) → check (`verify.mjs`, every claim held to the tool
   output it cites, one correction) → finish. Time per call comes from measured tokens a second.
+  Since M48 the loop also keeps to the local model's context (tool output clipped to what still
+  fits, the answer asked for before the context is full), points a model that asks for the same
+  tool output again at the output it has and ends the run on the third ask, and asks the model
+  server once more after a 5xx (llama-server's 500 on a tool call it could not parse) before it
+  gives the call up; the planner reads a slim request (the question, the findings' titles, the
+  conversation in a line) rather than the whole task message twice.
 - **34 tools** (`tool-catalog.mjs`; 25 before M47): reads mapped onto read-only registry operations under ADR-003,
   exact tools (calculator, units, regex), and four writes that never touch the host: notes, a card,
   a notification, a hand-off. Strict input checks, a 35 s timeout, output boxed and numbered.
