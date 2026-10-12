@@ -3148,6 +3148,81 @@ Each item is its own pull request, released and deployed when green.
   record (no baseline: the week before is the previous run). Proved by a dispatch from the branch:
   the built-in set 6 of 6 on Qwen3.5-4B.
 
+## M48: Runs that finish
+
+Asked for 2026-10-12 ("bug sweep, security sweep, performance sweep, code audit; a new robust
+milestone; quality of life; usability"). The first weekend of the wider survey on the owner's server
+showed where the agents still fail: the Scout's first eight-step survey degraded with a model error
+at 41,000 prompt tokens; its nightly blind-spot question did the same every night at 57,000 to
+63,000, the model asking memory_search for the same answer eight times until the 8,192-token context
+overflowed; Resource Watch's evaluation called apps.usage five times running; the Scout's survey also
+died on a tool call whose JSON the model server could not parse; Steve's digest and Resource Watch's
+first evening reading ran out of tokens; Steve's seventh evaluation question was refused for budget
+every night. None of these is the model being wrong about the server. Each is the runtime letting a
+run fail instead of finishing. Each item is its own pull request, released and deployed when green.
+
+- ✅ **M48.1 The loop respects the context, and a repeated call is not run again** (unreleased,
+  `feat/loop-guards`). The act loop (`packages/harness/src/core/loop.mjs`) now knows the local
+  model's context (`limits.contextTokens`, the runtime's setting, passed by the runner; none for
+  Claude): a step whose prompt plus the room an answer needs would not fit is the last, told to
+  answer with what it has (limit `context`, a trace note with the count), and each tool's output is
+  clipped to what the context still holds as well as to what the model reads in the time. A tool
+  call identical to one already answered in the run (same name, same arguments however spelled) is
+  not run: the model is told the output is above as T<n> and to use it; the third such ask ends the
+  run with an answer (limit `repeat`). The owner's words for both on the run's card and in the trace;
+  the context's words say where to raise it (the Usage tab). Tests: `run.test.mjs` (the repeat
+  pointed at T1 and the third ending the run; the context clipping and the last call; nothing
+  changed without a context).
+
+The four sweeps the same day (bugs, security, performance, usability; read-only, over the agents
+platform, the harness package, the routes, the M39 tasks and the Agents pages) found what follows,
+ranked by what the owner would feel first. The rest of the milestone works through them.
+
+- **M48.2 The planner reads a slim request.** The planner is asked the whole task message - notes,
+  memories, findings, the folded conversation - and the acting calls read the same text again behind
+  another prefix: 1,700 to 3,400 tokens a run read twice, 25 to 80 s on the owner's processor. The
+  planner gets the question or the trigger, the findings' titles and the conversation's summary;
+  the acting calls keep the whole.
+- **M48.3 What a run shows and sends** (security sweep). An operator who made an agent reads, on the
+  Memory tab, examples kept from the owner's own questions and answers (`examplesOf` filters by
+  nothing; the planner's pool already filters by `readRole`); the house's public domains (the
+  tunnel's hostnames) are not stand-ins; a local-only agent's findings go to a Claude run; the acting
+  export carries the owner's documents whatever `claudeReadsDocuments` says; the CLI export keeps
+  the task, model text and call arguments unredacted and keeps tainted runs; `backups.coverage`
+  reads every account's schedules for a viewer; `apps.usage`, `backups.coverage` and
+  `space.reclaimable` ignore the agent's app allowlist.
+- **M48.4 Defects** (bug sweep). A Zulip reply beginning "yes", "no", "right" is taken as a rating
+  and never answered; an example's plan is cut to six steps while a plan holds eight, so a
+  thumbs-down on a seven-read survey makes a false preference pair; the M47.6 migration replaces a
+  Storage Watch's edited steps and raises a budget the owner cut on purpose; the weekly bench's
+  evaluation step cannot fail (no pipefail); a fact that could not be read grades the answer wrong
+  instead of skipping; `busiestApp` ranks by processor while the boundary question asks about memory;
+  the `freed?` hint matches "free"; the acting export calls a run's prompt "kept" when findings by
+  meaning were added after it, and leaves refused outputs unboxed; the stand-ins miss IPv6 and names
+  inside hyphenated identifiers; a failed boot-partition check is never recorded; the agent and
+  Repair disagree on which apps a schedule backs up; `latestAnsweredPost` reads only the newest 100
+  posts across every channel; the watchdog's undo leaves its driver loaded; the CLI export keeps
+  degraded runs.
+- **M48.5 Quick wins on the web process** (performance sweep). `examplesOf` builds every preference
+  pair and acting record to count them on each Memory tab open; `coverExamples` is pool × limit²;
+  `actionsSince`, `runForJob`, `listTree`, `usageSince` scan whole tables for want of indexes every
+  minute; the overview poll runs `moduleBudget()` once per agent every 5 s; `vectorsOf` loads every
+  vector blob to answer "has one"; every step write fsyncs (`synchronous` left at FULL under WAL);
+  `resolveFacts` reads nine facts for every evaluation whatever its questions need.
+- **M48.6 Budgets that follow the work.** The runtime's context (8,192 on the owner's server, in
+  30 GB of memory) has no control on any page; a run that hits it has no words for it; Resource
+  Watch's 10,000 tokens ran out on its first evening; Steve's digest runs out of tokens on a budget
+  from M43 the template has long outgrown; the nightly evaluation estimates 120 s a question where
+  the owner's Keeper takes 135, queues every question and refuses the last one every night.
+- **M48.7 Quality of life** (usability sweep). The Evaluation tab knows eleven facts of fifteen and
+  shows the raw id for the rest; a paused agent is a dead end on Test and Evaluation ("Agents are
+  off" when they are paused; Ask enabled and failing); the kill switch has no confirmation and only
+  the owner can undo it; budgets are raw seconds everywhere; tool ids where names belong and [T]
+  citations that cannot be followed; the Build tab loses the templates once an agent is open;
+  Forget and Remove act on one tap; three export buttons in one panel header that navigate away on
+  error; cards below the agents table; the accuracy chip is not a link; UPS status as NUT's raw
+  code; a dozen copy fixes.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
