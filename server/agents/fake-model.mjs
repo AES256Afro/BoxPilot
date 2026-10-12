@@ -359,6 +359,8 @@ export async function startFakeModel({
     if (state.busyThreads > 0 && state.busyMs > 0) await burn({ threads: state.busyThreads, ms: state.busyMs });
     if (state.chat === "hang") { response.writeHead(200, { "Content-Type": "text/event-stream" }); return undefined; }
     const scripted = typeof state.script === "function" ? state.script(body) : null;
+    // A script may play the server's own trouble for one call (M48.9): { status: 500, error }.
+    if (scripted?.status) return json(response, scripted.status, { error: { message: scripted.error ?? "the model crashed" } });
     const understanding = body?.response_format?.json_schema?.name === "understanding";
     // A script that answers the tool loop is not asked to understand: the fake does that itself,
     // unless the script returns { understanding } (or plain content) for it.
