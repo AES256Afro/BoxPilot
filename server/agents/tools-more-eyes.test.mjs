@@ -90,6 +90,9 @@ describe("the tools, held to the run's role", () => {
     expect(toolsForQuestion("Which apps have never been backed up?", offered)).toContain("backups.coverage");
     expect(toolsForQuestion("Which apps have no backup schedule?", offered)).toContain("backups.coverage");
     expect(toolsForQuestion("How much disk space could be cleaned up?", offered)).toContain("space.reclaimable");
+    // "free" alone is a drive question, not the clean-up (M48.4).
+    expect(toolsForQuestion("How much free space is left on the root disk?", offered)).toEqual(["storage.health"]);
+    expect(toolsForQuestion("Which app is working the processor hardest right now?", offered)).toContain("apps.usage");
     expect(toolsForQuestion("How much disk is Docker using?", offered)).toContain("space.reclaimable");
     expect(toolsForQuestion("Does the server need a reboot?", offered)).toEqual(["updates.status"]);
     expect(toolsForQuestion("Do I need to reboot the server?", offered)).toEqual(["updates.status"]);
@@ -192,6 +195,18 @@ describe("the templates and the evaluation", () => {
       }
       // Once; the Keeper and the Scout, already on their templates, were left alone.
       expect(h.service.migrateDefaults()).toBe(0);
+      // M48.4: a maker's own edits stay. A Storage Watch whose step two was reworded keeps all its steps; a
+      // budget cut below the old default on purpose stays cut; one still at the old default rises.
+      const edited = h.service.createAgent(h.caller("owner"), { template: "storage-watch" });
+      const own = h.store.getAgent(edited.id).spec;
+      const ownSteps = own.prompt.steps.filter((step) => !step.includes("space.reclaimable")).map((step, index) => (index === 1 ? "Work out the growth my own way." : step));
+      h.service.updateAgent(h.caller("owner"), edited.id, { spec: { ...own, tools: { ...own.tools, "space.reclaimable": "off" }, prompt: { ...own.prompt, steps: ownSteps }, budget: { runsPerDay: 4, modelSecondsPerDay: 600, stepsPerRun: 6, tokensPerRun: 8_000, runSeconds: 480 } } });
+      h.state.setSetting("agentsMigrations", { runSeconds: {}, sharing: {}, examples: {}, eyes: {}, surveyWide: {} }, { updatedBy: null });
+      expect(h.service.migrateDefaults()).toBeGreaterThanOrEqual(1);
+      const after = h.store.getAgent(edited.id).spec;
+      expect(after.tools["space.reclaimable"]).toBe("auto");
+      expect(after.prompt.steps).toEqual(ownSteps);
+      expect(after.budget).toMatchObject({ modelSecondsPerDay: 600, stepsPerRun: 7, tokensPerRun: 10_000, runSeconds: 480 });
     } finally {
       await h.close();
     }

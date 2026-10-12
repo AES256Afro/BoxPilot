@@ -16,6 +16,8 @@
  * storage scan's mounts and SMART, statfs of /, and the helper's app and service reads.
  */
 
+import { scheduledBackupApps } from "../remediations.mjs";
+
 const pseudoFilesystems = new Set(["tmpfs", "devtmpfs", "overlay", "squashfs", "proc", "sysfs", "cgroup", "cgroup2", "efivarfs", "fuse.lxcfs", "nsfs", "tracefs", "debugfs", "securityfs", "pstore", "bpf", "autofs", "mqueue", "hugetlbfs", "configfs", "fusectl", "binfmt_misc", "ramfs", "rpc_pipefs", "nfsd"]);
 
 /** Bytes as a person reads them, decimal like the rest of BoxPilot: 1.02 TB, 528 GB, 2.1 GB, 512 MB. */
@@ -535,12 +537,7 @@ export function describeUsage(result) {
 export function describeCoverage(result, { schedules = [], now = Date.now() } = {}) {
   if (!result) return "Which apps have backups could not be read.";
   const apps = Array.isArray(result.apps) ? result.apps : [];
-  const scheduled = new Set();
-  for (const schedule of Array.isArray(schedules) ? schedules : []) {
-    if (schedule?.enabled === false) continue;
-    if (schedule?.operationId === "app.backup" && typeof schedule.parameters?.id === "string") scheduled.add(schedule.parameters.id);
-    if (schedule?.operationId === "app.backup.many") for (const id of schedule.parameters?.ids ?? []) scheduled.add(id);
-  }
+  const scheduled = scheduledBackupApps(schedules);
   const worth = apps.filter((app) => app.protectable);
   const never = worth.filter((app) => !(app.backups > 0));
   const unscheduled = worth.filter((app) => !scheduled.has(app.id));

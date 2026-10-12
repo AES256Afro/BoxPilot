@@ -238,20 +238,25 @@ export async function watchdogEnable({ runtimeSeconds = runtimeLimits.default } 
   if (found.state === "no-device") throw new Error("No hardware watchdog was found on this board, and no driver for one is installed");
   if (found.state === "disabled-in-firmware") throw new Error(`${found.driver.name} is loaded but found no watchdog: it is most likely switched off in the firmware settings`);
   const written = [];
+  let loadedDriver = null;
   const undo = async () => {
     for (const file of written.reverse()) await files.remove(file, { force: true }).catch(() => {});
     await run(binaries.systemctl, ["daemon-reload"], { timeout: 60_000 });
+    // A driver this run loaded goes too (M48.4), so an undone attempt leaves the machine as it found it.
+    if (loadedDriver) await run(binaries.modprobe, ["-r", loadedDriver], { timeout: 30_000 }).catch(() => {});
   };
 
   let hardware = found.devices.filter((device) => !device.software);
   if (hardware.length === 0 && found.driver?.available) {
     log?.(`Loading ${found.driver.name}, the watchdog driver for this chipset${found.driver.blacklisted ? " (Ubuntu does not load it by itself)" : ""}`, "stdout");
     const loaded = await run(binaries.modprobe, [found.driver.name], { timeout: 30_000 });
+    if (loaded.ok) loadedDriver = found.driver.name;
     for (let attempt = 0; attempt < 10 && hardware.length === 0; attempt += 1) {
       hardware = (await devices()).filter((device) => !device.software);
       if (hardware.length === 0) await wait(500);
     }
     if (hardware.length === 0) {
+      loadedDriver = null;
       await run(binaries.modprobe, ["-r", found.driver.name], { timeout: 30_000 });
       throw new Error(`${found.driver.name} ${loaded.ok ? "loaded but found no watchdog" : `did not load (${tail(loaded.stderr) || "no reason given"})`}: it is most likely switched off in the firmware settings. Nothing was changed`);
     }

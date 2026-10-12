@@ -335,6 +335,7 @@ describe("the nightly evaluation's model time (R2B1-7)", { timeout: 30_000 }, ()
     expect(await h.service.runnerNext(h.runnerId, { waitMs: 0 })).toBeNull();
     expect(h.store.listRuns({ agentId: keeper.id, limit: 20 }).filter((run) => run.kind === "eval" && run.state === "refused")).toHaveLength(KEEPER_QUESTIONS - 2);
     const [evaluation] = h.service.getEvaluation(h.caller("owner"), keeper.id).runs;
-    expect(evaluation.results.filter((result) => result.skipped)).toHaveLength(KEEPER_QUESTIONS - 2);
+    // Skipped for budget; a question whose fact this bare server cannot read is skipped too (M48.4), and not counted here.
+    expect(evaluation.results.filter((result) => result.skipped && !/fact could not be read/.test(result.found ?? ""))).toHaveLength(KEEPER_QUESTIONS - 2);
   });
 });
