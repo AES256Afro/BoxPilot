@@ -3300,6 +3300,17 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   `listRuns` takes a `kind`. Tests: `perf-leftovers.test.mjs` (the filters and the count; the owner's
   one read of two, an operator's four then two hundred, and four alone once the first page fills;
   the learning run by kind, as the Knowledge tab says it).
+- ✅ **M48.9 One more try after the model server's 5xx** (unreleased, `feat/m48-model-retry`). The
+  Scout's eight-step survey died on a tool call whose JSON llama-server could not parse: a 500 from
+  the model server ended the call, and the run, with "The model stopped". The next sample is
+  nearly always JSON it can parse, so the session asks once more after a 5xx (`session.mjs`; the
+  client now carries the status on its error), says so in the trace ("The model server answered
+  500 during the next step: asking once more"), and ends the call as before on a second. Never for a
+  timeout, a cancel or a 4xx: those are the run's own limits or the request's own fault. The fake
+  model's script may answer `{ status, error }` to play one. Tests: `packages/harness/test/
+  retry.test.mjs` (the retry, the second failure, never for a timeout or a 400),
+  `model-retry.test.mjs` (through the runner: one 500 and the run still answers, with the retry in
+  its trace; every call a 500 and the run degrades as before).
 
 ## App catalogue candidates
 
