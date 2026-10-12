@@ -167,7 +167,7 @@ describe("System page", () => {
     });
     render(<SystemPage csrfToken="csrf-token" />);
     expect(await screen.findByText("Update available")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: /Updates/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /BoxPilot update/ }));
     expect(screen.getByText(/Updating asks for your password, then the tag/)).toBeTruthy();
     const go = screen.getByRole("button", { name: /Update to v0.62.0/ });
     expect(go.getAttribute("data-risk")).toBe("high");
@@ -194,7 +194,7 @@ describe("System page", () => {
         "/jobs/job-system.update": () => json({ job: { id: "job-system.update", type: "op:system.update", title: "Update", state: "completed", risk: "high", error: null, result: {}, steps: [], approvals: [] } }),
       });
       render(<SystemPage csrfToken="csrf-token" />);
-      fireEvent.click(await screen.findByRole("tab", { name: /Updates/ }));
+      fireEvent.click(await screen.findByRole("tab", { name: /BoxPilot update/ }));
       fireEvent.click(await screen.findByRole("button", { name: /Update to v0.62.0/ }));
       fireEvent.change(await screen.findByLabelText("Typed confirmation"), { target: { value: "v0.62.0" } });
       fireEvent.change(screen.getByLabelText("Approval password"), { target: { value: "correct horse battery" } });
@@ -232,7 +232,7 @@ describe("System page", () => {
     render(<SystemPage csrfToken="csrf-token" />);
     await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Last update failed"));
     expect(document.querySelector(".ui-page-header__verdict")?.getAttribute("data-status")).toBe("danger");
-    fireEvent.click(screen.getByRole("tab", { name: /Updates/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /BoxPilot update/ }));
     const notice = screen.getByText("The last update stopped").closest(".ui-notice");
     expect(notice?.getAttribute("data-status")).toBe("danger");
     expect(notice?.textContent).toMatch(/database or disk is full\. Nothing was changed/);
@@ -324,7 +324,7 @@ describe("System page", () => {
     serve({ "/api/v1/system/update": () => json({ status: "ok", mode: "host-aware" }) });
     render(<SystemPage csrfToken="csrf-token" />);
     await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Not checked"));
-    fireEvent.click(screen.getByRole("tab", { name: /Updates/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /BoxPilot update/ }));
     expect(screen.getByText("The release check did not answer")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Update to/ })).toBeNull();
   });

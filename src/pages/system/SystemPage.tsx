@@ -242,7 +242,7 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
         onChange={setTab}
         tabs={[
           { id: "overview", label: "Overview" },
-          { id: "updates", label: "Updates", status: lastFailed ? "danger" : releaseChip.status === "warning" ? "warning" : undefined, statusLabel: lastFailed ? "the last update failed" : releaseChip.status === "warning" ? "an update is available" : undefined },
+          { id: "updates", label: "BoxPilot update", status: lastFailed ? "danger" : releaseChip.status === "warning" ? "warning" : undefined, statusLabel: lastFailed ? "the last update failed" : releaseChip.status === "warning" ? "an update is available" : undefined },
           { id: "housekeeping", label: "Housekeeping", count: housekeeping && housekeeping.totalBytes > 0 ? housekeeping.totalHumanBytes : undefined },
           { id: "time", label: "Time & name" },
           { id: "hardware", label: "Hardware" },

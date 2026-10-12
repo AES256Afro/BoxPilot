@@ -7,6 +7,22 @@ import { Button, EmptyState, Field, KeyValue, Notice, PageHeader, Panel, Select,
 import { FirewallBruteForce, fail2banVerdict } from "./FirewallBruteForce";
 import { FirewallProfileSheet, type ProfileChoice } from "./FirewallProfileSheet";
 import { spec, type Advice, type Fail2banState, type FirewallRule, type Overview, type Plan } from "./types";
+
+/**
+ * What a rule change means for the people on the network (M50): the preview used to be the ufw
+ * command alone, so deleting a rule never said who loses access.
+ */
+function ruleWords(action: string | undefined, portSpec: string, { deleting, comment }: { deleting: boolean; comment?: string | null }): string {
+  const note = comment ? ` (${comment})` : "";
+  if (deleting) {
+    if (action === "deny") return `Port ${portSpec} is no longer blocked${note}.`;
+    if (action === "limit") return `Port ${portSpec} is no longer rate-limited${note}; it stays open.`;
+    return `Devices on your network can no longer reach port ${portSpec}${note}.`;
+  }
+  if (action === "deny") return `Blocks port ${portSpec} for every device.`;
+  if (action === "limit") return `Opens port ${portSpec}, allowing up to 6 new connections per 30 seconds per address and dropping the rest.`;
+  return `Opens port ${portSpec} to devices on your network.`;
+}
 import "./firewall.css";
 
 /*
@@ -182,7 +198,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
         operationId: entry.operationId,
         title: entry.actionLabel ?? entry.title,
         parameters: entry.parameters,
-        preview: <span><code>ufw {entry.operationId === "firewall.rule.delete" ? "delete " : ""}{parameters.action} {spec(parameters.port ?? 0, parameters.protocol)}</code></span>,
+        preview: <span>{ruleWords(parameters.action, spec(parameters.port ?? 0, parameters.protocol), { deleting: entry.operationId === "firewall.rule.delete" })} <code>ufw {entry.operationId === "firewall.rule.delete" ? "delete " : ""}{parameters.action} {spec(parameters.port ?? 0, parameters.protocol)}</code></span>,
       });
       return;
     }
@@ -211,7 +227,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
     operationId: "firewall.rule.delete",
     title: `Delete ${rule.action} ${spec(rule.port ?? 0, rule.protocol)}`,
     parameters: { action: rule.action, port: rule.port, protocol: rule.protocol ?? "any" },
-    preview: <span><code>ufw delete {rule.action} {spec(rule.port ?? 0, rule.protocol)}</code></span>,
+    preview: <span>{ruleWords(rule.action, spec(rule.port ?? 0, rule.protocol), { deleting: true, comment: rule.comment })} <code>ufw delete {rule.action} {spec(rule.port ?? 0, rule.protocol)}</code></span>,
   });
 
   const portValue = Number.parseInt(rulePort, 10);
@@ -223,7 +239,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
       operationId: "firewall.rule.add",
       title: `${ruleAction === "allow" ? "Allow" : ruleAction === "deny" ? "Deny" : "Rate-limit"} port ${portValue}`,
       parameters: { action: ruleAction, port: portValue, protocol: ruleProtocol, ...(ruleComment.trim() ? { comment: ruleComment.trim() } : {}) },
-      preview: <span><code>ufw {ruleAction} {spec(portValue, ruleProtocol)}</code>{ruleAction === "limit" ? <>. Allows up to 6 new connections per 30 seconds per address, then drops the rest.</> : null}</span>,
+      preview: <span>{ruleWords(ruleAction, spec(portValue, ruleProtocol), { deleting: false })} <code>ufw {ruleAction} {spec(portValue, ruleProtocol)}</code></span>,
     });
   };
 

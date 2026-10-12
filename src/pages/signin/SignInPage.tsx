@@ -67,7 +67,8 @@ export function SignInUnavailable({ problem }: { problem: string }) {
 
 export default function SignInPage({ bootstrapRequired, onAuthenticated, notice = null }: { bootstrapRequired: boolean; onAuthenticated: (status: AuthStatus) => void; notice?: SignedOutNotice | null }) {
   const titleId = useId();
-  const [username, setUsername] = useState("operator");
+  // Empty, not "operator" (M50): that is a role's name, and nobody's username by default.
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [bootstrapToken, setBootstrapToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -249,10 +250,10 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
         )
       )}
 
-      {!bootstrapRequired && identity && (identity.tailscale.available && !identity.tailscale.linked || !identity.github.configured) && (
+      {!bootstrapRequired && identity && identity.tailscale.available && !identity.tailscale.linked && (
         <div className="signin-notes">
           {identity.tailscale.available && !identity.tailscale.linked && <p className="signin-hint">Connected over Tailscale as {identity.tailscale.login}. Sign in with your password, then link it in <strong>Settings → Account &amp; sign-in</strong> to skip the password next time.</p>}
-          {!identity.github.configured && <p className="signin-hint">GitHub sign-in is not set up yet. Sign in with your password, then add your GitHub OAuth App client ID in <strong>Settings → Account &amp; sign-in</strong>.</p>}
+          {/* The GitHub hint is in Settings, where the owner sets it up (M50): on the sign-in page it sent viewers to a panel they cannot see. */}
         </div>
       )}
     </SignInFrame>
