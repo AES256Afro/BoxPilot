@@ -376,11 +376,15 @@ export function replyMessage({ agentName, run, link = null, redact }) {
  */
 export function feedbackIn(content) {
   const text = String(content ?? "").replace(/@\*\*[^*]{1,80}\*\*/g, " ").replace(/\s+/g, " ").trim();
-  const match = /^(\+1|-1|👍|👎|right|correct|good|yes|wrong|incorrect|bad|no)\b[.!]?(?:\s*[:\-,]\s*(.{1,300}))?$/iu.exec(text);
+  // A rating is a rating word alone, or with a note after a colon, a comma or a dash (M48.4): "No, I
+  // meant the USB drive" and "Right, and the backups?" are answers to the agent, not thumbs.
+  // A note follows a thumb after a colon, a comma or a dash; after a word, only a colon or a dash: "Right, and ..." goes on talking.
+  const match = /^(?:(\+1|-1|👍|👎)(?:\s*[:,-]\s*(.{1,300}))?|(right|correct|wrong|incorrect)[.!]?(?:\s*[:-]\s*(.{1,300}))?)$/iu.exec(text);
   if (!match) return null;
-  const word = match[1].toLowerCase();
-  const verdict = ["+1", "👍", "right", "correct", "good", "yes"].includes(word) ? "up" : "down";
-  return { verdict, note: match[2]?.trim() || null };
+  const word = (match[1] ?? match[3]).toLowerCase();
+  const note = match[2] ?? match[4];
+  const verdict = ["+1", "👍", "right", "correct"].includes(word) ? "up" : "down";
+  return { verdict, note: note?.trim() || null };
 }
 
 export const notSetUpMessage = "You are not set up to ask BoxPilot's agents here. The owner can let you ask, as your BoxPilot account, from BoxPilot's Agents page (Team chat).";

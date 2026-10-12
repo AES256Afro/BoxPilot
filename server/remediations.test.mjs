@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseUncleanMounts } from "./ops/storage.mjs";
-import { appsWithoutContainer, backupDestinationToMove, backupsDue, bootPartitionUnclean, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, portConflicts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
+import { appsWithoutContainer, backupDestinationToMove, backupsDue, bootPartitionUnclean, scheduledBackupApps, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, portConflicts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -851,10 +851,28 @@ describe("the boot partition's mark (2026-09-29)", () => {
     expect(bootPartitionUnclean(facts({ bootChecks: { "/dev/nvme0n1p1": { checkedAt: "2026-09-29T23:00:00.000Z", clean: true } } }))).toEqual([]);
     // A check from before the line does not answer it.
     expect(bootPartitionUnclean(facts({ bootChecks: { "/dev/nvme0n1p1": { checkedAt: "2026-09-28T23:00:00.000Z", clean: true } } }))).toHaveLength(1);
+    // M48.4: a check since the line that found more than the mark is remembered: its evidence says what, and the fix is not offered again.
+    const [stuck] = bootPartitionUnclean(facts({ bootChecks: { "/dev/nvme0n1p1": { checkedAt: "2026-09-29T23:00:00.000Z", clean: false, beyond: ["Free cluster summary wrong (129270 vs. really 129260)"] } } }));
+    expect(stuck.evidence.at(-1)).toMatch(/\(found more than the mark: Free cluster summary wrong/);
+    expect(stuck.fixes).toEqual([]);
+    expect(stuck.manual).toMatch(/When the check finds more than the mark/);
   });
 
   it("is the only finding a power cut leaves on the system disks: root's orphan cleanup is not a drive BoxPilot manages", () => {
     const { findings } = detectRemediations(facts());
     expect(findings.map((entry) => entry.id)).toEqual(["boot-partition-mark"]);
+  });
+});
+
+describe("which apps the schedules back up (M48.4)", () => {
+  it("counts app.backup by id or its older subject, app.backup.many by ids, and nothing disabled", () => {
+    expect([...scheduledBackupApps([
+      { operationId: "app.backup", parameters: { id: "jellyfin" }, enabled: true },
+      { operationId: "app.backup", parameters: { subject: "nextcloud" } },
+      { operationId: "app.backup.many", parameters: { ids: ["immich", "vaultwarden"] } },
+      { operationId: "app.backup", parameters: { id: "paused" }, enabled: false },
+      { operationId: "docker.prune", parameters: {} },
+    ])].sort()).toEqual(["immich", "jellyfin", "nextcloud", "vaultwarden"]);
+    expect([...scheduledBackupApps(null)]).toEqual([]);
   });
 });

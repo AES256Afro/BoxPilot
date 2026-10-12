@@ -1260,7 +1260,8 @@ export function createAgentService({
       if (!request || detectInjection(request).suspected) return null;
       const kept = store.addExample({
         agentId: run.agentId, source: run.id, signal, request, intent,
-        plan: plan.slice(0, 6).map((entry) => ({ step: clip(String(entry?.step ?? ""), 200), tool: typeof entry?.tool === "string" ? entry.tool : null })),
+        // Eight, as a plan holds (M47.2): six cut a seven-read survey short and made a false preference pair (M48.4).
+        plan: plan.slice(0, 8).map((entry) => ({ step: clip(String(entry?.step ?? ""), 200), tool: typeof entry?.tool === "string" ? entry.tool : null })),
         answer: run.answer ? clip(redact(String(run.answer)), 600) : null,
         route: run.usage?.route ? "claude" : "local", model: run.usage?.model ?? run.flags?.model ?? null, readRole: run.readRole,
       });
@@ -4439,6 +4440,9 @@ export function createAgentService({
     else if (expected.includes) {
       const missing = expected.includes.filter((text) => !answer.toLowerCase().includes(text.toLowerCase()));
       passed = missing.length === 0; found = passed ? "Every expected word is there" : `Missing: ${missing.join(", ")}`;
+    } else if (expected.fact && (expected.value === null || expected.value === undefined)) {
+      // M48.4: a fact this server could not read says nothing of the answer; left out of the score, not counted wrong.
+      passed = null; skipped = true; found = "Not graded: the fact could not be read on this server when the evaluation started";
     } else if (expected.fact) {
       ({ passed, found } = gradeFact(expected.fact, expected.value, answer));
     }
@@ -4726,7 +4730,6 @@ export function createAgentService({
         "backup-auditor": "Use apps.list for the apps installed, then backups.status and jobs.recent.",
         "update-planner": "Use apps.list for apps with an update available, and alerts.active for a reboot required or news of a BoxPilot release.",
       };
-      const storageStepOne = "Use storage.health for the drives, the filesystems and their health, and alerts.active for storage alerts.";
       let given = 0;
       let seeded = 0;
       for (const agent of store.listAgents()) {
@@ -4742,9 +4745,14 @@ export function createAgentService({
         if (auditorRule && !rules.includes(auditorRule) && rules.includes(finding) && rules.length < 12) rules.splice(rules.indexOf(finding) + 1, 0, auditorRule);
         let steps = [...(agent.spec.prompt?.steps ?? [])];
         if (oldSteps[agent.template] && steps.includes(oldSteps[agent.template])) steps = steps.map((step) => (step === oldSteps[agent.template] ? template.spec.prompt.steps[0] : step));
-        if (agent.template === "storage-watch" && steps[0] === storageStepOne && steps.length === 3 && !steps.some((step) => step.includes("space.reclaimable"))) steps = template.spec.prompt.steps;
+        // Only a Storage Watch still on the template's old steps, word for word, gets the new one (M48.4: an edited step two or three is the maker's).
+        const oldStorageSteps = template.spec.prompt.steps.filter((step) => !step.includes("space.reclaimable"));
+        if (agent.template === "storage-watch" && steps.join("\n") === oldStorageSteps.join("\n")) steps = template.spec.prompt.steps;
         const budget = { ...agent.spec.budget };
-        if (["backup-auditor", "storage-watch", "update-planner"].includes(agent.template)) for (const field of ["modelSecondsPerDay", "stepsPerRun", "tokensPerRun", "runSeconds"]) if ((budget[field] ?? 0) < template.spec.budget[field]) budget[field] = template.spec.budget[field];
+        // Only a budget still at the old template's default rises to the new one: a budget the owner cut on purpose stays (M48.4).
+        const formerBudgets = { "backup-auditor": { modelSecondsPerDay: 1_200, stepsPerRun: 5, tokensPerRun: 8_000, runSeconds: 400 }, "storage-watch": { modelSecondsPerDay: 1_200, stepsPerRun: 6, tokensPerRun: 8_000, runSeconds: 480 }, "update-planner": { modelSecondsPerDay: 1_200, stepsPerRun: 8, tokensPerRun: 12_000, runSeconds: 900 } };
+        const former = formerBudgets[agent.template];
+        if (former) for (const field of Object.keys(former)) if (budget[field] === former[field] && budget[field] < template.spec.budget[field]) budget[field] = template.spec.budget[field];
         const differs = added.length > 0 || rules.some((rule, index) => rule !== (agent.spec.prompt?.rules ?? [])[index]) || steps.join("\n") !== (agent.spec.prompt?.steps ?? []).join("\n") || Object.keys(budget).some((field) => budget[field] !== agent.spec.budget?.[field]);
         if (differs) {
           let spec;

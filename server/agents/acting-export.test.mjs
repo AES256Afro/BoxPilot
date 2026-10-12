@@ -61,6 +61,9 @@ describe("the rebuilt conversation", () => {
     // A prompt cut short is not the prompt: rebuilt instead.
     const cut = actingConversation({ spec: keeperSpec, run, steps: [...steps, { seq: 2.5, kind: "prompt", name: "task", state: "done", input: null, output: shown.slice(0, 40), flags: { truncated: true } }] });
     expect(cut.kept).toBe(false);
+    // A finding offered by meaning was added after the prompt step (M48.4): the record is rebuilt, not kept.
+    const later = actingConversation({ spec: keeperSpec, run, steps: [...steps, { seq: 2.5, kind: "prompt", name: "task", state: "done", input: null, output: shown, flags: {} }, { seq: 4.5, kind: "finding", name: "Steve", state: "done", input: { noteId: "n1", by: "meaning" }, output: "", flags: {} }] });
+    expect(later.kept).toBe(false);
     expect(actingConversation({ spec: keeperSpec, run, steps }).kept).toBe(false);
     const records = actingRecords({ agent: { name: "Server Keeper", spec: keeperSpec }, runs: [{ run, steps: [...steps, { seq: 2.5, kind: "prompt", name: "task", state: "done", input: null, output: shown, flags: {} }] }, { run: { ...run, id: "run-2" }, steps }], names: { hosts: ["homebox"] } });
     expect(records[0].meta.context).toMatch(/^kept: /);
@@ -73,7 +76,8 @@ describe("the rebuilt conversation", () => {
     const refused = steps.map((step) => (step.seq === 7 ? { ...step, state: "refused", output: "This agent may not look at Pi-hole." } : step));
     const built = actingConversation({ spec: keeperSpec, run, steps: refused });
     expect(built.toolOutputs).toBe(1);
-    expect(built.messages[4]).toEqual({ role: "tool", tool_call_id: "call_5_1", content: "This agent may not look at Pi-hole." });
+    // Boxed as the model saw it (M48.4), not bare.
+    expect(built.messages[4]).toEqual({ role: "tool", tool_call_id: "call_5_1", content: "<tool_output tool=\"pihole_stats\" trust=\"untrusted\">\nThe tool did not run: This agent may not look at Pi-hole.\n</tool_output>" });
     // An output with no call, a call with no output, a model turn that failed: none.
     expect(actingConversation({ spec: keeperSpec, run, steps: steps.filter((step) => step.seq !== 5) })).toBeNull();
     expect(actingConversation({ spec: keeperSpec, run, steps: steps.filter((step) => step.seq !== 7) })).toBeNull();

@@ -151,7 +151,7 @@ export const toolCatalog = Object.freeze([
     id: "apps.usage", title: "Resource use", category: "boxpilot", role: "viewer", cost: "moderate",
     description: "How hard the machine is working now - processor, load, memory, swap - and each running app's share of a processor core and its memory, busiest first. server.facts has the whole machine only.",
     use: "which apps use the most processor or memory, why the server is slow, swap in use",
-    askedFor: [/\b(resource (use|usage)|(using|uses|eating|eats|taking|takes) the most|most (cpu|memory|ram|processor)|hog\w*|slow(ness|ly)?|sluggish|load average|swap(ping)?|busiest|heaviest)\b/i],
+    askedFor: [/\b(resource (use|usage)|(using|uses|eating|eats|taking|takes) the most|most (cpu|memory|ram|processor)|working the (processor|cpu|machine)|hardest|hog\w*|slow(ness|ly)?|sluggish|load average|swap(ping)?|busiest|heaviest)\b/i],
     params: {},
   },
   {
@@ -165,7 +165,7 @@ export const toolCatalog = Object.freeze([
     id: "space.reclaimable", title: "Reclaimable space", category: "boxpilot", role: "operator", cost: "moderate",
     description: "What takes up room that nothing needs - previous BoxPilot releases, images no app uses, old backup archives, unfinished restores, Docker's leftovers - and what the Storage page's clean-up would free, with Docker's own disk use (images, containers, volumes, build cache) and what it could reclaim. Reads only: the clean-up is a card.",
     use: "what could be cleaned up or freed, what takes the space, Docker's disk use",
-    askedFor: [/\b(reclaim\w*|free up|freed?|clean(ed|ing)?[- ]?up|cleanup|prune|dangling|unused images?|taking up (the )?(space|room)|takes up (the )?(space|room)|docker('s)? disk|build cache)\b/i, /\bdocker\b[^.?!]{0,20}\b(disk|using|space)\b|\bdisk\b[^.?!]{0,12}\bdocker\b/i],
+    askedFor: [/\b(reclaim\w*|free up|freed|clean(ed|ing)?[- ]?up|cleanup|prune|dangling|unused images?|taking up (the )?(space|room)|takes up (the )?(space|room)|docker('s)? disk|build cache)\b/i, /\bdocker\b[^.?!]{0,20}\b(disk|using|space)\b|\bdisk\b[^.?!]{0,12}\bdocker\b/i],
     params: {},
   },
   {
