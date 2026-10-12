@@ -3378,7 +3378,7 @@ things; the performance sweep found that most of the box's cost is child process
 timers, not SQLite; the security sweep is run as three checklists (routes and CSRF, inputs that
 reach the filesystem and processes, outbound requests and secrets).
 
-- ✅ **M50.1 Quality of life, the second thirty** (unreleased, `feat/m50-sweeps`). A stray click
+- ✅ **M50.1 Quality of life, the second thirty** (shipped in 1.184.0). A stray click
   outside a sheet with a form in it threw the typing away, and outside the approval dialog it
   withdrew the staged job with the password typed: the backdrop closes only a sheet with nothing
   typed, and the approval dialog only on Escape or Close. The top bar said "Tiered approvals",
@@ -3398,7 +3398,7 @@ reach the filesystem and processes, outbound requests and secrets).
   cannot see. Changing a password asks for it twice. The passkeys panel and the watch list say
   when their read failed, with Try again; the tailnet's empty state says what to do; "Copied"
   clears after two seconds. System's "Updates" tab, beside the Updates page, is "BoxPilot update".
-- ✅ **M50.2 Fewer processes on the timers** (unreleased, `feat/m50-perf`; the performance sweep's
+- ✅ **M50.2 Fewer processes on the timers** (shipped in 1.184.0; the performance sweep's
   first six). Most of the box's cost was child processes spawned on timers, not SQLite. Home read
   the whole setup answer every five minutes for one boolean, about thirty root processes
   (apt-cache, dpkg-query, virsh): `/api/v1/setup?view=first-run` asks the helper for the apps alone.
@@ -3427,7 +3427,7 @@ reach the filesystem and processes, outbound requests and secrets).
   strings (it is held ten seconds, so this is small), Home's per-VM virsh calls, the agent vectors
   loaded whole per search, two job-event streams a tab, the 200 full jobs Ops fetches, and failed
   job logs kept in RAM until a reboot.
-- ✅ **M50.3 Security, the three checklists** (unreleased, `feat/m50-security`). What the three
+- ✅ **M50.3 Security, the three checklists** (shipped in 1.184.0). What the three
   read-only checklists found, fixed where a fix fits in a day. *Outbound.* http.request, the
   heartbeat and notifications refused the link-local metadata range by matching the hostname's
   text, so an IPv4-mapped literal, a name resolving there and a redirect there got through (the
@@ -3477,7 +3477,7 @@ reach the filesystem and processes, outbound requests and secrets).
   (notification test, weekly report, push test, share listing) have no limit; a VM upload has no
   per-account concurrency limit; `/health` says the version to anyone (the upgrade script and the
   install smoke test read it, so it stays).
-- ✅ **M50.4 Limits where there were none** (unreleased, `feat/m50-security`; the audit's leftovers
+- ✅ **M50.4 Limits where there were none** (shipped in 1.184.0; the audit's leftovers
   that fit the same day). `rate-limit.mjs`, a sliding window per key with a bounded number of keys,
   and `rateLimited`, the middleware that answers 429 with Retry-After. The set-up call takes twenty
   a minute per address; the sign-in clients' token endpoint thirty and userinfo a hundred and
