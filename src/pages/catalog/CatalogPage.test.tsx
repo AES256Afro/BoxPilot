@@ -172,7 +172,9 @@ describe("App catalog: the page", () => {
     // Not installed, so the page behind it is on the catalog.
     expect(screen.getByRole("tab", { name: /Catalog/ }).getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(sheet, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // The sheet closes from a listener on the document, which the sheet's effect attaches after it is
+    // drawn: under the full suite's load it was not always attached by the time Escape was pressed.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(new URLSearchParams(window.location.search).get("app")).toBeNull();
     expect(new URLSearchParams(window.location.search).get("view")).toBe("catalog");
   });

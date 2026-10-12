@@ -50,6 +50,10 @@ wait_for() { # wait_for <seconds> <command...>
 }
 requests() { [ -f "$LOG" ] && wc -l <"$LOG" | tr -d ' ' || echo 0; }
 at_least() { [ "$(requests)" -ge "$1" ]; }
+# Whether no run of the unit is going. The timer may have started one a moment ago, which connected
+# while the switch was still up: `systemctl start` then joins that run instead of making its own,
+# and the status file is that run's. Seen once in CI (2026-10-12): "not taken: null".
+idle() { case "$(systemctl is-active "$SERVICE" 2>&1)" in activating|active|deactivating|reloading) return 1 ;; *) return 0 ;; esac; }
 show() { systemctl show "$1" -p "$2" --value; }
 status_field() { "$NODE" -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(s[process.argv[2]]))' "$STATUS" "$1"; }
 request_field() { "$NODE" -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n");const r=JSON.parse(l[Number(process.argv[2])]);process.stdout.write(String(Array.isArray(r[process.argv[3]])?r[process.argv[3]].join(","):r[process.argv[3]]))' "$LOG" "$1" "$2"; }
@@ -113,6 +117,7 @@ check "it keeps the one-minute rhythm, not a loop ($(requests) in all)" [ "$(req
 
 section "4. A switch that is down"
 kill "$SWITCH_PID" 2>/dev/null; wait "$SWITCH_PID" 2>/dev/null; SWITCH_PID=""
+check "no run the timer started is still going" wait_for 15 idle
 STARTED="$(date +%s%N)"
 systemctl start "$SERVICE"
 TOOK=$((($(date +%s%N) - STARTED) / 1000000))
@@ -124,6 +129,7 @@ check "nothing is left failed" sh -c "! systemctl is-failed --quiet '$SERVICE'"
 
 section "5. No address saved"
 "$NODE" --input-type=module -e "const m = await import('/opt/boxpilot/server/credentials.mjs'); await m.createCredentialStore({ file: '${STORE}' }).remove({ name: 'heartbeat-url' });"
+check "no run the timer started is still going" wait_for 15 idle
 systemctl start "$SERVICE"
 check "it says there is no address ($(status_field error))" [ "$(status_field error)" = "no heartbeat address is saved" ]
 "$NODE" --input-type=module -e "const m = await import('/opt/boxpilot/server/credentials.mjs'); await m.createCredentialStore({ file: '${STORE}' }).set({ name: 'heartbeat-url', value: process.argv[1] });" "$URL"
