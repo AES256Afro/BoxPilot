@@ -40,11 +40,17 @@ function coolness(usage: UsageState): { status: Status; label: string } {
   return { status: "good", label: "Running cool" };
 }
 
+/** About how much more memory a larger context takes while the model is loaded: a 4B model's cache is about 150 KB a token. */
+function contextMemory(from: number, to: number): string {
+  const bytes = Math.max(0, to - from) * 150_000;
+  return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
+}
+
 export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, refreshKey }: UsageProps) {
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [runtime, setRuntime] = useState<RuntimeState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; quietStart: string; quietEnd: string; notify: boolean; runsPerDay: string; modelSecondsPerDay: string; embeddings: boolean; waiting: string; background: string; compareNightly: boolean } | null>(null);
+  const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; contextTokens: string; quietStart: string; quietEnd: string; notify: boolean; runsPerDay: string; modelSecondsPerDay: string; embeddings: boolean; waiting: string; background: string; compareNightly: boolean } | null>(null);
   const [confirm, setConfirm] = useState<null | "settings" | "off">(null);
   const [saved, setSaved] = useState<string | null>(null);
   const owner = role === "owner";
@@ -68,7 +74,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   useEffect(() => {
     if (!runtime || draft) return;
     setDraft({
-      driver: runtime.settings.driver, endpoint: runtime.settings.endpoint ?? "", idleStopMinutes: String(runtime.settings.idleStopMinutes ?? 60), quietStart: module.quietHours.start, quietEnd: module.quietHours.end, notify: module.notify,
+      driver: runtime.settings.driver, endpoint: runtime.settings.endpoint ?? "", idleStopMinutes: String(runtime.settings.idleStopMinutes ?? 60), contextTokens: String(runtime.settings.contextTokens ?? 8192), quietStart: module.quietHours.start, quietEnd: module.quietHours.end, notify: module.notify,
       runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 10_800), embeddings: module.embeddings !== false, compareNightly: module.evaluation?.compareNightly === true,
       waiting: String(module.cores?.waiting ?? 8), background: String(module.cores?.background ?? 4),
     });
@@ -138,7 +144,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
 
   const saveSettings = async (password: string) => {
     if (!draft) return;
-    const runtimeChange = { driver: draft.driver, idleStopMinutes: Number.parseInt(draft.idleStopMinutes, 10), ...(draft.driver === "external" ? { endpoint: draft.endpoint.trim() } : {}) };
+    const runtimeChange = { driver: draft.driver, idleStopMinutes: Number.parseInt(draft.idleStopMinutes, 10), contextTokens: Number.parseInt(draft.contextTokens, 10), ...(draft.driver === "external" ? { endpoint: draft.endpoint.trim() } : {}) };
     await agentsApi.saveSettings(csrfToken, {
       password, quietHours: { start: draft.quietStart, end: draft.quietEnd }, notify: draft.notify, runtime: runtimeChange, embeddings: draft.embeddings, evaluation: { compareNightly: draft.compareNightly },
       budget: { runsPerDay: Number.parseInt(draft.runsPerDay, 10), modelSecondsPerDay: Number.parseInt(draft.modelSecondsPerDay, 10) },
@@ -259,6 +265,11 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
             <Button variant="primary" onClick={() => setConfirm("settings")}>Save settings</Button>
           </div>}>
           {saved && <Notice tone="success" live onDismiss={() => setSaved(null)}>{saved}</Notice>}
+          {(usage.context?.limitedRuns ?? 0) > 0 && (
+            <Notice tone="warning" title={`${usage.context!.limitedRuns} ${usage.context!.limitedRuns === 1 ? "run" : "runs"} this week answered early because what ${usage.context!.limitedRuns === 1 ? "it" : "they"} read filled the model's context`}>
+              The context is {Number(usage.context!.tokens ?? 0).toLocaleString()} tokens. A survey that reads seven tools needs more. A larger context is set below; the model takes about {contextMemory(usage.context!.tokens ?? 0, 16384)} more memory at 16,384 while it is loaded, and the memory tile above says what is free.
+            </Notice>
+          )}
           <div className="agents-form__grid">
             <Field label="What runs the model">
               <Select value={draft.driver} onValueChange={(value) => setDraft({ ...draft, driver: value as RuntimeDriver })}
@@ -266,6 +277,12 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
             </Field>
             {draft.driver === "external" && <Field label="Its address" hint="On this machine only"><TextInput mono value={draft.endpoint} placeholder="http://127.0.0.1:8080" onValueChange={(value) => setDraft({ ...draft, endpoint: value })} /></Field>}
             <Field label="Stop an idle model server after" hint="minutes, 5 to 720"><TextInput mono type="number" min={5} max={720} value={draft.idleStopMinutes} onValueChange={(value) => setDraft({ ...draft, idleStopMinutes: value })} /></Field>
+            {draft.driver !== "external" && (
+              <Field label="Model context" hint="what one run can read at once; more context, more memory while the model is loaded">
+                <Select value={draft.contextTokens} onValueChange={(value) => setDraft({ ...draft, contextTokens: value })}
+                  options={[...new Set([8192, 16384, 32768, Number.parseInt(draft.contextTokens, 10) || 8192])].sort((a, b) => a - b).map((tokens) => ({ value: String(tokens), label: `${tokens.toLocaleString()} tokens${tokens === 8192 ? " (the default)" : ` (about ${contextMemory(8192, tokens)} more memory)`}` }))} />
+              </Field>
+            )}
             <Field label="Quiet hours from"><TextInput mono type="time" value={draft.quietStart} onValueChange={(value) => setDraft({ ...draft, quietStart: value })} /></Field>
             <Field label="Until"><TextInput mono type="time" value={draft.quietEnd} onValueChange={(value) => setDraft({ ...draft, quietEnd: value })} /></Field>
           </div>

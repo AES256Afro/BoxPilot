@@ -2749,6 +2749,7 @@ export function createAgentService({
     });
     if (!finished) refuse(409, "The run has already finished", "run_finished");
     store.markAgentRan(run.agentId, finished.finishedAt);
+    if (run.kind === "schedule" && limitReached) followTheWork(run, { limit: limitKind, degraded: degradedReason });
     audit("agents.run.finished", {
       actorId: run.requestedBy, subjectId: run.id,
       details: { agentId: run.agentId, version: run.version, kind: run.kind, outcome: finished.state, readRole: run.readRole, toolCalls: usage.toolCalls, modelMs: usage.modelMs, loadMs: usage.loadMs, tokens: usage.promptTokens + usage.completionTokens, durationMs: usage.wallMs, injectionSuspected: Boolean(finished.flags?.injection), degraded: degradedReason, parentRunId: run.parentRunId, clarify: Boolean(clarify), runsSaved, findingsCited },
@@ -3888,6 +3889,8 @@ export function createAgentService({
       // M44: this week, the runs a supervisor did not start because a specialist's finding answered,
       // and the answers that cited another agent's finding.
       findings: { days: 7, ...store.findingsUseSince(new Date(now().getTime() - 7 * 86_400_000).toISOString()) },
+      // M48.6: the local model's context, and how many runs this week answered early because what they read filled it.
+      context: { tokens: runtimeSettings().contextTokens ?? null, days: 7, limitedRuns: store.countRunsWithLimit("context", new Date(now().getTime() - 7 * 86_400_000).toISOString()) },
       queue: { queued, running, dropped: droppedRuns },
       module: presentModule(person),
     };
@@ -4360,13 +4363,17 @@ export function createAgentService({
    * asked as them, now; the nightly one as the person who made the agent, in quiet hours, as
    * background work nobody waits on.
    */
-  async function startEvaluation(agent, questions, { person = null, reader = null, route = null, pairId = null } = {}) {
+  async function startEvaluation(agent, questions, { person = null, reader = null, route = null, pairId = null, notAsked = [] } = {}) {
     const asWho = person ?? reader;
     const facts = await resolveFacts(asWho, { wanted: new Set(questions.map((question) => question.expect?.fact).filter(Boolean)) });
-    const results = questions.map((question) => ({ questionId: question.id, question: question.question, expected: question.expect.fact ? { fact: question.expect.fact, value: facts[question.expect.fact] ?? null } : { includes: question.expect.includes }, runId: null, passed: null, found: null }));
+    const results = [
+      ...questions.map((question) => ({ questionId: question.id, question: question.question, expected: question.expect.fact ? { fact: question.expect.fact, value: facts[question.expect.fact] ?? null } : { includes: question.expect.includes }, runId: null, passed: null, found: null })),
+      // M48.6: the questions tonight's model time does not hold, said so and left out of the score.
+      ...notAsked.map((question) => ({ questionId: question.id, question: question.question, expected: question.expect.fact ? { fact: question.expect.fact, value: null } : { includes: question.expect.includes }, runId: null, passed: null, skipped: true, found: `Not asked tonight: the night's model time holds ${questions.length} of ${questions.length + notAsked.length} questions` })),
+    ];
     const model = route === "claude" ? cloud?.settings().model ?? "claude" : embedModelName();
     const evaluation = store.createEvalRun({ agentId: agent.id, version: agent.version, results, createdBy: person?.id ?? null, model, route, pairId });
-    for (const result of results) {
+    for (const result of results.filter((entry) => !entry.skipped)) {
       const run = store.enqueueRun({
         agentId: agent.id, version: agent.version, kind: "eval", question: result.question, requestedBy: person?.id ?? null, readRole: asWho.role, readAs: asWho.id,
         trigger: { ...(person ? {} : { title: "Nightly evaluation", quietHours: true }), ...(route ? { route } : {}) },
@@ -4384,6 +4391,45 @@ export function createAgentService({
 
   /** The model time the nightly evaluation leaves for people: half of the agent's day, within every agent's day. */
   const nightlyKeep = (agent) => Math.min(agent.spec.budget.modelSecondsPerDay * 1000, moduleBudget().modelSecondsPerDay * 1000) / 2;
+
+  /**
+   * Budgets that follow the work (M48.6): a scheduled run that ran out of tokens, steps or time, as
+   * the one before it did, has a budget its work has outgrown. The field rises to its template's
+   * when lower, once, with a version note; a budget already at or above the template's is left to
+   * the owner (the Build tab says what to raise). The owner's Steve ran out of tokens every morning
+   * on a budget from M43 the template had long outgrown.
+   */
+  function followTheWork(run, { limit, degraded }) {
+    try {
+      const agent = store.getAgent(run.agentId);
+      const template = agent?.template ? templateById(agent.template) : null;
+      if (!agent || !template || agentPaused(agent)) return;
+      const field = limit === "tokens" ? "tokensPerRun" : limit === "steps" || limit === "toolCalls" ? "stepsPerRun" : degraded === "timeout" ? "runSeconds" : null;
+      if (!field) return;
+      const previous = store.listRuns({ agentId: agent.id, limit: 12 }).filter((entry) => entry.kind === "schedule" && entry.id !== run.id && finishedStates.has(entry.state))[0];
+      const sameWall = previous && (previous.flags?.limit === limit || (degraded === "timeout" && previous.flags?.degraded === "timeout"));
+      if (!sameWall) return;
+      const current = agent.spec.budget?.[field] ?? 0;
+      const target = template.spec.budget?.[field] ?? 0;
+      if (!(current < target)) return;
+      let spec;
+      try { spec = normalizeSpec({ ...agent.spec, budget: { ...agent.spec.budget, [field]: target }, sharing: sharingFor(agent) }); } catch { return; }
+      const words = { tokensPerRun: "tokens a run", stepsPerRun: "steps a run", runSeconds: "seconds a run" }[field];
+      const version = store.addVersion(agent.id, { spec, note: `BoxPilot raised its ${words} from ${current} to ${target}, the template's: its last two scheduled runs ran out`, createdBy: null, nextRunAt: agent.nextRunAt ?? nextRunFor(spec) });
+      if (version) audit("agents.updated", { subjectId: agent.id, details: { version, fields: [`budget.${field}`], by: "boxpilot", reason: "limit" } });
+    } catch { /* a budget is a help, never a reason for a finish to fail */ }
+  }
+
+  /** What one evaluation question takes this agent here (M48.6): the median of its recent completed ones, never below the estimate. */
+  function evalQuestionMs(agent) {
+    const floor = limits.evalSecondsPerQuestion * 1000;
+    const since = now().getTime() - 14 * 86_400_000;
+    const taken = store.listRuns({ agentId: agent.id, limit: 60 })
+      .filter((run) => run.kind === "eval" && run.state === "completed" && run.startedAt && Date.parse(run.startedAt) >= since && Number.isFinite(run.usage?.modelMs) && run.usage.modelMs > 0)
+      .map((run) => run.usage.modelMs).sort((a, b) => a - b);
+    if (taken.length < 3) return floor;
+    return Math.max(floor, taken[Math.floor(taken.length / 2)]);
+  }
 
   /**
    * What one of the nightly evaluation's runs may use: what the agent has left today above the half
@@ -4423,10 +4469,19 @@ export function createAgentService({
       if (!questions.length) continue;
       const creator = agent.createdBy ? state.findOwnerById?.(agent.createdBy) : null;
       if (!["owner", "operator"].includes(creator?.role)) continue;
-      const needed = questions.length * limits.evalSecondsPerQuestion * 1000;
+      // What a question takes this agent on this server (M48.6): the median of its recent evaluation
+      // runs, never less than the estimate; the owner's Keeper took 135 s where 120 was assumed.
+      const perQuestionMs = evalQuestionMs(agent);
       const own = budgetOf(agent);
       const all = moduleBudget();
-      if (own.refusal || own.modelMsLeft - needed < nightlyKeep(agent) || all.modelMsLeft - needed < all.modelSecondsPerDay * 500 || all.runsPerDay - all.runsUsed - questions.length < all.runsPerDay / 2) {
+      // How many questions tonight holds, above the half kept for people and within every agent's share.
+      const fit = Math.min(
+        Math.floor((own.modelMsLeft - nightlyKeep(agent)) / perQuestionMs),
+        Math.floor((all.modelMsLeft - all.modelSecondsPerDay * 500) / perQuestionMs),
+        Math.floor(all.runsPerDay - all.runsUsed - all.runsPerDay / 2),
+      );
+      const needed = questions.length * perQuestionMs;
+      if (own.refusal || fit < 1) {
         // Said once a night, not every minute of quiet hours.
         const night = startOfLocalDay(now()).toISOString();
         if (nightlySkipped.get(agent.id) !== night) { nightlySkipped.set(agent.id, night); audit("agents.evaluation.skipped", { subjectId: agent.id, details: { reason: "budget", questions: questions.length } }); }
@@ -4434,17 +4489,20 @@ export function createAgentService({
       }
       // M45.7: both routes, when the owner asked for it and Claude may take the maker's questions now.
       const compare = settings.evaluation?.compareNightly === true && claudeAllowed(agent.spec, { readRole: creator.role }).ok;
-      if (queueCounts().queued + questions.length * (compare ? 2 : 1) > limits.queueMax) return null;
+      // Only what fits is asked (M48.6): the rest are marked not asked tonight, instead of queued to be refused one by one.
+      const asked = fit < questions.length && needed > 0 ? questions.slice(0, fit) : questions;
+      const notAsked = questions.slice(asked.length);
+      if (queueCounts().queued + asked.length * (compare ? 2 : 1) > limits.queueMax) return null;
       const reader = { id: creator.id, role: creator.role };
       if (compare) {
         const pairId = randomUUID();
-        const evaluation = await startEvaluation(agent, questions, { reader, route: "local", pairId });
-        await startEvaluation(agent, questions, { reader, route: "claude", pairId });
-        audit("agents.evaluation.started", { subjectId: agent.id, details: { questions: questions.length, nightly: true, compare: true } });
+        const evaluation = await startEvaluation(agent, asked, { reader, route: "local", pairId, notAsked });
+        await startEvaluation(agent, asked, { reader, route: "claude", pairId, notAsked });
+        audit("agents.evaluation.started", { subjectId: agent.id, details: { questions: asked.length, notAsked: notAsked.length, nightly: true, compare: true } });
         return evaluation;
       }
-      const evaluation = await startEvaluation(agent, questions, { reader });
-      audit("agents.evaluation.started", { subjectId: agent.id, details: { questions: questions.length, nightly: true } });
+      const evaluation = await startEvaluation(agent, asked, { reader, notAsked });
+      audit("agents.evaluation.started", { subjectId: agent.id, details: { questions: asked.length, notAsked: notAsked.length, nightly: true } });
       return evaluation;
     }
     return null;

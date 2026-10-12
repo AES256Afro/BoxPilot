@@ -723,6 +723,8 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   }
   /** How many of a run's steps answered a call so far (M48.5): the T number the next output gets, without the trace. */
   const countOutputs = (runId, kinds) => Number(prepare(`SELECT COUNT(*) AS count FROM agent_run_steps WHERE run_id = ? AND state = 'done' AND kind IN (${kinds.map(() => "?").join(", ")})`).get(runId, ...kinds).count);
+  /** How many runs since `since` ended at this limit (M48.6): what the Usage tab says about the context. */
+  const countRunsWithLimit = (limit, since) => Number(prepare("SELECT COUNT(*) AS count FROM agent_runs WHERE started_at >= ? AND json_extract(flags_json, '$.limit') = ?").get(since, limit).count);
   /** A stamp that changes when the book or the thumbs change (M48.5): what a cached count is keyed on. */
   const trainingStamp = (agentId) => {
     const examples = prepare("SELECT COUNT(*) AS count, COALESCE(MAX(rowid), 0) AS last FROM agent_examples WHERE agent_id = ?").get(agentId);
@@ -1040,7 +1042,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     addExample, listExamples, listAllExamples, countExamples, getExample, deleteExample, deleteExampleOfRun,
     setFeedback, getFeedback, listFeedback,
     createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun, setProposalStepJob, listOpenProposalsForJob,
-    latestAnsweredPost, vectorKeys, countOutputs, trainingStamp,
+    latestAnsweredPost, vectorKeys, countOutputs, trainingStamp, countRunsWithLimit,
     addDocument, upsertDocument, listDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
     getDocumentMedia, listUndescribed, describeDocument, countImageDocuments,
     queueChatPost, listChatPosts, getChatPost, markChatPost, chatPostsSince, countChatPosts, pruneChatPosts, dropQueuedChatPosts,
