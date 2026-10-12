@@ -125,13 +125,13 @@ const helper = {
 
 // ---- requests ----
 
-async function call(method, url, session, { body } = {}) {
+async function call(method, url, session, { body, csrf = true } = {}) {
   helperCalls.length = 0;
   const response = await fetch(`${base}${url}`, {
     method,
     headers: {
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-      ...(session ? { Cookie: session.cookie, "X-BoxPilot-CSRF": session.csrfToken } : {}),
+      ...(session ? { Cookie: session.cookie, ...(csrf ? { "X-BoxPilot-CSRF": session.csrfToken } : {}) } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -401,7 +401,7 @@ const dataRoutes = {
       expect(body.lastMeasured === null, role).toBe(role === "viewer");
     },
   }],
-  "GET /api/v1/storage/shares/discover": [open],
+  "GET /api/v1/storage/shares/discover": [operatorUp],
   "GET /api/v1/storage/nfs": [open],
   "GET /api/v1/storage/samba": [{
     ...open,
@@ -425,7 +425,7 @@ const dataRoutes = {
       expect(live.killSwitchDrill, role).toMatchObject({ held: true, by: who });
     },
   }],
-  "GET /api/v1/ssh-keys/github/:user": [{ viewer: 400, operator: 400, owner: 400, params: () => ({ user: "-not-a-user-" }) }],
+  "GET /api/v1/ssh-keys/github/:user": [{ viewer: 403, operator: 400, owner: 400, params: () => ({ user: "-not-a-user-" }) }],
   "GET /api/v1/remediations": [{
     ...open,
     check: ({ role, body, calls }) => {
@@ -600,6 +600,7 @@ beforeAll(async () => {
   routers.createOperationsRouter = createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth });
   routers.createJobsRouter = createJobsRouter({ state, jobs, scheduler, flows, autoReconnect: createAutoReconnect({ store: state, flows }), helper, jobLogReader: { read: async (_id, offset) => ({ text: "", offset, exists: false }) }, auth, streamBudget: createStreamBudget({ perAccount: 1_000, total: 1_000 }) });
   routers.createVirtualizationRouter = createVirtualizationRouter({
+    auth,
     libvirt, libvirtFoundation: { inspect: async () => ({ connectionReady: true }) }, vmPlanner: { getOptions: async () => ({}) }, vmMedia: { inspect: async () => ({ media: [] }) }, vmCreation: { preview: async () => ({ ok: false, errors: [] }) },
     vmExports: createVmExportService({ store: state, libvirt, helper }), vmProtection: createVmProtectionService({ store: state, helper }), vmRetention: createVmRetentionService({ store: state, helper }), vmRecoveries: createVmRecoveryService({ store: state, helper }), audit,
   });
@@ -825,6 +826,14 @@ describe("changes", () => {
         expect((await call(method, variant.url, sessions.viewer, { body: {} })).status, `viewer ${method} ${variant.url}`).toBe(403);
         if (ownerOnlyChange.test(template)) expect((await call(method, variant.url, sessions.operator, { body: {} })).status, `operator ${method} ${variant.url}`).toBe(403);
       }
+    }
+  });
+
+  it("refuses every change, question and ask without the CSRF token, to the owner as to anyone (M50)", async () => {
+    for (const route of [...changeRoutes, ...questionRoutes, ...agentAskRoutes, ...agentOwnRoutes]) {
+      const [method, template] = route.split(" ");
+      const variant = variantsOf(template)[0];
+      expect((await call(method, variant.url, sessions.owner, { body: {}, csrf: false })).status, `${method} ${variant.url} without CSRF`).toBe(403);
     }
   });
 

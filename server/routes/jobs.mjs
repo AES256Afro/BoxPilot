@@ -128,7 +128,17 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
 
   router.post("/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
     try {
-      const approval = { password: typeof request.body?.password === "string" ? request.body.password : null, confirmText: typeof request.body?.confirmText === "string" ? request.body.confirmText : null, session: request.boxpilotSession };
+      // The password is checked here, through the same throttle, caller key, account ceiling and
+      // audit row as a sign-in (M50); the service kept its own per-account count and wrote no audit row.
+      const password = typeof request.body?.password === "string" ? request.body.password : null;
+      let passwordVerified = false;
+      if (password !== null && typeof auth.checkPassword === "function") {
+        const verdict = await auth.checkPassword(request, state.findOwnerById?.(request.boxpilotSession.owner.id) ?? null, password);
+        if (verdict.blocked) return auth.rejectThrottled(response, verdict);
+        if (!verdict.ok) return response.status(409).json({ error: "Wrong password", code: "job_approval_failed" });
+        passwordVerified = true;
+      }
+      const approval = { password, passwordVerified, confirmText: typeof request.body?.confirmText === "string" ? request.body.confirmText : null, session: request.boxpilotSession };
       // Every op: job runs in the background; approval returns as soon as execution starts.
       const job = await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, approval);
       const session = await auth.requestSession(request);
@@ -144,7 +154,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
   router.post("/jobs/:id/more-time", auth.requireCsrf, async (request, response) => {
     try {
       const owner = request.boxpilotSession.owner;
-      const job = await jobs.retryWithMoreTime(request.params.id, owner.id, { role: owner.role ?? "owner" });
+      const job = await jobs.retryWithMoreTime(request.params.id, owner.id, { role: owner.role ?? "disabled" });
       response.status(201).json({ job, approval: jobs.describeApproval(job.id, request.boxpilotSession) });
     } catch (error) {
       const status = error.message === "Job not found" ? 404 : /^(Only the owner|Viewers cannot)/.test(error.message) ? 403 : 409;
@@ -157,7 +167,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
   router.post("/jobs/:id/dismiss", auth.requireCsrf, (request, response) => {
     try {
       const owner = request.boxpilotSession.owner;
-      response.json({ job: jobs.dismissFailure(request.params.id, owner.id, { role: owner.role ?? "owner" }) });
+      response.json({ job: jobs.dismissFailure(request.params.id, owner.id, { role: owner.role ?? "disabled" }) });
     } catch (error) {
       response.status(error.message === "Job not found" ? 404 : 409).json({ error: error.message, code: "job_dismiss_failed" });
     }
@@ -165,7 +175,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
 
   router.delete("/jobs/:id", auth.requireCsrf, (request, response) => {
     try {
-      response.json({ job: jobs.cancelJob(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role ?? "owner" }) });
+      response.json({ job: jobs.cancelJob(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role ?? "disabled" }) });
     } catch (error) {
       response.status(error.message === "Job not found" ? 404 : 409).json({ error: error.message, code: "job_cancel_failed" });
     }
@@ -280,7 +290,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
   router.post("/flows", auth.requireCsrf, async (request, response) => {
     try {
       // The creator's role decides which steps they may put in it (an owner-only one is the owner's).
-      const flow = await flows.create({ name: request.body?.name, steps: request.body?.steps, cadence: request.body?.cadence ?? null, triggerFlowId: typeof request.body?.triggerFlowId === "string" ? request.body.triggerFlowId : null, createdBy: request.boxpilotSession.owner.id, role: request.boxpilotSession.owner.role ?? "owner" });
+      const flow = await flows.create({ name: request.body?.name, steps: request.body?.steps, cadence: request.body?.cadence ?? null, triggerFlowId: typeof request.body?.triggerFlowId === "string" ? request.body.triggerFlowId : null, createdBy: request.boxpilotSession.owner.id, role: request.boxpilotSession.owner.role ?? "disabled" });
       response.status(201).json({ flow });
     } catch (error) {
       if (error.code === "flow_step_owner_only") return response.status(403).json({ error: error.message, code: "flow_step_owner_only" });

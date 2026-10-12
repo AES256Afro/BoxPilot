@@ -2952,7 +2952,8 @@ export function createAppHelper({
       await rm(staged, { recursive: true, force: true });
       await mkdir(staged, { mode: 0o700 });
       progress?.(`$ tar -xzf ${backupName} ${relativePath}`, "stdout");
-      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged, relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+      // "--" before the member name (M50): one starting with "-" would be read as an option.
+      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged, "--", relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
       if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
       const planted = await linksWhereBoxPilotWrites(staged, manifest);
       if (planted.length) throw new Error(plantedWords(manifest, planted, relativePath));

@@ -45,7 +45,8 @@ export function validSmbShare(share) {
   return segments.length <= 8 && segments.every((segment) => smbShareSegmentPattern.test(segment));
 }
 export const nfsExportPattern = /^\/[A-Za-z0-9._+/-]{0,254}$/;
-export const credentialPattern = /^[^\s\r\n=\\]{1,64}$/;
+// No leading "-" and no "%" (M50): the name is an argument to smbclient's -U, where "-" starts an option and "%" splits off a password.
+export const credentialPattern = /^[^\s\r\n=\\%-][^\s\r\n=\\%]{0,63}$/;
 export const secretsDirectory = "/etc/boxpilot/secrets";
 export const credentialsPath = (name) => `${secretsDirectory}/share-${name}.cred`;
 

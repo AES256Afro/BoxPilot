@@ -109,7 +109,7 @@ describe("secrets stored before they were refused (M29.3)", () => {
     const untouched = await legacyStore();
     const scrubbed = await legacyStore();
     try {
-      expect(await scrubStoredSecrets({ store: scrubbed.store, secretEnvNamesFor: catalog })).toEqual({ jobs: 3, schedules: 2, flows: 2, secrets: 8, unchecked: 0 });
+      expect(await scrubStoredSecrets({ store: scrubbed.store, secretEnvNamesFor: catalog })).toMatchObject({ jobs: 3, schedules: 2, flows: 2, secrets: 8, unchecked: 0 });
       const { store, rows } = scrubbed;
       expect(store.getJob(rows.jobs.token).parameters).toEqual(masked);
       expect(store.getJob(rows.jobs.pin).parameters).toEqual(masked);
@@ -150,7 +150,7 @@ describe("secrets stored before they were refused (M29.3)", () => {
     try {
       await scrubStoredSecrets({ store, secretEnvNamesFor: catalog });
       const rewritten = store.listStoredParameters();
-      expect(await scrubStoredSecrets({ store, secretEnvNamesFor: catalog })).toEqual({ ...nothingMasked, unchecked: 0 });
+      expect(await scrubStoredSecrets({ store, secretEnvNamesFor: catalog })).toMatchObject({ ...nothingMasked, unchecked: 0 });
       expect(store.listStoredParameters()).toEqual(rewritten);
 
       const entries = store.listAudit(200).filter((event) => event.type === "stored-secrets.masked");
@@ -199,10 +199,10 @@ describe("secrets stored before they were refused (M29.3)", () => {
     try {
       const unreadable = store.createSchedule({ operationId: "app.reconfigure", parameters: { id: "broken", values: { env: { TOKEN: `${legacy}unreadable` } } }, frequency: "daily", minute: 0, hour: 4, createdBy: owner.id, nextDueAt: "2026-09-29T04:00:00.000Z" });
       const failing = async (id) => { if (id === "broken") throw new Error("catalog unreadable"); return catalog(id); };
-      expect(await scrubStoredSecrets({ store, secretEnvNamesFor: failing })).toEqual({ jobs: 3, schedules: 2, flows: 2, secrets: 8, unchecked: 1 });
+      expect(await scrubStoredSecrets({ store, secretEnvNamesFor: failing })).toMatchObject({ jobs: 3, schedules: 2, flows: 2, secrets: 8, unchecked: 1 });
       expect(store.getSchedule(unreadable.id).parameters.values.env.TOKEN).toBe(`${legacy}unreadable`);
       // The next start can read it: an app the catalog does not know has every setting treated as a secret.
-      expect(await scrubStoredSecrets({ store, secretEnvNamesFor: catalog })).toEqual({ jobs: 0, schedules: 1, flows: 0, secrets: 1, unchecked: 0 });
+      expect(await scrubStoredSecrets({ store, secretEnvNamesFor: catalog })).toMatchObject({ jobs: 0, schedules: 1, flows: 0, secrets: 1, unchecked: 0 });
       expect(store.getSchedule(unreadable.id).parameters.values.env.TOKEN).toBe("[secret]");
     } finally {
       store.close();

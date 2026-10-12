@@ -12,6 +12,7 @@
  * and the address pushes link to is the Origin the browser sent, so neither can be pointed elsewhere.
  */
 import { Router } from "express";
+import { createRateLimit, rateLimited } from "../rate-limit.mjs";
 
 const approvers = new Set(["owner", "operator"]);
 
@@ -48,7 +49,7 @@ export function createPushRouter({ push, auth }) {
     try { response.json(push.unsubscribe(account(request), request.params.id)); } catch (error) { fail(response, error, 404); }
   });
 
-  router.post("/push/test", auth.requireCsrf, async (request, response) => {
+  router.post("/push/test", auth.requireCsrf, rateLimited(createRateLimit({ count: 12, perMs: 60_000 }), "push-test", { message: "Several test pushes went out just now; wait a minute" }), async (request, response) => {
     try { response.json(await push.test(account(request))); } catch (error) { fail(response, error, 502); }
   });
 

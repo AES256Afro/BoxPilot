@@ -16,9 +16,9 @@
  * through the ordinary job path, where it is approved at its own tier.
  */
 import express, { Router } from "express";
-import { createEventStream } from "../event-stream.mjs";
+import { createEventStream, createStreamBudget } from "../event-stream.mjs";
 
-const callerOf = (request) => ({ id: request.boxpilotSession?.owner?.id ?? null, role: request.boxpilotSession?.owner?.role ?? "owner" });
+const callerOf = (request) => ({ id: request.boxpilotSession?.owner?.id ?? null, role: request.boxpilotSession?.owner?.role ?? "disabled" });
 
 function refuse(response, error) {
   if (error?.expose) return response.status(error.status).json({ error: error.message, code: error.code });
@@ -38,7 +38,7 @@ const handle = (fn) => async (request, response) => {
 /** Claude when no gateway is wired in (tests that do not ask about it): not connected. */
 const noCloud = { state: async () => ({ connected: false, model: null, models: [], capUsd: null, connectedAt: null, gateway: "off", month: null, spentUsd: null, calls: null, problem: null }) };
 
-export function createAgentsRouter({ agents, state, auth, cloud = noCloud }) {
+export function createAgentsRouter({ agents, state, auth, cloud = noCloud, streamBudget = createStreamBudget() }) {
   const router = Router();
 
   // ---- the module ----
@@ -65,7 +65,8 @@ export function createAgentsRouter({ agents, state, auth, cloud = noCloud }) {
   router.post("/agents/knowledge/relearn", auth.requireCsrf, handle((request) => agents.relearn(callerOf(request), request.body?.agentId ?? null)));
   router.put("/agents/knowledge/documents/:documentId/pin", auth.requireCsrf, handle((request) => agents.pinDocument(callerOf(request), request.params.documentId, request.body?.pinned)));
   // A PDF, Markdown or text file, sent as the request's body (up to 10 MB); its name in ?name=.
-  router.post("/agents/knowledge/upload", auth.requireCsrf, express.raw({ type: () => true, limit: "11mb" }), handle((request) => agents.uploadDocument(callerOf(request), {
+  // The owner check before the body is read (M50): the service refused anyone else, after 11 MB had been buffered.
+  router.post("/agents/knowledge/upload", auth.requireCsrf, auth.requireRole("owner"), express.raw({ type: () => true, limit: "11mb" }), handle((request) => agents.uploadDocument(callerOf(request), {
     name: typeof request.query.name === "string" ? request.query.name.slice(0, 200) : "upload", title: typeof request.query.title === "string" ? request.query.title.slice(0, 120) : null,
     buffer: Buffer.isBuffer(request.body) ? request.body : null,
   })));
@@ -95,8 +96,15 @@ export function createAgentsRouter({ agents, state, auth, cloud = noCloud }) {
     } catch (error) {
       return refuse(response, error);
     }
+    // The same budget as job streams (M50): eight per account, thirty-two in all.
+    const release = streamBudget.acquire(request.boxpilotSession?.owner?.id ?? "anonymous");
+    if (!release) {
+      response.setHeader("Retry-After", "10");
+      return response.status(429).json({ error: "Too many live streams are open. Close an unused tab and try again.", code: "stream_limit" });
+    }
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     const stream = createEventStream(response);
+    stream.onClose(release);
     stream.send("snapshot", first);
     const done = new Set(["completed", "degraded", "failed", "cancelled", "killed", "interrupted", "refused", "timeout"]);
     if (done.has(first.state)) { stream.end(); return undefined; }

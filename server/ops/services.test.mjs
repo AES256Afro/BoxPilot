@@ -28,7 +28,7 @@ describe("service operations", () => {
     await expect(registry.execute("service.list", {}, { run })).resolves.toMatchObject({ counts: { total: 1, active: 1, failed: 0 }, units: [{ unit: "docker.service", enabled: "enabled" }] });
     await expect(registry.execute("service.journal", { unit: "docker.service", lines: 10 }, { run })).resolves.toEqual({ unit: "docker.service", lines: ["2026-08-19 line one password=[REDACTED]", "2026-08-19 line two"] });
     await expect(registry.execute("service.action", { unit: "docker.service", action: "restart" }, { run })).resolves.toMatchObject({ unit: "docker.service", action: "restart", activeState: "active" });
-    expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["restart", "docker.service"], expect.anything());
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["restart", "--", "docker.service"], expect.anything());
     await expect(registry.execute("service.action", { unit: "ssh.service", action: "stop" }, { run })).rejects.toThrow("protected");
     await expect(registry.execute("service.action", { unit: "boxpilot-helper.service", action: "disable" }, { run })).rejects.toThrow("protected");
     await expect(registry.execute("service.action", { unit: "ssh.service", action: "restart" }, { run })).resolves.toMatchObject({ action: "restart" });

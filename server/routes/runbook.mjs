@@ -18,7 +18,7 @@ import { callerId } from "./access.mjs";
 
 export function createRunbookRouter({ runbook, auth }) {
   const router = Router();
-  const roleOf = (request) => request.boxpilotSession?.owner?.role ?? "owner";
+  const roleOf = (request) => request.boxpilotSession?.owner?.role ?? "disabled";
   const unavailable = (response) => response.status(503).json({ error: "The runbook could not be put together. Try again in a moment.", code: "runbook_unavailable" });
 
   // Cheap: BoxPilot's own records only, so the Repair page can ask on every load.

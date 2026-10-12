@@ -121,7 +121,7 @@ export async function flowSecretProblem(steps, { registry = defaultRegistry, sec
   return null;
 }
 
-export function createFlowService({ store, jobs, secretEnvNamesFor = async () => [], registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), alerts = null, library = [], report = (message) => console.warn(message) }) {
+export function createFlowService({ store, jobs, secretEnvNamesFor = async () => [], registry = defaultRegistry, pollMs = 5000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), alerts = null, library = [], report = (message) => console.warn(message) }) {
   const running = new Set(); // flow ids mid-run; a flow must not lap itself
   // Step jobs this service started. A step that fails is the flow's to announce, as one condition
   // per flow until it next runs cleanly; the notifier asks here so it does not push the job as well.
@@ -419,8 +419,23 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (["completed", "failed", "cancelled"].includes(job.state)) return job;
       if (waitingInQueue(job)) deadline = Math.min(Date.now() + timeoutMs, ceiling);
       if (Date.now() > deadline) throw new Error("The step did not finish inside its operation's own time budget");
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      await nextChangeOf(jobId);
     }
+  }
+
+  /**
+   * The job's next change as the store tells of it, or the poll interval, whichever comes first
+   * (M50): a step waiting on a six-hour job read its record every second of those hours. The poll
+   * stays as the fallback for a store that does not tell, and for the queue ceiling's own clock.
+   */
+  function nextChangeOf(jobId) {
+    return new Promise((resolve) => {
+      let unsubscribe = () => {};
+      const timer = setTimeout(() => { unsubscribe(); resolve(); }, pollMs);
+      if (typeof store.subscribeJobs === "function") {
+        unsubscribe = store.subscribeJobs((job) => { if (job?.id === jobId) { clearTimeout(timer); unsubscribe(); resolve(); } });
+      }
+    });
   }
 
   /**
