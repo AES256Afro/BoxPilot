@@ -9,10 +9,13 @@
  * part of it, because the interface is built to tolerate exactly that and a friendlier answer here
  * would make the hosted copy behave differently from the one used for review.
  *
- * There is no data here belonging to anybody. Every value is invented. All of it, and the looks'
- * mockups at /mockups/, is behind the password in gate.js.
+ * There is no data here belonging to anybody. Every value is invented. It is open to anyone with
+ * the link (the password that gated it from v1.155.0 came off on 2026-10-12, at the owner's word);
+ * search engines and AI crawlers are still asked to keep out, by robots.txt and on every answer.
  */
-import { gate, noIndex } from "./gate.js";
+
+/** Asks search engines and AI crawlers to keep out of everything. */
+export const noIndex = { "x-robots-tag": "noindex, nofollow, noarchive, nosnippet, noai, noimageai" };
 
 const API = "/api/v1";
 let cached = null;
@@ -80,13 +83,16 @@ function marked(response) {
 
 export default {
   async fetch(request, env) {
-    const stopped = await gate(request, env);
-    return stopped ?? marked(await serve(request, env));
+    return marked(await serve(request, env));
   },
 };
 
 async function serve(request, env) {
   const url = new URL(request.url);
+  if (url.pathname === "/robots.txt") return new Response("User-agent: *\nDisallow: /\n", { headers: { "content-type": "text/plain; charset=utf-8" } });
+  // The unlock form of the password that used to gate the demo: a stale bookmark or a form still
+  // open in a tab lands on the demo itself.
+  if (url.pathname === "/__unlock") return Response.redirect(new URL("/", url).toString(), 303);
   if (url.pathname === API || url.pathname.startsWith(`${API}/`)) return api(request, env, url);
 
   // The looks' mockups (docs/design-directions/05-looks.html), a page of their own beside the
