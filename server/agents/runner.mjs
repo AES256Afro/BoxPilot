@@ -442,7 +442,8 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         };
         const fields = claim.output?.format === "json" && (claim.output.fields ?? []).length > 0 ? claim.output.fields : null;
         const acted = await act({
-          session, run: state, conversation, limits, tokensUsed, signal: controller.signal, fields, answerNow: answerNowNote, beforeStep, pace: settings,
+          // The local model's context (M48.1): the loop answers before a prompt outgrows it. Claude's is far larger than any run here reaches.
+          session, run: state, conversation, limits: { ...limits, contextTokens: driver === "claude" ? null : localRuntime?.contextTokens ?? null }, tokensUsed, signal: controller.signal, fields, answerNow: answerNowNote, beforeStep, pace: settings,
           callTool: (call) => callTool(call.name, call.arguments),
           sources: () => [...outputs.map((output) => ({ id: output.id, title: output.title, text: output.summary })), ...findingSources],
           record, note: system,
