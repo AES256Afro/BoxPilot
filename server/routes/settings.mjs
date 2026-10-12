@@ -32,7 +32,7 @@ export function createSettingsRouter({ state, notifications, notificationHistory
     // Where alerts go is the owner's to see (M29.4): an ntfy topic on a shared server, or a webhook
     // URL, works like a password - whoever knows it can read the alerts or send fake ones. Everyone
     // else learns whether a target is set, and of what kind, which is all the Overview needs.
-    if ((request.boxpilotSession?.owner?.role ?? "owner") !== "owner") return response.json({ ...described, url: null, topic: null });
+    if ((request.boxpilotSession?.owner?.role ?? "disabled") !== "owner") return response.json({ ...described, url: null, topic: null });
     response.json(described);
   });
 

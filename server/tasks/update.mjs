@@ -55,7 +55,7 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   log?.(`Checking that ${tag} still points at ${expectedCommit.slice(0, 12)}`, "stdout");
   const response = await fetchImpl(`https://api.github.com/repos/${repository}/commits/${encodeURIComponent(tag)}`, {
     headers: { Accept: "application/vnd.github+json", "User-Agent": `BoxPilot/${productVersion}`, "X-GitHub-Api-Version": "2022-11-28" },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(15_000), redirect: "error",
   });
   if (!response.ok) throw new Error(`GitHub could not resolve ${tag} (status ${response.status})`);
   const commit = await response.json();

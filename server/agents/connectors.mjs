@@ -52,7 +52,8 @@ export function textOfUpload(buffer, name) {
 
 // ---- a folder on this server ----
 
-const folderForbidden = /^\/(proc|sys|dev|run|boot|etc|root|var\/lib\/boxpilot)(\/|$)/;
+// BoxPilot's own state folders whatever their suffix (M50): "var/lib/boxpilot(/|$)" let /var/lib/boxpilot-managed through.
+const folderForbidden = /^\/(proc|sys|dev|run|boot|etc|root|var\/lib\/boxpilot[^/]*)(\/|$)/;
 
 /** The folder the owner named, checked: absolute, not a system or BoxPilot path. */
 export function readFolderSetting(value) {

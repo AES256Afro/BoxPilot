@@ -3416,12 +3416,63 @@ reach the filesystem and processes, outbound requests and secrets).
   minute for nothing. The Agents page polled three reads every five seconds in a hidden tab. The
   Zulip link started a root Node task a minute around the clock to read nothing: the wait doubles
   after a quiet read up to ten minutes, and is a minute again after a message, "Check now" or a
-  read with more waiting. Tests: the back-off in `chat-ask.test.mjs`; the existing home, agents,
-  inventory, setup, app-helper, ops and routes suites unchanged. Left for later: the Repair scan's
-  thirty-day journal grep on Home's loop, `/catalog` building the full inventory for two strings,
-  Home's per-VM virsh calls, the agent vectors loaded whole per search, two job-event streams a
-  tab, the 200 full jobs Ops fetches, flows polling job state every second, the exec tail's copy per
-  line, the secret scrub of every job row at boot, and failed job logs kept in RAM until a reboot.
+  read with more waiting. The exec tail joined and re-split its whole text on every line a long
+  command printed: it keeps the last lines as a list. The secret scrub at boot read every job row
+  ever written: it starts after the last row it checked (`secretsScrubbed.jobRow`). Tests: the
+  back-off in `chat-ask.test.mjs`, `firstRun` in `setup-profiles.test.mjs`; the existing home,
+  agents, inventory, setup, app-helper, ops and routes suites unchanged. Left for later: the Repair
+  scan's thirty-day journal grep on Home's loop, `/catalog` building the full inventory for two
+  strings, Home's per-VM virsh calls, the agent vectors loaded whole per search, two job-event
+  streams a tab, the 200 full jobs Ops fetches, flows polling job state every second, and failed
+  job logs kept in RAM until a reboot.
+- ✅ **M50.3 Security, the three checklists** (unreleased, `feat/m50-security`). What the three
+  read-only checklists found, fixed where a fix fits in a day. *Outbound.* http.request, the
+  heartbeat and notifications refused the link-local metadata range by matching the hostname's
+  text, so an IPv4-mapped literal, a name resolving there and a redirect there got through (the
+  first two run as root with full network): `outbound-guard.mjs` reads a literal as an address,
+  resolves a name and checks every address, and follows redirects by hand checking each hop; a
+  request carrying a token follows none. The router's certificate pin was compared on the response,
+  after the request with the password in it had been sent: it is checked when the handshake ends,
+  before a byte is written, and no certificate at all is refused. The update check, GitHub sign-in
+  and the cloud-image checksum list no longer follow redirects; GitHub key pages, the Hugging Face
+  model list and the checksum list are read bounded; the image download is `--proto =https` with a
+  size cap. The model's web search words are redacted before they leave. *Routes.* Five change
+  routes (network plans, VM uploads and plans, sign-in clients) name the CSRF check like every
+  other; the GitHub link poll, a change to the signed-in account, requires it, and the browser
+  sends it; the route matrix now sends every change, question and ask without the token and
+  expects 403. Passkey options and verify had no limit, and a flood of options could push a real
+  sign-in's challenge out of the bounded map: thirty per caller, then a growing wait, and a caller
+  holds at most ten live challenges. The approval password was verified in the job service with
+  its own per-account count, no caller key and no audit row, before the job was even looked up: the
+  route checks it through the sign-in throttle, and the service checks the job first. A password
+  over 256 characters is wrong before scrypt sees it. A session with no role was treated as the
+  owner in eight places (impossible today, the column defaults): it is treated as disabled, and a
+  schedule's vanished creator manages nothing. A set-aside Repair finding comes back by whoever set
+  it aside or the owner. The knowledge upload checked the owner after buffering 11 MB: before. A
+  run's live stream counts against the same budget as job streams. A card's job ids went to
+  operators unmasked and were taken on their shape: only one's own, or the owner's all. The runner's
+  2 MiB body is parsed only from loopback with no proxy headers, where the runner's door opens. A
+  viewer could sweep the LAN for shares, ask GitHub for anyone's keys and force fresh update and DNS
+  checks: discovery and keys are an operator's, and a viewer reads the kept answers. *Inputs.*
+  systemctl and tar take `--` before a name that may start with `-` (`-.mount` is one); the
+  router's password hash type becomes an openssl flag only for crypt's 1, 5 and 6, and its salt is
+  checked; a Zulip upload path is checked decoded as well as raw (`%2e%2e`); housekeeping judges a
+  link with lstat, which stat followed; the UPS description is limited to the page's characters; a
+  share's credential name may not start with `-` nor hold `%` (smbclient's option and password
+  separators); rclone secrets are one line; the agents' folder refuses every `/var/lib/boxpilot*`;
+  a device path has no `.` or `..` segment. Tests: `outbound-guard.test.mjs` (the spellings, the
+  hops, a token that never travels), the matrix's CSRF loop, the encoded traversal in
+  `zulip.test.mjs`, `--` in `services.test.mjs`; every existing suite green. Left for later, from
+  the audits: job logs and outputs are not redacted (every root command line, the http.request
+  body); the cloud mirror copies machine snapshots (every app's `.env`, the controller database)
+  with no encryption layer, which wants an rclone `crypt` remote; the Unsloth installer and the
+  install and upgrade tarballs are unpinned; HSTS is not sent, on purpose, since the plain-HTTP
+  port on the same host would be upgraded too; the plain session cookie is still read over HTTPS;
+  registering a sign-in client asks for no password; the endpoint guards resolve, then fetch
+  resolves again; notification tokens live in settings, not the credential store; `/auth/bootstrap`,
+  `/oidc/token`, `/oidc/userinfo`, the webhooks before their token matches, and the outbound sends
+  (notification test, weekly report, push test, share listing) have no limit; a VM upload has no
+  per-account concurrency limit; `/health` says the version to anyone.
 
 ## App catalogue candidates
 

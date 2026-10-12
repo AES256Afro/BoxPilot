@@ -1,3 +1,5 @@
+import { lookup as dnsLookup } from "node:dns/promises";
+import { fetchGuarded, isLinkLocalAddress } from "./outbound-guard.mjs";
 /**
  * Failed-job push notifications (M8.4 v1). Subscribes to the store's job events and sends
  * one push per failed job to the configured target — ntfy, Gotify, or a plain webhook.
@@ -32,6 +34,7 @@ export function validateTarget(target) {
   if (!notificationKinds.includes(target.kind)) return `kind must be one of ${notificationKinds.join(", ")}`;
   if (typeof target.url !== "string" || !/^https?:\/\/[^\s]+$/.test(target.url) || target.url.length > 500) return "url must be an http(s) address";
   if (!usableUrl(target.url)) return "url must be a valid http(s) address without a user name or password (use the token field)";
+  if (isLinkLocalAddress(new URL(target.url).hostname)) return "url must not be a link-local address";
   if (target.kind === "ntfy" && (typeof target.topic !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(target.topic))) return "topic must be letters, digits, underscore, or hyphen";
   if (target.kind === "gotify" && (typeof target.token !== "string" || target.token.length < 1 || target.token.length > 200)) return "token is required for Gotify";
   if (target.token !== undefined && target.token !== null && (typeof target.token !== "string" || target.token.length > 200)) return "token is invalid";
@@ -83,7 +86,7 @@ export function buildRequest(target, { title, message, priority = "default", cli
   };
 }
 
-export function createNotificationService({ store, fetcher = fetch, now = () => new Date(), claimed = () => false, history = null }) {
+export function createNotificationService({ store, fetcher = fetch, lookup = dnsLookup, now = () => new Date(), claimed = () => false, history = null }) {
   const notified = new Set();
 
   function getTarget() {
@@ -138,7 +141,9 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
     const { url, options } = buildRequest(target, { title, message, priority, click });
     // A target saved before validateTarget refused such an address: say so without quoting it.
     if (!usableUrl(url)) throw new Error("The notification target's address is not one BoxPilot can send to; set the target again in Settings");
-    const response = await fetcher(url, { ...options, signal: AbortSignal.timeout(15_000) });
+    // A token rides in a header or the query, so a redirect is never followed with one (M50); without
+    // one each hop is checked against the link-local range, which the saved address was not.
+    const response = await fetchGuarded(url, { ...options, signal: AbortSignal.timeout(15_000) }, { fetcher, lookup, followRedirects: !target.token });
     if (!response.ok) throw new Error(`The notification target answered ${response.status}`);
     return { sent: true, kind: target.kind };
   }

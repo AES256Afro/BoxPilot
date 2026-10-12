@@ -116,12 +116,13 @@ export function serviceOperations() {
         if (/^mnt-.+\.mount$/.test(unit) && action !== "enable" && action !== "disable") {
           throw new Error(`${unit} is a drive or share under /mnt. Reconnect or unmount it from Storage or Repair, which stop and start the apps using it and check the mount itself.`);
         }
-        const args = action === "enable" || action === "disable" ? [action, unit] : [action, unit];
+        // "--" before the unit (M50): a unit's name may start with "-" ("-.mount" is one), which systemctl would read as an option.
+        const args = [action, "--", unit];
         progress?.(`$ systemctl ${args.join(" ")}`, "stdout");
         const result = await run(systemctl, args, { timeout: 4 * 60_000, onLine: progress ?? undefined });
         if (["restart", "reload"].includes(action)) needrestartScanner.forget();
         if (!result.ok) throw new Error(`systemctl ${action} ${unit} failed: ${result.stderr.split("\n").slice(-3).join(" ") || "see the unit journal"}`);
-        const show = await run(systemctl, ["show", unit, "--property=ActiveState,SubState,UnitFileState,Result"], { timeout: 15_000 });
+        const show = await run(systemctl, ["show", "--property=ActiveState,SubState,UnitFileState,Result", "--", unit], { timeout: 15_000 });
         const state = Object.fromEntries(show.stdout.split("\n").map((line) => line.split("=", 2)).filter((pair) => pair.length === 2));
         // `systemctl start` of a simple service returns once it has forked: one that dies straight
         // away exited 0 here and the job said done. Its state says otherwise.

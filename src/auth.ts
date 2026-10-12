@@ -170,8 +170,9 @@ export async function startGithubSignIn(): Promise<GithubFlow> {
   return body;
 }
 
-export async function pollGithubSignIn(flowId: string): Promise<{ status: string; error?: string | null; session?: AuthStatus; linked?: boolean; login?: string; githubLogins?: string[] }> {
-  const response = await fetch("/api/v1/auth/github/poll", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ flowId }) });
+export async function pollGithubSignIn(flowId: string, csrfToken: string | null = null): Promise<{ status: string; error?: string | null; session?: AuthStatus; linked?: boolean; login?: string; githubLogins?: string[] }> {
+  // A link flow changes the signed-in account, so its poll carries the CSRF token (M50); a sign-in has none yet.
+  const response = await fetch("/api/v1/auth/github/poll", { method: "POST", headers: { "Content-Type": "application/json", ...(csrfToken ? { "X-BoxPilot-CSRF": csrfToken } : {}) }, body: JSON.stringify({ flowId }) });
   const body = (await response.json().catch(() => ({}))) as { status: string; error?: string | null; session?: AuthStatus; linked?: boolean; login?: string; githubLogins?: string[] };
   if (!response.ok && !body.status) throw new Error(body.error ?? "GitHub sign-in failed");
   return body;

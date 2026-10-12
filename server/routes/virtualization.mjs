@@ -10,7 +10,9 @@ import { buildConsoleGuidanceResponse } from "../helper-libvirt.mjs";
 import { validateVmPlanInput } from "../vm-plan.mjs";
 import { withOwnActors } from "./access.mjs";
 
-export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }) {
+export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit, auth = null }) {
+  // The CSRF check named on the route (M50), as every other change route has; the global one stays.
+  const csrf = auth?.requireCsrf ?? ((_request, _response, next) => next());
   const router = Router();
 
   router.get("/virtualization/status", async (_request, response) => {
@@ -55,7 +57,7 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
     }
   });
 
-  router.post("/virtualization/media/uploads", async (request, response) => {
+  router.post("/virtualization/media/uploads", csrf, async (request, response) => {
     try {
       request.setTimeout(12 * 60 * 60 * 1000);
       response.status(201).json({ upload: await vmMedia.upload(request) });
@@ -66,7 +68,7 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
   });
 
   // Host-checked creation preview for the planner UI; nothing is stored. Approval revalidates.
-  router.post("/virtualization/plans", async (request, response) => {
+  router.post("/virtualization/plans", csrf, async (request, response) => {
     const inputErrors = validateVmPlanInput(request.body);
     if (inputErrors.length) {
       response.status(400).json({ ok: false, errors: inputErrors });

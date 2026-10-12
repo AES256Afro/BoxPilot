@@ -3389,11 +3389,17 @@ export function createAgentService({
     };
   }
 
+  /** The jobs a card's decision staged, as a person may see them (M29.4's rule, M50): the owner's all, anyone else their own. */
+  function visibleJobIds(caller, jobIds) {
+    if (!Array.isArray(jobIds) || caller.role === "owner" || typeof state.getJob !== "function") return jobIds;
+    return jobIds.filter((id) => state.getJob(id)?.createdBy === caller.id);
+  }
+
   function presentProposal(caller, read) {
     // Settled as it is read: a step approved where nothing told the card is counted here (sweep 3).
     const proposal = settleProposal(read);
     const agent = proposal.agentId ? store.getAgent(proposal.agentId, { includeDeleted: true }) : null;
-    return { ...proposal, steps: proposal.steps.map((step) => presentStep(caller, step)), agentName: agent?.name ?? (proposal.source === "runtime" ? "BoxPilot" : "A deleted agent"), requestedBy: ownActor(caller, proposal.requestedBy), decidedBy: ownActor(caller, proposal.decidedBy) };
+    return { ...proposal, jobIds: visibleJobIds(caller, proposal.jobIds), steps: proposal.steps.map((step) => presentStep(caller, step)), agentName: agent?.name ?? (proposal.source === "runtime" ? "BoxPilot" : "A deleted agent"), requestedBy: ownActor(caller, proposal.requestedBy), decidedBy: ownActor(caller, proposal.decidedBy) };
   }
 
   function overview(caller) {
@@ -3786,7 +3792,9 @@ export function createAgentService({
     const proposal = store.getProposal(proposalId);
     if (!proposal || !canSeeProposal(person, proposal)) refuse(404, "There is no such card", "proposal_not_found");
     if (!["dismissed", "staged"].includes(decision)) refuse(400, "A card is dismissed, or its steps staged", "invalid_decision");
-    const ids = Array.isArray(jobIds) ? jobIds.filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 8) : [];
+    const shaped = Array.isArray(jobIds) ? jobIds.filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 8) : [];
+    // Only jobs this person staged, or any for the owner (M50): an id was taken on its shape alone.
+    const ids = typeof state.getJob === "function" && person.role !== "owner" ? shaped.filter((id) => state.getJob(id)?.createdBy === person.id) : shaped;
     const decided = store.decideProposal(proposal.id, { state: decision, decidedBy: person.id, jobIds: ids });
     if (!decided) refuse(409, "That card was already decided", "proposal_decided");
     audit("agents.proposal.decided", { actorId: person.id, subjectId: proposal.id, details: { decision, jobs: ids.length } });

@@ -30,7 +30,8 @@ export async function housekeepingRemoveTrees({ paths = [], installRoot = "/opt"
     if (path.dirname(resolved) !== root) { refused.push({ path: resolved, reason: "not directly in the install root" }); continue; }
     if (resolved === current) { refused.push({ path: resolved, reason: "this is the running install" }); continue; }
     if (!leftoverPattern.test(path.basename(resolved))) { refused.push({ path: resolved, reason: "not a name a BoxPilot update leaves behind" }); continue; }
-    const info = await files.stat(resolved).catch(() => null);
+    // lstat, so a link is seen as one (M50): stat followed it, and the link test below never held.
+    const info = await (files.lstat ?? files.stat)(resolved).catch(() => null);
     if (!info) { refused.push({ path: resolved, reason: "no longer there" }); continue; }
     if (!info.isDirectory() || info.isSymbolicLink()) { refused.push({ path: resolved, reason: "not a directory" }); continue; }
     try {

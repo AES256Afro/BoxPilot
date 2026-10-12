@@ -229,7 +229,8 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
   /** A schedule belongs to whoever created it; the owner may manage every schedule. */
   function assertMayManage(schedule, actorId) {
     if (!schedule) throw new Error("Schedule not found");
-    const role = store.findOwnerById?.(actorId)?.role ?? "owner";
+    // An account that is gone manages nothing (M50); a store without accounts keeps the old answer.
+    const role = store.findOwnerById?.(actorId)?.role ?? (typeof store.findOwnerById === "function" ? "disabled" : "owner");
     if (schedule.createdBy !== actorId && role !== "owner") throw new Error("Schedule not found");
   }
 
