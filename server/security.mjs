@@ -1,4 +1,5 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { createRateLimit } from "./rate-limit.mjs";
 import { isIP } from "node:net";
 import { defaultThrottle as throttle, defaultSprayThrottle as sprayThrottle } from "./login-throttle.mjs";
 import { normalizeAddress, tailnetClientAddress } from "./identity.mjs";
@@ -305,9 +306,16 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     next();
   }
 
+  // The set-up call had no limit at all (M50): twenty a minute per address is many more than a set-up needs.
+  const bootstrapLimit = createRateLimit({ count: 20, perMs: 60_000 });
   async function bootstrap(request, response) {
     if (store.ownerCount() > 0) {
       response.status(409).json({ error: "Owner bootstrap is already complete", code: "already_bootstrapped" });
+      return;
+    }
+    if (!bootstrapLimit.take(`bootstrap:${request.ip ?? "unknown"}`)) {
+      response.setHeader("Retry-After", "60");
+      response.status(429).json({ error: "Too many set-up attempts; wait a minute", code: "too_many_attempts" });
       return;
     }
     const { username, password, bootstrapToken } = request.body ?? {};

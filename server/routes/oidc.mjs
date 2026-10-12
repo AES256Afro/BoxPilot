@@ -8,6 +8,7 @@
  * app is configured with, with nothing to set.
  */
 import express, { Router } from "express";
+import { createRateLimit, rateLimited } from "../rate-limit.mjs";
 import { OidcError } from "../oidc.mjs";
 import { securityInternals } from "../security.mjs";
 
@@ -34,7 +35,11 @@ function allowCrossOrigin(response) {
   response.setHeader("Cache-Control", "no-store");
 }
 
-export function createOidcRouter({ oidc, auth, store }) {
+export function createOidcRouter({ oidc, auth, store, limits = null }) {
+  // The token and userinfo endpoints answer anyone (M50): a cap per address, generous for real clients.
+  const byAddress = { keyOf: (request) => request.ip ?? "unknown", message: "Too many requests; wait a minute" };
+  const tokenLimit = rateLimited(limits?.token ?? createRateLimit({ count: 30, perMs: 60_000 }), "oidc-token", byAddress);
+  const userinfoLimit = rateLimited(limits?.userinfo ?? createRateLimit({ count: 120, perMs: 60_000 }), "oidc-userinfo", byAddress);
   const router = Router();
   // OIDC token and consent bodies are application/x-www-form-urlencoded.
   router.use(express.urlencoded({ extended: false, limit: "16kb" }));
@@ -113,7 +118,7 @@ export function createOidcRouter({ oidc, auth, store }) {
     return response.redirect(redirectWith(validated.redirectUri, { code, state: validated.state }));
   });
 
-  router.post("/oidc/token", (request, response) => {
+  router.post("/oidc/token", tokenLimit, (request, response) => {
     allowCrossOrigin(response);
     const body = request.body ?? {};
     if (body.grant_type !== "authorization_code") return response.status(400).json({ error: "unsupported_grant_type", error_description: "Only authorization_code is supported" });
@@ -125,7 +130,7 @@ export function createOidcRouter({ oidc, auth, store }) {
     }
   });
 
-  router.get("/oidc/userinfo", (request, response) => {
+  router.get("/oidc/userinfo", userinfoLimit, (request, response) => {
     allowCrossOrigin(response);
     const header = String(request.get("authorization") ?? "");
     const token = header.startsWith("Bearer ") ? header.slice(7).trim() : null;

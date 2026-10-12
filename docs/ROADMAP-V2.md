@@ -3472,7 +3472,18 @@ reach the filesystem and processes, outbound requests and secrets).
   resolves again; notification tokens live in settings, not the credential store; `/auth/bootstrap`,
   `/oidc/token`, `/oidc/userinfo`, the webhooks before their token matches, and the outbound sends
   (notification test, weekly report, push test, share listing) have no limit; a VM upload has no
-  per-account concurrency limit; `/health` says the version to anyone.
+  per-account concurrency limit; `/health` says the version to anyone (the upgrade script and the
+  install smoke test read it, so it stays).
+- ✅ **M50.4 Limits where there were none** (unreleased, `feat/m50-security`; the audit's leftovers
+  that fit the same day). `rate-limit.mjs`, a sliding window per key with a bounded number of keys,
+  and `rateLimited`, the middleware that answers 429 with Retry-After. The set-up call takes twenty
+  a minute per address; the sign-in clients' token endpoint thirty and userinfo a hundred and
+  twenty; a webhook's source sixty a minute before any token is compared, where the per-flow and
+  per-agent counts began only after a match, so wrong guesses were free; the test notification,
+  the weekly report, the test push and a share listing twelve a minute per account, each being a
+  request to another host or a process run; and one VM image upload at a time per account, since
+  each holds a connection for hours. Tests: `rate-limit.test.mjs`; the routes, OIDC, settings,
+  flows and matrix suites unchanged.
 
 ## App catalogue candidates
 
