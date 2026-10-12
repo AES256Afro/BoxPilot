@@ -238,7 +238,7 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
         const bytes = Buffer.from(String(file.bytes ?? ""), "base64");
         if (!bytes.length) throw new ConnectorError("the file is empty");
         if (bytes.length > limits.fileBytes) throw new ConnectorError("larger than 5 MB");
-        if (store.listDocuments().length >= 300) throw new ConnectorError("the library holds 300 documents already; remove some in Knowledge");
+        if (store.countDocuments() >= 300) throw new ConnectorError("the library holds 300 documents already; remove some in Knowledge");
         if (file.kind === "image") {
           if (store.countImageDocuments() >= limits.imageDocuments) throw new ConnectorError(`the library holds ${limits.imageDocuments} images already; remove some in Knowledge`);
           const text = redact(`Image "${name}", dropped in #${channel} by ${sender}${context ? `, who wrote: ${context}` : ""}. Not described yet: the model describes images in quiet hours.`);
