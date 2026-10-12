@@ -3348,9 +3348,10 @@ button belongs, and errors swallowed so a panel vanishes or an empty state lies.
   before the tables. Today's "Off this server" panel, which held the database tile too, is
   "Backups". The Network page's "stale", "probe", "wildcard" and "host-address" are "seen
   recently", "checking", "every address", "this server's address"; the staging-gate sentence is
-  gone.
-- **M49.2 The rest of the sweep.** Passkey removal (a password field under Recovery codes, then no
-  confirmation); the restore sheet's and Repair's schedule dialog's app ids where names belong; the
+  gone. Removing a passkey sent people to a password field under Recovery codes and then went
+  with no confirmation: the row opens its own form, with the password and what removal means. The
+  System page's "Read again" is "Check again" too.
+- **M49.2 The rest of the sweep.** The restore sheet's and Repair's schedule dialog's app ids where names belong; the
   drive Reconnect switch that shows on while paused and points at pages in prose; "What BoxPilot
   watches" chips that look clickable; the heartbeat panel's "arrives with the next upgrade" with no
   way to Updates; Repair's approval desk under the Prerequisites table on a phone; an app's Backups
