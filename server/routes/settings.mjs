@@ -3,6 +3,7 @@
  * require the owner password. Mounted at /api/v1 behind the session.
  */
 import { Router } from "express";
+import { createRateLimit, rateLimited } from "../rate-limit.mjs";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "../ops/risk.mjs";
 import { normalizeDestination } from "../backup-destination.mjs";
 import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
@@ -12,6 +13,8 @@ import { createNotificationHistory } from "../notification-history.mjs";
 
 export function createSettingsRouter({ state, notifications, notificationHistory = createNotificationHistory({ store: state }), weeklyReport = null, auth }) {
   const router = Router();
+  // Twelve sends a minute per account (M50): each is a request to the owner's notification target.
+  const sendLimit = createRateLimit({ count: 12, perMs: 60_000 });
   // Belt and braces with the policy middleware: only the owner changes settings, whatever the path casing.
   router.use("/settings", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireRole("owner")(request, response, next)));
 
@@ -129,7 +132,7 @@ export function createSettingsRouter({ state, notifications, notificationHistory
       return response.json(weeklyReport.setEnabled(request.body.enabled, { updatedBy: request.boxpilotSession.owner.id }));
     });
 
-    router.post("/settings/weekly-report/send", auth.requireCsrf, async (request, response) => {
+    router.post("/settings/weekly-report/send", auth.requireCsrf, rateLimited(sendLimit, "weekly-report", { message: "The report was sent several times just now; wait a minute" }), async (request, response) => {
       try {
         response.json(await weeklyReport.sendNow({ actorId: request.boxpilotSession.owner.id }));
       } catch (error) {
@@ -149,7 +152,7 @@ export function createSettingsRouter({ state, notifications, notificationHistory
     }
   });
 
-  router.post("/settings/notifications/test", auth.requireCsrf, async (_request, response) => {
+  router.post("/settings/notifications/test", auth.requireCsrf, rateLimited(sendLimit, "notification-test", { message: "Several test notifications went out just now; wait a minute" }), async (_request, response) => {
     try {
       response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, health alerts (disk space, SMART, UPS, failed services) and the weekly report arrive like this." }));
     } catch (error) {

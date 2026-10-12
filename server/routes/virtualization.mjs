@@ -57,14 +57,22 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
     }
   });
 
+  // One upload at a time per account (M50): each holds a connection for hours and writes to the pool.
+  const uploading = new Set();
   router.post("/virtualization/media/uploads", csrf, async (request, response) => {
+    const account = request.boxpilotSession?.owner?.id ?? "anonymous";
+    if (uploading.has(account)) return response.status(409).json({ error: "An upload of yours is already in progress; let it finish first", code: "vm_media_upload_busy" });
+    uploading.add(account);
     try {
       request.setTimeout(12 * 60 * 60 * 1000);
       response.status(201).json({ upload: await vmMedia.upload(request) });
     } catch (error) {
       const status = error.message.includes("already exists") ? 409 : error.message.includes("space") ? 507 : 400;
       response.status(status).json({ error: error.message, code: "vm_media_upload_failed" });
+    } finally {
+      uploading.delete(account);
     }
+    return undefined;
   });
 
   // Host-checked creation preview for the planner UI; nothing is stored. Approval revalidates.
