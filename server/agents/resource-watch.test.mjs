@@ -29,8 +29,13 @@ describe("the Resource Watch template", () => {
     try {
       h.enable();
       const watch = h.service.createAgent(h.caller("owner"), { template: "resource-watch" });
+      h.helperCalls.length = 0;
       const started = await h.service.runEvaluation(h.caller("owner"), watch.id);
       expect(started.results.find((result) => result.questionId === "busiest").expected).toEqual({ fact: "busiestApp", value: "jellyfin" });
+      // Only the reads its questions need (M48.5): docker stats and the apps, never apt, ufw or the backup folder.
+      const read = h.helperCalls.map((call) => call.operation);
+      expect(read).toContain("system.performance.inspect");
+      for (const unwanted of ["apt.upgradable.inspect", "firewall.inspect", "app.backup.protection", "service.list", "app.pihole.inspect"]) expect(read, unwanted).not.toContain(unwanted);
       h.service.startRun(h.caller("owner"), watch.id, { kind: "ask", question: "Which app is using the most processor right now?" });
       const run = await h.runNext();
       expect(run.state).toBe("completed");

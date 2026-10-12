@@ -30,7 +30,17 @@ export const exampleDefaults = Object.freeze({ limit: 3, lambda: 0.7, dedupeAbov
 // Words that say nothing about what a request is for. "where", "when" and "why" stay: they are what
 // tells "where does X run" from "is X running".
 const stopWords = new Set(["a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "do", "does", "did", "it", "its", "this", "that", "these", "those", "of", "on", "in", "to", "for", "and", "or", "at", "by", "with", "from", "as", "what", "which", "how", "my", "our", "your", "i", "you", "we", "they", "me", "us", "there", "here", "now", "please", "can", "could", "should", "would", "will", "any", "some", "right", "just"]);
-const words = (text) => new Set((String(text ?? "").toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? []).filter((word) => !stopWords.has(word)));
+const wordSets = new Map();
+/** The words of a text as a set, computed once a text (M48.5): the cover and the pairs compare the same requests many times over. */
+const words = (text) => {
+  const key = String(text ?? "");
+  const known = wordSets.get(key);
+  if (known) return known;
+  const set = new Set((key.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? []).filter((word) => !stopWords.has(word)));
+  if (wordSets.size >= 5_000) wordSets.clear();
+  wordSets.set(key, set);
+  return set;
+};
 
 /** Cosine of two vectors (unit length or not); null when either is missing or they differ in size. */
 export function cosineOf(a, b) {
@@ -120,17 +130,23 @@ export function selectExamples({ query = "", queryVector = null, candidates = []
 export function coverExamples({ candidates = [], limit = 10 } = {}) {
   const pool = (Array.isArray(candidates) ? candidates : []).filter((candidate) => candidate && typeof candidate.text === "string" && candidate.text.trim());
   if (!pool.length || limit <= 0) return [];
+  // Each candidate's nearest pick so far, updated against the newest pick only (M48.5): pool × limit
+  // similarities, where recomputing the maximum over every pick made it pool × limit².
   const picks = [pool[0]];
+  const chosen = new Set([pool[0]]);
+  const nearest = pool.map((candidate) => similarity(pool[0], candidate));
   while (picks.length < Math.min(limit, pool.length)) {
-    let farthest = null; let farthestDistance = -Infinity;
-    for (const candidate of pool) {
-      if (picks.includes(candidate)) continue;
-      const nearest = Math.max(...picks.map((pick) => similarity(pick, candidate)));
-      const distance = 1 - nearest;
-      if (distance > farthestDistance) { farthestDistance = distance; farthest = candidate; }
+    let farthest = -1; let farthestDistance = -Infinity;
+    for (let index = 0; index < pool.length; index += 1) {
+      if (chosen.has(pool[index])) continue;
+      const distance = 1 - nearest[index];
+      if (distance > farthestDistance) { farthestDistance = distance; farthest = index; }
     }
-    if (!farthest) break;
-    picks.push(farthest);
+    if (farthest < 0) break;
+    const pick = pool[farthest];
+    picks.push(pick);
+    chosen.add(pick);
+    for (let index = 0; index < pool.length; index += 1) if (!chosen.has(pool[index])) nearest[index] = Math.max(nearest[index], similarity(pick, pool[index]));
   }
   return picks;
 }
