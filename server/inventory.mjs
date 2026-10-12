@@ -117,9 +117,11 @@ export function createInventoryService({
       .filter((entry) => !entry.internal && (entry.family === "IPv4" || entry.family === 4))
       .map((entry) => ({ interface: name, address: entry.address, cidr: entry.cidr ?? null })));
 
-    let docker = { available: false, containers: [], images: [], networks: [], volumes: [], projects: [] };
-    try { docker = await helper.request("container.docker.inventory", {}); } catch { docker = { ...docker, error: "Docker inventory is unavailable through the restricted helper" }; }
-    const [services, tailscale, blockResult, smartResult, maintenanceResult, upsResult, eventsResult, policyResult, boxpilot] = await Promise.all([
+    const noDocker = { available: false, containers: [], images: [], networks: [], volumes: [], projects: [] };
+    // Docker's read goes with the others (M50): awaited on its own first, every miss cost Docker's
+    // time plus the slowest of the rest instead of the longer of the two.
+    const [docker, services, tailscale, blockResult, smartResult, maintenanceResult, upsResult, eventsResult, policyResult, boxpilot] = await Promise.all([
+      helper.request("container.docker.inventory", {}).catch(() => ({ ...noDocker, error: "Docker inventory is unavailable through the restricted helper" })),
       inspectServices(serviceUnits),
       inspectTailscale(),
       runCommand("lsblk", ["--json", "--bytes", "--paths", "--output", "NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS,ROTA,RO,TRAN,MODEL"]),

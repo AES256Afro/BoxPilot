@@ -361,3 +361,36 @@ describe("two agents of one name, and an agent another account set up (sweep 4, 
     expect(channelsOf("operator")).toEqual(expect.arrayContaining(["operator-logs"]));
   });
 });
+
+describe("reading Zulip less often while it is quiet (M50)", () => {
+  it("doubles the wait after a quiet read, up to ten minutes, and reads every minute again once something arrives or Check now is pressed", async () => {
+    let reads = 0;
+    const events = h.helperAnswers["agents.zulip.events"];
+    h.helperAnswers["agents.zulip.events"] = (parameters) => { reads += 1; return events(parameters); };
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    await mapTo([{ zulipId: 11, zulipEmail: "alex@example.com", boxpilotId: h.accounts.owner.id }], { defaultAgentId: keeper.id });
+    await h.service.chat.tick();
+    expect(reads).toBe(1);
+    // Quiet: the next tick a minute on is skipped, the one two minutes on reads; then four.
+    h.advance(60_000); await h.service.chat.tick();
+    expect(reads).toBe(1);
+    h.advance(60_000); await h.service.chat.tick();
+    expect(reads).toBe(2);
+    h.advance(3 * 60_000); await h.service.chat.tick();
+    expect(reads).toBe(2);
+    h.advance(60_000); await h.service.chat.tick();
+    expect(reads).toBe(3);
+    // Check now reads at once; the wait starts again from a minute, and a quiet read doubles it to two.
+    await h.service.zulipPollNow(h.caller("owner"));
+    expect(reads).toBe(4);
+    h.advance(60_000); await h.service.chat.tick();
+    expect(reads).toBe(4);
+    h.advance(60_000); await h.service.chat.tick();
+    expect(reads).toBe(5);
+    // A message read sets it back to a minute.
+    h.advance(4 * 60_000); direct(alex, "Which drives are connected?"); await h.service.chat.tick();
+    expect(reads).toBe(6);
+    h.advance(60_000); await h.service.chat.tick();
+    expect(reads).toBe(7);
+  });
+});

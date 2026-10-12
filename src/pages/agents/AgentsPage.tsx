@@ -99,7 +99,8 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
   // seconds; otherwise every half minute.
   const active = (overview?.queue.running ?? 0) + (overview?.queue.queued ?? 0) > 0 || Boolean(overview?.module.enabled && !overview.runner.online);
   useEffect(() => {
-    const timer = setInterval(() => void refresh(), active ? 5_000 : 30_000);
+    // Not while the tab is hidden (M50): three reads every five seconds went on in the background.
+    const timer = setInterval(() => { if (typeof document === "undefined" || document.visibilityState !== "hidden") void refresh(); }, active ? 5_000 : 30_000);
     return () => clearInterval(timer);
   }, [active, refresh]);
 

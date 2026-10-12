@@ -102,3 +102,20 @@ describe("why a step is blocked", () => {
     expect(noCandidate.detail).toContain("package lists");
   });
 });
+
+describe("whether this is a first run, read on its own (M50)", () => {
+  it("asks the helper for the apps alone, and says it does not know when that probe fails", async () => {
+    const asked = [];
+    const helperAnswering = (answers) => ({ request: async (operation) => { asked.push(operation); if (!(operation in answers)) throw new Error(`no answer for ${operation}`); return answers[operation]; } });
+    const fresh = createSetupService({ helper: helperAnswering({ "app.inspect": { applications: [{ id: "jellyfin", installed: false }] } }), scheduler: { list: () => [] } });
+    expect(await fresh.firstRun()).toEqual({ firstRun: true, installedApps: 0, appsKnown: true });
+    expect(asked).toEqual(["app.inspect"]);
+    const lived = createSetupService({ helper: helperAnswering({ "app.inspect": { applications: [{ id: "jellyfin", installed: true }] } }), scheduler: { list: () => [] } });
+    expect(await lived.firstRun()).toEqual({ firstRun: false, installedApps: 1, appsKnown: true });
+    const scheduled = createSetupService({ helper: helperAnswering({ "app.inspect": { applications: [] } }), scheduler: { list: () => [{ id: "s1" }] } });
+    expect((await scheduled.firstRun()).firstRun).toBe(false);
+    // A probe that failed is not an empty box.
+    const unknown = createSetupService({ helper: helperAnswering({}), scheduler: { list: () => [] } });
+    expect(await unknown.firstRun()).toEqual({ firstRun: false, installedApps: 0, appsKnown: false });
+  });
+});

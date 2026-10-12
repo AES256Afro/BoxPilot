@@ -283,7 +283,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   });
 
   // First-run setup profiles resolved against live state (M4.2).
-  router.get("/setup", async (_request, response) => {
+  router.get("/setup", async (request, response) => {
+    // Home reads only whether this server is set up (M50): that view asks the helper for the apps alone.
+    if (request.query.view === "first-run" && typeof setup.firstRun === "function") return response.json(await setup.firstRun());
     response.json(await setup.describe());
   });
 

@@ -355,10 +355,31 @@ async function loadUnattended(): Promise<{ enabled: boolean }> {
 }
 
 type ServiceAnswer = { counts?: { failed?: number } };
+/**
+ * The failed-services count from the inventory (M50), which Home reads every minute anyway and the
+ * server holds for ten seconds, instead of a second systemctl listing a minute; the full service
+ * list only when the inventory could not say.
+ */
 async function loadServices(): Promise<{ failed: number }> {
+  const inventory = await getJson<{ maintenance?: { system?: { failedServiceCount?: number | null } } }>("/api/v1/inventory").catch(() => null);
+  const counted = inventory?.maintenance?.system?.failedServiceCount;
+  if (typeof counted === "number") return { failed: counted };
   const { result } = await inspectOperation<ServiceAnswer>("service.list");
   if (typeof result?.counts?.failed !== "number") throw new Error("The service list had no counts");
   return { failed: result.counts.failed };
+}
+
+/** The backup list once for both loaders that read it (M50): the database tile and the copy off this server fetched it twice a cycle. */
+let backupsRead: { at: number; promise: Promise<Array<{ applicationId?: string; createdAt?: string }>> } | null = null;
+function backupsOnce(): Promise<Array<{ applicationId?: string; createdAt?: string }>> {
+  if (backupsRead && Date.now() - backupsRead.at < 5_000) return backupsRead.promise;
+  const promise = getJson<{ backups?: Array<{ applicationId?: string; createdAt?: string }> }>("/api/v1/backups").then((body) => {
+    if (!Array.isArray(body?.backups)) throw new Error("The backup list was missing");
+    return body.backups;
+  });
+  backupsRead = { at: Date.now(), promise };
+  promise.catch(() => { if (backupsRead?.promise === promise) backupsRead = null; });
+  return promise;
 }
 
 type RawWatch = {
@@ -409,7 +430,7 @@ async function loadOffBox(): Promise<OffBoxFacts> {
     destination("/api/v1/settings/cloud-destination"),
     destination("/api/v1/settings/backup-destination"),
     inspectOperation<MachineAnswer>("host.snapshot.inspect").then(({ result }) => result, () => null),
-    getJson<{ backups?: Array<{ createdAt?: string }> }>("/api/v1/backups").then((body) => list<{ createdAt?: string }>(body?.backups), () => []),
+    backupsOnce().catch(() => []),
   ]);
   if (!cloud.ok && !ssh.ok && !machine) throw new Error("None of the backup destinations answered");
   const at = (value: unknown) => (typeof value === "string" ? value : (value as { completedAt?: string } | null)?.completedAt ?? null);
@@ -423,14 +444,15 @@ async function loadOffBox(): Promise<OffBoxFacts> {
 }
 
 async function loadDatabase(): Promise<{ lastBackupAt: string | null }> {
-  const body = await getJson<{ backups?: Array<{ applicationId?: string; createdAt?: string }> }>("/api/v1/backups");
-  if (!Array.isArray(body?.backups)) throw new Error("The backup list was missing");
-  const own = body.backups.filter((backup) => backup.applicationId === "boxpilot-controller" && backup.createdAt).map((backup) => backup.createdAt as string).sort();
+  const backups = await backupsOnce();
+  const own = backups.filter((backup) => backup.applicationId === "boxpilot-controller" && backup.createdAt).map((backup) => backup.createdAt as string).sort();
   return { lastBackupAt: own.at(-1) ?? null };
 }
 
 async function loadSetup(): Promise<{ firstRun: boolean }> {
-  const body = await getJson<{ firstRun?: boolean }>("/api/v1/setup");
+  // The one boolean Home reads (M50): the full setup answer ran every prerequisite check, about
+  // thirty root processes, every five minutes.
+  const body = await getJson<{ firstRun?: boolean }>("/api/v1/setup?view=first-run");
   if (typeof body?.firstRun !== "boolean") throw new Error("Whether this server is set up could not be read");
   return { firstRun: body.firstRun };
 }
@@ -507,7 +529,9 @@ export function FactsProvider({ children }: { children: ReactNode }) {
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const set = useCallback(<K extends keyof Facts>(key: K, source: Facts[K]) => {
-    if (mounted.current) setFacts((current) => ({ ...current, [key]: source }));
+    // The same answer again is no change (M50): every loader wrote a new object, and Home, the
+    // sidebar and the dock drew again five times a minute for nothing.
+    if (mounted.current) setFacts((current) => (JSON.stringify(current[key]) === JSON.stringify(source) ? current : { ...current, [key]: source }));
   }, []);
 
   const load = useCallback((key: LoadedKey): Promise<void> => {
@@ -543,7 +567,10 @@ export function FactsProvider({ children }: { children: ReactNode }) {
     if (Date.now() - lastFullLoad.current > 30_000) void refresh();
     const visible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
     const quick = window.setInterval(() => { if (visible()) void refresh(quickKeys); }, 60_000);
-    const slow = window.setInterval(() => { if (visible()) void refresh(slowKeys); }, 300_000);
+    // The slow reads start half a minute after the quick ones (M50): both timers fired together every
+    // five minutes, and fourteen loaders hit the helper's read gate at once.
+    let slow: number | null = null;
+    const slowStart = window.setTimeout(() => { slow = window.setInterval(() => { if (visible()) void refresh(slowKeys); }, 300_000); }, 30_000);
     const stopJobs = followJobs({
       onSnapshot: (jobs) => set("jobs", { state: "ready", value: [...jobs].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")), error: null }),
       onJob: (job) => setFacts((current) => (mounted.current ? { ...current, jobs: { state: "ready", value: upsertJob(current.jobs.value ?? [], job), error: null } } : current)),
@@ -551,7 +578,7 @@ export function FactsProvider({ children }: { children: ReactNode }) {
     });
     // The bar's Refresh (M25) reads every source again in place rather than loading the page again.
     const stopRefresh = onRefresh(() => refresh());
-    return () => { window.clearInterval(quick); window.clearInterval(slow); stopJobs(); stopRefresh(); };
+    return () => { window.clearInterval(quick); window.clearTimeout(slowStart); if (slow !== null) window.clearInterval(slow); stopJobs(); stopRefresh(); };
   }, [active, refresh, set]);
 
   // Only a server nobody has set up goes looking for a rebuild: an established one restoring a
