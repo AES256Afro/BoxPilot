@@ -3222,12 +3222,23 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   one of the newest hundred across every channel. The watchdog's undo unloads a driver the run
   loaded. Tests: `zulip.test.mjs`, `examples.test.mjs`, `tools-more-eyes.test.mjs`,
   `acting-export.test.mjs`, `stand-ins.test.mjs`, `remediations.test.mjs`, `resource-watch.test.mjs`.
-- **M48.5 Quick wins on the web process** (performance sweep). `examplesOf` builds every preference
-  pair and acting record to count them on each Memory tab open; `coverExamples` is pool × limit²;
-  `actionsSince`, `runForJob`, `listTree`, `usageSince` scan whole tables for want of indexes every
-  minute; the overview poll runs `moduleBudget()` once per agent every 5 s; `vectorsOf` loads every
-  vector blob to answer "has one"; every step write fsyncs (`synchronous` left at FULL under WAL);
-  `resolveFacts` reads nine facts for every evaluation whatever its questions need.
+- ✅ **M48.5 Quick wins on the web process** (unreleased, `feat/m48-perf`; the performance sweep's
+  findings). Both SQLite stores run `synchronous = NORMAL` under WAL: durable at every checkpoint, no
+  fsync for each of the twenty to fifty steps a run writes, and a power cut can lose only the last
+  moments' steps, never leave a file inconsistent. Indexes for the queries that scanned whole tables:
+  a run's tree (`root_run_id`) on every open, every agent's day of usage (`started_at`, `agent_id,
+  started_at`) on every overview, the staged jobs every minute (partial indexes on action steps and
+  on the job id they hold), an agent's evaluations, a run's cards. The overview reads every agent's
+  day once, not once per agent. The T number a tool output gets is a count, not the whole trace read
+  on every tool call. The Memory tab's preference-pair and acting-record counts, which built every
+  record to count them on every open and after every change, are cached on a stamp of the book and
+  the thumbs. "Has a vector" and "is the vector current" read the vectors' keys, not the blobs. An
+  evaluation reads only the facts its questions ask about (nine reads, seven through the root helper,
+  ran for every evaluation whatever it asked). The k-center cover keeps each candidate's nearest pick
+  and updates it against the newest pick alone (pool × limit, not pool × limit²), and a text's words
+  are computed once. Left for later: a slimmer request for the planner (M48.2), `listRuns`
+  over-fetching, `memoryItems` reading every document's text for the pinned ones. Tests:
+  `resource-watch.test.mjs` (the evaluation's reads), the existing cover and book tests unchanged.
 - **M48.6 Budgets that follow the work.** The runtime's context (8,192 on the owner's server, in
   30 GB of memory) has no control on any page; a run that hits it has no words for it; Resource
   Watch's 10,000 tokens ran out on its first evening; Steve's digest runs out of tokens on a budget

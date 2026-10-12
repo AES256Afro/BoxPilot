@@ -23,7 +23,9 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   const compiled = new Map();
   const prepare = (sql) => { let statement = compiled.get(sql); if (!statement) { statement = database.prepare(sql); compiled.set(sql, statement); } return statement; };
   // secure_delete: what the owner tells an agent to forget is overwritten, not just unlinked.
-  database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA secure_delete = ON;");
+  // synchronous NORMAL under WAL (M48.5): durable at every checkpoint, no fsync per step written; a power
+  // cut can lose only the last moments' steps, never leave the file inconsistent.
+  database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000; PRAGMA secure_delete = ON;");
   database.exec(`
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
@@ -272,6 +274,17 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   // M46.3: what the planner understood (goal, subject, constraints, confidence) beside the plan, so an export is the model's own answer.
   ensureColumn("agent_examples", "intent_json", "TEXT");
   database.exec("CREATE INDEX IF NOT EXISTS idx_agent_runs_parent ON agent_runs(parent_run_id)");
+  // M48.5: the queries the tick and the pages run most scanned whole tables - a run's tree on every
+  // open, every agent's day of usage on every overview, the staged jobs every minute.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_root ON agent_runs(root_run_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_started ON agent_runs(started_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_agent_started ON agent_runs(agent_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_run_steps_action ON agent_run_steps(started_at) WHERE kind = 'action';
+    CREATE INDEX IF NOT EXISTS idx_agent_run_steps_job ON agent_run_steps(json_extract(flags_json, '$.jobId')) WHERE kind = 'action';
+    CREATE INDEX IF NOT EXISTS idx_agent_eval_runs_agent ON agent_eval_runs(agent_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_proposals_run ON agent_proposals(run_id);
+  `);
 
   const iso = () => now().toISOString();
   function transaction(fn) {
@@ -703,6 +716,19 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       ON CONFLICT(kind, item_id) DO UPDATE SET model = excluded.model, dims = excluded.dims, vector = excluded.vector, text_hash = excluded.text_hash, updated_at = excluded.updated_at`)
       .run(kind, itemId, model, vector.byteLength / 4, vector, textHash, iso());
   }
+  /** What is stored about these kinds' vectors without the vectors themselves (M48.5): `${kind}:${id}` to { model, textHash }. */
+  function vectorKeys(kinds) {
+    const rows = prepare(`SELECT kind, item_id, model, text_hash FROM agent_vectors WHERE kind IN (${kinds.map(() => "?").join(", ")})`).all(...kinds);
+    return new Map(rows.map((row) => [`${row.kind}:${row.item_id}`, { model: row.model, textHash: row.text_hash }]));
+  }
+  /** How many of a run's steps answered a call so far (M48.5): the T number the next output gets, without the trace. */
+  const countOutputs = (runId, kinds) => Number(prepare(`SELECT COUNT(*) AS count FROM agent_run_steps WHERE run_id = ? AND state = 'done' AND kind IN (${kinds.map(() => "?").join(", ")})`).get(runId, ...kinds).count);
+  /** A stamp that changes when the book or the thumbs change (M48.5): what a cached count is keyed on. */
+  const trainingStamp = (agentId) => {
+    const examples = prepare("SELECT COUNT(*) AS count, COALESCE(MAX(rowid), 0) AS last FROM agent_examples WHERE agent_id = ?").get(agentId);
+    const feedback = prepare("SELECT COUNT(*) AS count, COALESCE(MAX(given_at), '') AS last FROM agent_feedback WHERE agent_id = ?").get(agentId);
+    return `${examples.count}:${examples.last}|${feedback.count}:${feedback.last}`;
+  };
   /** Every stored vector of these kinds: `${kind}:${id}` to { model, vector, textHash }. */
   function vectorsOf(kinds) {
     const rows = prepare(`SELECT kind, item_id, model, vector, text_hash FROM agent_vectors WHERE kind IN (${kinds.map(() => "?").join(", ")})`).all(...kinds);
@@ -1014,7 +1040,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     addExample, listExamples, listAllExamples, countExamples, getExample, deleteExample, deleteExampleOfRun,
     setFeedback, getFeedback, listFeedback,
     createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun, setProposalStepJob, listOpenProposalsForJob,
-    latestAnsweredPost,
+    latestAnsweredPost, vectorKeys, countOutputs, trainingStamp,
     addDocument, upsertDocument, listDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
     getDocumentMedia, listUndescribed, describeDocument, countImageDocuments,
     queueChatPost, listChatPosts, getChatPost, markChatPost, chatPostsSince, countChatPosts, pruneChatPosts, dropQueuedChatPosts,

@@ -76,7 +76,8 @@ export function createStateStore({
     if (!statement) { statement = rawPrepare(sql); compiled.set(sql, statement); }
     return statement;
   };
-  database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+  // synchronous NORMAL under WAL (M48.5): no fsync per commit; durable at each checkpoint, consistent whatever happens.
+  database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;");
   database.exec(`
     CREATE TABLE IF NOT EXISTS owners (
       id TEXT PRIMARY KEY,
