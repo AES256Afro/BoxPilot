@@ -29,7 +29,7 @@ You pick how it looks: thirteen looks in Settings → Appearance, from frosted g
 On a fresh Ubuntu Server (22.04 or newer):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.185.0
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.186.0
 ```
 
 The installer sets up Node 24, builds BoxPilot in `/opt/boxpilot`, starts its services, and prints the address to open with a one-time setup code. Create your account, say what the server is for (home server, media server, smart home, ad blocking, virtual machines, development, monitoring, or just the basics), and follow the checklist on Ops.
@@ -315,7 +315,7 @@ Each app is a short description file plus a Docker Compose template, so installi
 | Category | Apps |
 | --- | --- |
 | Developer tools (22) | Baserow, code-server, CyberChef, Directus, Docker Registry, Dockge, draw.io, Forgejo, InfluxDB, IT-Tools, MariaDB, Metabase, MongoDB, n8n, NocoDB, pgAdmin, phpMyAdmin, Portainer CE, PostgreSQL, Semaphore, Valkey (Redis), Verdaccio |
-| Monitoring (19) | Beszel, Beszel agent, cAdvisor, changedetection.io, Diun, Dozzle, Glance, Grafana, Grafana Alloy, Healthchecks, Homepage, LibreSpeed, Loki, Netdata, node-exporter, Prometheus, Scrutiny, Speedtest Tracker, Uptime Kuma |
+| Monitoring (20) | BaselineWatch, Beszel, Beszel agent, cAdvisor, changedetection.io, Diun, Dozzle, Glance, Grafana, Grafana Alloy, Healthchecks, Homepage, LibreSpeed, Loki, Netdata, node-exporter, Prometheus, Scrutiny, Speedtest Tracker, Uptime Kuma |
 | Games (17) | 7 Days to Die server, Core Keeper server, Crafty Controller, EmulatorJS, Enshrouded server, Factorio server, FarSpace, Minecraft server, Necesse server, Palworld server, Project Zomboid server, PufferPanel, RomM, Satisfactory server, Terraria server, V Rising server, Valheim server |
 | Knowledge (14) | AuDHDMAP, BookStack, Docmost, HedgeDoc, Joplin Server, Karakeep, Keel, linkding, Linkwarden, Memos, Shiori, Trilium Notes, wallabag, Wiki.js |
 | Media automation (14) | autobrr, Bazarr, Deluge, FlareSolverr, Lidarr, NZBGet, Prowlarr, qBittorrent (through a VPN), Radarr, SABnzbd, slskd, Sonarr, Tdarr, Transmission |
