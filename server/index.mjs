@@ -50,6 +50,7 @@ import { createRateLimit } from "./agents/budget.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
+import { createAppGlances } from "./app-glances.mjs";
 import { collectStorage, createStorageReader } from "./storage-inventory.mjs";
 import { listListeners } from "./ports.mjs";
 import { scanRemediations } from "./remediations-scan.mjs";
@@ -410,8 +411,11 @@ const assistant = createAssistantService({ state, registry, catalog: catalogServ
 const agentStore = createAgentStore({ databasePath: state.databasePath });
 // M45.3: Claude, as the web service knows it; the key stays with the model gateway.
 const agentsCloud = createAgentsCloud({ state });
+// Apps Today reads (M51): one glance per installed app with a reader, over the app's own API from
+// this process (the helper has no network), and the same reader behind the agents' tool.
+const appGlances = createAppGlances({ helper });
 const agents = createAgentService({
-  state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion, cloud: agentsCloud,
+  state, store: agentStore, registry, helper, inventory, knowledge: assistant.index, secretEnvNamesFor, healthAlerts, productVersion, cloud: agentsCloud, appGlances,
   // M45.5: an agent with leave to act stages its jobs here, in its maker's name.
   jobs,
   // M47: repair.findings runs the Repair page's own scan, as the run's person.
@@ -544,7 +548,7 @@ app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
 app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network, storage: storageRead }));
-app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, dnsResilience, notifications, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));
+app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, appGlances, dnsResilience, notifications, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));
 app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
 // The runbook for this server (M34.4), from the same services the pages read.
 const runbook = createRunbookService({ store: state, helper, catalogService, inventory, network, notifications, autoReconnect, identity, secretEnvNamesFor, collect: storageRead, webHost: host, webPort: port, tlsDir });
