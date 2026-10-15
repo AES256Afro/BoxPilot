@@ -10,8 +10,8 @@ description: "Security news, CVEs, vendor and CISA advisories and package adviso
 website: https://github.com/AES256Afro/BaselineWatch
 risk: low
 image:
-  reference: ghcr.io/aes256afro/baselinewatch:0.16.1
-  version: "0.16.1"
+  reference: ghcr.io/aes256afro/baselinewatch:0.17.0
+  version: "0.17.0"
 ports:
   - id: web
     label: Web UI
@@ -78,6 +78,16 @@ env:
     label: Local model name
     description: The Ollama model used for generated summaries. Any small instruction model works; it only ever sees text already on screen.
     default: "llama3.2:3b"
+  - name: BW_LOOK
+    label: Look
+    description: How pages are drawn unless a browser chooses otherwise from the masthead. Console is the dense dashboard with panels and charts; Register is the paper look.
+    default: console
+    options: ["console", "register"]
+  - name: BW_SCHEME
+    label: Colours
+    description: Light, dark, or whatever each device says. Each browser can pick its own from the masthead.
+    default: system
+    options: ["system", "light", "dark"]
 signIn:
   path: /login
   port: web
