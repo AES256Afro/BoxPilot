@@ -46,6 +46,7 @@ export const agentTemplates = Object.freeze([
         ],
         steps: [
           "Read the facts the question needs: server.facts, apps.list, storage.health, alerts.active.",
+          "When BaselineWatch is installed, read baselinewatch.digest for the day's known exploited vulnerabilities, watched CVEs and standards changes, and cite it in your digest.",
           "Check memory.search for what you learned before; say when a note may be out of date.",
           "Hand a question about Pi-hole or about backups to that specialist with agents.handoff, and answer the rest yourself.",
           "Keep a note of anything new you learned about the server.",
@@ -55,7 +56,7 @@ export const agentTemplates = Object.freeze([
       },
       instructions: "",
       audience: ["owner", "operator"],
-      tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "logs.query": "ask", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "jobs.recent": "auto", "records.query": "auto", "alerts.active": "auto", "backups.status": "auto", "pihole.stats": "ask", "where.runs": "auto", "firewall.status": "auto", "updates.status": "auto", "repair.findings": "auto", "protection.status": "auto", "apps.usage": "auto", "backups.coverage": "auto", "space.reclaimable": "auto", "plan.propose": "auto", "notify.owner": "auto", "agents.handoff": "auto" },
+      tools: { ...off, ...exact, "server.facts": "auto", "apps.list": "auto", "services.status": "auto", "logs.query": "ask", "storage.health": "auto", "docs.search": "auto", "document.read": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "jobs.recent": "auto", "records.query": "auto", "alerts.active": "auto", "backups.status": "auto", "pihole.stats": "ask", "baselinewatch.digest": "auto", "where.runs": "auto", "firewall.status": "auto", "updates.status": "auto", "repair.findings": "auto", "protection.status": "auto", "apps.usage": "auto", "backups.coverage": "auto", "space.reclaimable": "auto", "plan.propose": "auto", "notify.owner": "auto", "agents.handoff": "auto" },
       triggers: { ask: true, schedule: { every: "daily", hour: 5, minute: 30, quietHours: true }, events: ["health.alert", "drive.dropped"] },
       // An hour of model time a day: its 24 runs (questions, the digest, alerts, learning) take a few
       // minutes each on a CPU, and half an hour ran out after three questions on a small machine.

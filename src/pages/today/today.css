@@ -14,6 +14,9 @@
 .today-quiet { margin: 0; padding: 12px; color: var(--text-muted); font-size: 14px; }
 .today-more { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 8px 8px; border-top: 1px solid var(--border-subtle); }
 
+/* An app's glance (M51): the kit's tiles, then when its digest was written. */
+.today-glance__meta { margin: 8px 0 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+
 /* What ran: a group's name and its counts, then a row per job, the failures first. */
 .today-group + .today-group { border-top: 1px solid var(--border); }
 .today-group__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; padding: 9px 12px 3px; color: var(--text-strong); font-size: 14px; font-weight: 600; }

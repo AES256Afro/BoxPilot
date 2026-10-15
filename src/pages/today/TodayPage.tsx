@@ -15,14 +15,16 @@ import { runningInstalled } from "../../pwa/register";
 import { onRefresh } from "../../shell/refresh";
 import { Button, Facts, MetricStrip, MetricTile, Notice, PageHeader, Panel, StatusChip } from "../../ui";
 import { AgentsGlance } from "../agents/AgentsGlance";
+import { AppGlancePanel, useAppGlances } from "./AppGlances";
 import { offlineCopy, todayModel, type RanGroup, type TodayModel } from "./today";
 import "./today.css";
 
 /*
  * Today (M25.3): the phone's start page, and in the dock everywhere. One column on a phone, read top
  * to bottom: what waits for the owner's approval (each opens the ordinary approval dialog, at its
- * own tier, with its own password or typed confirmation), what else needs a look, the agents'
- * morning digest, what ran overnight, and whether the backups are off this server and current.
+ * own tier, with its own password or typed confirmation), what else needs a look, a card for each
+ * app the server reads for Today (M51: BaselineWatch's baselines and threats), the agents' morning
+ * digest, what ran overnight, and whether the backups are off this server and current.
  *
  * It reads nothing Home and Ops do not: the same facts, the same needs, the same backup glance. What
  * it showed last is kept on this device for a day (src/pwa/lastKnown.ts), for the account that saw
@@ -51,6 +53,8 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
   const live = todayModel(facts, jobs, { now: clock, role });
   const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
   const [allAttention, setAllAttention] = useState(false);
+  // Apps the server reads for Today (M51): one card each, read with the page and again on Check again.
+  const { glances, reload: reloadGlances } = useAppGlances();
 
   // Kept for offline reads once everything has been read, and only while BoxPilot is answering.
   const liveKey = JSON.stringify(offlineCopy(live));
@@ -69,7 +73,7 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
   const approvals = model.approvals.length;
   // The same "Check again" as Home and Ops, with something to show for the click (M49): on a phone,
   // "Refresh" read everything again in the background and looked ignored.
-  const again = useCheckAgain(async () => { reload(); await refresh(); });
+  const again = useCheckAgain(async () => { reload(); await Promise.all([refresh(), reloadGlances()]); });
 
   return (
     <div className="today-page cc" data-density="compact">
@@ -115,6 +119,8 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
             </div>
           )}
         </Panel>
+
+        {!stale && glances.map((glance) => <AppGlancePanel key={glance.app} glance={glance} apps={facts.catalog.value?.apps ?? []} clock={clock} />)}
 
         {!stale && <AgentsGlance variant="ops" role={role} onOpen={() => onNavigate("agents")} now={now} />}
 

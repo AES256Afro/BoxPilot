@@ -11,6 +11,7 @@ import { approvalModes, elevationTtlMs } from "../ops/risk.mjs";
 import { findPortConflicts, listListeners } from "../ports.mjs";
 import { keepsBackupData, resolveValues } from "../catalog/schema.mjs";
 import { optionalPortsIn } from "../catalog/compose.mjs";
+import { createAppGlances } from "../app-glances.mjs";
 import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../autoinstall.mjs";
 import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
@@ -80,7 +81,7 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
   return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished) };
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, dnsResilience = null, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, appGlances = createAppGlances({ helper }), dnsResilience = null, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners }) {
   const router = Router();
   router.get("/diagnostics/runtime", async (_request, response) => {
     const [web, worker] = await Promise.allSettled([
@@ -139,6 +140,13 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     });
     response.json({ applications, // The catalog is read on both sides, so the same file would otherwise be reported twice.
       problems: [...new Map([...problems, ...(live?.problems ?? [])].map((problem) => [problem.file, problem])).values()], liveError, host });
+  });
+
+  // Apps Today reads (M51): one glance per installed app that has a reader (server/app-glances.mjs),
+  // read over the app's own API. Open to every role: each such app's reading is open on this
+  // network, so nothing here is past what the caller could read themselves (ADR-003).
+  router.get("/apps/glances", async (request, response) => {
+    response.json(await appGlances.list());
   });
 
   // Precheck an install/reconfigure: validates values against the manifest and reports host port conflicts.

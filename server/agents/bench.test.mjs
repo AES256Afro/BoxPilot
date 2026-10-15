@@ -28,8 +28,8 @@ describe("the owner's first question, at 20 tokens a second read and 4 written",
     const [plan, first, ...later] = result.calls;
     expect(plan).toMatchObject({ call: "plan", tools: 0 });
     // M47: four more tool lines in the Keeper's planner list (about 100 tokens).
-    // M47.6: three more (about 45 tokens).
-    expect(plan.promptTokens).toBeLessThan(1_150);
+    // M47.6: three more (about 45 tokens). M51.1: one more, and a step to cite it (about 30 tokens).
+    expect(plan.promptTokens).toBeLessThan(1_200);
     expect(first.tools).toBe(8);
     expect(first.promptTokens).toBeLessThan(2_400);
     for (const call of later) {
