@@ -301,7 +301,7 @@ Finds what is wrong and offers the fix for each one: a drive that dropped off an
 </details>
 <!-- /every-look -->
 
-169 apps and game servers, each installed and managed the same way:
+170 apps and game servers, each installed and managed the same way:
 
 - **Sign in**: its address, username and password, and a way to change them.
 - **Performance**: live CPU, memory, temperature and disk use, with pause and stop.
