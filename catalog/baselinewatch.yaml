@@ -10,8 +10,8 @@ description: "Security news, CVEs, vendor and CISA advisories and package adviso
 website: https://github.com/AES256Afro/BaselineWatch
 risk: low
 image:
-  reference: ghcr.io/aes256afro/baselinewatch:0.16.0
-  version: "0.16.0"
+  reference: ghcr.io/aes256afro/baselinewatch:0.16.1
+  version: "0.16.1"
 ports:
   - id: web
     label: Web UI
