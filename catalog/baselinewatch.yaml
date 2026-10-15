@@ -1,17 +1,17 @@
-# Draft BoxPilot catalog manifest for BaselineWatch (schemaVersion 2).
-# Target: copy to BoxPilot/catalog/baselinewatch.yaml once the first image is on GHCR.
-# Port 8790 is free in the current BoxPilot catalog (BoxPilot itself is 8787).
+# BoxPilot catalog manifest for BaselineWatch (schemaVersion 2); the copy proposed as
+# BoxPilot/catalog/baselinewatch.yaml in AES256Afro/BoxPilot#472. `npm run check` validates it
+# against BoxPilot's schema. Port 8790 is free in the BoxPilot catalog (BoxPilot itself is 8787).
 schemaVersion: 2
 id: baselinewatch
 name: BaselineWatch
 category: Monitoring
 icon: "🛡️"
-description: "Security news, CVEs, CISA advisories and NIST publications in one timeline, plus a change register for the standards themselves: when NIST 800-53, a DISA STIG or a Microsoft baseline changes, see each control before and after, what changed, and why."
+description: "Security news, CVEs, vendor and CISA advisories and package advisories for the packages you watch, in one timeline; plus a change register for the standards themselves: when NIST SP 800-53 or 800-171, FedRAMP's rules, a DISA STIG or a Microsoft baseline changes, see each control before and after, what changed, and the publisher's reason. Read-only JSON API and MCP server for your agents."
 website: https://github.com/AES256Afro/BaselineWatch
 risk: low
 image:
-  reference: ghcr.io/aes256afro/baselinewatch:0.10.0
-  version: "0.10.0"
+  reference: ghcr.io/aes256afro/baselinewatch:0.16.0
+  version: "0.16.0"
 ports:
   - id: web
     label: Web UI
@@ -87,7 +87,9 @@ health:
   kind: healthcheck
   timeoutSeconds: 180
 notes: >-
-  On first run, open Sources and tick what you follow; NIST SP 800-53 Release 5.1.1 and 5.2.0
-  are preloaded so the Register shows a real diff straight away. Add your products and the
-  baselines you own under Watchlist to dim everything else. The daily digest goes to the
-  notification URL at 07:00 in your time zone.
+  The first fetch of each standard, ten seconds after start, loads its published history: NIST
+  SP 800-53 opens on the real Release 5.1.1 to 5.2.0 diff within a minute or two. Open Sources
+  to see what is followed. Under Watchlist add your products, the baselines you own and the
+  packages you ship (ecosystem:name, such as npm:express) so advisories about them are marked and
+  everything else is dimmed. The daily digest goes to the notification URL at 07:00 in your time
+  zone. Agents can read everything at /api/v1 and over MCP at /mcp.
