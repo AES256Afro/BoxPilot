@@ -10,7 +10,7 @@ BoxPilot runs a home server from a web page. You install apps, keep them updated
 
 One computer at home can run your own versions of things you pay for or hand your data to: movies and TV, photo backup from your phone, file sync, a password manager, ad blocking for every device in the house, home automation, game servers. Setting those up and keeping them running is the hard part. BoxPilot does that part.
 
-- **Install** any of 169 apps and game servers from a catalog. Each one's address, username and password are in one place.
+- **Install** any of 170 apps and game servers from a catalog. Each one's address, username and password are in one place.
 - **Back up** every app and BoxPilot itself. A backup only counts once BoxPilot has restored it somewhere safe and checked it.
 - **Update** the system and the apps. An app whose new version does not come up healthy goes back to the old one.
 - **Watch** the drives, memory, temperatures and every app, and say in plain words what is wrong and what to do about it.
