@@ -29,6 +29,13 @@ volumes:
     path: restore-points
     backup: false
     description: Copies of the database the app takes before every import, once a day and on request, each read back before it counts, for its own undo on the Backups page. Left out of BoxPilot's archive of the app, which already holds the database itself, so the archive does not carry every copy inside it.
+  - id: offbox
+    label: Off-box copies
+    container: /offbox
+    hostPath: /srv/financialauthority-offbox
+    configurable: true
+    backup: false
+    description: A folder on another disk (a USB drive, a second disk, or a folder Syncthing or rclone syncs to a cloud) where the app seals a passphrase-locked copy of its database daily or weekly. Point it at that disk's mount; set the passphrase on the app's Backups page.
   - id: imports
     label: Imports
     container: /imports
@@ -83,6 +90,9 @@ env:
     fixed: true
   - name: FA_INSTALL
     default: boxpilot
+    fixed: true
+  - name: FA_OFFBOX_DIR
+    default: /offbox
     fixed: true
   - name: FA_BRIDGE_CONTAINER
     default: bp-financialauthority-bridge
