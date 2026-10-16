@@ -9,8 +9,8 @@ description: "Reads your live transactions, paystubs, bills, payments, debts (in
 website: https://github.com/AES256Afro/FinancialAuthority
 risk: low
 image:
-  reference: ghcr.io/aes256afro/financialauthority:0.2.0
-  version: "0.2.0"
+  reference: ghcr.io/aes256afro/financialauthority:0.3.1
+  version: "0.3.1"
 ports:
   - id: web
     label: Web UI, API and MCP
@@ -23,6 +23,12 @@ volumes:
     container: /data
     path: data
     backup: true
+  - id: restore-points
+    label: The app's own restore points
+    container: /restore-points
+    path: restore-points
+    backup: false
+    description: Copies of the database the app takes before every import, once a day and on request, each read back before it counts, for its own undo on the Backups page. Left out of BoxPilot's archive of the app, which already holds the database itself, so the archive does not carry every copy inside it.
   - id: imports
     label: Imports
     container: /imports
@@ -72,6 +78,9 @@ env:
   - name: FA_IMPORT_DIR
     default: /imports
     fixed: true
+  - name: FA_RESTORE_DIR
+    default: /restore-points
+    fixed: true
   - name: TZ
     label: Time zone
     type: timezone
@@ -81,7 +90,7 @@ extraHosts:
   - host.docker.internal:host-gateway
 sidecars:
   - id: bridge
-    image: ghcr.io/aes256afro/financialauthority-bridge:0.2.0  # the community Bridge plus libfido2; see deploy/bridge
+    image: ghcr.io/aes256afro/financialauthority-bridge:0.3.1  # the community Bridge plus libfido2; see deploy/bridge
     volumes:
       - id: bridge-state
         container: /root
@@ -92,6 +101,15 @@ connections:
     role: model server
     where: install Ollama first and pull a chat model; FinancialAuthority reaches it at this server's port 11434
     note: Ollama is its own compose project, so FinancialAuthority reaches it through host.docker.internal rather than a container name. Without it the app still syncs, plans and briefs; only the built-in chat needs a model.
+actions:
+  - id: restore-point
+    label: Take a restore point
+    description: FinancialAuthority copies its whole database while it runs, reads the copy back and keeps it with its own restore points, to put back from its Settings > Backups. BoxPilot's backup of the app is separate.
+    operation: app.financialauthority.restorepoint.make
+  - id: check-backups
+    label: Check the database and its copies
+    description: SQLite checks every page of the live database and of the three newest restore points; shows how many copies the app keeps and how old the newest is, and leaves a note in the app of when it was checked.
+    operation: app.financialauthority.backups.check
 signIn:
   path: /
   port: web
