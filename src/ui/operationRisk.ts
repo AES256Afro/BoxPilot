@@ -22,6 +22,8 @@ export const operationRisk = {
   "agents.zulip.disconnect": "low",
   "app.action": "low",
   "app.backup": "medium",
+  "app.financialauthority.backups.check": "low",
+  "app.financialauthority.restorepoint.make": "low",
   "app.backup.delete": "medium",
   "app.backup.many": "medium",
   "app.backup.restore": "high",

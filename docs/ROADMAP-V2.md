@@ -3368,6 +3368,14 @@ button belongs, and errors swallowed so a panel vanishes or an empty state lies.
   off-box copy", a retry's button "Open Off-box": one thing under three names. It is "off this
   server" everywhere: the tab, Ops' line, the header's "Copy off this server behind" and
   "incomplete", the warnings' "the copy off this server", the transit look's stop.
+- ✅ **M49.5 FinancialAuthority in the catalog, its restore points on its sheet** (unreleased,
+  `catalog/financialauthority`). The self-hosted money app joins Finance with its Proton Mail Bridge
+  sidecar. Its data and the Bridge's sign-in are archived by the ordinary app backup; its own restore
+  points (a copy of its database before every import, daily and on request, each read back) get a
+  folder of their own left out of that archive. Two actions on its sheet run the app's own command
+  in its container: *Take a restore point* and *Check the database and its copies* (SQLite checks the
+  live database and the three newest copies; fails when the database does not pass). Both low tier,
+  in the app's lane behind its backups. Restoring a copy stays in the app, behind its owner's sign-in.
 
 
 ## M50: The second sweeps
