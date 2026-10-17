@@ -6,7 +6,7 @@ id: baselinewatch
 name: BaselineWatch
 category: Monitoring
 icon: "🛡️"
-description: "Security news, CVEs, vendor and CISA advisories and package advisories for the packages you watch, in one timeline; plus a change register for the standards themselves: when NIST SP 800-53 or 800-171, FedRAMP's rules, a DISA STIG or a Microsoft baseline changes, see each control before and after, what changed, and the publisher's reason. Read-only JSON API and MCP server for your agents."
+description: "Security news, CVEs and advisories in one timeline; a change register for NIST SP 800-53 and 800-171, FedRAMP's rules, DISA STIGs and Microsoft baselines, each control before and after with the publisher's reason; and STIG pages per platform with every rule's check, fix, SP 800-53 controls and CISA's advice. Read-only JSON API and MCP server for your agents."
 website: https://github.com/AES256Afro/BaselineWatch
 risk: low
 image:
