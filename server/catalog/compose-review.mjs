@@ -25,6 +25,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import YAML from "yaml";
 import { deviceMatchesPattern } from "./compose.mjs";
+import { rootReachableLocations } from "./schema.mjs";
 
 /** The sha256 a restore's `allowCompose` names: of the compose file's text, exactly as archived. */
 export function composeSha256(text) {
@@ -42,7 +43,7 @@ export function sameCompose(a, b) {
  * Places that hand a container the server itself, or BoxPilot: mounted, any one of them is root on
  * the host or near enough. A folder holding one counts too (/var holds /var/lib/docker).
  */
-const systemLocations = ["/etc", "/root", "/home", "/run", "/var/run", "/proc", "/sys", "/dev", "/boot", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/docker", "/var/lib/containerd", "/var/lib/libvirt", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/opt/boxpilot", "/etc/boxpilot", "/snap", "/var/lib/snapd"];
+const systemLocations = ["/etc", "/root", "/home", "/run", "/var/run", "/proc", "/sys", "/dev", "/boot", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/docker", "/var/lib/containerd", "/var/lib/libvirt", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/opt/boxpilot", "/etc/boxpilot", "/snap", "/var/lib/snapd", ...rootReachableLocations];
 const named = new Map([["/", "the whole server"], ["/var/run/docker.sock", "Docker itself, which is root on this server"], ["/run/docker.sock", "Docker itself, which is root on this server"], ["/etc", "the server's configuration"], ["/root", "root's home folder"], ["/home", "everyone's home folders"], ["/proc", "the server's processes"], ["/sys", "the kernel's settings"], ["/dev", "the server's devices"], ["/boot", "the kernel and boot loader"], ["/var/lib/docker", "every container's files"], ["/run", "the server's running services"], ["/var/run", "the server's running services"]]);
 export function isSystemLocation(candidate) {
   const normalized = String(candidate ?? "").replace(/\/+$/, "") || "/";

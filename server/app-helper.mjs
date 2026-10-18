@@ -24,7 +24,7 @@ import { dataScanCommand } from "./scan-resources.mjs";
 import { shared } from "./cache.mjs";
 import { formatDuration, keepTimeout, timedOut } from "./timeouts.mjs";
 import { snapshotBackupReferences } from "./machine-snapshot-helper.mjs";
-import { appFolderMounts, composeFindingsText, composeSha256, powerfulComposeSettings, sameCompose } from "./catalog/compose-review.mjs";
+import { appFolderMounts, composeFindingsText, composeSha256, imageRepository, powerfulComposeSettings, sameCompose } from "./catalog/compose-review.mjs";
 import { readArchiveMembers } from "./archive-members.mjs";
 
 /**
@@ -140,6 +140,16 @@ function parseModelSize(text) {
   if (!match) return 0;
   const scale = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12 }[match[2].toUpperCase()] ?? 1;
   return Math.round(Number(match[1]) * scale);
+}
+
+/**
+ * An image a backup or a saved boxpilot.json names, kept only when it is the catalog's own image for
+ * that service at another tag or digest. Those files can come from a drive or a mirror someone else
+ * writes, and whatever they name runs with everything the catalog grants the app (the Docker socket,
+ * host networking, devices): a different repository is never taken from them.
+ */
+export function catalogImagePin(candidate, catalogReference) {
+  return typeof candidate === "string" && candidate && imageRepository(candidate) === imageRepository(catalogReference) ? candidate : null;
 }
 
 export function createAppHelper({
@@ -1144,7 +1154,8 @@ export function createAppHelper({
       const existingEnv = await readEnv(id);
       const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), existingEnv));
       if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
-      const pinned = state.image?.reference ? { ...manifest, image: { ...manifest.image, reference: state.image.reference } } : manifest;
+      const savedImage = catalogImagePin(state.image?.reference, manifest.image.reference);
+      const pinned = savedImage ? { ...manifest, image: { ...manifest.image, reference: savedImage } } : manifest;
       progress?.(`${manifest.name}'s compose project is gone too; writing it again from its saved settings, on ${pinned.image.reference}`, "stdout");
       await writeProject(pinned, values, { existingEnv, devices });
       rewritten = true;
@@ -1319,8 +1330,11 @@ export function createAppHelper({
     // Only services this manifest still builds can be pinned. A recorded version naming a sidecar
     // the catalog has since dropped would otherwise redeploy the current images and report the old
     // ones restored, leaving the app on the release being escaped with a success message.
+    // And only to that service's own catalog image: the history lives in boxpilot.json, which a
+    // restored backup brings with it.
+    const catalogImageOf = (service) => (service === id ? manifest.image.reference : (manifest.sidecars ?? []).find((sidecar) => sidecar.id === service)?.image ?? null);
     const restoreTo = Object.fromEntries(Object.entries(last.from).filter(([service, reference]) =>
-      typeof reference === "string" && reference && (service === id || (manifest.sidecars ?? []).some((sidecar) => sidecar.id === service))));
+      catalogImageOf(service) !== null && catalogImagePin(reference, catalogImageOf(service))));
     if (!Object.keys(restoreTo).length) throw new Error(`${manifest.name} has no recorded version that still matches how it is built today, so there is nothing to go back to`);
 
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));
@@ -2626,10 +2640,15 @@ export function createAppHelper({
     if (fit.verbatim === "unfit") return { rendered: null, warning: `${manifest.name}'s settings in this backup no longer fit the catalog (${fit.errors.join("; ")}), so its compose file was restored exactly as it was backed up.` };
     const { values } = fit;
     const ran = deployedImages(archivedCompose);
+    const foreign = Object.entries(ran).filter(([service, reference]) => {
+      const catalog = service === manifest.id ? manifest.image.reference : (manifest.sidecars ?? []).find((sidecar) => sidecar.id === service)?.image;
+      return catalog && !catalogImagePin(reference, catalog);
+    });
+    for (const [service, reference] of foreign) progress?.(`The backup ran ${service} on ${reference}, which is not ${manifest.name}'s catalog image; the catalog's is used`, "stderr");
     const pinned = {
       ...manifest,
-      image: { ...manifest.image, reference: ran[manifest.id] ?? state.image?.reference ?? manifest.image.reference },
-      sidecars: (manifest.sidecars ?? []).map((sidecar) => (ran[sidecar.id] ? { ...sidecar, image: ran[sidecar.id] } : sidecar)),
+      image: { ...manifest.image, reference: catalogImagePin(ran[manifest.id], manifest.image.reference) ?? catalogImagePin(state.image?.reference, manifest.image.reference) ?? manifest.image.reference },
+      sidecars: (manifest.sidecars ?? []).map((sidecar) => (catalogImagePin(ran[sidecar.id], sidecar.image) ? { ...sidecar, image: ran[sidecar.id] } : sidecar)),
     };
     const current = await readFileWithoutFollowing(path.join(dirFor(manifest.id), "compose.yaml")).catch(() => null);
     const rendered = await renderProject(pinned, values, { existingEnv, devices: composeDevices(current ?? archivedCompose) });
