@@ -8,7 +8,8 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import { backupMountName } from "../backup-mount.mjs";
-import { servesHome } from "../tasks/served-folder.mjs";
+import { loginHomesFrom, servesHome } from "../tasks/served-folder.mjs";
+export { loginHomesFrom };
 import { packageBase, protectedPackages } from "../tasks/apt.mjs";
 export { protectedPackages };
 import { tunnelAppId } from "../cloudflare-tunnel.mjs";
@@ -24,23 +25,8 @@ export const packetFilterUnit = /^(nftables|netfilter-persistent|iptables|ip6tab
 
 const high = (condition) => (condition ? "high" : null);
 
-/**
- * The homes of accounts that can log in, from /etc/passwd: a share writes as the folder's owner, and
- * a service account with a shell (postgres, at /var/lib/postgresql) is a shell like any other.
- */
-export function loginHomesFrom(passwd) {
-  return String(passwd ?? "").split("\n").map((line) => line.split(":")).filter((fields) => fields.length >= 7)
-    .filter(([, , , , , home, shell]) => home && home !== "/" && home !== "/nonexistent" && !/(?:nologin|false|sync|halt|shutdown)$/.test(shell.trim()))
-    .map(([, , , , , home]) => home.replace(/\/+$/, ""));
-}
-const insideAny = (homes) => (folder) => {
-  const path = String(folder ?? "").replace(/\/+$/, "") || "/";
-  return homes.some((home) => path === home || path.startsWith(`${home}/`));
-};
 async function servesLoginHome(paths, readPasswd = () => readFile("/etc/passwd", "utf8")) {
-  if (servesHome(paths)) return true;
-  const homes = loginHomesFrom(await readPasswd().catch(() => ""));
-  return (paths ?? []).some(insideAny(homes));
+  return servesHome(paths, loginHomesFrom(await readPasswd().catch(() => "")));
 }
 
 /**
@@ -78,7 +64,6 @@ export const escalationRiskHooks = Object.freeze({
   "nfs.apply": async (parameters) => high(await servesLoginHome((parameters?.exports ?? []).map((entry) => entry?.path))),
   // Importing keys is users.keys.import, which is high; creating the account with them is the same.
   "users.add": (parameters) => high(Boolean(parameters?.githubUser)),
-  "apt.install": (parameters) => high((parameters?.packages ?? []).some((name) => protectedPackages.includes(packageBase(name)))),
   "apt.remove": (parameters) => high((parameters?.packages ?? []).some((name) => protectedPackages.includes(packageBase(name)))),
   "service.action": (parameters) => high(packetFilterUnit.test(String(parameters?.unit ?? ""))),
   // Whatever is mounted at the backup destination is where backup.sync copies every app's secrets
@@ -93,7 +78,8 @@ export const escalationRiskHooks = Object.freeze({
   "dns.names.apply": (parameters) => high(!ownAddresses().includes(String(parameters?.address ?? ""))),
   // Offering an exit node or routes opens the LAN (or Docker's and libvirt's networks) to the tailnet,
   // which is the firewall's kind of decision.
-  "tailscale.set": (parameters) => high(parameters?.exitNode === true || (parameters?.subnetRouter === true && (parameters?.routes ?? []).length > 0)),
+  // With no routes given, the task advertises the LAN's own subnets: subnetRouter alone offers them.
+  "tailscale.set": (parameters) => high(parameters?.exitNode === true || parameters?.subnetRouter === true),
   // The journal holds sudo and SSH history: shrinking it to a day erases the trail of what was done.
   "space.cleanup": (parameters) => high(((parameters?.categories ?? []).includes("journal") && (below(parameters?.journalMaxAgeDays, historyFloor.days) || below(parameters?.journalMaxBytes, historyFloor.journalBytes)))
     || ((parameters?.categories ?? []).includes("job-logs") && below(parameters?.jobLogRetentionDays, historyFloor.days))),
