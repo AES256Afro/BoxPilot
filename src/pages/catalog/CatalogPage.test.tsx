@@ -287,7 +287,7 @@ describe("App catalog: installing", () => {
     const sheet = await openInstall("Jellyfin");
     fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
     expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
     expect(new URLSearchParams(window.location.search).get("tab")).not.toBe("browse");
     expect(screen.getByRole("tab", { name: /Installed|On this server/ }).getAttribute("aria-selected")).toBe("true");
@@ -450,14 +450,14 @@ describe("App catalog: installing", () => {
     fireEvent.change(within(form).getByLabelText("Web UI port"), { target: { value: "5002" } });
     fireEvent.click(within(form).getByRole("button", { name: "Apply settings" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
     form = await screen.findByRole("dialog", { name: "Dockge" });
     expect(within(form).getByText("Settings", { selector: ".ui-sheet__kicker" })).toBeTruthy();
     expect((within(form).getByLabelText("Web UI port") as HTMLInputElement).value).toBe("5002");
     outcome = "completed";
     fireEvent.click(within(form).getByRole("button", { name: "Apply settings" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
     const back = await screen.findByRole("dialog", { name: "Dockge" });
     expect(within(back).getByRole("tab", { name: "Overview" })).toBeTruthy();
   });
@@ -876,7 +876,7 @@ describe("App catalog: backups", () => {
     expect(await within(sheet).findByText("config/system.xml")).toBeTruthy();
     expect(within(sheet).getByText(/120,000 files/)).toBeTruthy();
     fireEvent.change(within(sheet).getByRole("searchbox", { name: "Filter files" }), { target: { value: "users" } });
-    expect(await within(sheet).findByText("config/deep/users.db", undefined, { timeout: 3000 })).toBeTruthy();
+    expect(await within(sheet).findByText("config/deep/users.db")).toBeTruthy();
     expect(asked.at(-1)).toEqual({ id: "jellyfin", backup: backup.artifact, filter: "users" });
   });
 

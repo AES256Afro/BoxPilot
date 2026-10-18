@@ -100,7 +100,7 @@ export default defineConfig({
     // was over a third of the suite's time, and a server test could lean on browser globals that
     // the server itself never has.
     projects: [
-      { extends: true, test: { name: "ui", include: ["src/**/*.test.{ts,tsx,mjs}"], environment: "jsdom" } },
+      { extends: true, test: { name: "ui", include: ["src/**/*.test.{ts,tsx,mjs}"], environment: "jsdom", setupFiles: ["src/testSetup.ts"], testTimeout: 15_000 } },
       { extends: true, test: { name: "node", include: ["{server,scripts,packages,test,demo-site}/**/*.test.mjs"], environment: "node" } },
     ],
   },

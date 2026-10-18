@@ -199,7 +199,7 @@ describe("System page", () => {
       fireEvent.change(await screen.findByLabelText("Typed confirmation"), { target: { value: "v0.62.0" } });
       fireEvent.change(screen.getByLabelText("Approval password"), { target: { value: "correct horse battery" } });
       fireEvent.click(screen.getByRole("button", { name: "Approve and run" }));
-      fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+      fireEvent.click(await screen.findByRole("button", { name: "Close" }));
       await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Updating to 0.62.0"));
       expect(screen.queryByRole("button", { name: /Update to v0.62.0/ })).toBeNull();
     }
@@ -292,7 +292,7 @@ describe("System page", () => {
     render(<SystemPage csrfToken="csrf-token" />);
     fireEvent.click(await screen.findByRole("button", { name: `Remove ${damaged}` }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull());
   });
 
   it("switches the weekly trim through its own tiered switch", async () => {
