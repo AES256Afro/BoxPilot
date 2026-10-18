@@ -1877,8 +1877,8 @@ Proposed, value to the owner against effort:
   copies from before the secret scrub are still on disk.
 - **Restore a database copy as an operation** (high risk, stops BoxPilot) - medium, medium to large;
   today it is the three manual steps the rollback prints.
-- **Hold the update button while jobs run** - low to medium, small: the approval already refuses;
-  the button could say so first.
+- ✅ **Hold the update button while jobs run** - low to medium, small: the approval already refuses;
+  the button says so first, naming the running jobs (`src/pages/system/runningJobs.ts`).
 - **Fold "What you can do" into the page header** - low to medium, small: the strip on every Classic
   page explains rather than does. A design call for the owner.
 - **Quiet hours or a daily digest for pushes** - medium, medium.
