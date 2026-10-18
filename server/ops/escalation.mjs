@@ -7,16 +7,11 @@
  */
 import { backupMountName } from "../backup-mount.mjs";
 import { servesHome } from "../tasks/served-folder.mjs";
+import { packageBase, protectedPackages } from "../tasks/apt.mjs";
+export { protectedPackages };
 import { tunnelAppId } from "../cloudflare-tunnel.mjs";
 import { defaultKeepBackupsPerApp } from "../housekeeping.mjs";
 
-/**
- * Packages whose removal cuts off SSH, Tailscale or the firewall, or takes sudo, systemd or Docker
- * with it. apt-get reads a trailing "-" on an install as a removal and a trailing "+" on a removal as
- * an install, so the name is compared without either.
- */
-export const protectedPackages = Object.freeze(["openssh-server", "openssh-client", "openssh-sftp-server", "ssh", "ufw", "nftables", "iptables", "fail2ban", "tailscale", "sudo", "systemd", "systemd-sysv", "docker-ce", "docker.io", "containerd", "containerd.io", "netplan.io"]);
-const packageBase = (name) => String(name ?? "").replace(/[-+]$/, "").replace(/:[a-z0-9-]+$/, "");
 
 /**
  * Units that load or flush the kernel's packet filter. nftables.service begins with `flush ruleset`
@@ -71,6 +66,7 @@ export const escalationRiskHooks = Object.freeze({
   // Each backup prunes all but the newest `keep`: a few runs with keep 1 delete what
   // app.backup.delete (owner only) guards. Keeping fewer than housekeeping always keeps is the owner's call.
   "app.backup": (parameters) => high(parameters?.keep !== undefined && parameters?.keep !== null && Number(parameters.keep) < defaultKeepBackupsPerApp),
+  "app.backup.many": (parameters) => high(parameters?.keep !== undefined && parameters?.keep !== null && Number(parameters.keep) < defaultKeepBackupsPerApp),
 });
 
 /**
