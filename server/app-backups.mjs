@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, lstat, mkdir, open, readFile, readdir, readlink, rename, rm, stat, unlink } from "node:fs/promises";
+import { chmod, lchown, lstat, mkdir, open, readFile, readdir, readlink, rename, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { readFileWithoutFollowing, replaceFileWithoutFollowing, writeFileDurably } from "./durable-file.mjs";
@@ -969,11 +969,17 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     // files next to newer WAL segments, which is neither the backup nor the present state.
     await mkdir(staged, { mode: 0o700 });
     progress?.(`$ tar -xzf ${backupName}`, "stdout");
-    const extract = await runCommand(tarBinary, ["-xzf", artifact, "--no-overwrite-dir", "-C", staged], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+    // Everything inside keeps the archive's owners and modes, which container users need.
+    const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
     if (!extract.ok) {
       await rm(staged, { recursive: true, force: true });
       throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The live application directory was not replaced.`);
     }
+    // An archive's "./" entry gives the folder it is unpacked into its own mode and owner (0777, say),
+    // and becomes the app folder: it is set back to what BoxPilot made. (--no-overwrite-dir would
+    // also skip the owners of folders an archive lists after their files.)
+    await chmod(staged, 0o700);
+    if (typeof process.getuid === "function") await lchown(staged, process.getuid(), process.getgid?.() ?? process.getuid());
     // The backup's compose file is what `up` binds, and the app may have moved since it was written
     // (to tailnet only, with Serve now holding its old port on the tailnet address). Asked before
     // anything is stopped: found by `up` instead, the app was left down with "address already in
@@ -1247,7 +1253,7 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
       await mkdir(staged, { mode: 0o700 });
       progress?.(`$ tar -xzf ${backupName} ${relativePath}`, "stdout");
       // "--" before the member name (M50): one starting with "-" would be read as an option.
-      const extract = await runCommand(tarBinary, ["-xzf", artifact, "--no-overwrite-dir", "-C", staged, "--", relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged, "--", relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
       if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
       const planted = await linksWhereBoxPilotWrites(staged, manifest);
       if (planted.length) throw new Error(plantedWords(manifest, planted, relativePath));
