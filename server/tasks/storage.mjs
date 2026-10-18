@@ -1,4 +1,4 @@
-import { access, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
+import { access, mkdir, open, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
@@ -97,7 +97,7 @@ export const logicalVolumePattern = /^\/dev\/mapper\/[A-Za-z0-9._+-]{1,64}$/;
 
 /** Full device subtree (LVM and dm children included; this runs as root in the host namespace). */
 async function deviceTree(run, device) {
-  const tree = await run(binaries.lsblk, ["-J", "-b", "-o", "PATH,TYPE,FSTYPE,RO,MOUNTPOINTS,UUID,PARTUUID,SERIAL,WWN,SIZE", device], { timeout: 15_000 });
+  const tree = await run(binaries.lsblk, ["-J", "-b", "-o", "PATH,TYPE,FSTYPE,RO,MOUNTPOINTS,UUID,PARTUUID,LABEL,PARTLABEL,SERIAL,WWN,SIZE", device], { timeout: 15_000 });
   if (!tree.ok) throw new Error(`${device} was not found`);
   try {
     const parsed = JSON.parse(tree.stdout);
@@ -296,14 +296,37 @@ export function sameDisk(identity, node) {
   return !["serial", "wwn", "size"].some(differs);
 }
 
-/** Paths and identifiers of the tree that /etc/fstab names, by UUID=, PARTUUID=, a by-* link or a path. */
-export function fstabNames(content, nodes) {
-  const entries = String(content ?? "").split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#")).map((line) => line.split(/\s+/)[0]);
-  const named = new Set(entries);
+/** The first field of each active /etc/fstab line: what it mounts. */
+export function fstabSources(content) {
+  return String(content ?? "").split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#")).map((line) => line.split(/\s+/)[0]);
+}
+
+/**
+ * Paths and identifiers of the tree that /etc/fstab names: by UUID=, PARTUUID=, LABEL= or PARTLABEL=
+ * (quoted or not), or by a path. `real` maps a path to where it leads (a /dev/disk/by-* link, an LVM
+ * /dev/vg/lv name), so any name for the same device counts.
+ */
+export function fstabNames(content, nodes, real = new Map()) {
+  // fstab writes a space as \040; a value may also be quoted.
+  const unquote = (value) => value.replace(/\\([0-7]{3})/g, (_match, code) => String.fromCharCode(parseInt(code, 8))).replace(/^(["'])(.*)\1$/, "$2");
+  const tags = new Set();
+  const paths = new Set();
+  for (const source of fstabSources(content)) {
+    const tag = /^(UUID|PARTUUID|LABEL|PARTLABEL)=(.+)$/i.exec(source);
+    // Identifiers are hex and blkid matches them whatever their case; labels are compared as written.
+    if (tag) { const key = tag[1].toUpperCase(); const value = unquote(tag[2]); tags.add(`${key}=${key.endsWith("UUID") ? value.toLowerCase() : value}`); continue; }
+    paths.add(source);
+    if (real.has(source)) paths.add(real.get(source));
+    const link = /^\/dev\/disk\/by-(uuid|partuuid|label|partlabel)\/(.+)$/.exec(source);
+    if (link) { const key = link[1].toUpperCase(); tags.add(`${key}=${key.endsWith("UUID") ? link[2].toLowerCase() : link[2]}`); }
+  }
+  const tagged = (key, value) => value && tags.has(`${key}=${key.endsWith("UUID") ? String(value).toLowerCase() : value}`);
   return nodes.flatMap((node) => [
-    node.uuid && (named.has(`UUID=${node.uuid}`) || named.has(`/dev/disk/by-uuid/${node.uuid}`)) ? `${node.path} (UUID ${node.uuid})` : null,
-    node.partuuid && (named.has(`PARTUUID=${node.partuuid}`) || named.has(`/dev/disk/by-partuuid/${node.partuuid}`)) ? `${node.path} (PARTUUID ${node.partuuid})` : null,
-    named.has(node.path) ? node.path : null,
+    tagged("UUID", node.uuid) ? `${node.path} (UUID ${node.uuid})` : null,
+    tagged("PARTUUID", node.partuuid) ? `${node.path} (PARTUUID ${node.partuuid})` : null,
+    tagged("LABEL", node.label) ? `${node.path} (label ${node.label})` : null,
+    tagged("PARTLABEL", node.partlabel) ? `${node.path} (partition label ${node.partlabel})` : null,
+    paths.has(node.path) || (real.has(node.path) && paths.has(real.get(node.path))) ? node.path : null,
   ]).filter(Boolean);
 }
 
@@ -311,7 +334,7 @@ export function fstabNames(content, nodes) {
  * Erase a block device and create a fresh ext4 filesystem. The guards are absolute.
  * @param {{ device?: string, label?: string | null, identity?: { serial?: string | null, wwn?: string | null, size?: number | string | null, model?: string | null } | null }} [parameters]
  */
-export async function storageFormat({ device, label = null, identity = null } = {}, { run = fixedRun, log = null, files = { readFile } } = {}) {
+export async function storageFormat({ device, label = null, identity = null } = {}, { run = fixedRun, log = null, files = { readFile, realpath } } = {}) {
   if (typeof device !== "string" || !devicePattern.test(device)) throw new Error("Device path is invalid");
   if (label !== null && (typeof label !== "string" || !labelPattern.test(label))) throw new Error("Label may use letters, digits, underscore, hyphen (max 16)");
   const nodes = await deviceTree(run, device);
@@ -320,7 +343,14 @@ export async function storageFormat({ device, label = null, identity = null } = 
   if (!sameDisk(identity, nodes[0])) throw new Error(`${device} is not the disk this was approved for (approved: ${[identity.model, identity.serial, identity.size && `${identity.size} bytes`].filter(Boolean).join(", ")}). Nothing was erased; stage the format again for the disk you mean.`);
   // A drive the server mounts at boot is one it means to keep, mounted or not just now: a managed
   // drive whose nofail mount did not come up, or one Reconnect detached, is still someone's data.
-  const inFstab = fstabNames(await files.readFile(fstabPath, "utf8").catch(() => ""), nodes);
+  const fstab = await files.readFile(fstabPath, "utf8").catch(() => "");
+  const resolve = files.realpath ?? realpath;
+  const real = new Map();
+  for (const name of [...fstabSources(fstab).filter((source) => source.startsWith("/dev/")), ...nodes.map((node) => node.path)]) {
+    const target = await resolve(name).catch(() => null);
+    if (target) real.set(name, target);
+  }
+  const inFstab = fstabNames(fstab, nodes, real);
   if (inFstab.length) throw new Error(`${inFstab.join(", ")} is listed in /etc/fstab, so this server mounts it at boot. Nothing was erased; unmount it from Storage first if you mean to erase it.`);
   log?.(`$ wipefs -a ${device}`, "stdout");
   const wipe = await run(binaries.wipefs, ["-a", device], { timeout: 60_000 });
