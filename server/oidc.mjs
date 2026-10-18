@@ -177,7 +177,7 @@ export function createOidcService({
     requireKeys();
     let payload;
     try { payload = verifyJwt(accessToken, { publicKey, now: Math.floor(now() / 1000) }); } catch { throw new OidcError("invalid_token", "The access token is invalid or expired."); }
-    if (payload.token_use !== "access" || payload.iss !== issuer) throw new OidcError("invalid_token", "Not an access token for this issuer.");
+    if (payload.token_use !== "access" || payload.iss !== issuer || payload.aud !== `${issuer}/oidc/userinfo`) throw new OidcError("invalid_token", "Not an access token for this issuer.");
     const owner = store.findOwnerById(payload.sub);
     if (!owner || owner.role === "disabled") throw new OidcError("invalid_token", "That account can no longer sign in.");
     return { sub: owner.id, ...claimsFor(owner, String(payload.scope ?? "").split(/\s+/)) };
