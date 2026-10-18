@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The demo's Agents section (M43): every world offers every template, and the default world's
  * Environment Scout shows a survey a person can trust - five reads, a ranked list whose every

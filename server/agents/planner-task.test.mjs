@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The planner's slim request (M48.2): what started the run and the question, the other agents'
  * findings by title, the conversation in a line - never the notes, the memories or the findings'

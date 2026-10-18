@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * A PDF from #agent-files, a watched folder or an upload is read on the web process's one thread.
  * These files are built to make that read expensive; each must end quickly, whatever it holds. The

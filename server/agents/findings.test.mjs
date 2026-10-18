@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Agents share what they learn (M44, ADR-012), end to end with the real service, runner and the
  * stand-in model: a routine run or a checked answer is kept as the agent's finding - one per agent

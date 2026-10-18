@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readChatResult } from "../src/index.mjs";
 import { anthropicBetas, createAnthropicClient, createAnthropicProvider, echoBlocks, toAnthropicRequest } from "../src/providers/anthropic.mjs";

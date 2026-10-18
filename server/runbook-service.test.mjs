@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The runbook service (M34.4): the facts come from the services BoxPilot already has, every stored
  * parameter set is masked before anything is read from it, and the out-of-date check needs nothing

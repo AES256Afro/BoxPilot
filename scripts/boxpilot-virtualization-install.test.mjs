@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import { installApprovedVirtualization, virtualizationInstallInternals } from "./boxpilot-virtualization-install.mjs";
 

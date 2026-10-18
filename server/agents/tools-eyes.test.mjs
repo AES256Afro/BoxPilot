@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Eyes on what the agents said every night they could not see (M47): the firewall, waiting package
  * updates, Repair's findings, brute-force protection, the accounts and SSH, and what the tunnel

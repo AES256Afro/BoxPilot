@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * An agent's run may take 15 minutes by default (the owner's choice after the first real run timed
  * out). Agents saved with the old 10-minute default are moved to it once, as a version of their own

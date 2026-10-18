@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The agent templates (M37, M43): every one a spec BoxPilot accepts, using only tools the runtime
  * has, with budgets under the ceilings that still hold its own nightly evaluation, schedules inside

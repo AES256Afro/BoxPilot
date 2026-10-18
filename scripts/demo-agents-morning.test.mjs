@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The demo built in the morning (2026-10 sweep, D-1). The demo seeds its agents' day relative to
  * whenever it is built, and the Pi-hole Watcher's 05:31 routine leaves a finding fresh for seven

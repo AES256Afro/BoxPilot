@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
 import { createRoutedHarness, record, routedAgent, routes } from "../../test/agents-routes.mjs";
 import { actingTasks, gradeActing, stagedBy } from "./act-grade.mjs";

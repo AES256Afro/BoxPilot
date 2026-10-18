@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The session cookie over the LAN's HTTPS listener (sweep 1, S1-2).
  *
