@@ -160,40 +160,44 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       } else {
         if (restarting) throw restartRefusalError();
         const admitted = mutations.enter();
-        const held = laneFor(request.operation, request.parameters);
-        // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
-        // both idle timers alive; the client reads those lines as progress, not as the reply.
-        let heartbeat = null;
-        // Anything can be held up by the exclusive lane, and an exclusive request waits for every lane.
-        const willWait = lanes.busy(held);
-        const frame = (value) => { if (!connection.destroyed && connection.writable) connection.write(`${JSON.stringify(value)}\n`); };
-        if (willWait) {
-          // Say so at once: the client holds a queued request to its queue ceiling rather than the
-          // operation's own budget, which starts only when the "started" frame below arrives.
-          frame(helperQueuedFrame(request?.id ?? null, held.join("+")));
-          heartbeat = setInterval(() => frame(helperQueuedFrame(request?.id ?? null, held.join("+"))), queuedHeartbeatMs);
-          heartbeat.unref?.();
-        }
-        // While it waits, a stop of the helper (a drained self-restart holds every lane until then)
-        // answers it at once with nothing done, rather than holding the stop until systemd kills it.
-        const queued = { refused: false, refuse: (refusal = restartRefusalError("BoxPilot's helper restarted before this began, so nothing was changed. Run it again.")) => { queued.refused = true; if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } reply(helperErrorReply(request?.id ?? null, refusal)); } };
-        waiting.add(queued);
+        // Left on every path out, a throw before the lane included: a slot that leaks is one fewer for good.
         try {
-          result = await lanes.run(held, async (holdUntil) => {
+          const held = laneFor(request.operation, request.parameters);
+          // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
+          // both idle timers alive; the client reads those lines as progress, not as the reply.
+          let heartbeat = null;
+          // Anything can be held up by the exclusive lane, and an exclusive request waits for every lane.
+          const willWait = lanes.busy(held);
+          const frame = (value) => { if (!connection.destroyed && connection.writable) connection.write(`${JSON.stringify(value)}\n`); };
+          if (willWait) {
+            // Say so at once: the client holds a queued request to its queue ceiling rather than the
+            // operation's own budget, which starts only when the "started" frame below arrives.
+            frame(helperQueuedFrame(request?.id ?? null, held.join("+")));
+            heartbeat = setInterval(() => frame(helperQueuedFrame(request?.id ?? null, held.join("+"))), queuedHeartbeatMs);
+            heartbeat.unref?.();
+          }
+          // While it waits, a stop of the helper (a drained self-restart holds every lane until then)
+          // answers it at once with nothing done, rather than holding the stop until systemd kills it.
+          const queued = { refused: false, refuse: (refusal = restartRefusalError("BoxPilot's helper restarted before this began, so nothing was changed. Run it again.")) => { queued.refused = true; if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } reply(helperErrorReply(request?.id ?? null, refusal)); } };
+          waiting.add(queued);
+          try {
+            result = await lanes.run(held, async (holdUntil) => {
+              waiting.delete(queued);
+              if (queued.refused) throw new Error("The helper stopped before this request began");
+              // The web side gave up while this waited: running it now would change the host with no job watching.
+              // allowHalfOpen keeps `destroyed` false after the peer's FIN, so check the read side too.
+              if (connection.destroyed || connection.readableEnded) throw new Error("The request was abandoned while it waited for an earlier operation on this subject");
+              if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+              if (registeredTimeout) connection.setTimeout(registeredTimeout); // the operation's own budget starts now
+              if (willWait) frame(helperStartedFrame(request.id)); // ...and the client's deadline restarts with it
+              // A root task it leaves running past its own limit keeps these lanes until its unit stops.
+              return whileHoldingRootTasks(holdUntil, () => executeHelperOperation(request, helperDependencies));
+            });
+          } finally {
             waiting.delete(queued);
-            if (queued.refused) throw new Error("The helper stopped before this request began");
-            // The web side gave up while this waited: running it now would change the host with no job watching.
-            // allowHalfOpen keeps `destroyed` false after the peer's FIN, so check the read side too.
-            if (connection.destroyed || connection.readableEnded) throw new Error("The request was abandoned while it waited for an earlier operation on this subject");
-            if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
-            if (registeredTimeout) connection.setTimeout(registeredTimeout); // the operation's own budget starts now
-            if (willWait) frame(helperStartedFrame(request.id)); // ...and the client's deadline restarts with it
-            // A root task it leaves running past its own limit keeps these lanes until its unit stops.
-            return whileHoldingRootTasks(holdUntil, () => executeHelperOperation(request, helperDependencies));
-          });
+            if (heartbeat) clearInterval(heartbeat);
+          }
         } finally {
-          waiting.delete(queued);
-          if (heartbeat) clearInterval(heartbeat);
           admitted();
         }
       }

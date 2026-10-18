@@ -13,6 +13,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, lstat, mkdir, open, readdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
+import { assertArchiveFits, freeBytesOf as freeBytesOnDisk } from "./archive-expansion.mjs";
 import path from "node:path";
 import { copyFileExclusively, mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing, syncDirectory } from "./durable-file.mjs";
 import { fixedRun } from "./exec.mjs";
@@ -266,7 +267,7 @@ export function createMachineSnapshotHelper({
   requireIndependentDevice = true,
   // Free space a restore must leave on the filesystem it unpacks into (the live database's).
   restoreReserveBytes = 1024 ** 3,
-  freeBytesOf = async (directory) => { const capacity = await statfs(directory); return Number(capacity.bavail) * Number(capacity.bsize); },
+  freeBytesOf = freeBytesOnDisk,
 } = {}) {
   const resolvedSnapshotRoot = path.resolve(snapshotRoot);
   const resolvedMountRoot = path.resolve(mountRoot);
@@ -843,15 +844,6 @@ export function createMachineSnapshotHelper({
     return { source, artifact, createdAt: manifest.createdAt ?? meta?.createdAt ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps, system: manifest.contents?.system ?? null, vms: vms ?? null, containsSecrets: true };
   }
 
-  /** The bytes an archive holds once unpacked, from its listing; throws when it cannot be listed. */
-  async function expandedBytes(artifactPath) {
-    const listing = await run(tarBinary, ["-tvzf", artifactPath, "--numeric-owner"], { timeout: 30 * 60_000, maxBuffer: 64 * 1024 * 1024 });
-    if (!listing.ok) throw new Error(`Could not read the snapshot: ${listing.stderr.split("\n").slice(-2).join(" ")}`);
-    let total = 0;
-    for (const line of listing.stdout.split("\n")) total += Number(/^\S+\s+\S+\s+(\d+)\s/.exec(line)?.[1] ?? 0);
-    return total;
-  }
-  const gib = (bytes) => `${(Math.max(0, bytes) / 1024 ** 3).toFixed(1)} GiB`;
 
   /**
    * Rehydrate from a snapshot. Apps: project files are restored, the app is (re)installed through the
@@ -879,10 +871,8 @@ export function createMachineSnapshotHelper({
     // proves the file is whole, not that BoxPilot made it. Unpacked as root onto the filesystem the
     // live database is on, a small archive that inflates to more than the free space would fill it,
     // root's reserved blocks included. What it holds is added up from its listing first.
-    const expanded = await expandedBytes(artifactPath);
     await mkdir(resolvedSnapshotRoot, { recursive: true, mode: 0o700 });
-    const free = await freeBytesOf(resolvedSnapshotRoot);
-    if (expanded > free - restoreReserveBytes) throw new Error(`The snapshot unpacks to ${gib(expanded)}, more than this server can take while keeping ${gib(restoreReserveBytes)} free (${gib(free)} free now). Nothing was changed.`);
+    await assertArchiveFits({ run, tarBinary, artifactPath, directory: resolvedSnapshotRoot, reserveBytes: restoreReserveBytes, free: freeBytesOf, what: "The snapshot" });
     const staging = path.join(resolvedSnapshotRoot, `.restore-${randomUUID()}`);
     await mkdir(staging, { recursive: true, mode: 0o700 });
     const summary = { source, artifact, apps: [], system: null, vms: [], controllerBackupStaged: null };

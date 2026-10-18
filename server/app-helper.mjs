@@ -6,6 +6,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, createReadStream } from "node:fs";
 import { chmod, lchown, lstat, mkdir, open, readFile, readdir, readlink, rename, rm, stat, unlink, writeFile, realpath } from "node:fs/promises";
+import { assertArchiveFits, freeBytesOf as freeBytesOnDisk } from "./archive-expansion.mjs";
 import path from "node:path";
 import YAML from "yaml";
 import { mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing, writeFileDurably } from "./durable-file.mjs";
@@ -164,6 +165,9 @@ export function createAppHelper({
   lstatPath = (target) => lstat(target),
   // Where a data folder really is, every link resolved (checkedDataFolders, dataFolderProblems).
   realpathOf = (target) => realpath(target),
+  // Free space where an archive unpacks, and how much a restore leaves (archive-expansion.mjs).
+  freeBytesOf = freeBytesOnDisk,
+  restoreReserveBytes = 1024 ** 3,
   tailscaleBinary = process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale",
   vpnProfile = null,
   // Whether Docker can give containers an NVIDIA GPU; asked only for apps marked `gpu: optional`.
@@ -2673,6 +2677,8 @@ export function createAppHelper({
     // Extract beside the app and swap, so the result is the backup and nothing else. Unpacking over
     // the live directory would leave every file written since — for a database that means old control
     // files next to newer WAL segments, which is neither the backup nor the present state.
+    // A data archive can have come from a drive or a mirror (a machine snapshot copies it in).
+    await assertArchiveFits({ run: runCommand, tarBinary, artifactPath: artifact, directory: path.dirname(staged), reserveBytes: restoreReserveBytes, free: freeBytesOf, what: `Backup ${backupName}` });
     await mkdir(staged, { mode: 0o700 });
     progress?.(`$ tar -xzf ${backupName}`, "stdout");
     const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
@@ -2935,6 +2941,7 @@ export function createAppHelper({
       progress?.("Verifying the backup checksum...", "stdout");
       if ((await sha256File(artifact)) !== meta.checksumSha256) throw new Error(`Backup ${backupName} failed its checksum; it may be damaged. Nothing was changed.`);
     }
+    await assertArchiveFits({ run: runCommand, tarBinary, artifactPath: artifact, directory: path.dirname(dirFor(id)), members: [relativePath], reserveBytes: restoreReserveBytes, free: freeBytesOf, what: `${relativePath} in ${backupName}` });
     const saved = await checkpoint({ id, reason: "file restore", preserve: backupName }, { progress });
     const status = await containerStatus(id);
     if (status.running) {
