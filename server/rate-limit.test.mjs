@@ -54,5 +54,17 @@ describe("a limit per caller in front of the session wall", () => {
     // Unnamed callers share the socket address, and a lookup that fails counts as unnamed.
     const failing = createSourceLimit({ count: 1, perMs: 60_000, now: () => 0, clientAddress: async () => { throw new Error("tailscale down"); } });
     expect([await failing({ ip: "127.0.0.1" }), await failing({ ip: "127.0.0.1" }), await failing({ ip: "192.168.1.9" })]).toEqual([true, false, true]);
+    // A lookup that throws before it returns a promise is unnamed too.
+    const throwing = createSourceLimit({ count: 1, perMs: 60_000, now: () => 0, clientAddress: () => { throw new Error("bad header"); } });
+    expect(await throwing({ ip: "127.0.0.1" })).toBe(true);
+  });
+
+  it("caps the socket address too, so naming a new peer each time does not lift the limit", async () => {
+    let next = 0;
+    const fresh = createSourceLimit({ count: 2, socketCount: 5, perMs: 60_000, now: () => 0, clientAddress: async () => `100.64.0.${next++}` });
+    const answers = [];
+    for (let index = 0; index < 7; index += 1) answers.push(await fresh({ ip: "127.0.0.1" }));
+    expect(answers).toEqual([true, true, true, true, true, false, false]);
+    expect(await fresh({ ip: "192.168.1.9" }), "another socket address has its own cap").toBe(true);
   });
 });
