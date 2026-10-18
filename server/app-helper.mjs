@@ -2644,12 +2644,17 @@ export function createAppHelper({
       const catalog = service === manifest.id ? manifest.image.reference : (manifest.sidecars ?? []).find((sidecar) => sidecar.id === service)?.image;
       return catalog && !catalogImagePin(reference, catalog);
     });
-    for (const [service, reference] of foreign) progress?.(`The backup ran ${service} on ${reference}, which is not ${manifest.name}'s catalog image; the catalog's is used`, "stderr");
     const pinned = {
       ...manifest,
       image: { ...manifest.image, reference: catalogImagePin(ran[manifest.id], manifest.image.reference) ?? catalogImagePin(state.image?.reference, manifest.image.reference) ?? manifest.image.reference },
       sidecars: (manifest.sidecars ?? []).map((sidecar) => (catalogImagePin(ran[sidecar.id], sidecar.image) ? { ...sidecar, image: ran[sidecar.id] } : sidecar)),
     };
+    // Named with the image that is used instead: when the catalog moved the app to another repository,
+    // that image's tag can be a newer release than the one that wrote the data.
+    for (const [service, reference] of foreign) {
+      const used = service === manifest.id ? pinned.image.reference : pinned.sidecars.find((sidecar) => sidecar.id === service)?.image;
+      progress?.(`The backup ran ${service} on ${reference}, which is not from ${manifest.name}'s catalog repository; it is restored on ${used}, which may be a different release than the one that wrote this data`, "stderr");
+    }
     const current = await readFileWithoutFollowing(path.join(dirFor(manifest.id), "compose.yaml")).catch(() => null);
     const rendered = await renderProject(pinned, values, { existingEnv, devices: composeDevices(current ?? archivedCompose) });
     // Only these two files. The folders a backup leaves out (downloaded models, a cache) and the
