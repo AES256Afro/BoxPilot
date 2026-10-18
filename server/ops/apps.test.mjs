@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { checkpointCeilingMs } from "../app-helper.mjs";
-import { aggregateAppStats, appOperations, parseDockerStats, parseServeStatus, servesThisApp } from "./apps.mjs";
+import { aggregateAppStats, appOperations, parseDockerStats, parseServeStatus, serveTailnetOnly, servesThisApp } from "./apps.mjs";
 
 const operations = Object.fromEntries(appOperations().map((operation) => [operation.id, operation]));
 
@@ -98,6 +98,12 @@ describe("app serve operations", () => {
       await expect(operations["app.serve.set"].run({ id: "ntfy", enabled }, { run, apps: on443 })).rejects.toThrow("Port 443 on the tailnet already publishes http://127.0.0.1:8787 at https://homebox.tail1234.ts.net, not this app; nothing was changed.");
     }
     await expect(operations["app.exposure.set"].run({ id: "ntfy", mode: "lan" }, { run, apps: on443 })).rejects.toThrow("Port 443 on the tailnet already publishes http://127.0.0.1:8787");
+    expect(run.mock.calls.filter(([, args]) => args[1] !== "status")).toEqual([]);
+    // Install and the move to Tailnet only publish after the app is in place: the port is skipped and said.
+    const installed = await serveTailnetOnly({ name: "ntfy", exposure: "tailnet", hostPorts: [{ host: 443, protocol: "tcp", exposure: "loopback" }] }, { run });
+    expect(installed.warnings?.[0]).toContain("443: that tailnet port already publishes http://127.0.0.1:8787 at https://homebox.tail1234.ts.net, so it was left alone");
+    const tailnetOnly = { ...on443, reconfigure: vi.fn(async () => ({ hostPorts: [{ id: "web", host: 443, protocol: "tcp", exposure: "loopback" }] })) };
+    await expect(operations["app.exposure.set"].run({ id: "ntfy", mode: "tailnet" }, { run, apps: tailnetOnly })).rejects.toThrow("443: that tailnet port already publishes http://127.0.0.1:8787");
     expect(run.mock.calls.filter(([, args]) => args[1] !== "status")).toEqual([]);
     expect(servesThisApp({ target: "http://127.0.0.1:443" }, 443)).toBe(true);
     expect(servesThisApp({ target: "localhost:8093" }, 8093)).toBe(true);
