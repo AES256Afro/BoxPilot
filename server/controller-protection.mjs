@@ -49,7 +49,10 @@ export function createControllerProtectionService({ store, helper }) {
     return candidate;
   }
 
-  /** Pin the expected evidence for one verified local backup (staging-time, server-derived). */
+  /**
+   * Pin the expected evidence for one verified local backup (staging-time, server-derived).
+   * @param {{ backupId?: string }} [options]
+   */
   async function prepareOperation({ backupId } = {}) {
     const source = verifiedBackup(backupId);
     // A protection that retention has since forgotten is not protection. It used to block a new

@@ -45,6 +45,7 @@ function resolverFor(address, timeoutMs) {
  * bound to loopback; "answered but resolved nothing" is a blocker with no working upstream; and
  * "answered and did not block" is a blocker whose lists are not loaded. They need different fixes,
  * and one boolean would hide which.
+ * @param {{ address?: string, timeoutMs?: number, checkInterception?: boolean }} [parameters]
  */
 export async function dnsBlockerVerify({ address, timeoutMs = 4000, checkInterception = true } = {}, { resolve = null, resolveVia = null } = {}) {
   if (typeof address !== "string" || !addressPattern.test(address)) {

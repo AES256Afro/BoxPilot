@@ -140,6 +140,10 @@ export function appFolderMounts(composeYaml, options = {}) {
   return analyse(composeYaml, options).ownMounts;
 }
 
+/**
+ * @param {string} composeYaml
+ * @param {{ manifest?: any, appId?: string, managedRoots?: string[] }} [options] manifest is the parsed catalog entry
+ */
 function analyse(composeYaml, { manifest, appId = manifest?.id, managedRoots = [] } = {}) {
   const findings = [];
   const ownMounts = [];

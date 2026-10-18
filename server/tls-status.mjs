@@ -30,6 +30,7 @@ export function parseSubjectAltNames(subjectAltName) {
 /**
  * Read the certificate state from the TLS directory. Returns { provisioned: false } when no leaf
  * exists yet, and never throws — a missing or unreadable file just means "not set up".
+ * @param {{ dir?: string, files?: { readFile: typeof readFile }, port?: number | string }} [options]
  */
 export async function readTlsStatus({ dir = tlsDirDefault, files = { readFile }, port } = {}) {
   const tlsPort = tlsPortOf(process.env.BOXPILOT_TLS_PORT ?? (port === undefined ? undefined : String(port)));

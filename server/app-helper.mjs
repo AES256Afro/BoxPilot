@@ -71,6 +71,9 @@ const scratchFileNames = Object.freeze([...projectFileNames.map((name) => `${nam
  * symlink in the longest existing prefix, then re-attach the not-yet-created tail. Without this a
  * symlink anywhere along the path (`/srv/app/x -> /etc`) would let a root-side mkdir or chown be
  * walked into a protected location before the string-only deny check ever sees the real target.
+ *
+ * @param {string} target
+ * @param {{ realpath?: (target: string) => Promise<string> }} [options]
  */
 export async function resolveExisting(target, { realpath: resolve = realpath } = {}) {
   let current = path.resolve(target);
@@ -94,6 +97,7 @@ async function sha256File(target) {
   return hash.digest("hex");
 }
 
+/** @param {string} binary @param {string[]} args @param {{ timeout?: number, cwd?: string, onLine?: ((line: string, stream: string) => void) | null }} [options] */
 async function defaultDockerRunner(binary, args, { timeout = 120_000, cwd, onLine = null } = {}) {
   return fixedRun(binary, args, { timeout, cwd, onLine, maxBuffer: 4 * 1024 * 1024, env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" } });
 }
@@ -364,6 +368,7 @@ export function createAppHelper({
     throw new Error(`Application did not become healthy within ${manifest.health.timeoutSeconds}s (last state ${last})`);
   }
 
+  /** @param {string} id @param {string[]} args @param {{ progress?: ((line: string, stream: string) => void) | null, timeout?: number }} [options] */
   async function compose(id, args, { progress = null, ...options } = {}) {
     const directory = dirFor(id);
     progress?.(`$ docker compose ${args.join(" ")}`, "stdout");
@@ -442,6 +447,7 @@ export function createAppHelper({
    * portHolders), with `hostNetwork`, `optional` and the port's `label` where they apply.
    */
   async function portCheck(manifest, composeText, { progress = null } = {}) {
+    /** @type {{ id: string, host: number, protocol: string, bind: string, hostNetwork?: boolean, optional?: boolean, label?: string | null }[]} */
     const requested = publishedPorts(composeText).map((entry) => ({ id: entry.service, host: entry.host, protocol: entry.protocol, bind: entry.bind }));
     const hostBound = hostNetworkPorts(manifest, composeText);
     requested.push(...hostBound.map((entry) => ({ id: entry.service, host: entry.host, protocol: entry.protocol, bind: entry.bind, hostNetwork: true, optional: entry.optional, label: entry.label })));
@@ -539,6 +545,10 @@ export function createAppHelper({
    *
    * A held port the app can start without (portCheck's `optional`) is not a reason to refuse: it is
    * said in the log and returned in `warnings`, for the job's result to carry.
+   *
+   * @param {any} manifest
+   * @param {string} composeText
+   * @param {{ progress?: ((line: string, stream: string) => void) | null, refused?: string }} [options]
    */
   async function assertPortsFree(manifest, composeText, { progress = null, refused } = {}) {
     const blocking = (check) => check.conflicts.filter((conflict) => !conflict.optional);
@@ -1379,6 +1389,10 @@ export function createAppHelper({
     return { rolledBack: true, id, restored: restoreTo, from: movedFrom, checkpoint: saved };
   }
 
+  /**
+   * @param {{ id: string, values?: { ports?: object, env?: object, volumes?: object, setup?: any, exposure?: any, networkMode?: string }, devices?: any }} request
+   * @param {{ progress?: ((line: string, stream: string) => void) | null, checkpoint?: boolean }} [options]
+   */
   async function reconfigure({ id, values: rawValues = {}, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
@@ -1542,6 +1556,7 @@ export function createAppHelper({
     return { ok: result.ok, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? ""), timedOut: Boolean(result.timedOut) };
   }
 
+  /** @param {{ id: string, lines?: number | string, container?: string | null }} request */
   async function logs({ id, lines = 200, container = null }) {
     const manifest = await ensureManifest(id);
     // The tunnel's log is where the public IP and every connection problem lives, and the notes
@@ -1551,7 +1566,7 @@ export function createAppHelper({
       if (!(manifest.sidecars ?? []).some((sidecar) => sidecar.id === container)) throw new Error(`${manifest.name} has no helper container named ${container}`);
       name = projectNameFor(`${id}-${container}`);
     }
-    const tail = Math.min(Math.max(Number.parseInt(lines, 10) || 200, 1), 1000);
+    const tail = Math.min(Math.max(Number.parseInt(String(lines), 10) || 200, 1), 1000);
     const result = await docker(["logs", "--tail", String(tail), "--timestamps", name], { timeout: 30_000 });
     if (!result.ok && !result.stdout) throw new Error(`docker logs failed: ${redact(result.stderr).split("\n").slice(-2).join(" ")}`);
     const entries = `${result.stdout}\n${result.stderr}`.split("\n").filter(Boolean).map(redact).slice(-tail);
@@ -1844,6 +1859,7 @@ export function createAppHelper({
     return new Set(result.ok ? parseServeStatus(result.stdout).map((entry) => entry.port) : []);
   }
 
+  /** @param {{ host?: string }} [request] @param {{ progress?: ((line: string, stream: string) => void) | null }} [options] */
   async function syncHomepage({ host } = {}, { progress = null } = {}) {
     const homepage = await catalog.get("homepage");
     if (!homepage) throw new Error("Homepage is not in the catalog");

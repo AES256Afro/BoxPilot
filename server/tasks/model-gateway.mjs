@@ -50,7 +50,8 @@ async function answering(client, wait) {
   throw Object.assign(new Error(`${gatewayUnit} did not start answering: ${last?.message ?? "no answer"}`), { code: "gateway-down" });
 }
 
-export async function modelGatewayConnect({ key, capUsd } = {}, { run = fixedRun, log = () => {}, files = defaultFiles, client = createGatewayClient(), wait = sleep } = {}) {
+/** @param {{ key?: string, capUsd?: number }} [parameters] */
+export async function modelGatewayConnect({ key, capUsd } = {}, { run = fixedRun, log = (_line, _stream) => {}, files = defaultFiles, client = createGatewayClient(), wait = sleep } = {}) {
   if (typeof key !== "string" || !anthropicKeyPattern.test(key)) throw new Error("That is not an Anthropic API key: they start sk-ant- and come from the Anthropic Console");
   const problem = capProblem(capUsd);
   if (problem) throw new Error(`The monthly cap ${problem}`);
@@ -90,7 +91,8 @@ export async function modelGatewayConnect({ key, capUsd } = {}, { run = fixedRun
   return { connected: true, capUsd, unit: gatewayUnit };
 }
 
-export async function modelGatewayCap({ capUsd } = {}, { log = () => {}, files = defaultFiles } = {}) {
+/** @param {{ capUsd?: number }} [parameters] */
+export async function modelGatewayCap({ capUsd } = {}, { log = (_line, _stream) => {}, files = defaultFiles } = {}) {
   const problem = capProblem(capUsd);
   if (problem) throw new Error(`The monthly cap ${problem}`);
   await writeCap(files, capUsd);
@@ -98,7 +100,7 @@ export async function modelGatewayCap({ capUsd } = {}, { log = () => {}, files =
   return { capUsd };
 }
 
-export async function modelGatewayDisconnect(_parameters = {}, { run = fixedRun, log = () => {}, files = defaultFiles } = {}) {
+export async function modelGatewayDisconnect(_parameters = {}, { run = fixedRun, log = (_line, _stream) => {}, files = defaultFiles } = {}) {
   const stopped = await run(systemctl, ["disable", "--now", gatewayUnit], { timeout: 60_000 });
   if (!stopped.ok && !/not loaded|does not exist|No such file/i.test(stopped.stderr)) throw new Error(`systemctl could not stop ${gatewayUnit}: ${lastLines(stopped.stderr)}`);
   await files.rm(keyFile, { force: true });

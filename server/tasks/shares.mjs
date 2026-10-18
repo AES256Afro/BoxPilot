@@ -63,6 +63,7 @@ const binaries = {
 const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-2).join(" ");
 const pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+/** @param {{ kind?: string, host?: string, share?: string, name?: string, username?: string | null, password?: string | null, domain?: string | null }} [share] */
 export function validateShare({ kind, host, share, name, username = null, password = null, domain = null } = {}) {
   if (!shareKinds.includes(kind)) return "kind must be smb or nfs";
   if (typeof host !== "string" || !hostPattern.test(host)) return "host must be a hostname or IP address";
@@ -178,7 +179,10 @@ async function holdersOf(majMin, processes) {
   }
 }
 
-/** Mount a share permanently at /mnt/<name>. Rolls back fstab and credentials if the first mount fails. */
+/**
+ * Mount a share permanently at /mnt/<name>. Rolls back fstab and credentials if the first mount fails.
+ * @param {{ kind?: string, host?: string, share?: string, name?: string, username?: string | null, password?: string | null, domain?: string | null, readOnly?: boolean }} [parameters]
+ */
 export async function shareMount({ kind, host, share, name, username = null, password = null, domain = null, readOnly = false } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir, unlink, rmdir }, exists = (file) => access(file).then(() => true, () => false), now = () => new Date() } = {}) {
   const problem = validateShare({ kind, host, share, name, username, password, domain });
   if (problem) throw new Error(`Invalid share: ${problem}`);
@@ -250,6 +254,7 @@ export async function shareMount({ kind, host, share, name, username = null, pas
  * the NAS through a folder nobody else can see, and bind the empty one at its next restart. Those
  * apps are named and nothing is done. File-sharing clients of a Samba share that reaches into the
  * folder are disconnected, as for a drive (unmountFromHost); anything else holding it is named.
+ * @param {{ name?: string }} [parameters]
  */
 export async function shareUnmount({ name } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, unlink }, sleep = pause, processes = undefined, now = () => new Date() } = {}) {
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
@@ -306,6 +311,7 @@ export async function shareUnmount({ name } = {}, { run = fixedRun, log = null, 
  * container hold a copy of the old mount of their own, which the host's unmount does not touch, so
  * they are restarted afterwards to see the new one (Docker resolves a bind when a container
  * starts). Anything else still using the share - a shell, a copy - leaves it alone, named.
+ * @param {{ name?: string }} [parameters]
  */
 export async function shareReconnect({ name } = {}, { run = fixedRun, log = null, files = { readFile }, sleep = pause, clock = () => Date.now(), processes = undefined, now = () => new Date() } = {}) {
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");

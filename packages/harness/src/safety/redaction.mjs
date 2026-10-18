@@ -195,6 +195,9 @@ const endOf = (pattern, text, at) => { pattern.lastIndex = at; return pattern.te
  * after it, so a run whose name is not followed by one is passed over whole. `notAfter` is the
  * expression's look-behind, `starts` which offsets in a run start a secret's name, `skip` the
  * look-ahead that said the header rule had been there.
+ *
+ * @param {string} text
+ * @param {{ notAfter: (char: string) => boolean, starts: (run: string) => { lo: number, hi: number } | null, skip?: (text: string, at: number) => boolean }} rules
  */
 function redactAssignments(text, { notAfter, starts, skip = () => false }) {
   let out = "";
@@ -365,6 +368,7 @@ function redactKeyBodies(input) {
 }
 
 /** The multi-line rules, in order, by name (a test times each on hostile text, sweep 5). */
+/** @type {Array<[string, (text: string) => string]>} */
 const blockRules = [["private key", redactPrivateKeys], ["putty key", redactPuttyKeys], ["yaml block", redactYamlSecretBlocks], ["key body", redactKeyBodies]];
 
 /**
@@ -420,6 +424,7 @@ function redactFlagValues(text) {
  * no quantifier that can trade characters with the one next to it is left to backtrack over a run
  * anyone can make long.
  */
+/** @type {Array<[string, (text: string) => string]>} */
 const stringRules = [
   ["bearer", (text) => text.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")],
   // HTTP Basic is base64 of user:password - the Zulip bot's key travels this way. Not a word in a

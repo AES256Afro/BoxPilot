@@ -10,6 +10,10 @@ export const fixedEnvironment = Object.freeze({ PATH: "/usr/sbin:/usr/bin:/sbin:
  * Resolves to `{ ok, code, stdout, stderr }`; never throws for a non-zero exit.
  * Pass `onLine(line, stream)` to receive output as it is produced (then the process is spawned
  * with streaming pipes; stdout/stderr in the result are capped to the last `tailBytes`).
+ *
+ * @param {string} binary
+ * @param {string[]} [args]
+ * @param {{ timeout?: number, maxBuffer?: number, env?: Record<string, string>, cwd?: string, onLine?: ((line: string, stream: string) => void) | null, tailBytes?: number, input?: string }} [options]
  */
 export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer = 1024 * 1024, env = {}, cwd, onLine = null, tailBytes = 256 * 1024, input = undefined } = {}) {
   if (typeof onLine === "function") return streamRun(binary, args, { timeout, env, cwd, onLine, tailBytes });
@@ -36,7 +40,6 @@ export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer 
   }
 }
 
-/** Spawn with line-by-line callbacks. Same result shape as fixedRun. */
 /**
  * Terminal control sequences, removed so a log reads as text.
  *
@@ -65,6 +68,13 @@ export function stripTerminalCodes(text) {
     .replace(/\r/g, "");
 }
 
+/**
+ * Spawn with line-by-line callbacks. Same result shape as fixedRun.
+ *
+ * @param {string} binary
+ * @param {string[]} [args]
+ * @param {{ timeout?: number, env?: Record<string, string>, cwd?: string, onLine?: (line: string, stream: string) => void, tailBytes?: number, redrawIntervalMs?: number, clock?: () => number }} [options]
+ */
 export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, onLine, tailBytes = 256 * 1024, redrawIntervalMs = 1000, clock = () => Date.now() } = {}) {
   return new Promise((resolve) => {
     let child;

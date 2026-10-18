@@ -93,6 +93,10 @@ export function createVmCloudHelper({
     return match ? match[1] : null;
   }
 
+  /**
+   * @param {Parameters<typeof renderCloudInit>[0] & { vcpus?: number, memoryMiB?: number, diskGiB?: number, autostart?: boolean }} input
+   * @param {{ progress?: any, runUnit?: any, jobLog?: any }} [context]
+   */
   async function create(input, { progress = null, runUnit, jobLog = null } = {}) {
     const errors = validateCloudVmInput(input);
     if (errors.length) throw new Error(errors.join(" | "));

@@ -189,6 +189,7 @@ export function createConcurrencyGate(limit, { maxWaiting = limit * 4 } = {}) {
     const entry = waiting.shift();
     if (entry) { entry.cleanup(); running += 1; entry.resolve(); }
   };
+  /** @param {() => Promise<any>} task @param {{ signal?: AbortSignal }} [options] */
   async function run(task, { signal } = {}) {
     if (signal?.aborted) throw abandoned();
     if (running >= limit) {

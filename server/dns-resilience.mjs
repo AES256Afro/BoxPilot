@@ -222,10 +222,12 @@ async function fixedCommand(command, args, { timeout = 5000 } = {}) {
  * What the router hands out, as this server sees it, and from where. `source` is "dhcp" (a lease:
  * the router's own answer), "configured" (this server's DNS is set by hand, which says nothing about
  * the devices), or "none". Every reader that fails hands over to the next.
+ *
+ * @param {{ interface?: string, resolverLinks?: any[], run?: (command: string, args: string[]) => Promise<{ ok: boolean, stdout?: string }>, readFile?: typeof fsReadFile }} [options]
  */
 export async function readHandedOut({ interface: link, resolverLinks = [], run = fixedCommand, readFile = fsReadFile } = {}) {
   if (typeof link !== "string" || !interfacePattern.test(link)) return { source: "none", via: null, servers: [], dhcpServer: null };
-  const networkctl = await run("networkctl", ["status", link, "--json=short", "--no-pager"]).catch(() => ({ ok: false }));
+  const networkctl = await run("networkctl", ["status", link, "--json=short", "--no-pager"]).catch(() => ({ ok: false, stdout: "" }));
   const networkd = networkctl.ok ? parseNetworkctlDns(networkctl.stdout) : null;
   if (networkd?.dhcp.length) return { source: "dhcp", via: "systemd-networkd", servers: networkd.dhcp, dhcpServer: networkd.dhcpServer };
 
@@ -235,7 +237,7 @@ export async function readHandedOut({ interface: link, resolverLinks = [], run =
     if (lease.dns.length) return { source: "dhcp", via: "systemd-networkd's lease", servers: lease.dns, dhcpServer: lease.server };
   }
 
-  const nmcli = await run("nmcli", ["-t", "-f", "DHCP4", "device", "show", link]).catch(() => ({ ok: false }));
+  const nmcli = await run("nmcli", ["-t", "-f", "DHCP4", "device", "show", link]).catch(() => ({ ok: false, stdout: "" }));
   const manager = nmcli.ok ? parseNmcliDhcp(nmcli.stdout) : null;
   if (manager?.dns.length) return { source: "dhcp", via: "NetworkManager", servers: manager.dns, dhcpServer: manager.server };
 
@@ -262,6 +264,9 @@ const roleWords = { "this-server": "this server", router: "your router", lan: "a
 /**
  * One server asked directly, as a device asks it: does anything answer, does it resolve a name that
  * exists, and does it refuse one every blocklist carries.
+ *
+ * @param {string} address
+ * @param {{ timeoutMs?: number, verify?: (options: { address: string, timeoutMs?: number, checkInterception?: boolean }) => Promise<any> }} [options]
  */
 export async function askServer(address, { timeoutMs = 3000, verify = dnsBlockerVerify } = {}) {
   const started = Date.now();
@@ -390,6 +395,8 @@ export function judgeResilience(facts, { now = new Date(), hostname = "This serv
  * The service the Network page and Repair's scan read. `network` is server/network.mjs's service (for
  * the addresses, the gateway, the port 53 listeners); `helper` asks the DNS app's own query log about
  * the canary; `store` holds the last rehearsal.
+ *
+ * @param {{ network?: any, helper?: any, store?: any, run?: typeof fixedCommand, readFile?: typeof fsReadFile, ask?: typeof askServer, askOne?: typeof askName, hostname?: () => string, now?: () => Date, cacheMs?: number, canaryDelayMs?: number, sleep?: (ms: number) => Promise<unknown> }} options
  */
 export function createDnsResilienceService({ network, helper = null, store = null, run = fixedCommand, readFile = fsReadFile, ask = askServer, askOne = askName, hostname = () => os.hostname().split(".")[0], now = () => new Date(), cacheMs = cacheForMs, canaryDelayMs = 400, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   let cached = null;
