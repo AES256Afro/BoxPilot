@@ -99,6 +99,7 @@ export function spliceManagedBlock(text, block) {
 /**
  * Bring the chain in line with ufw. With enabled=false the block and chain are removed.
  * A rejected ruleset is backed out before the error surfaces, so ufw stays up either way.
+ * @param {{ enabled?: boolean }} [parameters]
  */
 export async function syncDockerRules({ enabled } = {}, { run = fixedRun, log = null, path = afterRulesPath, read = (file) => readFile(file, "utf8"), write = (file, content) => writeFile(file, content, { mode: 0o640 }) } = {}) {
   const current = await read(path).catch(() => null);

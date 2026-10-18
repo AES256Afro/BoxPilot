@@ -74,6 +74,7 @@ const controllerProtection = createControllerProtectionHelper();
 const controllerRetention = createControllerRetentionHelper({ inspectDestination: controllerProtection.inspect });
 await controllerBackups.initialize();
 await controllerProtection.initialize();
+/** @type {{ stoppedDomains: number, removedNvramFiles: number, normalizedWorkspaces: number, removedWorkspaces?: number, reclaimedBytes?: number, blocked?: string }} */
 const recovery = await vmRestoreDrill.recoverOrphans().catch((error) => {
   console.error(`BoxPilot restore drill recovery could not finish: ${error.message}`);
   return { stoppedDomains: 0, removedNvramFiles: 0, normalizedWorkspaces: 0, blocked: error.message };

@@ -47,6 +47,9 @@ export const restartRefusalError = (message = restartRefusal) => Object.assign(n
  * those units works, and the next restart asked for takes it along (sweep 5): it used to be said only
  * in the journal. The helper's runtime read carries it, and the web side's health check raises
  * "BoxPilot needs a restart" from it, pointing at Services.
+ *
+ * @param {{ lanes?: any, run?: any, sleep?: (ms: number) => Promise<void>, graceMs?: number, restartTimeoutMs?: number, maxWaitMs?: number, setTimer?: typeof setTimeout,
+ *   clearTimer?: typeof clearTimeout, onRestarting?: (restarting: boolean) => void, log?: (line: string) => void, now?: () => Date }} [options]
  */
 export function createDrainedRestart({ lanes, run, sleep = pause, graceMs = 10_000, restartTimeoutMs = 3 * 60_000, maxWaitMs = 6 * 60 * 60_000, setTimer = setTimeout, clearTimer = clearTimeout, onRestarting = () => {}, log = (line) => console.log(line), now = () => new Date() } = {}) {
   let pending = null;

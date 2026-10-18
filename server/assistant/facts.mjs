@@ -157,6 +157,12 @@ export function backupSummary(state, { sourceChars }) {
 /**
  * Every live fact for this caller, focused ones first. `focusJob` has already been checked as one
  * the caller may read. `readApps()` answers app.inspect (shared with the endpoint lookup).
+ *
+ * @param {{
+ *   caller: any, context?: { alertKey?: unknown, appId?: string | null }, focusJob?: any, state: any, registry: any,
+ *   helper?: any, inventory?: any, catalog?: any, secretEnvNamesFor?: ((appId: string) => Promise<string[]> | string[]) | null, readApps?: (() => Promise<any>) | null,
+ *   limits?: { failedJobs?: number, logLines?: number, focusLogLines?: number, alerts?: number, sourceChars?: number },
+ * }} options
  */
 export async function gatherFacts({
   caller, context = {}, focusJob = null, state, registry, helper = null, inventory = null, catalog = null,

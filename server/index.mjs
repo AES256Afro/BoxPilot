@@ -119,7 +119,7 @@ const auth = createAuthService(state, { resolveClientAddress: (request) => ident
 const helper = createHelperClient({ timeoutMs: 180000 });
 const maintenance = createMaintenanceService();
 const libvirt = createHelperLibvirtService({ helper });
-const libvirtFoundation = createLibvirtFoundationService({ store: state, helper });
+const libvirtFoundation = createLibvirtFoundationService({ helper });
 const prerequisites = createPrerequisiteService({
   stateDirectory: process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath),
   helper,
@@ -135,8 +135,8 @@ const inventory = createInventoryService({ helper, maintenance });
 // lsblk, findmnt and fstab for the Overview's drive checks, the weekly report and the runbook: one
 // shared read held like the inventory, and dropped with it when an operation settles.
 const storageRead = createStorageReader();
-const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
-const vmMedia = createVmMediaService({ store: state, helper });
+const vmCreation = createVmCreationService({ planner: vmPlanner, libvirt });
+const vmMedia = createVmMediaService({ helper });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
 const vmProtection = createVmProtectionService({ store: state, helper });
 const vmRecoveries = createVmRecoveryService({ store: state, helper });

@@ -39,7 +39,7 @@ export function dockerSizeBytes(text) {
 
 /** Bytes back in Docker's words, to one decimal: 1900000000 is "1.9GB". */
 export function dockerSize(bytes) {
-  const [unit, scale] = [["TB", 1e12], ["GB", 1e9], ["MB", 1e6], ["kB", 1e3]].find(([, size]) => bytes >= size) ?? ["B", 1];
+  const [unit, scale] = /** @type {[string, number][]} */ ([["TB", 1e12], ["GB", 1e9], ["MB", 1e6], ["kB", 1e3]]).find(([, size]) => bytes >= size) ?? ["B", 1];
   return `${Number((bytes / scale).toFixed(1))}${unit}`;
 }
 
@@ -55,7 +55,7 @@ export function systemOperations() {
       description: "Reads the helper process memory, CPU and Linux pressure counters. Starts no disk scans or child processes.",
       // And where BoxPilot's own drained restart stands (self-restart.mjs): the health check raises
       // "BoxPilot needs a restart" from one that gave up or failed (sweep 5).
-      run: async (_parameters, { selfRestart } = {}) => ({ ...await runtimeDiagnostics.inspect(), selfRestart: selfRestart?.status?.() ?? null }),
+      run: async (_parameters, /** @type {{ selfRestart?: { status?: () => unknown } }} */ { selfRestart } = {}) => ({ ...await runtimeDiagnostics.inspect(), selfRestart: selfRestart?.status?.() ?? null }),
     }),
     defineOperation({
       id: "system.web.lan.set", title: "Reach BoxPilot on your local network", risk: "medium", timeoutMs: 2 * 60_000, minimumRole: "owner", restartsService: true,

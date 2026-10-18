@@ -19,6 +19,11 @@ export function shouldRenew(notAfter, { now, withinMs }) {
   return expiry - now <= withinMs;
 }
 
+/**
+ * @param {{ helper?: any, store?: any, readStatus?: () => Promise<{ provisioned?: boolean, notAfter?: string, names?: string[], ipAddresses?: string[] }>, now?: () => number,
+ *   intervalMs?: number, initialDelayMs?: number, renewWithinMs?: number, requestTimeoutMs?: number, setInterval?: typeof setInterval, setTimeout?: typeof setTimeout,
+ *   clearInterval?: typeof clearInterval, clearTimeout?: typeof clearTimeout }} [options]
+ */
 export function createTlsRenewal({
   helper,
   store,
@@ -34,6 +39,7 @@ export function createTlsRenewal({
   clearTimeout: cancel = globalThis.clearTimeout,
 } = {}) {
   async function check() {
+    /** @type {{ provisioned?: boolean, notAfter?: string, names?: string[], ipAddresses?: string[] }} */
     const status = await readStatus().catch(() => ({ provisioned: false }));
     if (!status?.provisioned || typeof status.notAfter !== "string") return { renewed: false, reason: "not-provisioned" };
     if (!shouldRenew(status.notAfter, { now: now(), withinMs: renewWithinMs })) return { renewed: false, reason: "not-due", notAfter: status.notAfter };

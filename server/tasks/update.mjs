@@ -39,6 +39,7 @@ export async function runningUpgrade({ run = fixedRun, lockPath = upgradeLockPat
   return holder || `it holds ${lockPath}`;
 }
 
+/** @param {{ tag?: string, expectedCommit?: string }} [parameters] */
 export async function systemUpdate({ tag, expectedCommit } = {}, {
   run = fixedRun,
   log = null,
@@ -58,7 +59,7 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
     signal: AbortSignal.timeout(15_000), redirect: "error",
   });
   if (!response.ok) throw new Error(`GitHub could not resolve ${tag} (status ${response.status})`);
-  const commit = await response.json();
+  const commit = /** @type {any} */ (await response.json()); // GitHub's payload
   if (commit?.sha !== expectedCommit) throw new Error(`${tag} now points at ${String(commit?.sha ?? "unknown").slice(0, 12)}, not the reviewed ${expectedCommit.slice(0, 12)}; check the release again`);
 
   // Two updates two seconds apart left the owner's server with two previous trees and the service

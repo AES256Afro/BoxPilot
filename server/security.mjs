@@ -6,6 +6,7 @@ import { normalizeAddress, tailnetClientAddress } from "./identity.mjs";
 import { promisify } from "node:util";
 import { elevationTtlMs } from "./ops/risk.mjs";
 
+/** @type {(password: string, salt: string, keylen: number, options: import("node:crypto").ScryptOptions) => Promise<Buffer>} */
 const scrypt = promisify(scryptCallback);
 const usernamePattern = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}$/;
 const passwordOptions = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };

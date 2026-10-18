@@ -19,7 +19,7 @@ const defaultFiles = { mkdir, writeFile };
  * unit did not run at all (a condition failed, or it is not installed), which is said as such
  * rather than passing an old ping off as this one.
  */
-export async function heartbeatPing(_parameters = {}, { run = fixedRun, log = () => {}, statusFile = defaultStatusFile, now = () => new Date(), read = readStatus } = {}) {
+export async function heartbeatPing(_parameters = {}, { run = fixedRun, log = (_line, _stream) => {}, statusFile = defaultStatusFile, now = () => new Date(), read = readStatus } = {}) {
   const started = now().getTime();
   const result = await run(systemctlBinary(), ["start", heartbeatService], { timeout: 60_000 });
   if (!result.ok) throw new Error(`The heartbeat unit did not run: ${String(result.stderr || `exit ${result.code ?? "?"}`).split("\n").slice(-2).join(" ")}`);
@@ -34,8 +34,9 @@ export async function heartbeatPing(_parameters = {}, { run = fixedRun, log = ()
  * (so the new interval counts from now) and sends the first ping at once, so the switch hears from
  * this server before its first period runs out. Off stops and disables the timer; the interval
  * drop-in stays for next time.
+ * @param {{ enabled?: boolean, intervalMinutes?: number | null }} [parameters]
  */
-export async function heartbeatConfigure({ enabled, intervalMinutes = null } = {}, { run = fixedRun, log = () => {}, files = defaultFiles, statusFile = defaultStatusFile, now = () => new Date(), read = readStatus } = {}) {
+export async function heartbeatConfigure({ enabled, intervalMinutes = null } = {}, { run = fixedRun, log = (_line, _stream) => {}, files = defaultFiles, statusFile = defaultStatusFile, now = () => new Date(), read = readStatus } = {}) {
   if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
   const systemctl = systemctlBinary();
   const must = async (args, what) => {

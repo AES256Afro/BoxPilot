@@ -59,7 +59,7 @@ export function httpsJson({ expectFingerprint = null, onFingerprint = null } = {
     // The certificate is checked when the handshake ends, before a byte of the request (and the
     // password in it) is written (M50): checked on the response, as before, they had already gone.
     // No certificate at all is refused too; a recorded pin is matched or nothing is sent.
-    request.on("socket", (socket) => {
+    request.on("socket", (/** @type {import("node:tls").TLSSocket} */ socket) => {
       socket.once("secureConnect", () => {
         const certificate = socket.getPeerCertificate?.();
         const fingerprint = certificate?.raw ? createHash("sha256").update(certificate.raw).digest("hex") : null;
@@ -95,6 +95,7 @@ export const accountWasNamed = (username) => typeof username === "string" && Boo
 /** The router's word for both "no such account" and "wrong password"; only the stage separates them. */
 const denied = (error) => /access denied/i.test(String(error?.message ?? ""));
 
+/** @param {{ kind?: string, host?: string, username?: string, password?: string }} [router] */
 export function validateRouter({ kind, host, username, password } = {}) {
   if (!routerKinds.includes(kind)) return "kind must be glinet";
   if (typeof host !== "string" || !hostPattern.test(host)) return "router address is invalid";
@@ -143,6 +144,8 @@ function rpcClient({ host, fetchJson }) {
  * does: a denial at `challenge` is the account, a denial at `login` is the password. So each stage
  * is caught separately and turned into a sentence that says which one it was and what to do about
  * it. Passing the router's own word through was accurate and useless.
+ * @param {{ host?: string, username?: string, password?: string }} credential
+ * @param {{ run?: typeof fixedRun, fetchJson?: (url: string, body: object) => Promise<any> }} [options]
  */
 export async function routerLogin({ host, username, password }, { run = fixedRun, fetchJson } = {}) {
   const account = accountFor(username);
@@ -172,6 +175,7 @@ export async function routerLogin({ host, username, password }, { run = fixedRun
 /**
  * Store the credential and prove it works before doing so — a saved credential that has never
  * been tried is a setting that looks done and is not.
+ * @param {{ kind?: string, host?: string, username?: string, password?: string }} [parameters]
  */
 export async function routerConnect({ kind = "glinet", host, username = defaultUsername, password } = {}, { run = fixedRun, log = null, fetchJson = null, files = defaultFiles } = {}) {
   const problem = validateRouter({ kind, host, username, password });

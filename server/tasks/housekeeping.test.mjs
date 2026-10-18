@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, stat, symlink } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { onWindows } from "../../test/platform.mjs";
 import { housekeepingRemoveTrees } from "./housekeeping.mjs";
@@ -64,5 +67,21 @@ describe("removing previous release trees", () => {
   it("refuses an unreasonable number of paths in one request", async () => {
     await expect(housekeepingRemoveTrees({ paths: Array.from({ length: 501 }, (_, i) => `/opt/boxpilot.prev.${i}`) }, { files: files() }))
       .rejects.toThrow("too many paths");
+  });
+  // Linux only: file symlinks. The default files must lstat, or a link to a directory passes as one.
+  it.skipIf(onWindows)("refuses a link to a directory with the real filesystem", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bp-housekeeping-"));
+    try {
+      const target = path.join(root, "elsewhere");
+      const link = path.join(root, "boxpilot.prev.20260101T000000Z");
+      await mkdir(target);
+      await symlink(target, link);
+      const result = await housekeepingRemoveTrees({ paths: [link], installRoot: root, currentTree: path.join(root, "boxpilot") });
+      expect(result.removed).toEqual([]);
+      expect(result.refused).toEqual([{ path: link, reason: "not a directory" }]);
+      expect((await stat(target)).isDirectory()).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

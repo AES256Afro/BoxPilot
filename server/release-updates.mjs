@@ -74,6 +74,7 @@ export function createReleaseUpdateService({ requestJson = createGithubRequester
   }
 
   /** Pin the reviewed release's commit into the staged parameters. */
+  /** @param {{ tag?: string }} [parameters] */
   async function prepareOperation({ tag } = {}) {
     if (typeof tag !== "string" || !tagPattern.test(tag)) throw new Error("Choose a release tag like v1.2.3");
     const release = await requestJson(`${basePath}/releases/tags/${encodeURIComponent(tag)}`, { allowNotFound: true });

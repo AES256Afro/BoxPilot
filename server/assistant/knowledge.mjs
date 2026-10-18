@@ -296,6 +296,8 @@ export function fuseRankings(lists, { k = 60, depth = 50 } = {}) {
 /**
  * The index. `ensure()` builds it (documents and registry once, the catalog again whenever its
  * manifests change); `search()` ranks chunks for a question.
+ *
+ * @param {{ registry?: any, catalog?: any, root?: string, readDirectory?: typeof readdir, readText?: (file: string) => Promise<string>, embeddings?: ReturnType<typeof createEmbeddingCache>, now?: () => Date }} [options]
  */
 export function createKnowledgeIndex({
   registry,

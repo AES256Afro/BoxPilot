@@ -329,7 +329,7 @@ export function extractPdfText(buffer) {
     seen.add(number);
     const node = objects.get(number);
     if (!node) return;
-    const resources = inlineDict(node.dict, "Resources") ?? (ref(node.dict, "Resources") !== null ? objects.get(ref(node.dict, "Resources"))?.dict ?? null : null) ?? inherited;
+    const resources = inlineDict(node.dict, "Resources") ?? (ref(node.dict, "Resources") !== null ? objects.get(ref(node.dict, "Resources"))?.dict : null) ?? inherited;
     if (/\/Type\s*\/Pages\b/.test(node.dict)) {
       const kids = /^\s*\[([^\]]*)\]/.exec(valueAfter(node.dict, "Kids", 65_536) ?? "")?.[1] ?? "";
       for (const kid of refs(kids)) visit(kid, resources, seen);

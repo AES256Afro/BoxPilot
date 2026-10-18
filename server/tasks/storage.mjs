@@ -193,6 +193,7 @@ export function withDockerOrder(options) {
 export const appUserId = 1000;
 export const permissionlessFilesystems = Object.freeze(["exfat", "vfat", "ntfs", "ntfs3", "msdos"]);
 
+/** @param {{ uuid?: string, name?: string, fstype?: string, readOnly?: boolean, appWritable?: boolean, uid?: number, gid?: number }} [parameters] */
 export async function storageMount({ uuid, name, fstype = "auto", readOnly = false, appWritable = false, uid = appUserId, gid = appUserId } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir } } = {}) {
   if (typeof uuid !== "string" || !uuidPattern.test(uuid)) throw new Error("UUID is invalid");
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name must be lower-case letters, digits, and hyphens (max 32)");
@@ -255,7 +256,10 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
   return { mounted: true, name, mountpoint, uuid, device: dev, detail: check.stdout.trim(), owner: giveToApps ? `${uid}:${gid}` : null, persistent: true };
 }
 
-/** Unmount and remove a BoxPilot-managed fstab entry. Foreign entries are refused. */
+/**
+ * Unmount and remove a BoxPilot-managed fstab entry. Foreign entries are refused.
+ * @param {{ name?: string }} [parameters]
+ */
 export async function storageUnmount({ name } = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
   assertPlainMountName(name);
   const content = await files.readFile(fstabPath, "utf8");
@@ -279,7 +283,10 @@ export async function storageUnmount({ name } = {}, { run = fixedRun, log = null
   return { unmounted: true, name, mountpoint, directoryKept: true };
 }
 
-/** Erase a block device and create a fresh ext4 filesystem. The guards are absolute. */
+/**
+ * Erase a block device and create a fresh ext4 filesystem. The guards are absolute.
+ * @param {{ device?: string, label?: string | null }} [parameters]
+ */
 export async function storageFormat({ device, label = null } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof device !== "string" || !devicePattern.test(device)) throw new Error("Device path is invalid");
   if (label !== null && (typeof label !== "string" || !labelPattern.test(label))) throw new Error("Label may use letters, digits, underscore, hyphen (max 16)");
@@ -364,6 +371,7 @@ async function volumeGroupFreeBytes(run, vg) {
   return result.ok && Number.isInteger(value) ? value : null;
 }
 
+/** @param {{ path?: string, reserveGiB?: number }} [parameters] */
 export async function storageLvmExtend({ path: volume, reserveGiB = 32 } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof volume !== "string" || !logicalVolumePattern.test(volume)) throw new Error("Logical volume path is invalid");
   if (!Number.isInteger(reserveGiB) || reserveGiB < 0 || reserveGiB > 1024) throw new Error("reserveGiB must be a whole number between 0 and 1024");
@@ -399,7 +407,10 @@ export async function storageLvmExtend({ path: volume, reserveGiB = 32 } = {}, {
   return { extended: true, path: volume, mountpoint, before: sizes(before.stdout), after: sizes(after.stdout) };
 }
 
-/** Create a copy-on-write snapshot of a logical volume (a restore point before updates). */
+/**
+ * Create a copy-on-write snapshot of a logical volume (a restore point before updates).
+ * @param {{ path?: string, sizeGiB?: number, suffix?: string | null }} [parameters]
+ */
 export async function storageLvmSnapshotCreate({ path: volume, sizeGiB = 10, suffix = null } = {}, { run = fixedRun, log = null, now = () => new Date() } = {}) {
   if (typeof volume !== "string" || !logicalVolumePattern.test(volume) || snapshotDmPattern.test(volume)) throw new Error("Logical volume path is invalid");
   if (!Number.isInteger(sizeGiB) || sizeGiB < 1 || sizeGiB > 2048) throw new Error("sizeGiB must be a whole number between 1 and 2048");
@@ -418,7 +429,10 @@ export async function storageLvmSnapshotCreate({ path: volume, sizeGiB = 10, suf
   return { created: true, name, path, origin: volume, volumeGroup: group.vg, sizeGiB, createdAt: now().toISOString() };
 }
 
-/** Remove a BoxPilot snapshot. Only names with the BoxPilot prefix are accepted. */
+/**
+ * Remove a BoxPilot snapshot. Only names with the BoxPilot prefix are accepted.
+ * @param {{ path?: string }} [parameters]
+ */
 export async function storageLvmSnapshotDelete({ path: snapshot } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof snapshot !== "string" || !logicalVolumePattern.test(snapshot) || !snapshotDmPattern.test(snapshot)) throw new Error("Only BoxPilot snapshots (boxpilot-snap-...) can be removed from here");
   log?.(`$ lvremove -f ${snapshot}`, "stdout");
@@ -431,6 +445,7 @@ export async function storageLvmSnapshotDelete({ path: snapshot } = {}, { run = 
  * Roll the origin back to a snapshot (lvconvert --merge). For a mounted origin such as /
  * the merge is scheduled and happens on the next activation, i.e. after a reboot; the
  * snapshot disappears once merged.
+ * @param {{ path?: string }} [parameters]
  */
 export async function storageLvmSnapshotRollback({ path: snapshot } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof snapshot !== "string" || !logicalVolumePattern.test(snapshot) || !snapshotDmPattern.test(snapshot)) throw new Error("Only BoxPilot snapshots (boxpilot-snap-...) can be rolled back to");
@@ -628,6 +643,7 @@ const defaultRemountFiles = { readFile, readable: (target) => readdir(target).th
  * Reconnect a managed drive (Repair's "Reconnect the drive"): the drive that dropped off USB and
  * came back under another name, the one the kernel turned read-only after errors, and the one that
  * is simply busy - apps and file-sharing clients included. See remountDrive.
+ * @param {{ name?: string }} [parameters]
  */
 export async function storageRemount({ name } = {}, { run = fixedRun, log = null, files = defaultRemountFiles, sleep = pause, processes = undefined } = {}) {
   const drive = await managedDrive(name, files);
@@ -748,6 +764,7 @@ async function withDriveUnmounted(name, { verb, purpose, prepare, work }, { run,
  * unmounted for it: the containers bound to it are stopped first and started again afterwards,
  * the way an operator would do it by hand. The checker runs with -n: it reports, it never repairs.
  * Repairing is a separate decision with the report in hand.
+ * @param {{ name?: string }} [parameters]
  */
 export async function storageCheck({ name } = {}, { run = fixedRun, log = null, files = defaultCheckFiles, sleep = pause, processes = undefined } = {}) {
   const done = await withDriveUnmounted(name, {
@@ -792,6 +809,7 @@ export async function storageCheck({ name } = {}, { run = fixedRun, log = null, 
  * and on a consistent volume the mark is all it changes - so this runs the read-only pass first,
  * with the drive unmounted, and only when that finds nothing wrong runs `fsck.exfat -y`. A volume
  * with real damage is refused: repairing it is a decision to make with that report in hand.
+ * @param {{ name?: string }} [parameters]
  */
 export async function storageClearMark({ name } = {}, { run = fixedRun, log = null, files = defaultCheckFiles, sleep = pause, processes = undefined } = {}) {
   const done = await withDriveUnmounted(name, {

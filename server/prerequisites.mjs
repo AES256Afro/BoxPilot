@@ -63,6 +63,7 @@ export function port53Occupied(text) {
   });
 }
 
+/** @param {{ stateDirectory?: string, helper?: any, runCommand?: typeof fixedCommand, checkAccess?: typeof access, getFilesystem?: typeof statfs, readProbe?: (file: string) => Promise<string>, now?: () => number }} [options] */
 export function createPrerequisiteService({ stateDirectory, helper, runCommand = fixedCommand, checkAccess = access, getFilesystem = statfs, readProbe = (file) => readFile(file, "utf8"), now = () => Date.now() } = {}) {
   /**
    * The seven helper inspections this page needs are independent of each other, so they are sent

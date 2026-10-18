@@ -154,7 +154,10 @@ export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, 
   return { upgraded: true, scope: packages ? "selected" : "all", packages: packages ?? [], before, after, summary: summarizeAptOutput(result.stdout), packageStateRepaired: repair.ok, rebootRequired: await rebootRequired(), ...staleness };
 }
 
-/** Install packages without recommends. */
+/**
+ * Install packages without recommends.
+ * @param {{ packages?: string[], refreshFirst?: boolean }} [parameters]
+ */
 export async function aptInstall({ packages, refreshFirst = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
   const problem = validPackageList(packages); if (problem) throw new Error(`packages ${problem}`);
@@ -170,7 +173,10 @@ export async function aptInstall({ packages, refreshFirst = true } = {}, { run: 
   return { installed: true, packages, before, after, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired(), ...staleness };
 }
 
-/** Remove (or purge) packages, then autoremove what they pulled in. */
+/**
+ * Remove (or purge) packages, then autoremove what they pulled in.
+ * @param {{ packages?: string[], purge?: boolean, autoremove?: boolean }} [parameters]
+ */
 export async function aptRemove({ packages, purge = false, autoremove = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
   const problem = validPackageList(packages); if (problem) throw new Error(`packages ${problem}`);
@@ -194,7 +200,10 @@ export async function aptAutoremove(_parameters = {}, { run: baseRun = fixedRun,
 
 const autoUpgradesPath = "/etc/apt/apt.conf.d/20auto-upgrades";
 
-/** Turn nightly unattended security upgrades on or off, installing the package when needed. */
+/**
+ * Turn nightly unattended security upgrades on or off, installing the package when needed.
+ * @param {{ enabled?: boolean }} [parameters]
+ */
 export async function aptUnattendedSet({ enabled } = {}, { run: baseRun = fixedRun, log = null, files = { writeFile }, exists = (target) => access(target).then(() => true, () => false) } = {}) {
   if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
   const run = withLog(baseRun, log);
