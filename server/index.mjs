@@ -11,7 +11,7 @@ import { productVersion } from "./version.mjs";
 import { webHostOf, webPortOf } from "./env-file.mjs";
 import { createCatalogService, installRiskLookup, secretEnvNamesLookup } from "./catalog/index.mjs";
 import { archivedComposeRisk } from "./ops/apps.mjs";
-import { escalationRiskHooks } from "./ops/escalation.mjs";
+import { escalationRiskHooks, serveWithdrawRisk } from "./ops/escalation.mjs";
 import { createJobLogReader } from "./job-log.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
@@ -175,7 +175,8 @@ const secretEnvNamesFor = secretEnvNamesLookup(catalogService);
 // assistant proposes says the tier the job will be staged at (sweep 3).
 // A restore that allows a backup's own compose file to start as archived is high, owner only, typed
 // out (sweep 4): both already are, and stay so whatever their own tier becomes.
-const operationRiskHooks = { ...escalationRiskHooks, "app.install": installRiskLookup(catalogService), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk };
+// identity is made further down; the hook reads it only when a job is staged.
+const operationRiskHooks = { ...escalationRiskHooks, "app.serve.withdraw": serveWithdrawRisk(() => identity.servedOrigins()), "app.install": installRiskLookup(catalogService), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk };
 registry.useRiskHooks(operationRiskHooks);
 // Where alerts go, and the one ledger of what was announced and what could not be (M27.2). A failed
 // scheduled run, an automation's step, or a result that could not be saved is announced through the

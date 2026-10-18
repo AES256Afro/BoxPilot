@@ -7,6 +7,8 @@
  */
 import { backupMountName } from "../backup-mount.mjs";
 import { servesHome } from "../tasks/served-folder.mjs";
+import { tunnelAppId } from "../cloudflare-tunnel.mjs";
+import { defaultKeepBackupsPerApp } from "../housekeeping.mjs";
 
 /**
  * Packages whose removal cuts off SSH, Tailscale or the firewall, or takes sudo, systemd or Docker
@@ -38,4 +40,25 @@ export const escalationRiskHooks = Object.freeze({
   // and the database: choosing it is choosing where data leaves the box.
   "share.mount": (parameters) => high(parameters?.name === backupMountName),
   "storage.mount": (parameters) => high(parameters?.name === backupMountName),
+  // The tunnel runs on the host's network with whatever token it is given: a token for someone's
+  // own Cloudflare account can route the internet to any port on 127.0.0.1, BoxPilot's included.
+  // Installing it is high in its manifest; handing it a new token is the same.
+  "app.reconfigure": (parameters) => high(parameters?.id === tunnelAppId && Object.hasOwn(parameters?.values?.env ?? {}, "TUNNEL_TOKEN")),
+  // Each backup prunes all but the newest `keep`: a few runs with keep 1 delete what
+  // app.backup.delete (owner only) guards. Keeping fewer than housekeeping always keeps is the owner's call.
+  "app.backup": (parameters) => high(parameters?.keep !== undefined && parameters?.keep !== null && Number(parameters.keep) < defaultKeepBackupsPerApp),
 });
+
+/**
+ * Withdrawing the tailnet address BoxPilot itself is served at cuts off every tailnet browser and
+ * Tailscale sign-in. `servedOrigins` lists those addresses (identity.mjs); a port Serve answers on
+ * there is the owner's to withdraw.
+ */
+export function serveWithdrawRisk(servedOrigins) {
+  return async (parameters) => {
+    const origins = await Promise.resolve(servedOrigins()).catch(() => []);
+    return high(origins.some((origin) => {
+      try { const url = new URL(origin); return (url.port === "" ? 443 : Number(url.port)) === parameters?.port; } catch { return false; }
+    }));
+  };
+}

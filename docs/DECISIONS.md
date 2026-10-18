@@ -1175,12 +1175,20 @@ the root-side operations found medium operations that reach what a high one guar
   database: sending data off the box, which is the owner's everywhere else (`backup.cloud.*`).
 - `service.action` could stop or restart a `boxpilot-run@` root task, and `app.backup.delete` let an
   operator remove every app's backups.
+- Installing the Cloudflare Tunnel app, or reconfiguring it, with a token from someone's own
+  Cloudflare account routes the internet to any port on 127.0.0.1 (the app runs on the host's
+  network), while `cloudflare.publish` is owner-only and high.
+- `app.backup` with `keep: 1` prunes every older backup: `app.backup.delete` by another door.
+- `app.serve.withdraw` could withdraw the tailnet address BoxPilot itself is served at, cutting off
+  tailnet browsers and Tailscale sign-in.
 
 ### Decision
 
 1. **The tier follows the target.** `server/ops/escalation.mjs` holds one risk hook per operation
    that raises it to high for those targets: a share or export under `/home`, an account created with
-   keys, a protected package, a packet-filter unit, a mount at the backup destination. Hooks only
+   keys, a protected package, a packet-filter unit, a mount at the backup destination, a new tunnel
+   token, a backup that keeps fewer than housekeeping does (3), and BoxPilot's own Serve address.
+   The Cloudflare Tunnel manifest is high, so installing it is too. Hooks only
    raise a tier, and the jobs service, flows, the scheduler and the agents' plans already take the
    tier from them, so a raised job needs the owner and a password and can never run unattended.
 2. **A link is not a way around a tier.** Samba and NFS refuse a folder that reaches a home only

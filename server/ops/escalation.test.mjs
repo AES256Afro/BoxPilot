@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createRegistry } from "./registry.mjs";
 import { operationModules, registry } from "./index.mjs";
-import { escalationRiskHooks, packetFilterUnit } from "./escalation.mjs";
+import { escalationRiskHooks, packetFilterUnit, serveWithdrawRisk } from "./escalation.mjs";
+import { readFile } from "node:fs/promises";
 
 /** The tier a job is staged at, as the jobs service works it out. */
 const withHooks = createRegistry(operationModules).useRiskHooks(escalationRiskHooks);
@@ -59,5 +60,28 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
     expect(registry.validate("service.action", { unit: "boxpilot-run@x.service", action: "stop" })).toContain("root tasks");
     expect(registry.validate("service.action", { unit: "boxpilot-agents.service", action: "restart" })).toBeNull();
     expect(registry.validate("service.action", { unit: "boxpilot.service", action: "restart" })).toBeNull();
+  });
+
+  it("raises the Cloudflare tunnel: installing it, and giving it a new token", async () => {
+    expect(await readFile("catalog/cloudflared.yaml", "utf8")).toMatch(/^risk: high$/m);
+    expect(await tier("app.reconfigure", { id: "cloudflared", values: { env: { TUNNEL_TOKEN: "eyJ..." } } })).toBe("high");
+    expect(await tier("app.reconfigure", { id: "cloudflared", values: { ports: {} } })).toBe("medium");
+    expect(await tier("app.reconfigure", { id: "jellyfin", values: { env: { TUNNEL_TOKEN: "x" } } })).toBe("medium");
+  });
+
+  it("raises a backup that would prune below what housekeeping always keeps", async () => {
+    expect(await tier("app.backup", { id: "vaultwarden", keep: 1 })).toBe("high");
+    expect(await tier("app.backup", { id: "vaultwarden", keep: 2 })).toBe("high");
+    expect(await tier("app.backup", { id: "vaultwarden", keep: 3 })).toBe("medium");
+    expect(await tier("app.backup", { id: "vaultwarden" })).toBe("medium");
+  });
+
+  it("raises withdrawing the tailnet address BoxPilot itself is served at", async () => {
+    const hooks = createRegistry(operationModules).useRiskHooks({ "app.serve.withdraw": serveWithdrawRisk(async () => ["https://box.tail1234.ts.net", "https://box.tail1234.ts.net:8443"]) });
+    expect(await hooks.effectiveRisk("app.serve.withdraw", { port: 443 })).toBe("high");
+    expect(await hooks.effectiveRisk("app.serve.withdraw", { port: 8443 })).toBe("high");
+    expect(await hooks.effectiveRisk("app.serve.withdraw", { port: 8084 })).toBe("medium");
+    const unreadable = createRegistry(operationModules).useRiskHooks({ "app.serve.withdraw": serveWithdrawRisk(async () => { throw new Error("tailscale is not running"); }) });
+    expect(await unreadable.effectiveRisk("app.serve.withdraw", { port: 443 })).toBe("medium");
   });
 });
