@@ -12,7 +12,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, lstat, mkdir, open, readdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { copyFileExclusively, mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing, syncDirectory } from "./durable-file.mjs";
 import { fixedRun } from "./exec.mjs";
@@ -596,11 +596,16 @@ export function createMachineSnapshotHelper({
     const unanswered = [];
     for (const mount of await mountedFilesystems()) {
       let failed = null;
+      // A folder on the drive can be a link to anywhere on this server (a huge file, a device), and
+      // everything below reads it as root: only a folder that is really on the drive is read.
+      const realMount = await realpath(mount.target).catch(() => null);
       for (const relative of ["boxpilot-local-mirror/machine-snapshots", "machine-snapshots", "."]) {
         const root = path.resolve(path.join(mount.target, relative));
         if (seen.has(root)) continue;
         seen.add(root);
-        const { snapshots, unreadable } = await snapshotsIn(root);
+        const real = realMount ? await realpath(root).catch(() => null) : null;
+        if (real && real !== realMount && !real.startsWith(`${realMount}${path.sep}`)) continue;
+        const { snapshots, unreadable } = await snapshotsIn(real ?? root);
         if (unreadable) failed = unreadable;
         // An idle automount's source is "systemd-1", which means nothing to a person; the
         // mountpoint is the name the owner knows the drive by, so it stands in as the source.
@@ -658,8 +663,12 @@ export function createMachineSnapshotHelper({
     const entries = names.filter((entry) => snapshotNamePattern.test(entry)).sort().reverse();
     const snapshots = [];
     for (const name of entries.slice(0, 50)) {
-      const meta = await readFile(path.join(root, `${name}.meta.json`), "utf8").then(JSON.parse).catch(() => null);
-      const info = await stat(path.join(root, name)).catch(() => null);
+      // lstat, not stat: a snapshot or its description that is a link is not read through.
+      const info = await lstat(path.join(root, name)).catch(() => null);
+      if (!info?.isFile()) continue;
+      const metaPath = path.join(root, `${name}.meta.json`);
+      const metaIsFile = (await lstat(metaPath).catch(() => null))?.isFile() ?? false;
+      const meta = metaIsFile ? await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null) : null;
       snapshots.push({
         artifact: name,
         sizeBytes: meta?.sizeBytes ?? info?.size ?? null,
