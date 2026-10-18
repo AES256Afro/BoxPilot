@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import { createLibvirtFoundationHelper, libvirtFoundationInternals } from "./libvirt-foundation-helper.mjs";
 

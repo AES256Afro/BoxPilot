@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Outside data for agents (M37): the PDF reader, uploads, a folder on this server, the owner's own
  * SearXNG, and the Notion and Slack readers the root task runs - each bounded, each off until the

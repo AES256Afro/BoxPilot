@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { runnerCaps } from "./caps.mjs";
 import { readModelParameters } from "./host.mjs";

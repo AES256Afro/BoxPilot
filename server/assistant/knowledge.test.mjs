@@ -1,4 +1,3 @@
-// @vitest-environment node
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createCatalogService } from "../catalog/index.mjs";
