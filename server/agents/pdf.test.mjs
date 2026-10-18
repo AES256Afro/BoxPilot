@@ -69,6 +69,13 @@ describe("reading a PDF built to be expensive", () => {
     expect(outcome.error).toMatch(/No pages/);
   });
 
+  it("stops at a bounded number of objects, however many tiny ones the file declares", async () => {
+    const objects = Array.from({ length: 150_000 }, (_, index) => `${index + 1} 0 obj<<>>endobj\n`).join("");
+    const outcome = await readWithin("extractPdfText", Buffer.from(`%PDF-1.4\n${objects}`));
+    expect(outcome.timedOut).toBeUndefined();
+    expect(outcome.error).toMatch(/more objects than BoxPilot reads/);
+  });
+
   it("does not slow down on a stream dictionary that repeats DecodeParms", async () => {
     const data = deflateSync(Buffer.from("BT (A) Tj"));
     const dict = `<< /Length ${data.length} /Filter /FlateDecode ${"/DecodeParms ".repeat(60_000)}>>`;

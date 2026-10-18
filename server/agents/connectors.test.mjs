@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConnectorError, boundSync, fetchNotion, fetchSlack, readFolderSetting, scanFolder, searxSearch, textOfUpload } from "./connectors.mjs";
 import { PdfError, extractPdfText, parseCMap } from "./pdf.mjs";
 
@@ -82,6 +82,19 @@ describe("uploads and a folder", () => {
     await writeFile(path.join(root, ".hidden.md"), "not read");
     const { documents } = await scanFolder(root);
     expect(documents.map((document) => [document.externalId.replaceAll("\\", "/"), document.title])).toEqual([["house/manual.pdf", "manual"], ["network.md", "network"]]);
+  });
+});
+
+describe("a folder read past its deadline", () => {
+  it("stops reading files instead of going on behind a caller that gave up", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-folder-"));
+    directories.push(root);
+    await writeFile(path.join(root, "a.md"), "first");
+    await writeFile(path.join(root, "b.md"), "second");
+    const read = vi.fn(async (file) => Buffer.from(file.endsWith("a.md") ? "first" : "second"));
+    let clock = 0;
+    await expect(scanFolder(root, { read, until: 10, now: () => (clock += 8) })).rejects.toThrow(/took too long/);
+    expect(read).toHaveBeenCalledTimes(1);
   });
 });
 
