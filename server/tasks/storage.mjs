@@ -97,7 +97,7 @@ export const logicalVolumePattern = /^\/dev\/mapper\/[A-Za-z0-9._+-]{1,64}$/;
 
 /** Full device subtree (LVM and dm children included; this runs as root in the host namespace). */
 async function deviceTree(run, device) {
-  const tree = await run(binaries.lsblk, ["-J", "-o", "PATH,TYPE,FSTYPE,RO,MOUNTPOINTS", device], { timeout: 15_000 });
+  const tree = await run(binaries.lsblk, ["-J", "-b", "-o", "PATH,TYPE,FSTYPE,RO,MOUNTPOINTS,UUID,PARTUUID,SERIAL,WWN,SIZE", device], { timeout: 15_000 });
   if (!tree.ok) throw new Error(`${device} was not found`);
   try {
     const parsed = JSON.parse(tree.stdout);
@@ -223,9 +223,11 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
   // Linux filesystem keeps its own on-disk permissions, so we chown the top of it after mounting.
   const permissionless = permissionlessFilesystems.includes(entryFstype);
   const giveToApps = appWritable && !readOnly;
-  const options = withDockerOrder(readOnly ? "ro,nofail"
-    : giveToApps && permissionless ? `rw,nofail,uid=${uid},gid=${gid}`
-      : "defaults,nofail");
+  // nosuid,nodev: a plugged-in drive is data, so a setuid binary or a device node someone put on it
+  // gives nothing on this host.
+  const options = withDockerOrder(readOnly ? "ro,nofail,nosuid,nodev"
+    : giveToApps && permissionless ? `rw,nofail,nosuid,nodev,uid=${uid},gid=${gid}`
+      : "defaults,nofail,nosuid,nodev");
   const previous = await appendFstabEntry({ run, files, log }, name, `UUID=${uuid} ${mountpoint} ${entryFstype} ${options} 0 ${fsckPass}`);
   await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 });
   log?.(`$ mount ${mountpoint}`, "stdout");
@@ -279,13 +281,40 @@ export async function storageUnmount({ name } = {}, { run = fixedRun, log = null
   return { unmounted: true, name, mountpoint, directoryKept: true };
 }
 
+/**
+ * Whether the disk at a path is still the one a format was approved for. A format can wait days for
+ * its approval, and a USB disk that drops off comes back under another name: the path alone is not
+ * the disk. The identity is what the web process read when the job was staged (storage-inventory.mjs).
+ */
+export function sameDisk(identity, node) {
+  if (!identity) return true;
+  const differs = (key) => identity[key] !== null && identity[key] !== undefined && String(identity[key]) !== String(node?.[key] ?? "");
+  return !["serial", "wwn", "size"].some(differs);
+}
+
+/** Paths and identifiers of the tree that /etc/fstab names, by UUID=, PARTUUID=, a by-* link or a path. */
+export function fstabNames(content, nodes) {
+  const entries = String(content ?? "").split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#")).map((line) => line.split(/\s+/)[0]);
+  const named = new Set(entries);
+  return nodes.flatMap((node) => [
+    node.uuid && (named.has(`UUID=${node.uuid}`) || named.has(`/dev/disk/by-uuid/${node.uuid}`)) ? `${node.path} (UUID ${node.uuid})` : null,
+    node.partuuid && (named.has(`PARTUUID=${node.partuuid}`) || named.has(`/dev/disk/by-partuuid/${node.partuuid}`)) ? `${node.path} (PARTUUID ${node.partuuid})` : null,
+    named.has(node.path) ? node.path : null,
+  ]).filter(Boolean);
+}
+
 /** Erase a block device and create a fresh ext4 filesystem. The guards are absolute. */
-export async function storageFormat({ device, label = null } = {}, { run = fixedRun, log = null } = {}) {
+export async function storageFormat({ device, label = null, identity = null } = {}, { run = fixedRun, log = null, files = { readFile } } = {}) {
   if (typeof device !== "string" || !devicePattern.test(device)) throw new Error("Device path is invalid");
   if (label !== null && (typeof label !== "string" || !labelPattern.test(label))) throw new Error("Label may use letters, digits, underscore, hyphen (max 16)");
   const nodes = await deviceTree(run, device);
   if (nodes.some((node) => node.ro)) throw new Error(`${device} is read-only`);
   assertNotProtected(device, nodes);
+  if (!sameDisk(identity, nodes[0])) throw new Error(`${device} is not the disk this was approved for (approved: ${[identity.model, identity.serial, identity.size && `${identity.size} bytes`].filter(Boolean).join(", ")}). Nothing was erased; stage the format again for the disk you mean.`);
+  // A drive the server mounts at boot is one it means to keep, mounted or not just now: a managed
+  // drive whose nofail mount did not come up, or one Reconnect detached, is still someone's data.
+  const inFstab = fstabNames(await files.readFile(fstabPath, "utf8").catch(() => ""), nodes);
+  if (inFstab.length) throw new Error(`${inFstab.join(", ")} is listed in /etc/fstab, so this server mounts it at boot. Nothing was erased; unmount it from Storage first if you mean to erase it.`);
   log?.(`$ wipefs -a ${device}`, "stdout");
   const wipe = await run(binaries.wipefs, ["-a", device], { timeout: 60_000 });
   if (!wipe.ok) throw new Error(`wipefs failed: ${wipe.stderr.split("\n").slice(-2).join(" ")}`);
