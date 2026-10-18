@@ -160,6 +160,31 @@ describe("System page", () => {
     await waitFor(() => expect(name().value).toBe("renamed-box"));
   });
 
+  // The update restarts BoxPilot, and approving it while a job runs is refused (server/jobs.mjs):
+  // the button says so first, naming the jobs (runningJobs.test.ts: and offers itself again).
+  it("holds the update button while jobs run, and says which", async () => {
+    const jobs = [
+      { id: "j1", type: "op:app.backup", title: "Back up Jellyfin", state: "applying", risk: "low", error: null, result: null, steps: [], approvals: [] },
+      { id: "j2", type: "op:system.update", title: "Update BoxPilot to v0.62.0", state: "awaiting_approval", risk: "high", error: null, result: null, steps: [], approvals: [] },
+      { id: "j3", type: "op:apt.upgrade", title: "Install updates", state: "completed", risk: "medium", error: null, result: null, steps: [], approvals: [] },
+    ];
+    serve({
+      "/api/v1/system/update": () => json(release),
+      "/api/v1/jobs?limit=30": () => json({ jobs }),
+      "/operations/system.update.status/inspect": () => json({ operation: "system.update.status", result: { units: [], log: [], outcome: "live" } }),
+    });
+    render(<SystemPage csrfToken="csrf-token" />);
+    expect(await screen.findByText("Update available")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /BoxPilot update/ }));
+    const go = await screen.findByRole("button", { name: /Update to v0.62.0/ });
+    await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(true));
+    const why = "Wait for a running job to finish first: Back up Jellyfin. The update restarts BoxPilot and would interrupt it.";
+    expect(document.querySelector(".system-asks")?.textContent).toBe(why);
+    // The button carries the same reason, read out with it (ui/Button.tsx).
+    expect(go.getAttribute("title")).toBe(why);
+    expect(screen.queryByText(/Updating asks for your password/)).toBeNull();
+  });
+
   it("offers the newer GitHub release and stages the high-risk update with only the tag, the tag typed out", async () => {
     const staged = serve({
       "/api/v1/system/update": () => json(release),
