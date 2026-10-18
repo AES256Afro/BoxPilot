@@ -1873,8 +1873,9 @@ Proposed, value to the owner against effort:
 - **Suggest actions in an empty command bar** - medium, small: what is waiting for approval, the
   failed job to retry, the update ready.
 - **Activity filters** (failed, waiting, running) and search - medium, small to medium.
-- **A Home item when old database copies pile up** - medium, small: points at the copies panel when
-  copies from before the secret scrub are still on disk.
+- ✅ **A Home item when old database copies pile up** - medium, small: points at the copies panel when
+  copies from before the secret scrub are still on disk (Home's `databaseCopies` fact, an operator's
+  read; "Review copies" opens System → Housekeeping).
 - **Restore a database copy as an operation** (high risk, stops BoxPilot) - medium, medium to large;
   today it is the three manual steps the rollback prints.
 - **Hold the update button while jobs run** - low to medium, small: the approval already refuses;
