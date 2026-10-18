@@ -1,4 +1,5 @@
 import { Button, CodeBlock, KeyValue, Notice, Panel, Progress, mayStart, riskOf, type Status } from "../../ui";
+import { useRunningJobs } from "./runningJobs";
 import type { ReleaseUpdate, UpdateStatus } from "./systemTypes";
 
 /** What the upgrade script said last, from the update log: why it stopped, and the database copy it took (M36). */
@@ -42,13 +43,15 @@ export function SystemUpdates({ release, releaseError, checking, onCheck, status
   const latest = release?.latest ?? null;
   const problem = releaseError ?? release?.error ?? null;
   const offer = release?.updateAvailable && latest && !updating && mayStart(role, "system.update");
+  const running = useRunningJobs(Boolean(offer));
+  const waitFor = running.length ? `Wait for ${running.length === 1 ? "a running job" : `${running.length} running jobs`} to finish first: ${running.join(", ")}. The update restarts BoxPilot and would interrupt ${running.length === 1 ? "it" : "them"}.` : null;
 
   return (
     <>
       <Panel padded title="BoxPilot" count={state}
         actions={<>
           <Button variant="ghost" busy={checking} onClick={onCheck}>Check again</Button>
-          {offer && <Button variant="primary" risk={riskOf("system.update")} onClick={() => onUpdate(latest)}>Update to {latest.tag}</Button>}
+          {offer && <Button variant="primary" risk={riskOf("system.update")} disabled={Boolean(waitFor)} title={waitFor ?? undefined} onClick={() => onUpdate(latest)}>Update to {latest.tag}</Button>}
         </>}>
         <KeyValue items={[
           { id: "running", label: "Running", value: release?.current.version ?? __BOXPILOT_VERSION__, mono: true },
@@ -56,7 +59,8 @@ export function SystemUpdates({ release, releaseError, checking, onCheck, status
           { id: "checked", label: "Checked", value: release ? moment(release.checkedAt) : "—", mono: true },
         ]} />
         {problem && <Notice tone="warning" title="The release check did not answer">{problem}</Notice>}
-        {offer && <p className="system-asks">Updating asks for your password, then the tag <code>{latest.tag}</code> typed out.</p>}
+        {offer && waitFor && <p className="system-asks">{waitFor}</p>}
+        {offer && !waitFor && <p className="system-asks">Updating asks for your password, then the tag <code>{latest.tag}</code> typed out.</p>}
         <p className="system-note">The update downloads the commit the release points at, copies the database, builds, swaps it in and restarts BoxPilot. It rolls back by itself if the new version fails its health check, and does not start without room for the database copy.</p>
       </Panel>
 
