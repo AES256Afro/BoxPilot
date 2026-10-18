@@ -45,6 +45,23 @@ describe("root apt tasks", () => {
     await expect(aptRemove({ packages: ["libssl3"], purge: true, keepProtected: false }, { run: fakeRun({ libssl3: "3.0" }) })).resolves.toMatchObject({ purged: true });
   });
 
+  it("says plainly when an install would have removed something", async () => {
+    const base = fakeRun({});
+    const run = vi.fn(async (binary, args, options) => (binary === "/usr/bin/apt-get" && args[0] === "install" && args.includes("--no-remove")
+      ? { ok: false, stdout: "", stderr: "The following packages will be REMOVED:\n  systemd-timesyncd\nE: Packages need to be removed but remove is disabled." }
+      : base(binary, args, options)));
+    await expect(aptInstall({ packages: ["chrony"], refreshFirst: false }, { run })).rejects.toThrow("Installing chrony would remove a package that is installed now");
+  });
+
+  it("refuses an autoremove whose plan takes a protected package", async () => {
+    const base = fakeRun({});
+    const run = vi.fn(async (binary, args, options) => (binary === "/usr/bin/apt-get" && args[0] === "-s"
+      ? { ok: true, stdout: "Purg linux-image-6.8.0-31 [6.8.0-31.31]\nPurg tailscale [1.76.1]\n", stderr: "" }
+      : base(binary, args, options)));
+    await expect(aptAutoremove({}, { run })).rejects.toThrow("Autoremove would remove tailscale");
+    expect(run.mock.calls.some(([binary, args]) => binary === "/usr/bin/apt-get" && args[0] === "autoremove")).toBe(false);
+  });
+
   it("parses apt summaries", () => {
     expect(aptTaskInternals.summarizeAptOutput("1 upgraded, 2 newly installed, 0 to remove and 3 not upgraded.")).toEqual({ upgraded: 1, newlyInstalled: 2, removed: 0, notUpgraded: 3 });
     expect(aptTaskInternals.summarizeAptOutput("nothing")).toBeNull();

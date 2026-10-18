@@ -1203,9 +1203,10 @@ the root-side operations found medium operations that reach what a high one guar
    keys, a protected package, a packet-filter unit, a mount at the backup destination, a new tunnel
    token, a backup that keeps fewer than housekeeping does (3), BoxPilot's own Serve address, and
    an app data folder outside `/mnt`, `/media` and `/srv` (`dataRoots`). A share counts as a home
-   when it is inside any account's home that has a login shell in `/etc/passwd`. Installs and
-   selected upgrades pass `--no-remove`, and a removal whose plan (`apt-get -s`) takes a protected
-   package nobody named is refused. Local names that point anywhere but this server, an exit node or
+   when it is inside, or holds, any account's home that has a login shell in `/etc/passwd`, and the
+   Samba and NFS tasks check the folder a link leads to against the same homes. Installs and
+   selected upgrades pass `--no-remove`, so installing needs no hook; a removal or an autoremove
+   whose plan (`apt-get -s`) takes a protected package nobody named is refused. Local names that point anywhere but this server, an exit node or
    advertised routes, and a cleanup that leaves less than a week of history (or 256 MiB of journal)
    are high. An app's tailnet switch refuses a port whose Serve entry forwards to anything but that
    app, and a share is not mounted over a folder that holds files.

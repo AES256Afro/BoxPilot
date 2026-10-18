@@ -174,12 +174,25 @@ export async function aptInstall({ packages, refreshFirst = true } = {}, { run: 
   // --no-remove: a package that Conflicts with an installed one makes apt remove that one, which is
   // apt.remove (or, for SSH and the firewall, a high job) by another door. apt refuses instead.
   const result = await run(aptGet, ["install", "--yes", "--no-remove", "--no-install-recommends", ...packages], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  if (!result.ok && /remove is disabled|Packages need to be removed/i.test(result.stderr)) throw new Error(`Installing ${packages.join(", ")} would remove a package that is installed now (one it replaces or conflicts with), so nothing was installed. Remove that package first, then install.`);
   if (!result.ok) throw new Error(`apt-get install failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = await installedVersions(run, packages);
   const missing = packages.filter((name) => !after[name]);
   if (missing.length) throw new Error(`apt-get reported success but ${missing.join(", ")} is not installed`);
   const staleness = await restartStaleServices(run, log);
   return { installed: true, packages, before, after, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired(), ...staleness };
+}
+
+/**
+ * The protected packages apt's own plan (`apt-get -s`) would remove that the request did not name.
+ * Throws when apt cannot plan it, which is refused like any other failure: nothing has run.
+ */
+async function protectedInPlan(run, args, named) {
+  const plan = await run(aptGet, ["-s", ...args], { timeout: 5 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  if (!plan.ok) throw new Error(`apt-get could not plan it: ${plan.stderr.split("\n").slice(-3).join(" ")}`);
+  const asked = new Set(named.map(packageBase));
+  const taken = [...new Set(plan.stdout.split("\n").map((line) => /^(?:Remv|Purg) (\S+)/.exec(line)?.[1]).filter(Boolean).map(packageBase))];
+  return taken.filter((name) => protectedPackages.includes(name) && !asked.has(name));
 }
 
 /** Remove (or purge) packages, then autoremove what they pulled in. */
@@ -192,11 +205,7 @@ export async function aptRemove({ packages, purge = false, autoremove = true, ke
   // package named in the request already made the job the owner's (escalation.mjs); one apt would
   // take along without being named is refused, from apt's own plan, before anything is removed.
   if (keepProtected) {
-    const plan = await run(aptGet, ["-s", verb, ...(autoremove ? ["--auto-remove"] : []), ...packages], { timeout: 5 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
-    if (!plan.ok) throw new Error(`apt-get could not plan the removal: ${plan.stderr.split("\n").slice(-3).join(" ")}`);
-    const named = new Set(packages.map(packageBase));
-    const taken = [...new Set(plan.stdout.split("\n").map((line) => /^(?:Remv|Purg) (\S+)/.exec(line)?.[1]).filter(Boolean).map(packageBase))];
-    const alongside = taken.filter((name) => protectedPackages.includes(name) && !named.has(name));
+    const alongside = await protectedInPlan(run, [verb, ...(autoremove ? ["--auto-remove"] : []), ...packages], packages);
     if (alongside.length) throw new Error(`Removing ${packages.join(", ")} would also remove ${alongside.join(", ")}, which keeps SSH, Tailscale, the firewall, sudo, systemd or Docker working. Nothing was removed. Removing ${alongside.length === 1 ? "it" : "them"} is the owner's, by name.`);
   }
   const before = await installedVersions(run, packages);
@@ -211,6 +220,9 @@ export async function aptRemove({ packages, purge = false, autoremove = true, ke
 /** `apt-get autoremove --purge`. */
 export async function aptAutoremove(_parameters = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
+  // A protected package marked automatic and no longer needed would go with the rest.
+  const alongside = await protectedInPlan(run, ["autoremove", "--purge"], []);
+  if (alongside.length) throw new Error(`Autoremove would remove ${alongside.join(", ")}, which keeps SSH, Tailscale, the firewall, sudo, systemd or Docker working. Nothing was removed. Mark ${alongside.length === 1 ? "it" : "them"} as installed by hand (apt-mark manual), or remove ${alongside.length === 1 ? "it" : "them"} by name as the owner.`);
   const result = await run(aptGet, ["autoremove", "--yes", "--purge"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get autoremove failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   return { autoremoved: true, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired() };

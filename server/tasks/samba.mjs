@@ -1,7 +1,7 @@
 import { access, copyFile, lchown, readFile, realpath, rename, stat } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
-import { cleanServedPath, homeThroughLink } from "./served-folder.mjs";
+import { cleanServedPath, homeThroughLink, readLoginHomes } from "./served-folder.mjs";
 
 /**
  * Root-side Samba (SMB file server) tasks executed by scripts/boxpilot-run.mjs.
@@ -62,11 +62,11 @@ function cleanPath(value) {
 }
 
 /** The share's folder as the kernel will find it, refused when a link leads it somewhere protected. */
-async function resolvedShareFolder(files, share) {
+async function resolvedShareFolder(files, share, homes = []) {
   const path = cleanPath(share.path);
   const real = typeof files.realpath === "function" ? await files.realpath(path) : path;
   if (cleanPath(real) !== real) throw new Error(`share "${share.name}": ${path} leads to ${real}, a system location BoxPilot does not share`);
-  const linked = homeThroughLink(path, real);
+  const linked = homeThroughLink(path, real, homes);
   if (linked) throw new Error(`share "${share.name}": ${linked}`);
   return real;
 }
@@ -214,8 +214,10 @@ export async function sambaApply({ workgroup = "WORKGROUP", scope = "tailscale",
   const installed = await files.access(binaries.smbd).then(() => true, () => false);
   if (!installed) throw new Error("Samba is not installed; install it from the Storage page first");
   const forceUsers = {};
+  // Every login account's home, not only /home's: a link must not reach one the path as written does not.
+  const homes = await readLoginHomes(files.readFile);
   for (const share of shares) {
-    const owner = await ownerOf(run, files, await resolvedShareFolder(files, share));
+    const owner = await ownerOf(run, files, await resolvedShareFolder(files, share, homes));
     if (owner) forceUsers[share.name] = owner;
     else log?.(`${share.path} is owned by root: every user will be read-only there unless you change the folder's owner`, "stderr");
   }
@@ -287,7 +289,7 @@ export async function sambaShareWritable({ share } = {}, { run = fixedRun, log =
   if (target.readOnly) throw new Error(`${share} is shared read-only on purpose, so nothing was changed`);
   if (!cleanPath(target.path)) throw new Error(`${share}'s folder is in a system location BoxPilot does not hand over`);
   // The folder itself, with every link on the way resolved: root hands over what it finds there.
-  const path = await resolvedShareFolder(files, target);
+  const path = await resolvedShareFolder(files, target, await readLoginHomes(files.readFile));
   const info = await files.stat(path);
   if (!info.isDirectory()) throw new Error(`${path} is not a folder`);
   const where = await run(binaries.findmnt, ["--task", "1", "-n", "-o", "FSTYPE,TARGET", "-T", path], { timeout: 15_000 });

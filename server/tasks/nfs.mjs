@@ -1,7 +1,7 @@
 import { access, mkdir, readFile, realpath, rename, stat } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
-import { cleanServedPath, homeThroughLink } from "./served-folder.mjs";
+import { cleanServedPath, homeThroughLink, readLoginHomes } from "./served-folder.mjs";
 
 /**
  * Root-side NFS server tasks executed by scripts/boxpilot-run.mjs.
@@ -100,12 +100,14 @@ export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run
   const installed = await files.access(binaries.exportfs).then(() => true, () => false);
   if (!installed) throw new Error("The NFS server is not installed; install nfs-kernel-server from the Storage page first");
   const owners = {};
+  // Every login account's home, not only /home's: a link must not reach one the path as written does not.
+  const homes = await readLoginHomes(files.readFile);
   for (const entry of exports) {
     const path = cleanPath(entry.path);
     // The kernel exports what the path leads to, links and all.
     const real = typeof files.realpath === "function" ? await files.realpath(path) : path;
     if (cleanPath(real) !== real) throw new Error(`export ${path} leads to ${real}, a system location BoxPilot does not export`);
-    const linked = homeThroughLink(path, real);
+    const linked = homeThroughLink(path, real, homes);
     if (linked) throw new Error(`export ${linked}`);
     const info = await files.stat(path);
     if (!info.isDirectory()) throw new Error(`${path} is not a folder`);

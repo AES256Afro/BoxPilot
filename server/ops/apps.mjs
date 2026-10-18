@@ -27,6 +27,7 @@ export function servesThisApp(serve, port) {
   } catch { return false; }
 }
 const servesSomethingElse = (serve, port) => `Port ${port} on the tailnet already publishes ${serve.target ?? "something else"} at ${urlOf(serve)}, not this app; nothing was changed. Give the app another port.`;
+const heldForSomethingElse = (serve) => `that tailnet port already publishes ${serve.target ?? "something else"} at ${urlOf(serve)}, so it was left alone; give the app another port`;
 
 /** Serve again what was withdrawn, as it was; whether every one of them came back. */
 async function republish(run, serves, progress) {
@@ -65,7 +66,10 @@ export async function serveTailnetOnly(deployed, { run, progress = null }) {
   if (deployed?.exposure !== "tailnet" || !run) return { served: false, urls: [] };
   const webPorts = (deployed.hostPorts ?? []).filter((entry) => entry.protocol !== "udp" && entry.exposure === "loopback" && (entry.tailnet ?? "serve") === "serve").map((entry) => entry.host);
   const failures = [];
+  const before = webPorts.length ? await serveStatus(run) : [];
   for (const port of webPorts) {
+    const held = before.find((serve) => serve.port === port && !servesThisApp(serve, port));
+    if (held) { failures.push(`${port}: ${heldForSomethingElse(held)}`); continue; }
     const args = ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`];
     progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
     const result = await Promise.resolve().then(() => run(tailscaleBinary(), args, { timeout: 60_000 })).catch((error) => ({ ok: false, stderr: error.message }));
@@ -498,7 +502,10 @@ export function appOperations() {
 
         // Home network: whatever was served was withdrawn before the rebind, above.
         const failures = [];
+        const servedBefore = tailnet ? await serveStatus(run) : [];
         for (const port of tailnet ? webPorts : []) {
+          const held = servedBefore.find((serve) => serve.port === port && !servesThisApp(serve, port));
+          if (held) { failures.push(`${port}: ${heldForSomethingElse(held)}`); continue; }
           const args = ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`];
           progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
           const result = await run(tailscaleBinary(), args, { timeout: 60_000 });
