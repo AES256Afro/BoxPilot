@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rmdir, unlink } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rmdir, unlink } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { appendFstabEntry, containersBoundTo, mountNamePattern, parseManagedFstab, processesUsing, removeManagedEntry, unmountFromHost } from "./storage.mjs";
@@ -81,7 +81,8 @@ export function validateShare({ kind, host, share, name, username = null, passwo
 /** The fstab line for a share. Pure, so the UI preview and the task agree. */
 export function buildShareEntry({ kind, host, share, name, readOnly = false, guest = true }) {
   const mountpoint = mountpointFor(name);
-  const common = ["nofail", "_netdev", "x-systemd.automount", "x-systemd.idle-timeout=300", "x-systemd.mount-timeout=30"];
+  // nosuid,nodev: a setuid binary or device node on someone else's server gives nothing here.
+  const common = ["nosuid", "nodev", "nofail", "_netdev", "x-systemd.automount", "x-systemd.idle-timeout=300", "x-systemd.mount-timeout=30"];
   if (kind === "smb") {
     const source = `//${host}/${share.replace(/ /g, "\\040")}`;
     const options = [guest ? "guest" : `credentials=${credentialsPath(name)}`, "uid=1000", "gid=1000", "file_mode=0664", "dir_mode=0775", "iocharset=utf8", ...(readOnly ? ["ro"] : []), ...common];
@@ -192,6 +193,10 @@ export async function shareMount({ kind, host, share, name, username = null, pas
   const guest = kind === "nfs" || !username;
   const { source, mountpoint, entry } = buildShareEntry({ kind, host, share, name, readOnly, guest });
   if ((await hostMountsAt(run, mountpoint)).length) throw new Error(`${mountpoint} is already mounted`);
+  // A folder with files in it is someone's data, an app's included (data folders live under /mnt):
+  // a share mounted over it hides what is there and sends what the app writes to another server.
+  const present = await (files.readdir ?? readdir)(mountpoint).catch(() => []);
+  if (present.length) throw new Error(`${mountpoint} already holds files; a share mounted there would hide them, and an app using that folder would read and write the share instead. Pick another name.`);
   const units = await unitsFor(run, mountpoint);
 
   let credentialsStored = false;

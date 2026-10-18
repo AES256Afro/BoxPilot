@@ -5,7 +5,7 @@ category: Network
 icon: "☁️"
 description: "Publish an app to the internet through Cloudflare without opening any port on your router: the tunnel connects out from this server, and Cloudflare serves the app over HTTPS at a name on your own domain. Set it up from this app's Tunnel tab with a Cloudflare API token, and publish apps from there."
 website: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks
-risk: medium
+risk: high
 image:
   reference: cloudflare/cloudflared:2026.8.2
   version: "2026.8.2"

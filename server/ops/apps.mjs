@@ -12,6 +12,22 @@ async function serveStatus(run) {
 }
 const urlOf = (serve) => serveUrl(serve);
 
+/**
+ * Whether a Serve entry is this app's: it forwards to this server's loopback at the app's own port.
+ * Anything else on that tailnet port (BoxPilot's own address, another app's) is not for an app's
+ * switch to replace or withdraw: an operator could otherwise give an app port 443 and take over the
+ * address BoxPilot is reached at, or take it down.
+ */
+export function servesThisApp(serve, port) {
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(String(serve?.target ?? "")) ? serve.target : `http://${serve?.target}`);
+    const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const loopback = host === "localhost" || host === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+    return loopback && Number(url.port || (url.protocol === "https:" ? 443 : 80)) === port;
+  } catch { return false; }
+}
+const servesSomethingElse = (serve, port) => `Port ${port} on the tailnet already publishes ${serve.target ?? "something else"} at ${urlOf(serve)}, not this app; nothing was changed. Give the app another port.`;
+
 /** Serve again what was withdrawn, as it was; whether every one of them came back. */
 async function republish(run, serves, progress) {
   let ok = true;
@@ -235,7 +251,9 @@ export function appOperations() {
           const published = (application.published ?? []).find((entry) => entry.host === port && entry.protocol === "tcp");
           if (published && coversEveryAddress(published.bind)) throw new Error(servedOnEveryAddress(name, port, { hostNetwork: Boolean(published.hostNetwork) }));
         }
-        const before = parameters.enabled ? [] : await serveStatus(run);
+        const before = await serveStatus(run);
+        const held = before.find((serve) => serve.port === port && !servesThisApp(serve, port));
+        if (held) throw new Error(servesSomethingElse(held, port));
         const args = parameters.enabled
           ? ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`]
           : ["serve", "--yes", `--https=${port}`, "off"];
@@ -245,7 +263,7 @@ export function appOperations() {
         const serves = await serveStatus(run);
         const entry = serves.find((serve) => serve.port === port) ?? null;
         if (parameters.enabled && !entry) throw new Error("tailscale accepted the command but the port is not being served; check tailscale serve status");
-        const withdrawn = before.find((serve) => serve.port === port) ?? null;
+        const withdrawn = parameters.enabled ? null : before.find((serve) => serve.port === port) ?? null;
         // Repair's fix for a port Serve held (Dockge, 2026-09-29): the app can have it now, so start it.
         let started = null;
         if (!parameters.enabled && parameters.start) {
@@ -343,7 +361,8 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.restoreAppBackupPath({ id: parameters.id, backup: parameters.backup, path: parameters.path }, { progress }),
     }),
     defineOperation({
-      id: "app.backup.delete", title: "Delete an application backup", risk: "medium",
+      // The owner's: an operator could otherwise remove every app's backups, one job at a time.
+      id: "app.backup.delete", title: "Delete an application backup", risk: "medium", minimumRole: "owner",
       description: "Removes one archive and its record. The app and its live data are untouched, and any copy already mirrored off this server stays where it is.", timeoutMs: 60_000,
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
       run: (parameters, { apps }) => apps.deleteAppBackup(parameters),
@@ -442,7 +461,10 @@ export function appOperations() {
         if (!tailnet) {
           const { applications } = await apps.inspect({ id: parameters.id });
           const webPorts = new Set((applications[0]?.urls ?? []).map((url) => url.host));
-          for (const serve of (await serveStatus(run)).filter((entry) => webPorts.has(entry.port))) {
+          const served = (await serveStatus(run)).filter((entry) => webPorts.has(entry.port));
+          const held = served.find((serve) => !servesThisApp(serve, serve.port));
+          if (held) throw new Error(servesSomethingElse(held, held.port));
+          for (const serve of served) {
             const args = ["serve", "--yes", `--https=${serve.port}`, "off"];
             progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
             const result = await run(tailscaleBinary(), args, { timeout: 60_000 });

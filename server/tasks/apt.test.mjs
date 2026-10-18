@@ -30,6 +30,21 @@ describe("root apt tasks", () => {
     expect(validPackageList(Array.from({ length: 51 }, (_, index) => `p${index}`))).toContain("at most 50");
   });
 
+  it("refuses a removal whose plan takes a protected package the request did not name", async () => {
+    const versions = { libssl3: "3.0", "openssh-server": "9.6" };
+    const base = fakeRun(versions);
+    const run = vi.fn(async (binary, args, options) => (binary === "/usr/bin/apt-get" && args[0] === "-s"
+      ? { ok: true, stdout: "Remv openssh-server [1:9.6p1]\nRemv libssl3:amd64 [3.0.13]\n", stderr: "" }
+      : base(binary, args, options)));
+    await expect(aptRemove({ packages: ["libssl3"] }, { run })).rejects.toThrow("Removing libssl3 would also remove openssh-server");
+    expect(run.mock.calls.some(([binary, args]) => binary === "/usr/bin/apt-get" && args[0] === "remove")).toBe(false);
+    expect(versions["openssh-server"]).toBe("9.6");
+    // Named in the request, it is the owner's job already (escalation.mjs), and goes ahead.
+    await expect(aptRemove({ packages: ["libssl3", "openssh-server"] }, { run })).resolves.toMatchObject({ removed: true });
+    // apt.purge passes keepProtected: false; it is high and the owner's.
+    await expect(aptRemove({ packages: ["libssl3"], purge: true, keepProtected: false }, { run: fakeRun({ libssl3: "3.0" }) })).resolves.toMatchObject({ purged: true });
+  });
+
   it("parses apt summaries", () => {
     expect(aptTaskInternals.summarizeAptOutput("1 upgraded, 2 newly installed, 0 to remove and 3 not upgraded.")).toEqual({ upgraded: 1, newlyInstalled: 2, removed: 0, notUpgraded: 3 });
     expect(aptTaskInternals.summarizeAptOutput("nothing")).toBeNull();
@@ -46,13 +61,15 @@ describe("root apt tasks", () => {
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--fix-broken", "--yes"], expect.anything());
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["upgrade", "--yes", "--with-new-pkgs"], expect.anything());
     await expect(aptUpgrade({ packages: ["htop"], refreshFirst: false }, { run })).resolves.toMatchObject({ scope: "selected", before: { htop: "3.0" } });
-    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--only-upgrade", "htop"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--no-remove", "--only-upgrade", "htop"], expect.anything());
 
     await expect(aptInstall({ packages: ["git"], refreshFirst: false }, { run })).resolves.toMatchObject({ installed: true, before: { git: null }, after: { git: "1.0" } });
-    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--no-install-recommends", "git"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--no-remove", "--no-install-recommends", "git"], expect.anything());
 
     await expect(aptRemove({ packages: ["git"], purge: true }, { run })).resolves.toMatchObject({ removed: true, purged: true, after: { git: null } });
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["purge", "--yes", "--auto-remove", "git"], expect.anything());
+    // A removal is planned first and its plan read, unless the caller (apt.purge, the owner's) says not to.
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["-s", "purge", "--auto-remove", "git"], expect.anything());
 
     await expect(aptAutoremove({}, { run })).resolves.toMatchObject({ autoremoved: true });
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["autoremove", "--yes", "--purge"], expect.anything());
