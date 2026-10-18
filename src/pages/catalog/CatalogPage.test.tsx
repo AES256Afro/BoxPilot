@@ -239,6 +239,37 @@ describe("App catalog: installing", () => {
     await waitFor(() => expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { id: "pi-hole", values: { ports: {}, env: {}, volumes: {}, setup: ["oisd-big", "hagezi-tif"] } } }));
   });
 
+  // M36: every update ready in one approval rather than one app card at a time.
+  it("offers every update ready in one job once there are two, and stages them by id", async () => {
+    let stagedBody: string | undefined;
+    const plexManifest = { ...manifest, id: "plex", name: "Plex" };
+    const immichManifest = { ...manifest, id: "immich", name: "Immich" };
+    serve(catalogOf([
+      { manifest, live: running("jellyfin", 8096, { updateAvailable: true }) },
+      { manifest: plexManifest, live: running("plex", 32400, { updateAvailable: true }) },
+      { manifest: immichManifest, live: running("immich", 2283) },
+    ]), (url, init) => {
+      if (url.endsWith("/operations/app.update.many/jobs")) { stagedBody = init?.body as string; return stagedJob("app.update.many"); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: /Update all \(2\)/ }));
+    expect(await screen.findByText(/Updates Jellyfin, Plex, one at a time/)).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { ids: ["jellyfin", "plex"] } }));
+  });
+
+  it("has no Update all for one update, or for a viewer", async () => {
+    serve(catalogOf([{ manifest, live: running("jellyfin", 8096, { updateAvailable: true }) }]));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    await screen.findByRole("button", { name: /^Jellyfin, / });
+    expect(screen.queryByRole("button", { name: /Update all/ })).toBeNull();
+    cleanup();
+    serve(catalogOf([{ manifest, live: running("jellyfin", 8096, { updateAvailable: true }) }, { manifest: { ...manifest, id: "plex", name: "Plex" }, live: running("plex", 32400, { updateAvailable: true }) }]));
+    render(<CatalogPage csrfToken="csrf-token" role="viewer" />);
+    await screen.findByRole("button", { name: /^Jellyfin, / });
+    expect(screen.queryByRole("button", { name: /Update all/ })).toBeNull();
+  });
+
   it("collects install settings in a sheet and stages app.install through the approval dialog", async () => {
     let stagedBody: string | undefined;
     serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url, init) => {

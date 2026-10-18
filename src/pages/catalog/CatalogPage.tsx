@@ -241,7 +241,8 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   const availableVisible = useMemo(() => visible.filter((entry) => !entry.live?.installed), [visible]);
   const installedAll = applications.filter((entry) => entry.live?.installed);
   const runningCount = installedVisible.filter((entry) => isRunning(entry.live)).length;
-  const updates = installedAll.filter((entry) => entry.live?.updateAvailable).length;
+  const updatable = installedAll.filter((entry) => entry.live?.updateAvailable);
+  const updates = updatable.length;
   const unwell = installedAll.map((entry) => appStatus(entry.live)).filter((state) => state.status === "danger" || state.status === "warning");
   const worst: Status = unwell.some((state) => state.status === "danger") ? "danger" : "warning";
   const filtering = Boolean(search.trim() || category);
@@ -326,7 +327,18 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
         title="App catalog"
         status={verdict}
         meta={data ? <><b>{installedAll.length}</b> installed · <b>{installedAll.filter((entry) => isRunning(entry.live)).length}</b> running · <b>{updates}</b> {updates === 1 ? "update" : "updates"} · <b>{applications.length}</b> in the catalog · <b>{categories.length}</b> categories</> : undefined}
-        actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Read again</Button>}
+        actions={<>
+          {/* M36: every update ready in one approval, one app at a time. */}
+          {updatable.length >= 2 && mayStart(role, "app.update.many") && (
+            <Button risk={riskOf("app.update.many")} onClick={() => start({
+              operationId: "app.update.many",
+              title: `Update ${updatable.length} apps`,
+              parameters: { ids: updatable.map((entry) => entry.manifest.id) },
+              preview: <span>Updates {updatable.map((entry) => entry.manifest.name).join(", ")}, one at a time. Each gets a data checkpoint first, then the catalog's current image; one that does not become healthy goes back to its previous image. One that fails does not stop the others.</span>,
+            })}>Update all ({updatable.length})</Button>
+          )}
+          <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Read again</Button>
+        </>}
         about={<>
           <p>Install, update, configure and remove applications. Each one is a Compose project BoxPilot deploys from the catalog, and each opens a sheet with its state, who can reach it, its backups and restore drills, its logs and its configuration.</p>
           <p>Other stacks lists Compose projects started outside BoxPilot. Their compose files stay theirs; they are listed so this page tells the whole truth about this server.</p>

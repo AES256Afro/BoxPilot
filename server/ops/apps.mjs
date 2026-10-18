@@ -430,6 +430,31 @@ export function appOperations() {
       run: (parameters, { apps, progress, timeScale }) => apps.update({ id: parameters.id, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true, timeScale }),
     }),
     defineOperation({
+      // M36: every app with an update ready, in one approval, one job and one log.
+      id: "app.update.many", title: "Update several applications", risk: "medium", timeoutMs: minutes(360),
+      description: "Updates each app in turn exactly as Update application does: a data checkpoint, the catalog's current image, the container recreated, and the previous image restored if the new one does not become healthy. One app at a time. One that fails does not stop the others; the job names it at the end.",
+      parameters: { fields: {
+        ids: { type: "array", validate: (value) => (value.length >= 1 && value.length <= 20 && value.every((entry) => typeof entry === "string" && idField.pattern.test(entry)) && new Set(value).size === value.length ? null : "must list 1 to 20 different app ids") },
+        // Found by the web process for each app that globs for a device (index.mjs prepare hook), never the browser's.
+        devicesByApp: { type: "object", optional: true, nullable: true, validate: (value) => (Object.entries(value).every(([id, devices]) => idField.pattern.test(id) && Array.isArray(devices) && devicesField.validate(devices) === null) ? null : "must map app ids to /dev paths") },
+      } },
+      run: async (parameters, { apps, progress, timeScale }) => {
+        const done = []; const failed = [];
+        for (const id of parameters.ids) {
+          progress?.(`── ${id} ──`, "stdout");
+          try {
+            await apps.update({ id, devices: parameters.devicesByApp?.[id] ?? null }, { progress, checkpoint: true, timeScale });
+            done.push(id);
+          } catch (error) {
+            failed.push({ id, error: error.message });
+            progress?.(`${id}: ${error.message}`, "stderr");
+          }
+        }
+        if (failed.length) throw new Error(`${failed.map((entry) => `${entry.id}: ${entry.error}`).join("; ")}${done.length ? `. ${done.join(", ")} ${done.length === 1 ? "was" : "were"} updated.` : ""}`);
+        return { updated: true, apps: done };
+      },
+    }),
+    defineOperation({
       id: "app.exposure.set", title: "Change who can reach an application", risk: "medium", timeoutMs: minutes(15),
       description: "Tailnet only publishes the app on your tailnet over HTTPS and stops it listening on the network, so Tailscale authenticates every visitor before the app sees them. Home network publishes it on the LAN address instead, where anything on your network can reach it and only the firewall stands in the way; its tailnet HTTPS address is withdrawn first, because Tailscale holds that port on the tailnet address and Docker cannot publish it on every address beside it.",
       parameters: { fields: { id: idField, mode: { type: "string", validate: (value) => (["lan", "tailnet"].includes(value) ? null : "must be lan or tailnet") }, devices: devicesField } },
