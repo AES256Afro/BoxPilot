@@ -252,4 +252,13 @@ describe("the command bar with nothing typed (M36)", () => {
     fireEvent.change(input, { target: { value: "jelly" } });
     expect(within(dialog).queryByRole("group", { name: "Suggested" })).toBeNull();
   });
+
+  it("goes back to the top when a suggestion arrives under the highlight", () => {
+    act(() => publishWaiting([feedJob("f1", "failed", "Back up Jellyfin", "2026-10-18T08:00:00Z")]));
+    const { dialog, input } = open();
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.getAttribute("aria-activedescendant")).toBe(within(dialog).getAllByRole("option")[1].id);
+    act(() => publishWaiting([feedJob("w1", "awaiting_approval", "Install updates", "2026-10-18T09:03:00Z"), feedJob("f1", "failed", "Back up Jellyfin", "2026-10-18T08:00:00Z")]));
+    expect(input.getAttribute("aria-activedescendant")).toBe(within(dialog).getAllByRole("option")[0].id);
+  });
 });
