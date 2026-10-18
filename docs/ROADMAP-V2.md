@@ -3425,8 +3425,9 @@ reach the filesystem and processes, outbound requests and secrets).
   agents, inventory, setup, app-helper, ops, flows and routes suites unchanged. Left for later: the
   Repair scan's thirty-day journal grep on Home's loop, `/catalog` reading the inventory for two
   strings (it is held ten seconds, so this is small), Home's per-VM virsh calls, the agent vectors
-  loaded whole per search, two job-event streams a tab, the 200 full jobs Ops fetches, and failed
-  job logs kept in RAM until a reboot.
+  loaded whole per search, two job-event streams a tab, and failed job logs kept in RAM until a
+  reboot. Done since: the 200 jobs Home, Ops and Today read come from `/jobs?view=summary`, without
+  their results and step logs, which none of them shows.
 - ✅ **M50.3 Security, the three checklists** (shipped in 1.184.0). What the three
   read-only checklists found, fixed where a fix fits in a day. *Outbound.* http.request, the
   heartbeat and notifications refused the link-local metadata range by matching the hostname's
