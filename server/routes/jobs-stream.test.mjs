@@ -58,3 +58,27 @@ describe("the last of a job's output, after the live log is gone", () => {
     expect(outputTailFrom("first line\n", 0)).toBe("first line\n");
   });
 });
+
+describe("the job list's summary view", () => {
+  it("leaves out results and step logs, and scopes the list as the full view does", async () => {
+    const full = { id: "j1", state: "completed", createdBy: "owner-1", parameters: { id: "jellyfin" }, error: null, result: { big: "x".repeat(1000) }, steps: [{ name: "pull", state: "completed", detail: "y".repeat(1000), createdAt: "2026-10-18T00:00:00Z" }], approvals: [] };
+    const asked = [];
+    const state = { listJobs: (limit, scope) => { asked.push([limit, scope]); return [full]; } };
+    const app = express();
+    app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: "op-1", role: "operator" } }; next(); });
+    app.use("/api/v1", createJobsRouter({ state, jobs: {}, scheduler: {}, jobLogReader: { read: async () => ({ text: "", exists: false }) }, auth: { requireCsrf: (_request, _response, next) => next() }, streamBudget: createStreamBudget({ perAccount: 8, total: 32 }) }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    try {
+      const base = `http://127.0.0.1:${server.address().port}/api/v1/jobs?limit=200`;
+      const summary = await (await fetch(`${base}&view=summary`)).json();
+      expect(summary.jobs).toEqual([{ ...full, result: null, steps: [] }]);
+      const whole = await (await fetch(base)).json();
+      expect(whole.jobs).toEqual([full]);
+      expect(asked).toEqual([["200", { createdBy: "op-1" }], ["200", { createdBy: "op-1" }]]);
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});

@@ -41,8 +41,13 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
   /** The owner is shown every job, so the owner may open every job; everyone else only their own. */
   const mayRead = (request, job) => request.boxpilotSession?.owner?.role === "owner" || job.createdBy === request.boxpilotSession.owner.id;
 
+  // Home, Ops and Today read up to 200 jobs for the backup matrix and the overnight summary, and use
+  // none of their results or step logs: an inspect's result or a long run's steps can each be larger
+  // than the rest of the job. ?view=summary leaves those two out (empty), as /catalog's does.
+  const summarize = (job) => ({ ...job, result: null, steps: [] });
   router.get("/jobs", (request, response) => {
-    response.json({ jobs: state.listJobs(request.query.limit, scopeFor(request)) });
+    const jobs = state.listJobs(request.query.limit, scopeFor(request));
+    response.json({ jobs: request.query.view === "summary" ? jobs.map(summarize) : jobs });
   });
 
   // Server-sent events for the Activity drawer: recent jobs on connect, then a snapshot of each

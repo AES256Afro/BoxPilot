@@ -87,7 +87,7 @@ describe("Home in Home + Ops", () => {
     vi.stubGlobal("fetch", stubFetch({
       ...busier,
       "/api/v1/jobs?limit=50": { jobs: [] },
-      "/api/v1/jobs?limit=200": { jobs: [
+      "/api/v1/jobs?limit=200&view=summary": { jobs: [
         job("n1", "op:app.backup", "completed", 4, { id: "jellyfin" }),
         job("n2", "op:app.backup.verify", "completed", 3, { id: "jellyfin" }),
         job("n3", "op:app.backup", "failed", 2, { id: "vaultwarden" }),
