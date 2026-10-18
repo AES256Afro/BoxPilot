@@ -196,6 +196,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
    * that fixes each one; nothing runs until the owner approves it.
    */
   router.get("/remediations", async (request, response) => {
+    // The Repair page asks for what is true now; Home's loop takes the drive evidence the helper
+    // client holds for a few minutes (helper-client.mjs heldReadMs).
+    if (request.query?.fresh === "1") helper?.invalidate?.(["storage.usb.events", "storage.unclean.events", "storage.volumes.state"]);
     // The scan is shared with the agents' repair.findings tool (M47): the same findings on the Repair page and in an agent's answer.
     const visibleJobs = typeof state.listJobs === "function" ? state.listJobs(200, seesEveryAccount(request) ? {} : { createdBy: callerId(request) }) : [];
     const scanned = await scanRemediations({ helper, state, catalogService, inventory, collect, fileExists, readListeners, notifications, dnsResilience, operatorReadsWanted: readsThroughHelper(request), visibleJobsGiven: visibleJobs });
