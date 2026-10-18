@@ -604,7 +604,9 @@ export function createMachineSnapshotHelper({
         if (seen.has(root)) continue;
         seen.add(root);
         const real = realMount ? await realpath(root).catch(() => null) : null;
-        if (real && real !== realMount && !real.startsWith(`${realMount}${path.sep}`)) continue;
+        // path.relative, not a prefix: the drive can be "/" itself, where the prefix would be "//".
+        const within = real ? path.relative(realMount, real) : "";
+        if (within === ".." || within.startsWith(`..${path.sep}`) || path.isAbsolute(within)) continue;
         const { snapshots, unreadable } = await snapshotsIn(real ?? root);
         if (unreadable) failed = unreadable;
         // An idle automount's source is "systemd-1", which means nothing to a person; the

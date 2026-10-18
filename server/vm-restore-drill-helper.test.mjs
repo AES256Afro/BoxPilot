@@ -113,10 +113,13 @@ describe("isolated VM restore drill helper", () => {
   // A restored qcow2 can name a backing file anywhere on the host, and libvirt opens what it names
   // for the guest. The export side never writes a chain, so a restored disk with one is refused.
   // Linux only: expects POSIX paths.
-  it.skipIf(onWindows)("refuses a restored disk that names a backing file, or is not qcow2", async () => {
+  it.skipIf(onWindows)("refuses a restored disk that names a backing file or a data file, or is not qcow2", async () => {
     const chained = await fixture({ diskInfo: { format: "qcow2", "virtual-size": 1073741824, "backing-filename": "/etc/shadow", "full-backing-filename": "/etc/shadow" } });
     await expect(chained.helper.runDrill(chained.input)).rejects.toThrow("Restored disk vda names a backing file (/etc/shadow)");
     expect(chained.run.mock.calls.some(([binary]) => binary === "/usr/bin/virt-install")).toBe(false);
+    const external = await fixture({ diskInfo: { format: "qcow2", "virtual-size": 1073741824, "format-specific": { type: "qcow2", data: { "data-file": "/dev/sda", "data-file-raw": true } } } });
+    await expect(external.helper.runDrill(external.input)).rejects.toThrow("Restored disk vda keeps its data in another file (/dev/sda)");
+    expect(external.run.mock.calls.some(([binary]) => binary === "/usr/bin/virt-install")).toBe(false);
     const raw = await fixture({ diskInfo: { format: "raw", "virtual-size": 1073741824 } });
     await expect(raw.helper.runDrill(raw.input)).rejects.toThrow("Restored disk vda is raw, not qcow2");
     const fine = await fixture();
