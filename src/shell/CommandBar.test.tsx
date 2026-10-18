@@ -2,10 +2,14 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { navItems } from "../data";
 import { CommandBar } from "./CommandBar";
-import { actionCommands, buildCommands, searchCommands } from "./commandIndex";
+import { act } from "react";
+import { publishWaiting } from "./approvalsWaiting";
+import { actionCommands, buildCommands, searchCommands, suggestedCommands } from "./commandIndex";
+import { openActivityEvent } from "../activityEvents";
+import type { Job } from "../operations";
 import { dockAreas } from "./ShellNav";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); publishWaiting([]); });
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -190,5 +194,62 @@ describe("actions in the command bar", () => {
     const commands = buildCommands([], actionCommands([], "owner"));
     expect(searchCommands(commands, "").every((command) => command.group === "Pages")).toBe(true);
     expect(searchCommands(commands, "reboot")[0]).toMatchObject({ label: "Reboot the server", group: "Actions" });
+  });
+});
+
+const feedJob = (id: string, state: string, title: string, createdAt: string, extra: Partial<Job> = {}): Job => ({ id, type: "op:app.backup", title, state, risk: "low", error: null, result: null, steps: [], approvals: [], createdAt, parameters: { id }, ...extra });
+
+describe("the command bar with nothing typed (M36)", () => {
+  it("suggests the approvals waiting, the failure nobody has dealt with, and the updates ready, above the pages", async () => {
+    act(() => publishWaiting([
+      feedJob("w1", "awaiting_approval", "Install updates", "2026-10-18T09:03:00Z"),
+      feedJob("w2", "awaiting_approval", "Reboot the server", "2026-10-18T09:02:00Z"),
+      feedJob("f2", "failed", "Back up Immich", "2026-10-18T09:01:00Z"),
+      feedJob("f1", "failed", "Back up Jellyfin", "2026-10-18T08:00:00Z"),
+    ]));
+    const { dialog } = open(undefined, "owner");
+    const suggested = await within(dialog).findByRole("group", { name: "Suggested" });
+    await within(suggested).findByRole("option", { name: /Update Jellyfin/ });
+    expect(within(suggested).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      expect.stringContaining("Review 2 jobs waiting for approval"),
+      expect.stringContaining("Failed: Back up Immich"),
+      expect.stringContaining("Update Jellyfin"),
+    ]);
+    // The pages follow, as before.
+    expect(within(dialog).getByRole("group", { name: "Pages" })).toBeTruthy();
+  });
+
+  it("opens Activity at the failure, and Today for the approvals", () => {
+    act(() => publishWaiting([feedJob("f1", "failed", "Back up Jellyfin", "2026-10-18T08:00:00Z")]));
+    const opened: Array<string | null> = [];
+    const listen = (event: Event) => opened.push((event as CustomEvent<{ jobId: string | null }>).detail.jobId);
+    window.addEventListener(openActivityEvent, listen);
+    try {
+      const { dialog, input } = open();
+      expect(within(dialog).getAllByRole("option")[0].textContent).toContain("Failed: Back up Jellyfin");
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(opened).toEqual(["f1"]);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      window.removeEventListener(openActivityEvent, listen);
+    }
+    cleanup();
+    act(() => publishWaiting([feedJob("w1", "awaiting_approval", "Install updates", "2026-10-18T09:03:00Z")]));
+    const { input, onNavigate } = open();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onNavigate.mock.calls[0][0]).toBe("today");
+  });
+
+  it("does not suggest a failure that was run again since, and suggests nothing once something is typed", () => {
+    const failed = feedJob("f1", "failed", "Back up Jellyfin", "2026-10-18T08:00:00Z", { parameters: { id: "jellyfin" } });
+    const again = feedJob("r1", "completed", "Back up Jellyfin", "2026-10-18T08:30:00Z", { parameters: { id: "jellyfin" } });
+    expect(suggestedCommands({ waiting: 0, failure: null, actions: [] })).toEqual([]);
+    act(() => publishWaiting([again, failed]));
+    const { dialog, input } = open();
+    expect(within(dialog).queryByRole("group", { name: "Suggested" })).toBeNull();
+    act(() => publishWaiting([failed]));
+    expect(within(dialog).getByRole("group", { name: "Suggested" })).toBeTruthy();
+    fireEvent.change(input, { target: { value: "jelly" } });
+    expect(within(dialog).queryByRole("group", { name: "Suggested" })).toBeNull();
   });
 });
