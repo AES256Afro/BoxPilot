@@ -1,7 +1,7 @@
 import { access, mkdir, readFile, realpath, rename, stat } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
-import { cleanServedPath } from "./served-folder.mjs";
+import { cleanServedPath, homeThroughLink } from "./served-folder.mjs";
 
 /**
  * Root-side NFS server tasks executed by scripts/boxpilot-run.mjs.
@@ -105,6 +105,8 @@ export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run
     // The kernel exports what the path leads to, links and all.
     const real = typeof files.realpath === "function" ? await files.realpath(path) : path;
     if (cleanPath(real) !== real) throw new Error(`export ${path} leads to ${real}, a system location BoxPilot does not export`);
+    const linked = homeThroughLink(path, real);
+    if (linked) throw new Error(`export ${linked}`);
     const info = await files.stat(path);
     if (!info.isDirectory()) throw new Error(`${path} is not a folder`);
     if (info.uid !== 0) owners[path] = { uid: info.uid, gid: info.gid };

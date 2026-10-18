@@ -1154,3 +1154,47 @@ examples and, only if it beats the base model on the evaluations, for a GPU fine
   few seconds of model time once.
 - Training stays off the box. If the owner trains an adapter elsewhere, the gate is the same
   evaluation that gates everything else: it ships only if it beats the base model.
+
+## ADR-015: a medium operation is high when what it acts on is
+
+**Date:** 2026-10-18 · **Status:** Accepted
+
+### Context
+
+An operator may stage and approve a medium-risk job alone, with no password (ADR-001). A review of
+the root-side operations found medium operations that reach what a high one guards:
+
+- `samba.apply` and `nfs.apply` could share `/home/<admin>`. Samba forces writes as the folder's
+  owner and NFS squashes every client to it, so whoever reaches the share writes that account's
+  `~/.ssh`: a shell as the sudo-group admin, past `users.keys.import` and `users.sudo.set` (high).
+- `users.add` with a GitHub user installs that user's keys: `users.keys.import` by another door.
+- `apt.remove openssh-server` (or `ufw`, `tailscale`) and `service.action start nftables.service`
+  (whose unit flushes the whole ruleset) cut off SSH or turn the firewall off, which the critical-unit
+  guard and `firewall.set` keep for the owner.
+- Mounting a NAS as `boxpilot-backup` chooses where `backup.sync` copies every app's `.env` and the
+  database: sending data off the box, which is the owner's everywhere else (`backup.cloud.*`).
+- `service.action` could stop or restart a `boxpilot-run@` root task, and `app.backup.delete` let an
+  operator remove every app's backups.
+
+### Decision
+
+1. **The tier follows the target.** `server/ops/escalation.mjs` holds one risk hook per operation
+   that raises it to high for those targets: a share or export under `/home`, an account created with
+   keys, a protected package, a packet-filter unit, a mount at the backup destination. Hooks only
+   raise a tier, and the jobs service, flows, the scheduler and the agents' plans already take the
+   tier from them, so a raised job needs the owner and a password and can never run unattended.
+2. **A link is not a way around a tier.** Samba and NFS refuse a folder that reaches a home only
+   through a link: the tier was decided on the path as written.
+3. **Refuse what has no legitimate caller.** `service.action` refuses `boxpilot-run@` units.
+   `app.backup.delete` is owner-only.
+4. **Not refused outright.** Sharing a home folder, removing a firewall package or using nftables
+   directly stay possible: they are the owner's, with a password, as ADR-001 intends.
+
+### Consequences
+
+- A whole-configuration apply (`samba.apply`, `nfs.apply`) that still lists a share under `/home`
+  is high every time it is applied, until that share moves.
+- The interface's static tiers (`src/ui/operationRisk.ts`) still say medium for these operations;
+  the approval dialog takes the staged tier from the server, which is the one that counts.
+- New medium operations whose parameters reach SSH, the firewall, accounts or off-box copies get a
+  hook here rather than a new special case in the job layer.

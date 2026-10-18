@@ -51,7 +51,17 @@ export function changesWholeMachine(unit) {
   return typeof unit === "string" && machineStateUnit.test(unit);
 }
 
-const machineStateRefusal = (unit) => (changesWholeMachine(unit) ? "changes the whole machine (its power, every service at once, a root console or the kernel), so it is not controlled from here; reboot from Updates" : null);
+/**
+ * BoxPilot's root tasks (boxpilot-run@<id>) run what a person approved, from a spec only the helper
+ * writes. Stopping one cuts that work off part way; starting one again inside its approval window runs
+ * it a second time. Viewers see them in the unit list; nobody controls them from here.
+ */
+export function boxPilotOwnUnit(unit) {
+  return typeof unit === "string" && /^boxpilot-run@/.test(unit);
+}
+
+const machineStateRefusal = (unit) => (changesWholeMachine(unit) ? "changes the whole machine (its power, every service at once, a root console or the kernel), so it is not controlled from here; reboot from Updates"
+  : boxPilotOwnUnit(unit) ? "is one of BoxPilot's root tasks, which runs what was approved and is stopped from its job" : null);
 
 /** Parse `systemctl list-units --output=json` and `list-unit-files --output=json`. */
 export function mergeUnitLists(unitsJson, filesJson) {
@@ -106,7 +116,7 @@ export function serviceOperations() {
       parameters: { fields: { unit: { type: "string", pattern: unitPattern, validate: machineStateRefusal }, action: { type: "string", enum: [...serviceActions] } } },
       run: async (parameters, { run, progress }) => {
         const { unit, action } = parameters;
-        if (changesWholeMachine(unit)) throw new Error(`${unit} ${machineStateRefusal(unit)}`);
+        if (changesWholeMachine(unit) || boxPilotOwnUnit(unit)) throw new Error(`${unit} ${machineStateRefusal(unit)}`);
         if (isCriticalUnit(unit) && ["stop", "disable"].includes(action)) throw new Error(`${unit} is protected: stopping or disabling it would cut off access to this server or to BoxPilot`);
         if (guardedUnits[unit] && ["stop", "disable"].includes(action)) throw new Error(`${unit} is not turned off from here. ${guardedUnits[unit]}`);
         // BoxPilot's drives and shares live under /mnt, and their own operations stop the apps using
