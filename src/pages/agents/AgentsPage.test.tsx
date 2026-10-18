@@ -438,7 +438,7 @@ describe("the test console", () => {
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
     fireEvent.change(await screen.findByLabelText("Question"), { target: { value: "What is this server called?" } });
     fireEvent.click(screen.getByRole("button", { name: "Run with this question" }));
-    await waitFor(() => expect(calls.find((call) => call.method === "POST" && call.path === `/api/v1/agents/${keeperId}/runs`)?.body).toEqual({ question: "What is this server called?" }), { timeout: 4000 });
+    await waitFor(() => expect(calls.find((call) => call.method === "POST" && call.path === `/api/v1/agents/${keeperId}/runs`)?.body).toEqual({ question: "What is this server called?" }));
     const trace = await screen.findByRole("list", { name: "What the agent did" }, { timeout: 8000 });
     expect(within(trace).getByText("Asked for Server facts")).toBeTruthy();
     expect(await screen.findAllByText("answered", {}, { timeout: 8000 })).not.toHaveLength(0);
@@ -898,7 +898,7 @@ describe("the learning library", () => {
     expect(within(documents).queryByText("Network plan")).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Sync Notion" }));
     fireEvent.click(await screen.findByRole("button", { name: "Run" }));
-    await screen.findByText("Completed.", {}, { timeout: 4000 });
+    await screen.findByText("Completed.");
     expect(await within(screen.getByRole("table", { name: "Documents you gave the agents" })).findByText("Network plan")).toBeTruthy();
   });
 
