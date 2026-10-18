@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { checkpointCeilingMs } from "../app-helper.mjs";
-import { aggregateAppStats, appOperations, parseDockerStats, parseServeStatus } from "./apps.mjs";
+import { aggregateAppStats, appOperations, parseDockerStats, parseServeStatus, servesThisApp } from "./apps.mjs";
 
 const operations = Object.fromEntries(appOperations().map((operation) => [operation.id, operation]));
 
@@ -86,6 +86,24 @@ describe("app serve operations", () => {
 
     await operations["app.serve.set"].run({ id: "ntfy", enabled: false }, { run, apps: fakeApps() });
     expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["serve", "--yes", "--https=8093", "off"], expect.anything());
+  });
+
+  // An app given port 443 could take over, or take down, the tailnet address BoxPilot itself is
+  // reached at: Serve would replace BoxPilot's entry with the app's, or withdraw it.
+  it("leaves a tailnet port alone that publishes something other than the app", async () => {
+    const boxpilotAt443 = JSON.stringify({ Web: { "homebox.tail1234.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:8787" } } } } });
+    const run = vi.fn(async (_binary, args) => (args[1] === "status" ? { ok: true, stdout: boxpilotAt443, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    const on443 = { inspect: vi.fn(async () => ({ applications: [{ id: "ntfy", name: "ntfy", installed: true, urls: [{ id: "web", host: 443, exposure: "tailnet" }], published: [{ id: "web", host: 443, protocol: "tcp", bind: "127.0.0.1", fixed: false, web: true }] }] })) };
+    for (const enabled of [true, false]) {
+      await expect(operations["app.serve.set"].run({ id: "ntfy", enabled }, { run, apps: on443 })).rejects.toThrow("Port 443 on the tailnet already publishes http://127.0.0.1:8787 at https://homebox.tail1234.ts.net, not this app; nothing was changed.");
+    }
+    await expect(operations["app.exposure.set"].run({ id: "ntfy", mode: "lan" }, { run, apps: on443 })).rejects.toThrow("Port 443 on the tailnet already publishes http://127.0.0.1:8787");
+    expect(run.mock.calls.filter(([, args]) => args[1] !== "status")).toEqual([]);
+    expect(servesThisApp({ target: "http://127.0.0.1:443" }, 443)).toBe(true);
+    expect(servesThisApp({ target: "localhost:8093" }, 8093)).toBe(true);
+    expect(servesThisApp({ target: "http://127.0.0.1:8787" }, 443)).toBe(false);
+    expect(servesThisApp({ target: "http://192.168.1.20:443" }, 443)).toBe(false);
+    expect(servesThisApp({ target: null }, 443)).toBe(false);
   });
 
   // The Dockge port trap (2026-09-29): Dockge was on the home network (every address) and served at the same port, so
