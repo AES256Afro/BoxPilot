@@ -41,6 +41,7 @@ export const operationRisk = {
   "app.serve.withdraw": "medium",
   "app.uninstall": "medium",
   "app.update": "medium",
+  "app.update.many": "medium",
   "app.vpn.killswitch.drill": "medium",
   "app.zulip.organization.link": "medium",
   "apt.autoremove": "medium",

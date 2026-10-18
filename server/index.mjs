@@ -269,6 +269,11 @@ const jobs = createJobService(state, helper, {
     ...Object.fromEntries(deviceResolvingOperations.map((id) => [id, (parameters) => withResolvedDevices(parameters)])),
     // A snapshot restore installs apps too: each one that wants a device gets the ones found here.
     "host.snapshot.restore": (parameters) => withSnapshotDevices(parameters),
+    // The same devices each app's own update would be given, found here for every app named.
+    "app.update.many": async (parameters) => {
+      const { apps: _named, ...found } = await withSnapshotDevices({ ...parameters, apps: Array.isArray(parameters?.ids) ? parameters.ids : [] });
+      return found;
+    },
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
     // Which disk the path is now; the format refuses a different one behind the same name later.
     // Last, so a browser cannot name the identity itself.
