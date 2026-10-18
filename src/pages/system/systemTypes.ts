@@ -18,6 +18,32 @@ export interface HousekeepingCategory { id: string; title: string; summary: stri
 export interface Housekeeping { generatedAt: string; categories: HousekeepingCategory[]; totalBytes: number; totalHumanBytes: string }
 export interface DockerDisk { available: boolean; rows: Array<{ type: string; total: number | string | null; active: number | string | null; size: string | null; reclaimable: string | null }>; logging?: { configured: boolean; logDriver: string | null; maxSize: string | null; liveRestore: boolean } }
 
+/*
+ * Low-space recovery (M30.8), as server/space-recovery.mjs returns it. space.inspect: bytes and
+ * inodes per category, and the filesystems they are on. A category that could not be read has
+ * no numbers, only the reason (`unavailable`), never zero.
+ */
+export interface SpaceCount { count: number; bytes: number }
+interface SpaceMeasured<Id extends string, Detail> { id: Id; title: string; path: string | null; available: true; unavailable: null; bytes: number | null; inodes: number | null; humanBytes: string | null; filesystem?: string; detail: Detail }
+export type SpaceJournal = SpaceMeasured<"journal", { journaldReportedBytes: number | null; folders: number; activeFiles: number; activeBytes: number; archivedFiles: number; archivedBytes: number }>;
+export type SpaceJobLogs = SpaceMeasured<"job-logs", { retentionDays: number; active: SpaceCount; "past-retention": SpaceCount; completed: SpaceCount; failed: SpaceCount; unlisted: SpaceCount }>;
+export type SpaceAptCache = SpaceMeasured<"apt-cache", { cleanableFiles: number; cleanableBytes: number; packages: number }>;
+export interface SpaceDockerRow { type: string; total: number | null; active: number | null; bytes: number | null; reclaimableBytes: number | null; reclaimablePercent: number | null }
+export type SpaceDocker = SpaceMeasured<"docker", { rows: SpaceDockerRow[]; danglingImages: { count: number; bytes: number; usedByContainers: number } | null }>;
+export interface SpaceBackupRoot { id: string; title: string; path: string; bytes: number | null; inodes: number | null; files: number | null; retention: string; unavailable?: string; beyondNewest?: { count: number; bytes: number; keepsPerKind: number } }
+export type SpaceBackups = SpaceMeasured<"backups", { roots: SpaceBackupRoot[] }>;
+export interface SpaceUnreadable { id: string; title: string; available: false; unavailable: string; bytes: null; inodes: null; humanBytes: null; detail: null }
+export type SpaceCategory = SpaceJournal | SpaceJobLogs | SpaceAptCache | SpaceDocker | SpaceBackups | SpaceUnreadable;
+export interface SpaceFilesystem { key: string; path: string; freeBytes: number; totalBytes: number; freeInodes: number; totalInodes: number; categories: string[] }
+export interface SpaceReport { generatedAt: string; categories: SpaceCategory[]; filesystems: SpaceFilesystem[] }
+
+/** What space.cleanup.preview and space.cleanup take: the same parameters, so the preview is what runs. */
+export type SpaceCleanupId = "journal" | "job-logs" | "apt-cache" | "docker-dangling";
+export interface SpaceCleanupParameters { categories: SpaceCleanupId[]; journalMaxBytes?: number; journalMaxAgeDays?: number; jobLogRetentionDays?: number }
+export interface SpacePlanItem { what: string; bytes: number; at?: string | null; detail?: string }
+export interface SpacePlanCategory { id: SpaceCleanupId; title: string; available: boolean; unavailable: string | null; bound: string | null; bytes: number; inodes: number | null; items: SpacePlanItem[]; more: number; keeping: string[]; humanBytes: string }
+export interface SpacePlan { generatedAt: string; bounds: { journalMaxBytes: number | null; journalMaxAgeDays: number | null; jobLogRetentionDays: number }; categories: SpacePlanCategory[]; totalBytes: number; totalHumanBytes: string; totalInodes: number }
+
 export interface ReleaseUpdate { current: { version: string }; latest: { tag: string; version: string; name?: string; url: string; publishedAt: string | null; prerelease?: boolean; notes?: string | null } | null; updateAvailable: boolean; checkedAt: string; error: string | null }
 export interface UpdateStatus { units?: Array<{ unit: string; active: string; sub: string }>; log: string[]; outcome?: "running" | "live" | "failed" | null }
 

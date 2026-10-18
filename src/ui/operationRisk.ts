@@ -108,6 +108,7 @@ export const operationRisk = {
   "share.mount": "medium",
   "share.reconnect": "medium",
   "share.unmount": "medium",
+  "space.cleanup": "medium",
   "ssh.password-auth.set": "high",
   "storage.backup.relocate": "medium",
   "storage.check": "medium",
