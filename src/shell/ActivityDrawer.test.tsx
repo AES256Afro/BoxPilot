@@ -51,6 +51,41 @@ describe("Activity drawer", () => {
     fireEvent.keyDown(document, { key: "Escape" }); expect(screen.queryByRole("dialog")).toBeNull(); expect(document.activeElement).toBe(opener);
   });
 
+  // M36: fifty jobs are a long list to scan for the one that failed or the one waiting on you.
+  it("narrows the list to running, waiting or failed jobs, and to a search, and opens at a job whatever the filter", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    render(<ActivityDrawer />);
+    act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [
+      job({ id: "a", title: "Back up Jellyfin", type: "op:app.backup", state: "failed", error: "disk full", createdAt: "2026-08-20T10:03:00.000Z" }),
+      job({ id: "b", title: "Install updates", type: "op:apt.upgrade", state: "awaiting_approval", createdAt: "2026-08-20T10:02:00.000Z" }),
+      job({ id: "c", title: "Back up Immich", type: "op:app.backup", state: "applying", createdAt: "2026-08-20T10:01:00.000Z" }),
+      job({ id: "d", title: "Restart Pi-hole", type: "op:app.restart", state: "completed", createdAt: "2026-08-20T10:00:00.000Z" }),
+    ] }));
+    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+    const titles = () => within(screen.getByRole("list", { name: "Recent jobs" })).getAllByRole("button", { expanded: false }).map((row) => row.querySelector(".jobs-row__title")?.textContent);
+    expect(titles()).toEqual(["Back up Jellyfin", "Install updates", "Back up Immich", "Restart Pi-hole"]);
+    const filters = screen.getByRole("radiogroup", { name: "Which jobs" });
+    expect(within(filters).getByRole("radio", { name: "Failed 1" })).toBeTruthy();
+    fireEvent.click(within(filters).getByRole("radio", { name: "Failed 1" }));
+    expect(titles()).toEqual(["Back up Jellyfin"]);
+    fireEvent.click(within(filters).getByRole("radio", { name: "Waiting for approval 1" }));
+    expect(titles()).toEqual(["Install updates"]);
+    fireEvent.click(within(filters).getByRole("radio", { name: "All 4" }));
+    // Words anywhere in the title or the operation, case-blind.
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter jobs" }), { target: { value: "backup" } });
+    expect(titles()).toEqual(["Back up Jellyfin", "Back up Immich"]);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter jobs" }), { target: { value: "IMMICH back" } });
+    expect(titles()).toEqual(["Back up Immich"]);
+    fireEvent.click(within(filters).getByRole("radio", { name: "Failed 1" }));
+    expect(screen.getByRole("status").textContent).toContain("None of the last 4 jobs match “IMMICH back” here.");
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    expect(titles()).toHaveLength(4);
+    // Opened at a job from elsewhere: it is shown even if the filter would have hidden it.
+    fireEvent.click(within(filters).getByRole("radio", { name: "Failed 1" }));
+    act(() => openActivity("d"));
+    expect(screen.getByRole("button", { name: /Restart Pi-hole/, expanded: true })).toBeTruthy();
+  });
+
   it("shows a running badge from the snapshot and clears it when the job finishes", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     render(<ActivityDrawer />);
@@ -63,7 +98,7 @@ describe("Activity drawer", () => {
     fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
     expect(screen.getByText("1 job running")).toBeTruthy();
     expect(screen.getByText("Upgrade packages")).toBeTruthy();
-    expect(screen.getByText("Running")).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "Recent jobs" })).getByText("Running")).toBeTruthy();
 
     act(() => source?.emit("job", { job: job({ state: "completed" }) }));
     expect(screen.queryByLabelText("1 running")).toBeNull();
@@ -134,7 +169,7 @@ describe("a job a restart cut off, run again by BoxPilot (M30.2)", () => {
     act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [rerun, cutOff] }));
     fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
     expect(screen.getByText("Interrupted, ran again").getAttribute("data-status")).toBe("neutral");
-    expect(screen.queryByText("Failed")).toBeNull();
+    expect(within(screen.getByRole("list", { name: "Recent jobs" })).queryByText("Failed")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Interrupted, ran again/ }));
     expect(screen.getByText(/so BoxPilot ran it again by itself/)).toBeTruthy();
@@ -170,7 +205,7 @@ describe("a job that ran out of time, in Activity (M30.3)", () => {
     act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [timedOutJob, failedJob] }));
     fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
     expect(screen.getByText("Timed out").getAttribute("data-status")).toBe("warning");
-    expect(screen.getByText("Failed").getAttribute("data-status")).toBe("danger");
+    expect(within(screen.getByRole("list", { name: "Recent jobs" })).getByText("Failed").getAttribute("data-status")).toBe("danger");
 
     fireEvent.click(screen.getByRole("button", { name: /Update application/ }));
     expect(screen.getByText("Downloading the new images had 30 minutes and did not finish. The job ran for 34 minutes.")).toBeTruthy();
