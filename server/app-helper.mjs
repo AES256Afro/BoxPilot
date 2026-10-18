@@ -5,6 +5,7 @@
  */
 import { constants as fsConstants } from "node:fs";
 import { lchown, lstat, mkdir, open, readdir, rm, stat, realpath } from "node:fs/promises";
+import { freeBytesOf as freeBytesOnDisk } from "./archive-expansion.mjs";
 import path from "node:path";
 import YAML from "yaml";
 import { mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing } from "./durable-file.mjs";
@@ -117,6 +118,9 @@ export function createAppHelper({
   lstatPath = (target) => lstat(target),
   // Where a data folder really is, every link resolved (checkedDataFolders, dataFolderProblems).
   realpathOf = (target) => realpath(target),
+  // Free space where an archive unpacks, and how much a restore leaves (archive-expansion.mjs).
+  freeBytesOf = freeBytesOnDisk,
+  restoreReserveBytes = 1024 ** 3,
   tailscaleBinary = process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale",
   vpnProfile = null,
   // Whether Docker can give containers an NVIDIA GPU; asked only for apps marked `gpu: optional`.
@@ -1646,7 +1650,7 @@ export function createAppHelper({
     interruptedBackups, resumeInterruptedBackup, backupMany, checkpoint, backup, countAppBackups, backupProtection, listAppBackups, verifyAppBackup,
     reviewAppBackup, reviewArchive, dataFoldersRefused, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup,
   } = createAppBackups({
-    root, backupRoot, machineSnapshotRoot, tarBinary, runCommand, catalog, wait, clock, realpathOf, idPattern, dirFor, presentIds, readState, ensureManifest,
+    root, backupRoot, machineSnapshotRoot, tarBinary, runCommand, catalog, wait, clock, realpathOf, freeBytesOf, restoreReserveBytes, idPattern, dirFor, presentIds, readState, ensureManifest,
     containerStatus, compose, waitHealthy, assertPortsFree, renderProject, readProjectFiles, withSavedSecrets, redact, parseEnvFile, resolveExisting,
   });
 

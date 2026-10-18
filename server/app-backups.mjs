@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, lchown, lstat, mkdir, open, readFile, readdir, readlink, rename, rm, stat, unlink } from "node:fs/promises";
+import { assertArchiveFits } from "./archive-expansion.mjs";
 import path from "node:path";
 import YAML from "yaml";
 import { readFileWithoutFollowing, replaceFileWithoutFollowing, writeFileDurably } from "./durable-file.mjs";
@@ -77,6 +78,8 @@ function composeDevices(composeText) {
  *   wait: (ms: number) => Promise<unknown>,
  *   clock: () => Date,
  *   realpathOf: (target: string) => Promise<string>,
+ *   freeBytesOf: (directory: string) => Promise<number>,
+ *   restoreReserveBytes: number,
  *   idPattern: RegExp,
  *   dirFor: (id: string) => string,
  *   presentIds: () => Promise<Set<string> | null>,
@@ -104,7 +107,7 @@ export function catalogImagePin(candidate, catalogReference) {
   return typeof candidate === "string" && candidate && imageRepository(candidate) === imageRepository(catalogReference) ? candidate : null;
 }
 
-export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBinary, runCommand, catalog, wait, clock, realpathOf, idPattern, dirFor, presentIds, readState, ensureManifest, containerStatus, compose, waitHealthy, assertPortsFree, renderProject, readProjectFiles, withSavedSecrets, redact, parseEnvFile, resolveExisting }) {
+export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBinary, runCommand, catalog, wait, clock, realpathOf, freeBytesOf, restoreReserveBytes, idPattern, dirFor, presentIds, readState, ensureManifest, containerStatus, compose, waitHealthy, assertPortsFree, renderProject, readProjectFiles, withSavedSecrets, redact, parseEnvFile, resolveExisting }) {
   const backupDirFor = (id) => path.join(path.resolve(backupRoot), id);
 
   /** Where a backup in progress says what it stopped and what it is writing (see backup). */
@@ -967,6 +970,8 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     // Extract beside the app and swap, so the result is the backup and nothing else. Unpacking over
     // the live directory would leave every file written since — for a database that means old control
     // files next to newer WAL segments, which is neither the backup nor the present state.
+    // A data archive can have come from a drive or a mirror (a machine snapshot copies it in).
+    await assertArchiveFits({ run: runCommand, tarBinary, artifactPath: artifact, directory: path.dirname(staged), reserveBytes: restoreReserveBytes, free: freeBytesOf, what: `Backup ${backupName}` });
     await mkdir(staged, { mode: 0o700 });
     progress?.(`$ tar -xzf ${backupName}`, "stdout");
     // Everything inside keeps the archive's owners and modes, which container users need.
@@ -1235,6 +1240,7 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
       progress?.("Verifying the backup checksum...", "stdout");
       if ((await sha256File(artifact)) !== meta.checksumSha256) throw new Error(`Backup ${backupName} failed its checksum; it may be damaged. Nothing was changed.`);
     }
+    await assertArchiveFits({ run: runCommand, tarBinary, artifactPath: artifact, directory: path.dirname(dirFor(id)), members: [relativePath], reserveBytes: restoreReserveBytes, free: freeBytesOf, what: `${relativePath} in ${backupName}` });
     const saved = await checkpoint({ id, reason: "file restore", preserve: backupName }, { progress });
     const status = await containerStatus(id);
     if (status.running) {
