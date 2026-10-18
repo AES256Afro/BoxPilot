@@ -222,8 +222,9 @@ describe("restricted helper protocol", () => {
   // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
   it.skipIf(onWindows)("accepts only fixed read-only virtualization inventory scopes", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domains" } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domains-summary" } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domain", name: "ubuntu-lab" } }))).toContain('does not accept parameter "name"');
-    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "../../etc" } }))).toContain("must be one of status, domains, resources");
+    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "../../etc" } }))).toContain("must be one of status, domains, domains-summary, resources");
     const virtualization = { inventory: async ({ scope }) => ({ scope, connected: true }) };
     const result = await executeHelperOperation(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "resources" } }), { virtualization });
     expect(result).toMatchObject({ ok: true, result: { scope: "resources", connected: true } });
