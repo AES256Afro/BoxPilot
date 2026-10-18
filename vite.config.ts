@@ -91,11 +91,17 @@ export default defineConfig({
     port: 4173,
   },
   test: {
-    environment: "jsdom",
     css: true,
     // A git worktree under .claude/ holds a second copy of this repo, and collecting it runs the
     // whole suite twice against a stale tree — including the check that package.json and
     // docker-compose.yml agree, which fails there for a version that is not the one being built.
     exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**", "**/.git/**"],
+    // Only the interface needs a DOM. Building jsdom for each of the server's three hundred files
+    // was over a third of the suite's time, and a server test could lean on browser globals that
+    // the server itself never has.
+    projects: [
+      { extends: true, test: { name: "ui", include: ["src/**/*.test.{ts,tsx,mjs}"], environment: "jsdom" } },
+      { extends: true, test: { name: "node", include: ["{server,scripts,packages,test,demo-site}/**/*.test.mjs"], environment: "node" } },
+    ],
   },
 });

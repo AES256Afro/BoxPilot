@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The agent checks itself before it answers (M40), end to end: the real service, tools and runner,
  * the stand-in model scripted to give the owner's wrong answer about the drives, on a server laid

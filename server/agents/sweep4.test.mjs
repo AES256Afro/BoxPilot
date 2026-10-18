@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The 2026-10 sweep 4, on the real service, store and runner with the stand-in model: what an agent
  * remembers is read, trusted and forgotten only as far as each person and each run may read; another

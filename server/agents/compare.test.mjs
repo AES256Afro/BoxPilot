@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
 import { fixture } from "../../packages/harness/test/anthropic-wire.mjs";
 import { createRoutedHarness, routedAgent } from "../../test/agents-routes.mjs";

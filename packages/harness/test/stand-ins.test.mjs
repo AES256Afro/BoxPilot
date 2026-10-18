@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { createStandIns, hideRequest, showResult } from "../src/safety/stand-ins.mjs";
 

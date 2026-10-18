@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The agents' team chat end to end (M38), with the real service, store and runner and a stand-in
  * for the helper: nothing is posted until Zulip is connected; then a run's answer, trace and notes

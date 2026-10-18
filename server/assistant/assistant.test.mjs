@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The assistant as a whole (M34.1, M34.2): a real state store with three accounts' work on record,
  * the real operation registry, a stub helper, and a stand-in model server on a loopback port. Each

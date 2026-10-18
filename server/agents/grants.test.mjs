@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { registry } from "../ops/index.mjs";
 import { grantNow, grantProblem, readPlanSteps } from "./grants.mjs";

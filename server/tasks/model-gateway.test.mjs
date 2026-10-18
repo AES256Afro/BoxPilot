@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { keyFile, settingsFile } from "../model-gateway/paths.mjs";
 import { modelGatewayCap, modelGatewayConnect, modelGatewayDisconnect } from "./model-gateway.mjs";
