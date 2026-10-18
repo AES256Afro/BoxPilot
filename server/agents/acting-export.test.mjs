@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The acting conversation as training data (M46.7): an approved run's whole conversation rebuilt
  * from its steps - the system message, the task with its plan, each model turn with its tool calls,

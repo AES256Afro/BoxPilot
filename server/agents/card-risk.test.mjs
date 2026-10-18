@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * An agent's card says the tier its step will be staged at (sweep 3). Installing the house's DNS
  * or VPN is medium by the operation's own tier and high by the app's manifest; the job layer

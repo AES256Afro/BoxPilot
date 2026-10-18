@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The root tasks that reach Zulip for the agents (M38), against a stand-in for Zulip's API: the
  * bot's key is read from the credential store and never returned, every request goes to loopback

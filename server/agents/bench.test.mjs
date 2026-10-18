@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The owner's first question, at the speed the owner's server measured on one thread: 20 tokens a
  * second read, 4 written (test/agents-bench.mjs). It timed out after 416 s on 2026-09-29, the call

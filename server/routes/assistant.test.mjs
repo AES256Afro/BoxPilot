@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The assistant's routes (M34.2): JSON and server-sent events, the errors a page can act on, a
  * person hanging up part-way, and the owner-only settings. Roles and casing are in route-matrix.

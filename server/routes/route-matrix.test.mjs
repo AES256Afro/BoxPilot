@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Every route, every role, every casing (M29.4).
  *

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The three reads the templates still said they could not make (M47.6): which apps use the
  * processor and memory (apps.usage, the Performance page's read), which apps hold data and have

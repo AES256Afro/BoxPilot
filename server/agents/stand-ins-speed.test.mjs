@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { createStandIns } from "../../packages/harness/src/safety/stand-ins.mjs";
 import { fill, slowness } from "../../test/hostile-text.mjs";

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * A session answers only to the address it was signed in from (sweep 1, S1-1).
  *

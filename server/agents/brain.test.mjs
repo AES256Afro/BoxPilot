@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The brain's pieces that need no model (M37): the understanding a model returns is checked before
  * it is trusted, the exact tools do sums and dates so the model does not, and memory's search and
