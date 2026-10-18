@@ -41,7 +41,7 @@ export function internalReadOperations() {
     }),
     read({
       id: "virtualization.inventory.inspect", title: "List VMs and their resources",
-      parameters: { fields: { scope: { type: "string", enum: ["status", "domains", "resources"] } } },
+      parameters: { fields: { scope: { type: "string", enum: ["status", "domains", "domains-summary", "resources"] } } },
       run: (parameters, { virtualization }) => virtualization.inventory(parameters),
     }),
     read({
