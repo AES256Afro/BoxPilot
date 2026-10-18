@@ -148,8 +148,11 @@ export interface ScheduleFact {
 export interface OffBoxFacts { verdict: OffBoxVerdict; inputs: OffBoxInputs }
 export interface ChecklistItem { id: string; title: string; detail: string; done: boolean; known?: boolean; optional: boolean; view: ViewName }
 export interface ChecklistFacts { items: ChecklistItem[]; done: number; total: number }
-/** The update's database copies that predate the secret scrub (M36): still on disk, still holding secrets. */
-export interface DatabaseCopyFacts { heldSecrets: number; total: number }
+/**
+ * The update's database copies that predate the secret scrub (M36): still on disk, still holding
+ * secrets. `removable` counts those the default rule lets go of; the newest copies always stay.
+ */
+export interface DatabaseCopyFacts { heldSecrets: number; removable: number; total: number }
 export interface VmFacts { domains: Array<{ name: string; state: string; vcpus: number | null; memoryBytes: number | null }> }
 
 export interface Facts {
@@ -411,11 +414,12 @@ export async function loadRepairs(): Promise<RepairScan> {
  */
 async function loadDatabaseCopies(): Promise<DatabaseCopyFacts> {
   try {
-    const { result } = await inspectOperation<{ copies?: Array<{ heldSecrets?: boolean }> }>("housekeeping.database-copies.inspect");
+    const { result } = await inspectOperation<{ copies?: Array<{ heldSecrets?: boolean; goes?: boolean }> }>("housekeeping.database-copies.inspect");
     const copies = Array.isArray(result?.copies) ? result.copies : [];
-    return { heldSecrets: copies.filter((copy) => copy?.heldSecrets === true).length, total: copies.length };
+    const held = copies.filter((copy) => copy?.heldSecrets === true);
+    return { heldSecrets: held.length, removable: held.filter((copy) => copy?.goes === true).length, total: copies.length };
   } catch {
-    return { heldSecrets: 0, total: 0 };
+    return { heldSecrets: 0, removable: 0, total: 0 };
   }
 }
 
