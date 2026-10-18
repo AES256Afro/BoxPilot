@@ -29,7 +29,27 @@ describe("log operations", () => {
     });
     const { lines } = await registry.execute("logs.read", { kind: "container", target: "bp-whoami" }, { run });
     expect(lines.join("\n")).not.toMatch(/s3ss10nT0k3n|d3v1c3/);
-    expect(lines[0]).toContain("__Host-boxpilot_session=[REDACTED]");
+    expect(lines[0]).toBe("2026-10-18T07:00:00Z GET / Cookie=[REDACTED]");
+  });
+
+  // Every other app's cookies ride in the same header, and a filter that saw the raw line would
+  // answer "is the session cookie's next character a?" one guess at a time.
+  it("hides every cookie in the header and filters what it shows, not what it hid", async () => {
+    const run = vi.fn(async (binary, args) => {
+      if (args[0] === "ps") return { ok: true, stdout: "bp-whoami", stderr: "" };
+      return { ok: true, stdout: [
+        "2026-10-18T07:00:00Z GET / Cookie: theme=dark; sid=OTHERAPPSECRET; __Host-boxpilot_session=s3ss10nT0k3n",
+        "2026-10-18T07:00:01Z {\"cookie\": \"x=1; y=SECRET2\"}",
+        "2026-10-18T07:00:02Z Authorization: Bearer abc.def.ghi",
+        "2026-10-18T07:00:03Z {\"password\":\"hunter2\"}",
+      ].join("\n"), stderr: "" };
+    });
+    const { lines } = await registry.execute("logs.read", { kind: "container", target: "bp-whoami" }, { run });
+    expect(lines.join("\n")).not.toMatch(/OTHERAPPSECRET|SECRET2|s3ss10nT0k3n|abc\.def|hunter2/);
+    for (const guess of ["boxpilot_session=s", "boxpilot_session=s3ss", "sid=OTHER", "password\":\"hun"]) {
+      const filtered = await registry.execute("logs.read", { kind: "container", target: "bp-whoami", filter: guess }, { run });
+      expect(filtered.lines, guess).toEqual([]);
+    }
   });
 
   it("reads groups, units, and containers with window and filter, and validates input", async () => {
