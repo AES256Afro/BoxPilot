@@ -26,8 +26,13 @@ export const logGroups = Object.freeze({
   system: { label: "Everything", all: true },
 });
 
+// BoxPilot's session cookie by name too: an app served on BoxPilot's own hostname receives it with
+// every request (cookies are not kept apart by port), and one that logs its headers would hand the
+// owner's session to whoever reads that container's log.
 function redact(value) {
-  return String(value ?? "").replace(/\b(token|password|secret|api[_-]?key|authorization)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]");
+  return String(value ?? "")
+    .replace(/\b(token|password|secret|api[_-]?key|authorization|cookie|set-cookie)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]")
+    .replace(/((?:__Host-)?boxpilot_(?:session|device)[A-Za-z_]*)=[^\s;,"']+/g, "$1=[REDACTED]");
 }
 
 /**

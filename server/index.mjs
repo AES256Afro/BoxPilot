@@ -1,5 +1,5 @@
 import express from "express";
-import { createRateLimit as createCallLimit } from "./rate-limit.mjs";
+import { createSourceLimit } from "./rate-limit.mjs";
 import { randomUUID } from "node:crypto";
 import { createReadStream, readFileSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
@@ -478,15 +478,15 @@ const oidc = createOidcService({ store: state });
 // nothing from the request reaches any step.
 // Sixty calls a minute per source before any token is compared (M50): the per-flow and per-agent
 // limits count only after a match, so wrong guesses were free.
-const webhookGuesses = createCallLimit({ count: 60, perMs: 60_000 });
-const webhookSourceAllowed = (request, response) => {
-  if (webhookGuesses.take(`hook:${request.ip ?? "unknown"}`)) return true;
+const webhookGuesses = createSourceLimit({ count: 60, perMs: 60_000, prefix: "hook", clientAddress: (request) => identity.clientAddress(request) });
+const webhookSourceAllowed = async (request, response) => {
+  if (await webhookGuesses(request)) return true;
   response.setHeader("Retry-After", "60");
   response.status(429).json({ error: "Too many webhook calls from this address; wait a minute" });
   return false;
 };
-app.post("/api/v1/hooks/flows/:id/:token", (request, response) => {
-  if (!webhookSourceAllowed(request, response)) return undefined;
+app.post("/api/v1/hooks/flows/:id/:token", async (request, response) => {
+  if (!await webhookSourceAllowed(request, response)) return undefined;
   const outcome = flows.fireWebhook(request.params.id, request.params.token, { source: request.ip });
   if (outcome === "accepted") return response.status(202).json({ accepted: true });
   if (outcome === "rate-limited") return response.status(429).json({ error: "This flow's webhook is being fired too often; wait a minute" });
@@ -495,8 +495,8 @@ app.post("/api/v1/hooks/flows/:id/:token", (request, response) => {
 // Start an agent by webhook (M37), the same door as a flow's: the token is the auth, only its digest
 // is kept, a wrong one looks like a missing agent, and nothing from the request reaches the run -
 // the caller chooses only when the agent does its job, never what it does.
-app.post("/api/v1/hooks/agents/:id/:token", (request, response) => {
-  if (!webhookSourceAllowed(request, response)) return undefined;
+app.post("/api/v1/hooks/agents/:id/:token", async (request, response) => {
+  if (!await webhookSourceAllowed(request, response)) return undefined;
   const outcome = agents.fireAgentWebhook(request.params.id, request.params.token, { source: request.get("user-agent") ?? null });
   if (outcome === "accepted") return response.status(202).json({ accepted: true });
   if (outcome === "rate-limited") return response.status(429).json({ error: "This agent's webhook is being fired too often; wait a minute" });
