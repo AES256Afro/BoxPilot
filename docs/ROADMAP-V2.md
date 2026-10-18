@@ -1252,7 +1252,9 @@ clear until v1.112.0. The lesson generalises.
 
 - **M31.1** btrfs/ZFS snapshot rollback and browse-and-restore, still deliberately gated on a real
   filesystem to verify against.
-- **M31.2** Per-disk SMART trend chart in the UI (the sampler and alert exist).
+- ✅ **M31.2** Per-disk SMART trend chart in the UI (the sampler and alert exist). Storage → Drives
+  has "Drive health over time": each drive's temperature as a line over the 45 days kept, its wear
+  and media errors with how far they moved (`GET /storage/smart-history`, `smartTrendsByDisk`).
 - **M31.3** Guided array/mount setup from bare disk to mounted-and-backed-up (M23.4).
 - **M31.4** "Where the space went" over time: the app-data sampler's history as a chart, so a
   download folder growing 240 GB a week is a slope the owner can see, not only a sentence.

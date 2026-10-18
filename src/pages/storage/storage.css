@@ -143,3 +143,6 @@
   .storage-settings__narrow { width: 100%; }
   .storage-reconnect { min-width: 0; }
 }
+.storage-trend { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+/* A sparkline fills its box; here the box is a fixed strip beside the figure, at any column width. */
+.storage-trend .ui-spark { width: 96px; height: 24px; flex: none; }
