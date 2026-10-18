@@ -197,8 +197,10 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   }
 
   // M36: copies of the database the update took before the secret scrub still hold those secrets.
-  const heldSecrets = facts.databaseCopies?.heldSecrets ?? 0;
-  if (heldSecrets > 0) {
+  // Only the ones removal can take: the newest copies always stay, and a need nobody can clear
+  // would sit on Home until the next update. Removing them is the owner's.
+  const heldSecrets = facts.databaseCopies?.removable ?? 0;
+  if (heldSecrets > 0 && mayStart(role, "housekeeping.database-copies.remove")) {
     needs.push({
       id: "database-copies", kind: "alert", severity: "warning", view: "system",
       title: `${heldSecrets === 1 ? "A database copy" : `${heldSecrets} database copies`} from before the secret scrub ${heldSecrets === 1 ? "is" : "are"} still on disk`,

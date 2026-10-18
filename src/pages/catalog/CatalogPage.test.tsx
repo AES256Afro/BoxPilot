@@ -264,6 +264,19 @@ describe("App catalog: installing", () => {
     await waitFor(() => expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { ids: ["jellyfin", "plex"] } }));
   });
 
+  it("stages at most twenty in one job and says how many wait", async () => {
+    let stagedBody: string | undefined;
+    const many = Array.from({ length: 22 }, (_, index) => ({ manifest: { ...manifest, id: `app-${index}`, name: `App ${index}` }, live: running(`app-${index}`, 9000 + index, { updateAvailable: true }) }));
+    serve(catalogOf(many), (url, init) => {
+      if (url.endsWith("/operations/app.update.many/jobs")) { stagedBody = init?.body as string; return stagedJob("app.update.many"); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Update 20 of 22" }));
+    expect(await screen.findByText(/The other 2 wait for the next run/)).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(stagedBody ?? "{}").parameters.ids).toHaveLength(20));
+  });
+
   it("has no Update all for one update, or for a viewer", async () => {
     serve(catalogOf([{ manifest, live: running("jellyfin", 8096, { updateAvailable: true }) }]));
     render(<CatalogPage csrfToken="csrf-token" />);

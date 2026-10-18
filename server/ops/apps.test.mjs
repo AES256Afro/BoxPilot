@@ -291,6 +291,16 @@ describe("updating several apps in one job (M36)", () => {
     expect(operations["app.update.many"].risk).toBe("medium");
   });
 
+  it("starts no app it could not finish in the time left, and names the ones it left alone", async () => {
+    // Each update takes three hours on this clock; the job has twelve, and an update may take 110 minutes.
+    let clock = 0;
+    const apps = { update: vi.fn(async () => { clock += 3 * 60 * 60_000; return {}; }) };
+    const ids = ["a1", "a2", "a3", "a4", "a5", "a6"];
+    await expect(operations["app.update.many"].run({ ids }, { apps, progress: vi.fn(), timeScale: 1, now: () => clock })).rejects.toThrow("not started in the time left: a5, a6. a1, a2, a3, a4 were updated.");
+    expect(apps.update.mock.calls.map(([{ id }]) => id)).toEqual(["a1", "a2", "a3", "a4"]);
+    expect(operations["app.update.many"].timeoutMs).toBe(12 * 60 * 60_000);
+  });
+
   it("takes 1 to 20 different apps, and devices only as /dev paths per named app", () => {
     const spec = operations["app.update.many"].parameters;
     expect(validateParameters(spec, { ids: ["jellyfin", "plex"] }, "t")).toBeNull();

@@ -11,6 +11,9 @@ import { appStatus, installTier, isRunning, runRead, tileDetail } from "./appSta
 import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, Values } from "./types";
 import "./catalog.css";
 
+/** The most apps one app.update.many job takes (server/ops/apps.mjs). */
+const updateBatchLimit = 20;
+
 /*
  * The App catalog (M33.11), rebuilt in the console on the kit. Facts first: whether the installed
  * apps are well, and how many are installed, running and waiting for an update. Then the apps: the
@@ -242,6 +245,8 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   const installedAll = applications.filter((entry) => entry.live?.installed);
   const runningCount = installedVisible.filter((entry) => isRunning(entry.live)).length;
   const updatable = installedAll.filter((entry) => entry.live?.updateAvailable);
+  // app.update.many takes at most this many ids; more wait for the next run.
+  const batch = updatable.slice(0, updateBatchLimit);
   const updates = updatable.length;
   const unwell = installedAll.map((entry) => appStatus(entry.live)).filter((state) => state.status === "danger" || state.status === "warning");
   const worst: Status = unwell.some((state) => state.status === "danger") ? "danger" : "warning";
@@ -332,10 +337,10 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
           {updatable.length >= 2 && mayStart(role, "app.update.many") && (
             <Button risk={riskOf("app.update.many")} onClick={() => start({
               operationId: "app.update.many",
-              title: `Update ${updatable.length} apps`,
-              parameters: { ids: updatable.map((entry) => entry.manifest.id) },
-              preview: <span>Updates {updatable.map((entry) => entry.manifest.name).join(", ")}, one at a time. Each gets a data checkpoint first, then the catalog's current image; one that does not become healthy goes back to its previous image. One that fails does not stop the others.</span>,
-            })}>Update all ({updatable.length})</Button>
+              title: `Update ${batch.length} apps`,
+              parameters: { ids: batch.map((entry) => entry.manifest.id) },
+              preview: <span>Updates {batch.map((entry) => entry.manifest.name).join(", ")}, one at a time. Each gets a data checkpoint first, then the catalog's current image; one that does not become healthy goes back to its previous image. One that fails does not stop the others.{updatable.length > batch.length ? ` The other ${updatable.length - batch.length} wait for the next run: one job updates at most ${updateBatchLimit}.` : ""}</span>,
+            })}>{updatable.length > batch.length ? `Update ${batch.length} of ${updatable.length}` : `Update all (${updatable.length})`}</Button>
           )}
           <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Read again</Button>
         </>}
