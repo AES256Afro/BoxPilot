@@ -17,6 +17,21 @@ describe("log operations", () => {
     await expect(registry.execute("logs.sources", {}, { run })).resolves.toEqual({ groups: expect.arrayContaining([{ id: "boxpilot", label: "BoxPilot" }, { id: "kernel", label: "Kernel" }]), units: [{ unit: "docker.service", description: "Docker", active: "active" }], containers: [{ name: "bp-jellyfin", state: "running", image: "jellyfin/jellyfin:10.11.11" }], dockerAvailable: true });
   });
 
+  // An app on BoxPilot's own hostname gets BoxPilot's cookies with every request; one that logs its
+  // request headers must not hand the owner's session to whoever reads its log.
+  it("takes BoxPilot's session and device cookies out of an app's log, wherever they sit in the header", async () => {
+    const run = vi.fn(async (binary, args) => {
+      if (args[0] === "ps") return { ok: true, stdout: "bp-whoami", stderr: "" };
+      return { ok: true, stdout: [
+        "2026-10-18T07:00:00Z GET / Cookie: theme=dark; __Host-boxpilot_session=s3ss10nT0k3n; lang=en",
+        "2026-10-18T07:00:01Z headers={\"cookie\":\"boxpilot_device=d3v1c3\"}",
+      ].join("\n"), stderr: "" };
+    });
+    const { lines } = await registry.execute("logs.read", { kind: "container", target: "bp-whoami" }, { run });
+    expect(lines.join("\n")).not.toMatch(/s3ss10nT0k3n|d3v1c3/);
+    expect(lines[0]).toContain("__Host-boxpilot_session=[REDACTED]");
+  });
+
   it("reads groups, units, and containers with window and filter, and validates input", async () => {
     const calls = [];
     const run = vi.fn(async (binary, args) => {
