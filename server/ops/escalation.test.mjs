@@ -130,4 +130,17 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
     expect(await tier("nfs.apply", { exports: [{ path: "/root" }] })).toBe("high");
     expect(await tier("samba.apply", { shares: [{ name: "Media", path: "/mnt/media" }] })).toBe("medium");
   });
+
+  it("raises local names pointed at another machine, routes offered to the tailnet, and a cleanup that erases history", async () => {
+    expect(await tier("dns.names.apply", { address: "192.0.2.77" })).toBe("high");
+    expect(await tier("dns.names.apply", { address: "127.0.0.1" })).toBe("medium");
+    expect(await tier("tailscale.set", { exitNode: true })).toBe("high");
+    expect(await tier("tailscale.set", { subnetRouter: true, routes: ["172.17.0.0/16"] })).toBe("high");
+    expect(await tier("tailscale.set", { exitNode: false, subnetRouter: false, routes: [] })).toBe("medium");
+    expect(await tier("space.cleanup", { categories: ["journal"], journalMaxAgeDays: 1 })).toBe("high");
+    expect(await tier("space.cleanup", { categories: ["journal"], journalMaxBytes: 64 * 1024 ** 2 })).toBe("high");
+    expect(await tier("space.cleanup", { categories: ["job-logs"], jobLogRetentionDays: 1 })).toBe("high");
+    expect(await tier("space.cleanup", { categories: ["journal", "job-logs"], journalMaxAgeDays: 30, jobLogRetentionDays: 14 })).toBe("medium");
+    expect(await tier("space.cleanup", { categories: ["apt-cache"], journalMaxAgeDays: 1 })).toBe("medium");
+  });
 });
