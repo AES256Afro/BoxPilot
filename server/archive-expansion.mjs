@@ -31,7 +31,7 @@ export async function expandedBytes(run, tarBinary, artifactPath, members = []) 
 
 /**
  * Throw, with nothing changed, when unpacking would leave less than `reserveBytes` free where it goes.
- * @param {{ run: Function, tarBinary: string, artifactPath: string, directory: string, members?: string[], reserveBytes?: number, free?: (directory: string) => Promise<number>, what?: string }} options
+ * @param {{ run: (binary: string, args: string[], options?: object) => Promise<{ ok: boolean, stdout: string, stderr: string }>, tarBinary: string, artifactPath: string, directory: string, members?: string[], reserveBytes?: number, free?: (directory: string) => Promise<number>, what?: string }} options
  */
 export async function assertArchiveFits({ run, tarBinary, artifactPath, directory, members = [], reserveBytes = 1024 ** 3, free = freeBytesOf, what = "The archive" }) {
   const expanded = await expandedBytes(run, tarBinary, artifactPath, members);
