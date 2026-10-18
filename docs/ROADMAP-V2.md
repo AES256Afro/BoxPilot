@@ -1870,8 +1870,9 @@ phone width. Repair itself (its findings and fixes) is M35's, and stays out of t
 
 Proposed, value to the owner against effort:
 
-- **Say before the twelve hours are up** - medium, small: a notice ten minutes before a session ends,
-  so a half-typed form is not lost to the sign-in page.
+- ✅ **Say before the twelve hours are up** - medium, small: a notice ten minutes before a session ends,
+  so a half-typed form is not lost to the sign-in page (`shell/SessionEndingBanner.tsx`, counting down
+  by the minute; put away, it stays away for that session).
 - **A weekly read of a drive that is always asleep** - medium, small: wake it once a week so its SMART
   health is not unknown for months. Wakes the drive, so the owner's call.
 - ✅ **Suggest actions in an empty command bar** - medium, small: what is waiting for approval, the
