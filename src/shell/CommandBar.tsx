@@ -6,7 +6,7 @@ import { appFactsFrom } from "../home/facts";
 import { readJson } from "../http";
 import { Button, Notice, RiskTag, type RiskTier } from "../ui";
 import { useDialogFocus } from "../useDialogFocus";
-import { AreaIcon, ExternalIcon, PlusIcon, RunIcon, SearchIcon, SparkIcon } from "./areaIcons";
+import { AreaIcon, BellIcon, ExternalIcon, PlusIcon, RunIcon, SearchIcon, SparkIcon } from "./areaIcons";
 import "./command.css";
 import { actionCommands, buildCommands, searchCommands, suggestedCommands, type AppActionFacts, type CatalogEntry, type Command, type CommandGroup } from "./commandIndex";
 import { useApprovalsWaiting, useLatestFailure } from "./approvalsWaiting";
@@ -72,6 +72,7 @@ export function CommandBar({ csrfToken, onNavigate, onStart, role = null }: Comm
 const groupIcon = (command: Command): ReactNode => {
   if (command.action) return <RunIcon />;
   if (command.href) return <ExternalIcon />;
+  if (command.job) return <BellIcon />;
   if (command.label.startsWith("Install ")) return <PlusIcon />;
   return command.view ? <AreaIcon view={command.view} /> : null;
 };
@@ -136,7 +137,10 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
     ...searchCommands(commands, query).map((command) => ({ kind: "command" as const, command })),
     ...(ready && typed ? [{ kind: "ask" as const, question: typed }] : []),
   ], [commands, query, ready, typed, waiting, failure, actions]);
-  useEffect(() => setActive(0), [query]);
+  // Back to the top when the list underneath changes too: an approval staged or a failure landing
+  // while the empty bar is open shifts the Suggested rows, and Enter would choose whatever slid in.
+  const firstOption = options[0]?.kind === "command" ? options[0].command.id : options[0]?.kind ?? null;
+  useEffect(() => setActive(0), [query, options.length, firstOption]);
 
   const ask = useCallback(async (question: string) => {
     asking.current?.abort();
