@@ -108,6 +108,8 @@ export function evaluateSmartTrends(history, { now } = {}) {
  * Each disk's history as the Storage page charts it (M31.2): its daily samples oldest first, and how
  * far wear and media errors moved across them. A change is null where the disk does not report the
  * figure or only one day is known. Pure and clock-injected.
+ * @param {Record<string, any> | null} history samples by device
+ * @param {{ now?: Date | number, windowDays?: number }} [options]
  */
 export function smartTrendsByDisk(history, { now, windowDays = 45 } = {}) {
   const at = now instanceof Date ? now.getTime() : Number(now);
