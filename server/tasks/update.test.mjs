@@ -77,6 +77,8 @@ describe("system.update root task", () => {
       await expect(systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, { ...options, installedVersion, fetchImpl: asked })).rejects.toThrow(`v0.62.0 is not newer than the installed ${installedVersion}`);
       expect(asked).not.toHaveBeenCalled();
     }
+    // A local build's version cannot be ordered against a release: said so, rather than "not newer".
+    await expect(systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, { ...options, installedVersion: "0.61.0+local" })).rejects.toThrow("0.61.0+local is not a release number, so v0.62.0 cannot be compared with it");
     await expect(systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, { ...options, fetchImpl: async () => ({ ok: true, json: async () => ({ sha: "b".repeat(40) }) }) })).rejects.toThrow("not the reviewed");
     await expect(systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, { ...options, fetchImpl: async () => ({ ok: false, status: 404 }) })).rejects.toThrow("status 404");
     await expect(systemUpdate({ tag: "main", expectedCommit: sha }, options)).rejects.toThrow("look like v1.2.3");

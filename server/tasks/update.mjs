@@ -2,7 +2,7 @@ import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { productVersion } from "../version.mjs";
-import { compareVersions } from "../release-updates.mjs";
+import { compareVersions, parseVersion } from "../release-updates.mjs";
 
 /**
  * Self-update (root side, runs inside boxpilot-run@ with network). Re-checks that the release
@@ -55,6 +55,7 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   if (typeof expectedCommit !== "string" || !shaPattern.test(expectedCommit)) throw new Error("Expected commit must be a full SHA-1");
   // The web side only offers a newer release, but this runs as root on whatever reaches the helper:
   // an older tag, with its real commit, would put back an older helper and the bugs fixed since.
+  if (!parseVersion(installedVersion)) throw new Error(`The installed version ${installedVersion} is not a release number, so ${tag} cannot be compared with it; BoxPilot only updates forward. Nothing was changed.`);
   if (compareVersions(tag.slice(1), installedVersion) <= 0) throw new Error(`${tag} is not newer than the installed ${installedVersion}; BoxPilot only updates forward. Nothing was changed.`);
 
   log?.(`Checking that ${tag} still points at ${expectedCommit.slice(0, 12)}`, "stdout");
