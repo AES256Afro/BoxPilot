@@ -860,6 +860,20 @@ sidecars:
     await expect(apps.action({ id: "demo", action: "start" })).rejects.toThrow("its compose project is gone too; use Reinstall in Repair");
   });
 
+  it("rebuilds on the catalog's image when the saved one is from another repository", async () => {
+    const { apps, containers, catalogRoot } = await setup();
+    await apps.install({ id: "demo" });
+    containers.delete("bp-demo");
+    const statePath = path.join(catalogRoot, "demo", "boxpilot.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    await writeFile(statePath, JSON.stringify({ ...state, image: { ...state.image, reference: "attacker.example/nginx:1.26" } }));
+    await rm(path.join(catalogRoot, "demo", "compose.yaml"));
+    await expect(apps.reinstall({ id: "demo" })).resolves.toMatchObject({ reinstalled: true, projectRewritten: true });
+    const compose = await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8");
+    expect(compose).not.toContain("attacker.example");
+    expect(compose).toContain(`image: ${state.image.reference}`);
+  });
+
   it("writes the project again from the saved settings when it is gone too, on the image the app last ran (M35)", async () => {
     const { apps, containers, catalogRoot } = await setup();
     await apps.install({ id: "demo" });
@@ -1338,6 +1352,30 @@ sidecars:
     await expect(apps.rollbackApp({ id: "shed" })).rejects.toThrow("no recorded version that still matches");
   });
 
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("never goes back to an image from another repository, whatever the recorded history says", async () => {
+    // The history lives in boxpilot.json, which a restored backup brings with it.
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image) => [
+      "schemaVersion: 2", "id: pong", "name: Pong", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image) => {
+      await rm(path.join(catalogDirectory, "pong.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "pong.yaml"), manifest(image));
+    };
+    await publish("app:1.0"); await apps.install({ id: "pong" });
+    await publish("app:2.0.0"); await apps.update({ id: "pong" });
+    const statePath = path.join(catalogRoot, "pong", "boxpilot.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    state.updateHistory[0].from = { pong: "attacker.example/root:latest" };
+    await writeFile(statePath, JSON.stringify(state));
+    await expect(apps.rollbackApp({ id: "pong" })).rejects.toThrow("no recorded version that still matches");
+    expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).not.toContain("attacker.example");
+  });
+
   it("refuses to roll back an app that has never been updated", async () => {
     const { apps } = await setup();
     await apps.install({ id: "demo" });
@@ -1455,6 +1493,25 @@ describe.skipIf(onWindows)("folders an app is pointed at", () => {
 
 // Linux only: needs /usr/bin/tar.
 describe.skipIf(onWindows)("restoring an application backup", () => {
+  it("writes the compose file on the catalog's image when the backup ran one from another repository", async () => {
+    // A backup from a drive or mirror someone else writes: its compose file names their image, its
+    // settings fit the catalog, so the project is written again from them, and never on that image.
+    const progress = [];
+    const { apps, catalogRoot } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const composePath = path.join(catalogRoot, "demo", "compose.yaml");
+    const original = await readFile(composePath, "utf8");
+    const catalogImage = /image: (\S+)/.exec(original)[1];
+    await writeFile(composePath, original.replace(`image: ${catalogImage}`, "image: attacker.example/root:latest"));
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    await writeFile(composePath, original);
+    await apps.restoreAppBackup({ id: "demo", backup: made.artifact }, { progress: (line) => progress.push(line) });
+    const restored = await readFile(composePath, "utf8");
+    expect(restored).not.toContain("attacker.example");
+    expect(restored).toContain(`image: ${catalogImage}`);
+    expect(progress.some((line) => line.includes("attacker.example/root:latest, which is not"))).toBe(true);
+  });
+
   it("keeps the original after a healthy restore when its safety backup failed", async () => {
     let failBackup = false;
     const runCommand = (binary, args, options) => failBackup && args.includes("-czf") ? Promise.resolve({ ok: false, stdout: "", stderr: "fixture full backup disk" }) : fixedRun(binary, args, options);

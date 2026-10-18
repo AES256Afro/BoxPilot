@@ -22,7 +22,8 @@ import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
 import { dataScanCommand } from "./scan-resources.mjs";
 import { shared } from "./cache.mjs";
 import { formatDuration, keepTimeout, timedOut } from "./timeouts.mjs";
-import { createAppBackups } from "./app-backups.mjs";
+import { catalogImagePin, createAppBackups } from "./app-backups.mjs";
+export { catalogImagePin };
 import { createAppHomepage } from "./app-homepage.mjs";
 import { createAppModels } from "./app-models.mjs";
 import { createForeignProjects } from "./app-foreign-projects.mjs";
@@ -1046,7 +1047,8 @@ export function createAppHelper({
       const existingEnv = await readEnv(id);
       const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), existingEnv));
       if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
-      const pinned = state.image?.reference ? { ...manifest, image: { ...manifest.image, reference: state.image.reference } } : manifest;
+      const savedImage = catalogImagePin(state.image?.reference, manifest.image.reference);
+      const pinned = savedImage ? { ...manifest, image: { ...manifest.image, reference: savedImage } } : manifest;
       progress?.(`${manifest.name}'s compose project is gone too; writing it again from its saved settings, on ${pinned.image.reference}`, "stdout");
       await writeProject(pinned, values, { existingEnv, devices });
       rewritten = true;
@@ -1183,8 +1185,11 @@ export function createAppHelper({
     // Only services this manifest still builds can be pinned. A recorded version naming a sidecar
     // the catalog has since dropped would otherwise redeploy the current images and report the old
     // ones restored, leaving the app on the release being escaped with a success message.
+    // And only to that service's own catalog image: the history lives in boxpilot.json, which a
+    // restored backup brings with it.
+    const catalogImageOf = (service) => (service === id ? manifest.image.reference : (manifest.sidecars ?? []).find((sidecar) => sidecar.id === service)?.image ?? null);
     const restoreTo = Object.fromEntries(Object.entries(last.from).filter(([service, reference]) =>
-      typeof reference === "string" && reference && (service === id || (manifest.sidecars ?? []).some((sidecar) => sidecar.id === service))));
+      catalogImageOf(service) !== null && catalogImagePin(reference, catalogImageOf(service))));
     if (!Object.keys(restoreTo).length) throw new Error(`${manifest.name} has no recorded version that still matches how it is built today, so there is nothing to go back to`);
 
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));
