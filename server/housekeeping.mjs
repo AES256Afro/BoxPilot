@@ -102,6 +102,9 @@ function olderThan(version, than) {
  * Which copies a rule lets go of: everything except the newest `keep` and any taken less than
  * `keepDays` days ago. Pure; `copies` carry `takenAt` in milliseconds. Each copy comes back with
  * `goes` and, when kept, why.
+ *
+ * @param {any[]} copies
+ * @param {{ keep?: number, keepDays?: number, now?: number }} [options]
  */
 export function planDatabaseCopies(copies, { keep = defaultDatabaseCopyRule.keep, keepDays = defaultDatabaseCopyRule.keepDays, now = Date.now() } = {}) {
   const newestFirst = [...copies].sort((left, right) => right.takenAt - left.takenAt || right.name.localeCompare(left.name));
@@ -143,7 +146,10 @@ export function databaseCopyReport(copies, { rule, now, directory }) {
   };
 }
 
-/** A rule from parameters: integers within the limits, or the defaults. Throws on anything else. */
+/**
+ * A rule from parameters: integers within the limits, or the defaults. Throws on anything else.
+ * @param {{ keep?: number, keepDays?: number }} [parameters]
+ */
 export function databaseCopyRule({ keep = defaultDatabaseCopyRule.keep, keepDays = defaultDatabaseCopyRule.keepDays } = {}) {
   for (const [name, value] of Object.entries({ keep, keepDays })) {
     const [low, high] = databaseCopyLimits[name];
@@ -222,6 +228,8 @@ export function createHousekeepingService({
    * applied now, still lets it go: a copy an update took since the list was read, or one that became
    * one of the newest, stays whatever the list said. Nothing outside the directory, nothing that is
    * not a copy, and never the live database.
+   *
+   * @param {{ keep?: number, keepDays?: number, names?: string[], progress?: ((message: string, stream?: string) => void) | null }} [options]
    */
   async function removeDatabaseCopies({ keep, keepDays, names = [], progress = null } = {}) {
     const rule = databaseCopyRule({ keep, keepDays });
@@ -358,6 +366,8 @@ export function createHousekeepingService({
    * snapshot's own name directly in the snapshot folder, only a real file (never through a link), and
    * only when it still cannot be read as the job runs: one that reads now is a snapshot a restore can
    * use, whatever the list said when the owner chose it.
+   *
+   * @param {{ name?: string, progress?: ((message: string, stream?: string) => void) | null }} [options]
    */
   async function removeUnreadableSnapshot({ name, progress = null } = {}) {
     if (typeof name !== "string" || !snapshotNamePattern.test(name)) throw new Error("That is not a machine snapshot's name");
@@ -635,7 +645,7 @@ export function createHousekeepingService({
       // container and its network, and Docker then refuses to start it again — the container is
       // pinned to a network ID that no longer exists, which not even `compose up` recovers from.
       // Dangling layers and the build cache are the two things nothing can be holding.
-      for (const [what, args] of [["orphaned image layers", ["image", "prune", "--force"]], ["build cache", ["builder", "prune", "--force"]]]) {
+      for (const [what, args] of /** @type {[string, string[]][]} */ ([["orphaned image layers", ["image", "prune", "--force"]], ["build cache", ["builder", "prune", "--force"]]])) {
         say(`Clearing ${what}...`);
         const result = await docker(args, { timeout: 10 * 60_000 });
         if (!result.ok) throw new Error(`docker ${args.slice(0, 2).join(" ")} failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);

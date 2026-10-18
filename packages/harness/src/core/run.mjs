@@ -49,7 +49,7 @@ const codeOf = (error) => String(error?.code ?? "").replace(/^model_/, "");
  *   models: { local?: RunModel | null, remote?: RunModel | null },
  *   route?: "local" | "remote" | "auto",
  *   limits?: Partial<typeof runDefaults>,
- *   history?: object[],
+ *   history?: import("../messages.mjs").Message[],
  *   fields?: Array<{ name: string, description?: string }> | null,
  *   now?: () => number,
  *   signal?: AbortSignal | null,
@@ -123,6 +123,7 @@ export async function runTask({
   let answer = null;
   let acted = { answer: null, toolCalls: 0, boxes: [], check: null };
   let failed = null;
+  /** @type {import("../messages.mjs").Message[]} */
   const messages = [{ role: "system", content: system }, ...history, { role: "user", content: task }];
   const conversation = { tools: toolbox.schemas.length ? toolbox.schemas : null, messages, last: null };
   try {

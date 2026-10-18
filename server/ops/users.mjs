@@ -6,7 +6,10 @@ import { githubUserPattern, usernamePattern, validKeyLines } from "../tasks/user
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
 const minutes = (value) => value * 60_000;
 
-/** Human accounts: root plus uid >= 1000 with a login shell. */
+/**
+ * Human accounts: root plus uid >= 1000 with a login shell.
+ * @returns {Array<{ name: string, uid: number, home: string, shell: string, sudo: boolean, keyCount?: number }>} keyCount is filled in by users.inspect
+ */
 export function parseUsers(passwdContent, groupContent) {
   const sudoLine = String(groupContent ?? "").split("\n").find((line) => line.startsWith("sudo:"));
   const sudoMembers = new Set((sudoLine?.split(":")[3] ?? "").split(",").filter(Boolean));

@@ -46,6 +46,7 @@ export function checkMessage(message, index = 0) {
  * @returns {Message}
  */
 export function assistantTurn(result, calls = []) {
+  /** @type {Message} */
   const turn = {
     role: "assistant",
     content: result?.content || null,

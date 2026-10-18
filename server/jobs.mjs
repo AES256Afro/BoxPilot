@@ -102,7 +102,7 @@ export function createJobService(store, helper, {
   // validated parameters: installing an app its manifest calls high risk is high. The job is staged
   // and approved at the higher of the two, never lower than the operation's own.
   operationRiskHooks = {},
-  onOperationSettled = () => {},
+  onOperationSettled = (_job) => {},
   // The health-alert ledger (raise/clear). A result that could not be saved is announced through it.
   alerts = null,
   now = () => Date.now(),
@@ -185,7 +185,7 @@ export function createJobService(store, helper, {
   /**
    * @param {string} jobId
    * @param {string} ownerId
-   * @param {string | { password?: string, session?: { tokenHash?: string, elevatedUntil?: string | null } }} approval
+   * @param {string | { password?: string, confirmText?: string, passwordVerified?: boolean, session?: { tokenHash?: string, elevatedUntil?: string | null, owner?: { role?: string } } }} approval
    *   A bare string is treated as a password (legacy callers).
    */
   async function prepareApproval(jobId, ownerId, approval = {}) {

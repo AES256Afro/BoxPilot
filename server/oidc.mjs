@@ -42,6 +42,7 @@ export function isValidRedirectUri(value) {
   } catch { return false; }
 }
 
+/** @param {{ store?: any, keyDir?: string, now?: () => number, keys?: { privateKey?: import("node:crypto").KeyObject, publicKey?: import("node:crypto").KeyObject, kid?: string } | null }} [options] */
 export function createOidcService({
   store,
   keyDir = process.env.BOXPILOT_OIDC_DIR ?? path.join(process.env.BOXPILOT_STATE_DIRECTORY ?? "/var/lib/boxpilot", "oidc"),

@@ -23,6 +23,7 @@ export const historyKinds = Object.freeze(["alert", "notice", "job", "approval"]
 
 const text = (value, maximum) => (typeof value === "string" ? value.slice(0, maximum) : null);
 
+/** @param {{ store?: any, now?: () => Date, limit?: number, maxAgeMs?: number }} [options] */
 export function createNotificationHistory({ store, now = () => new Date(), limit = historyLimit, maxAgeMs = historyMaxAgeMs } = {}) {
   function read() {
     const value = store.getSetting?.(settingKey, []) ?? [];

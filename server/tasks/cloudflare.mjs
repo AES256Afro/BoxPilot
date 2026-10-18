@@ -16,7 +16,7 @@ import { createCredentialStore } from "../credentials.mjs";
 const idPattern = /^[A-Za-z0-9-]{1,64}$/;
 
 /** The task's tools: the credential store, the record, and a fetch that tests replace. */
-function toolsOf({ credentials = createCredentialStore(), state = createTunnelStateStore(), fetcher = fetch, log = () => {}, now = () => new Date() } = {}) {
+function toolsOf({ credentials = createCredentialStore(), state = createTunnelStateStore(), fetcher = fetch, log = (_line, _stream) => {}, now = () => new Date() } = {}) {
   return { credentials, state, fetcher, log, now };
 }
 
@@ -36,6 +36,7 @@ async function connectedState(state) {
  * Connect: check the token, learn the account and its domains, find this server's tunnel or make
  * it, and save the tunnel's key as a credential for the Cloudflare Tunnel app. Routes recorded for
  * the same tunnel are kept; nothing is published.
+ * @param {{ tunnelName?: string }} [parameters]
  */
 export async function cloudflareConnect({ tunnelName } = {}, deps = {}) {
   const { credentials, state, fetcher, log, now } = toolsOf(deps);
@@ -122,6 +123,7 @@ export async function cloudflarePublish(parameters = {}, deps = {}) {
 /**
  * Unpublish one name BoxPilot published: take its route out (keeping every other), delete its DNS
  * record only when it is the one BoxPilot made and it still points at this tunnel, and forget it.
+ * @param {{ hostname?: string }} [parameters]
  */
 export async function cloudflareUnpublish({ hostname } = {}, deps = {}) {
   const { credentials, state, fetcher, log } = toolsOf(deps);

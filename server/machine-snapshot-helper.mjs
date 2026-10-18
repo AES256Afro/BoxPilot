@@ -214,6 +214,7 @@ async function readSnapshotReferences(artifactPath, { run, tarBinary }) {
  * error names every snapshot that could not be (`unreadable`), so the owner can find each one and,
  * if it is damaged, remove it (housekeeping): until then nothing is pruned. Each snapshot is read
  * once while its size and time stay the same, as a nightly run of app backups asks once per app.
+ * @param {{ snapshotRoot?: string, names?: string[] | null, run?: typeof fixedRun, tarBinary?: string }} [options]
  */
 export async function snapshotBackupReferences({ snapshotRoot, names = null, run = fixedRun, tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar" } = {}) {
   const root = path.resolve(snapshotRoot);
@@ -746,6 +747,7 @@ export function createMachineSnapshotHelper({
    * the snapshot itself lists that is still here, marked `fallback` so the restore says so. Never
    * one it does not list, nor one dated after it (`place.takenAt`): the newest archive there is was
    * the safety copy a failed attempt took of the app installed empty, and was restored as its data.
+   * @returns {Promise<{ location: string, directory: string, name: string, fallback?: boolean } | null>}
    */
   async function dataArchiveFor(id, listed, place = null) {
     const before = listed.filter((name) => !place?.takenAt || name.slice(0, 16) <= place.takenAt);
@@ -851,6 +853,8 @@ export function createMachineSnapshotHelper({
    * with a warning that nothing can open it yet.
    * `allowCompose` is, per app id, the sha256 of a data archive's compose file the owner allowed to
    * be started exactly as archived although it gives the app more than the catalog does (sweep 4).
+   * @param {{ source: string, artifact: string, root?: string | null, apps?: string | string[], restoreData?: boolean, devicesByApp?: object | null, allowCompose?: object | null }} request
+   * @param {{ apps?: any, progress?: ((line: string, stream: string) => void) | null, serve?: ((deployed: object) => Promise<unknown>) | null }} [deps]
    */
   async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, devicesByApp = null, allowCompose = null }, { apps: appHelper, progress = null, serve = null } = {}) {
     if (!appHelper) throw new Error("Application deployer is unavailable");
@@ -1057,6 +1061,7 @@ export function createMachineSnapshotHelper({
    * Remove one review directory, once the owner is done with it. Only a direct child of the
    * review root with a restore's timestamp name is accepted: this is the only deletion in the
    * snapshot tree that takes a name from the browser, and it must not be able to name anything else.
+   * @param {{ name?: string }} [request]
    */
   async function discardRestore({ name } = {}) {
     if (typeof name !== "string" || !reviewNamePattern.test(name)) throw new Error("That is not a restore review directory");

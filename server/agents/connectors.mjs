@@ -26,7 +26,11 @@ export class ConnectorError extends Error {
 
 export const connectorLimits = Object.freeze({ fileBytes: 5 * 1024 * 1024, files: 100, documentChars: 64_000, syncChars: 400_000, pages: 25, blocks: 200, slackMessages: 400 });
 
-/** Text a document keeps: control characters out, bounded. */
+/**
+ * Text a document keeps: control characters out, bounded.
+ * @param {unknown} text
+ * @param {number} [max]
+ */
 export function cleanDocumentText(text, max = connectorLimits.documentChars) {
   const value = String(text ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").replace(/\r\n?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   return value.length > max ? `${value.slice(0, max)}…` : value;

@@ -28,7 +28,9 @@ export function parseProcStat(text) {
 }
 
 /** kB-valued keys from /proc/meminfo, as bytes. */
+/** @returns {Record<string, number>} */
 export function parseMeminfo(text) {
+  /** @type {Record<string, number>} */
   const out = {};
   for (const line of String(text ?? "").split("\n")) {
     const match = /^(\w+):\s+(\d+)\s*kB$/.exec(line.trim());
@@ -132,7 +134,7 @@ export function createPerformanceService({
       cpuUsage(),
       temperatures(),
       disks(),
-      readProc("meminfo").then(parseMeminfo).catch(() => ({})),
+      readProc("meminfo").then(parseMeminfo).catch(() => /** @type {Record<string, number>} */ ({})),
     ]);
     const cores = cpus();
     const load = loadavg();

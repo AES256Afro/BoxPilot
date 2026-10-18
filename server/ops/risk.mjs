@@ -88,6 +88,7 @@ export function higherTier(left, right) {
  * Decide what an approval needs. `atLeast` is the tier the job was staged at when that is higher
  * than its operation's own: installing an app whose manifest calls it high risk (jobs.mjs,
  * operationRiskHooks). It can raise the tier, never lower it.
+ * @param {{ jobType?: string, atLeast?: string | null, mode?: string, elevatedUntil?: string | null, now?: () => Date }} [options]
  * @returns {{ tier: string, passwordRequired: boolean, elevated: boolean, reason: string }}
  */
 export function approvalRequirement({ jobType, atLeast = null, mode = defaultApprovalMode, elevatedUntil = null, now = () => new Date() } = {}) {

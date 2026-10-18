@@ -224,6 +224,16 @@ export function normalizeRuntimeSettings(input, current = defaultRuntimeSettings
   };
 }
 
+/**
+ * @param {{
+ *   state?: any, store?: any, registry?: any, helper?: any, inventory?: any, knowledge?: any,
+ *   secretEnvNamesFor?: ((appId: string) => Promise<string[]> | string[]) | null, healthAlerts?: any, redactor?: any, loadRedaction?: typeof loadRedactionPolicy,
+ *   tokenPath?: string | null, fetchJson?: any, now?: () => Date, limits?: Partial<typeof serviceLimits>, hostLoad?: () => number,
+ *   fetcher?: typeof fetch | null, productVersion?: string | null, chatOptions?: object | null, processors?: number,
+ *   physicalCoreCount?: number | null, folderScan?: typeof scanFolder, cloud?: any, houseNamesFor?: typeof houseNames,
+ *   jobs?: any, repairScan?: any,
+ * }} [options]
+ */
 export function createAgentService({
   state,
   store,
@@ -1428,6 +1438,11 @@ export function createAgentService({
     return counts;
   }
 
+  /**
+   * @param {any} caller
+   * @param {string} agentId
+   * @param {{ cover?: unknown, seeds?: boolean | string, pairs?: boolean | string, acting?: boolean | string }} [options] booleans, or the query string's text
+   */
   function exportExamples(caller, agentId, { cover = null, seeds = true, pairs = false, acting = false } = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
@@ -1821,13 +1836,13 @@ export function createAgentService({
       }
       const left = deadline - now().getTime();
       if (left <= 0 || signal?.aborted) return null;
-      await new Promise((resolve) => {
+      await /** @type {Promise<void>} */ (new Promise((resolve) => {
         const timer = setTimeout(done, Math.min(left, 5_000));
         timer.unref?.();
         function done() { clearTimeout(timer); waiters.delete(done); signal?.removeEventListener?.("abort", done); resolve(); }
         waiters.add(done);
         signal?.addEventListener?.("abort", done, { once: true });
-      });
+      }));
     }
   }
 
@@ -2137,6 +2152,7 @@ export function createAgentService({
    * notes.read: { text, flagged, hop } - the flag the notes it read (its own) bring the run: by
    * where they came from, or by their words when another account wrote them (rememberedFlag).
    */
+  /** @returns {{ text: string, flagged: boolean, hop: any, items?: object[] }} */
   function readNotes(run, spec, { query = null }) {
     if (!spec.memory?.enabled) return { text: "This agent keeps no notes.", flagged: false, hop: null };
     if (!sourcesFor(spec, run.readRole).notes) return { text: "Notes are switched off as knowledge for this agent.", flagged: false, hop: null };
@@ -2156,6 +2172,8 @@ export function createAgentService({
    * embedding, made by the runner with the model server's /v1/embeddings; without it (or with no
    * stored vectors from the same model) the search is by words alone. { text, flagged, hop }: the
    * flag what it found brings the run, by where it came from (rememberedFlag).
+   *
+   * @returns {{ text: string, flagged: boolean, hop: any, items?: object[] }}
    */
   function searchMemory(run, spec, { query, tier = "any", limit = 5 }, vector) {
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
@@ -2696,6 +2714,7 @@ export function createAgentService({
       const step = store.addStep(run.id, { kind: "system", name: "answer", state: "failed", output: [words, cites].filter(Boolean).join(" "), flags: { detail: clip([words, cites].filter(Boolean).join(" "), 300), fabricated } });
       if (step) emit(run.id, "step", step);
     }
+    /** @type {Record<string, any>} the counters below, then what this run adds (runsSaved, route, speed ...) */
     const usage = {
       modelMs: Math.round(finite(result.usage?.modelMs, 3_600_000)),
       loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)),
@@ -3227,6 +3246,11 @@ export function createAgentService({
     return presentAgent(person, agent, { detail: true });
   }
 
+  /**
+   * @param {any} caller
+   * @param {string} agentId
+   * @param {{ spec?: any, note?: string | null }} [body]
+   */
   function updateAgent(caller, agentId, { spec, note = null } = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId, { edit: true });
@@ -3262,6 +3286,11 @@ export function createAgentService({
     if (sharingFor(agent).shareFindings && !sharingFor(agent, spec).shareFindings) store.deleteFindings(agent.id);
   }
 
+  /**
+   * @param {any} caller
+   * @param {string} agentId
+   * @param {{ version?: number | string }} [body]
+   */
   function rollbackAgent(caller, agentId, { version } = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId, { edit: true });
@@ -3573,6 +3602,11 @@ export function createAgentService({
   }
 
   /** Forget: a fact, a past run's episode, or the whole conversation. Really deleted, embedding and all. */
+  /**
+   * @param {any} caller
+   * @param {string} agentId
+   * @param {{ kind?: string, id?: string | null }} [body]
+   */
   function forgetMemory(caller, agentId, { kind, id = null } = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
@@ -3597,6 +3631,11 @@ export function createAgentService({
    * "Was this right?" A verdict counts toward the agent's accuracy by version and model. A "wrong"
    * with `expect` - words the right answer contains - also makes the question one of the agent's
    * own golden questions (M40), for whoever may change the agent: every evaluation asks it again.
+   */
+  /**
+   * @param {any} caller
+   * @param {string} runId
+   * @param {{ verdict?: string, note?: string | null, expect?: any }} [body]
    */
   function giveFeedback(caller, runId, { verdict, note = null, expect = null } = {}) {
     const person = personOf(caller);
@@ -3638,6 +3677,10 @@ export function createAgentService({
     return exportDefinition(agent, { questions: store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [], productVersion, now: now() });
   }
 
+  /**
+   * @param {any} caller
+   * @param {{ definition?: any }} [body]
+   */
   function importAgent(caller, { definition } = {}) {
     const person = personOf(caller);
     if (!["owner", "operator"].includes(person.role)) refuse(403, "Only the owner and operators make agents", "forbidden");
@@ -3698,6 +3741,10 @@ export function createAgentService({
   // ---- documents from outside: uploads, a folder, connectors ----
 
   /** An uploaded PDF, Markdown or text file becomes a document in the library. Owner only. */
+  /**
+   * @param {any} caller
+   * @param {{ name?: string, buffer?: Buffer, title?: string | null }} [upload]
+   */
   function uploadDocument(caller, { name, buffer, title = null } = {}) {
     const person = personOf(caller);
     if (person.role !== "owner") refuse(403, "Only the owner adds documents", "forbidden");
@@ -3786,6 +3833,11 @@ export function createAgentService({
     return store.listProposals().filter((proposal) => canSeeProposal(person, proposal)).map((proposal) => presentProposal(person, proposal)).filter((proposal) => proposal.state === "open");
   }
 
+  /**
+   * @param {any} caller
+   * @param {string} proposalId
+   * @param {{ decision?: string, jobIds?: unknown[] }} [body]
+   */
   function decideProposal(caller, proposalId, { decision, jobIds = [] } = {}) {
     const person = personOf(caller);
     if (!["owner", "operator"].includes(person.role)) refuse(403, "Viewers cannot act on cards", "forbidden");
@@ -3842,6 +3894,12 @@ export function createAgentService({
    * "This step was staged as this job": the caller's own job, for the step's operation with the
    * step's settings (a prepare hook may have pinned more beside them), on a card still open. A step
    * whose job waits or was approved is not taken again: that is how an operation ran twice.
+   */
+  /**
+   * @param {any} caller
+   * @param {string} proposalId
+   * @param {number | string} index
+   * @param {{ jobId?: string }} [body]
    */
   function stageProposalStep(caller, proposalId, index, { jobId } = {}) {
     const person = personOf(caller);
@@ -4078,6 +4136,10 @@ export function createAgentService({
     }
   }
 
+  /**
+   * @param {any} caller
+   * @param {{ title?: unknown, text?: unknown }} [body]
+   */
   function addDocument(caller, { title, text } = {}) {
     const person = personOf(caller);
     if (person.role !== "owner") refuse(403, "Only the owner adds documents", "forbidden");
@@ -4278,6 +4340,11 @@ export function createAgentService({
     return [...groups.values()].sort((a, b) => a.version - b.version || String(a.since).localeCompare(String(b.since)));
   }
 
+  /**
+   * @param {any} caller
+   * @param {string} agentId
+   * @param {{ questions?: unknown }} [body]
+   */
   function setEvaluation(caller, agentId, { questions } = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId, { edit: true });

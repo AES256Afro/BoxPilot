@@ -230,11 +230,16 @@ export function collectorAvailability(inventory) {
   };
 }
 
+/**
+ * @param {{ inventory?: any, notifications?: any, store?: any, history?: any, resolveScheduleTitle?: (operationId: string) => string, intervalMs?: number, initialDelayMs?: number, now?: () => Date, setInterval?: typeof globalThis.setInterval, setTimeout?: typeof globalThis.setTimeout, clearInterval?: typeof globalThis.clearInterval, clearTimeout?: typeof globalThis.clearTimeout }} options
+ */
 export function createHealthAlerts({ inventory, notifications, store, history = null, resolveScheduleTitle = (operationId) => operationId, intervalMs = 15 * 60 * 1000, initialDelayMs = 3 * 60 * 1000, now = () => new Date(), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   const settingKey = "healthAlertsState";
   // The round below and raise()/clear() each read the state, may wait on a send, and write it back.
   // One at a time, or a round that started before a schedule failed would write over its entry.
+  /** @type {Promise<unknown>} */
   let queue = Promise.resolve();
+  /** @template T @param {() => T | Promise<T>} work @returns {Promise<T>} */
   const exclusive = (work) => {
     const next = queue.then(work);
     queue = next.catch(() => {});
@@ -253,6 +258,10 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
   /**
    * Send one announcement: true when the target took it, false when there is none or it failed.
    * Either way the notification centre records what was said and whether it arrived (M36).
+   *
+   * @param {string} key
+   * @param {{ title: string, message: string, priority?: string, actorId?: string | null }} alert
+   * @param {string} [kind]
    */
   async function announce(key, { title, message, priority = "default", actorId }, kind = "alert") {
     const said = (delivered, reason = null) => history?.record({ key, kind, title, message, priority, delivered, reason, actorId });

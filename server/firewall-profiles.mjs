@@ -109,6 +109,8 @@ function spec({ port, protocol }) {
  * Build the ordered ufw argv list for applying a profile. Pure, so the preview and the root
  * task agree on exactly what runs. Protected allows come first; `ufw enable` comes last and
  * only after every rule succeeded, so a half-applied plan fails open, never closed.
+ *
+ * @param {{ profileId?: string, serviceIds?: string[], replace?: boolean, sshRateLimit?: boolean, webPort?: number, webHost?: string }} [options]
  */
 export function buildPlan({ profileId, serviceIds: chosen = [], replace = false, sshRateLimit = false, webPort = defaultWebPort, webHost = "127.0.0.1" } = {}) {
   const profile = profiles.find((entry) => entry.id === profileId);
@@ -161,21 +163,24 @@ function ruleAllows(rule, port, protocol) {
  */
 const fromOneSource = (rule) => typeof rule.source === "string" && rule.source.length > 0;
 
-/**
- * Suggestions for the Firewall page. Every entry has a stable id, a level, copy, and where
- * possible a one-click action (`operationId` + `parameters`) or a `focus` hint for the UI.
- *
- * @param {object} input
- * @param {object|null} input.report   firewall.inspect result
- * @param {Array} input.listeners      listListeners() result from the web process
- * @param {Array} input.apps           installed apps: [{ id, name, ports: [{ port, protocol, label }] }]
- * @param {object|null} input.current  the stored profile setting, if any
- */
 /** ufw comments allow letters, digits, spaces, dot, underscore and dash — nothing else. */
 function ruleComment(text) {
   return String(text).replace(/[^A-Za-z0-9 ._-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
+/**
+ * Suggestions for the Firewall page. Every entry has a stable id, a level, copy, and where
+ * possible a one-click action (`operationId` + `parameters`) or a `focus` hint for the UI.
+ *
+ * @param {object} [input]
+ * @param {any} [input.report]           firewall.inspect result, or null
+ * @param {any[]} [input.listeners]      listListeners() result from the web process
+ * @param {any[]} [input.apps]           installed apps: [{ id, name, ports: [{ port, protocol, label }] }]
+ * @param {any} [input.current]          the stored profile setting, if any
+ * @param {any} [input.fail2ban]         fail2ban.inspect result, if any
+ * @param {number} [input.webPort]
+ * @param {string} [input.webHost]
+ */
 export function adviseFirewall({ report, listeners = [], apps = [], current = null, fail2ban = null, webPort = defaultWebPort, webHost = "127.0.0.1" } = {}) {
   const advice = [];
   if (!report) {

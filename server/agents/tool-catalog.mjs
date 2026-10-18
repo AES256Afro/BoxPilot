@@ -440,6 +440,8 @@ export function toModelTool(tool) {
  * The input as the tool will use it, or the reason it is refused. A model's arguments arrive as
  * text; anything that is not a JSON object with only the declared names, of the declared types
  * and within their bounds, is refused rather than guessed at.
+ *
+ * @returns {{ value?: any, problem?: string }} `value`: the model's parsed arguments, checked against `tool.params`
  */
 export function readToolInput(tool, raw) {
   let input = raw;

@@ -167,8 +167,11 @@ export function serveUrl(serve) {
  * own (its listeners are never a conflict with itself, and are left out). `serves` is `tailscale
  * serve status`; `selfPorts` are the ports this app publishes, to tell Serve fronting this very app
  * from Serve fronting another.
+ *
+ * @param {Record<string, any>} conflict
+ * @param {{ serves?: Array<Record<string, any>>, containers?: Array<Record<string, any>> | null, own?: (container: Record<string, any>) => boolean, selfPorts?: number[] }} [options]
  */
-export function portHolders(conflict, { serves = [], containers = null, own = () => false, selfPorts = [] } = {}) {
+export function portHolders(conflict, { serves = [], containers = null, own = (_container) => false, selfPorts = [] } = {}) {
   const holders = [];
   const serve = conflict.protocol === "tcp" ? serves.find((entry) => entry.port === conflict.port) ?? null : null;
   const serveHolder = (address) => {
@@ -216,7 +219,7 @@ export function addressWords(address) {
  * (100.64.0.10) by Tailscale Serve, which publishes Dockge itself at https://...:5001". `appName`
  * names this app; `nameOf(appId)` names another app, when a container or a Serve target is one.
  */
-export function holderWords(holder, { appName = "this app", nameOf = () => null } = {}) {
+export function holderWords(holder, { appName = "this app", nameOf = (_id) => null } = {}) {
   // A Serve entry tailscaled is not holding at this moment still claims the port on the tailnet address.
   const where = holder.address ? addressWords(holder.address) : "on the tailnet address";
   if (holder.kind === "serve") {

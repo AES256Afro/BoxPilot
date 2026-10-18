@@ -86,7 +86,7 @@ export function buildRequest(target, { title, message, priority = "default", cli
   };
 }
 
-export function createNotificationService({ store, fetcher = fetch, lookup = dnsLookup, now = () => new Date(), claimed = () => false, history = null }) {
+export function createNotificationService({ store, fetcher = fetch, lookup = dnsLookup, now = () => new Date(), claimed = (_job) => false, history = null }) {
   const notified = new Set();
 
   function getTarget() {

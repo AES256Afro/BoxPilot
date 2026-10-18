@@ -54,6 +54,11 @@ const failed = (id, code, error, extra = {}) => ({ version: 1, id, ok: false, co
  * `settings()` what the owner set (`{ capUsd }`), read on every call so a new cap holds at once,
  * `check()` a request Claude answers without billing (it reads one model's details), rejecting with
  * a coded Error when the key is refused or Claude cannot be reached.
+ *
+ * @param {{
+ *   provider: import("../../packages/harness/src/provider.mjs").Provider | null, ledger: ReturnType<typeof import("./ledger.mjs").createLedger>,
+ *   settings: () => Promise<any>, check?: (() => Promise<unknown>) | null, log?: (entry: object) => void,
+ * }} options
  */
 export function createGateway({ provider, ledger, settings, check = null, log = () => {} }) {
   let running = 0;
@@ -109,7 +114,11 @@ export function createGateway({ provider, ledger, settings, check = null, log = 
   }
 
   return {
-    /** One request line, already parsed, and the signal that fires when its caller goes away. */
+    /**
+     * One request line, already parsed, and the signal that fires when its caller goes away.
+     * @param {any} message
+     * @param {{ signal?: AbortSignal }} [options]
+     */
     async handle(message, { signal } = {}) {
       const id = typeof message?.id === "string" || typeof message?.id === "number" ? message.id : null;
       if (message?.version !== 1) return failed(id, "version", "The gateway speaks version 1");

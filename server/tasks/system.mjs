@@ -83,6 +83,7 @@ export function rewriteHostsFile(content, hostname) {
   return lines.join("\n");
 }
 
+/** @param {{ hostname?: string }} [parameters] */
 export async function setHostname({ hostname } = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
   if (typeof hostname !== "string" || hostname.length > 253 || !hostnamePattern.test(hostname)) throw new Error("Hostname must be lower-case letters, digits, and hyphens (dot-separated labels allowed)");
   const previous = (await files.readFile("/etc/hostname", "utf8").catch(() => "")).trim() || null;
@@ -99,6 +100,7 @@ export async function setHostname({ hostname } = {}, { run = fixedRun, log = nul
   return { hostname, previous };
 }
 
+/** @param {{ timezone?: string }} [parameters] */
 export async function setTimezone({ timezone } = {}, { run = fixedRun, log = null, exists = (target) => access(target).then(() => true, () => false) } = {}) {
   if (typeof timezone !== "string" || timezone.length > 64 || !timezonePattern.test(timezone)) throw new Error("Time zone must be an IANA name like Europe/Berlin");
   if (!(await exists(`/usr/share/zoneinfo/${timezone}`))) throw new Error(`Time zone ${timezone} is not installed on this system`);
@@ -123,7 +125,10 @@ export function rewriteSysctlDropIn(content, key, value) {
   return `${lines.join("\n")}\n`;
 }
 
-/** Set the system LANG to an already-generated locale. */
+/**
+ * Set the system LANG to an already-generated locale.
+ * @param {{ locale?: string }} [parameters]
+ */
 export async function setLocale({ locale } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof locale !== "string" || !/^[A-Za-z][A-Za-z0-9_.@-]{1,31}$/.test(locale)) throw new Error("Locale is invalid");
   const generated = await run("/usr/bin/locale", ["-a"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
@@ -161,6 +166,7 @@ export async function dockerLoggingDefaults(_parameters = {}, { run = fixedRun, 
   return { applied: true, config: { logDriver: merged["log-driver"], logOpts: merged["log-opts"], liveRestore: merged["live-restore"] }, note: "Log limits apply to containers created from now on; live-restore keeps containers up through future daemon restarts" };
 }
 
+/** @param {{ value?: number }} [parameters] */
 export async function setSwappiness({ value } = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
   if (!Number.isInteger(value) || value < 0 || value > 100) throw new Error("Swappiness must be a whole number between 0 and 100");
   const existing = await files.readFile(sysctlDropInPath, "utf8").catch(() => "");
