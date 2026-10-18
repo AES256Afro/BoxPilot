@@ -400,6 +400,8 @@ const dataRoutes = {
       expect(body.lastMeasured === null, role).toBe(role === "viewer");
     },
   }],
+  // The SMART figures the Overview shows every account, over time (M31.2).
+  "GET /api/v1/storage/smart-history": [open],
   "GET /api/v1/storage/shares/discover": [operatorUp],
   "GET /api/v1/storage/nfs": [open],
   "GET /api/v1/storage/samba": [{
