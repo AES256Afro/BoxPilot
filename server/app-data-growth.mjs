@@ -75,15 +75,18 @@ export function growthOverWindow(samples, { now, windowDays = 7 } = {}) {
  * @param {Record<string, any[]>} history
  * @param {{ now?: Date | number, mount?: string | null, windowDays?: number, limit?: number }} [options]
  */
-export function growthByApp(history, { now, mount = null, windowDays = 7, limit = 6 } = {}) {
+export function growthByApp(history, { now, mount = null, windowDays = 7, limit = 6, series = false } = {}) {
   const rows = [];
+  // M31.4: the daily sizes behind the figure, oldest first, so the page can draw the slope.
+  const daily = (samples) => samples.filter((sample) => Number.isFinite(sample?.bytes) && Number.isFinite(Date.parse(sample?.at)))
+    .sort((left, right) => Date.parse(left.at) - Date.parse(right.at)).map((sample) => ({ at: sample.at, bytes: sample.bytes }));
   for (const samples of Object.values(history && typeof history === "object" ? history : {})) {
     const newest = Array.isArray(samples) ? samples.at(-1) : null;
     if (!newest) continue;
     if (mount && newest.mount !== mount) continue;
     const growth = growthOverWindow(samples, { now, windowDays });
     if (!growth) continue;
-    rows.push({ appId: newest.appId, path: newest.path, mount: newest.mount, ...growth, ...(Array.isArray(newest.sharedWith) && newest.sharedWith.length > 1 ? { sharedWith: newest.sharedWith } : {}) });
+    rows.push({ appId: newest.appId, path: newest.path, mount: newest.mount, ...growth, ...(Array.isArray(newest.sharedWith) && newest.sharedWith.length > 1 ? { sharedWith: newest.sharedWith } : {}), ...(series ? { series: daily(samples) } : {}) });
   }
   return rows
     .sort((left, right) => (right.grewBytes ?? -Infinity) - (left.grewBytes ?? -Infinity) || right.bytes - left.bytes)

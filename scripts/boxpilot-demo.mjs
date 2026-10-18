@@ -847,15 +847,17 @@ api.get("/storage/smart-history", (_request, response) => {
     { device: "/dev/sda", days: 29, wearChange: null, errorChange: 0, samples: samples((index) => ({ temperatureCelsius: Math.round(35 + 1.5 * Math.sin(index / 4 + 1)), percentageUsed: null, mediaErrors: 0 })) },
   ] });
 });
+// Thirty daily sizes ending at `gib`, growing about `perDay` GiB a day (M31.4).
+const dailySizes = (gib, perDay) => Array.from({ length: 30 }, (_value, index) => ({ at: new Date(now().getTime() - (29 - index) * 24 * 60 * 60 * 1000).toISOString(), bytes: Math.round((gib - perDay * (29 - index) + (index % 3) * perDay * 0.2) * 1024 ** 3) }));
 api.get("/storage/forecast", (_request, response) => json(response, { tracking: 2, forecasts: [
   { target: "/mnt/media", daysToFull: 11, availableBytes: 214 * 1024 ** 3, totalBytes: 4000 * 1024 ** 3, samples: 14 },
   { target: "/", daysToFull: 63, availableBytes: 41 * 1024 ** 3, totalBytes: 234 * 1024 ** 3, samples: 14 },
 // What each app's folders hold and how fast they are growing (M23.1). The download client is
 // running away with the drive while the library it feeds has barely moved.
 ], usage: [
-  { appId: "qbittorrent", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"] },
-  { appId: "sonarr", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"] },
-  { appId: "jellyfin", path: "/srv/media", mount: "/", bytes: 2180 * 1024 ** 3, grewBytes: 12 * 1024 ** 3, days: 7 },
+  { appId: "qbittorrent", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"], series: dailySizes(1340, 35) },
+  { appId: "sonarr", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"], series: dailySizes(1340, 35) },
+  { appId: "jellyfin", path: "/srv/media", mount: "/", bytes: 2180 * 1024 ** 3, grewBytes: 12 * 1024 ** 3, days: 7, series: dailySizes(2180, 1.7) },
   { appId: "nextcloud", path: "/srv/documents", mount: "/", bytes: 48 * 1024 ** 3, grewBytes: 0, days: 7 },
 ], lastMeasured: { at: ago(9), sampled: 4, unmeasured: 0, error: null } }));   // ago() is hours: last night's sweep
 api.get("/storage/shares/discover", (_request, response) => json(response, { devices: [{ address: "192.168.50.30", name: "nas.local", smb: true, nfs: true, mac: "02:00:00:aa:00:30", interface: "eno1" }], scanned: 253, interfaces: ["eno1 192.168.50.20/24"] }));
