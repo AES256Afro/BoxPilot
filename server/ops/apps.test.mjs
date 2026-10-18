@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { checkpointCeilingMs } from "../app-helper.mjs";
 import { aggregateAppStats, appOperations, parseDockerStats, parseServeStatus, serveTailnetOnly, servesThisApp } from "./apps.mjs";
+import { validateParameters } from "./registry.mjs";
 
 const operations = Object.fromEntries(appOperations().map((operation) => [operation.id, operation]));
 
@@ -198,7 +199,10 @@ describe("operations that re-render an app's compose file carry the devices the 
     // app.reinstall writes the project again when its compose file is gone too (M35).
     const rerendering = appOperations().filter((operation) => /apps\.(install|reinstall|update|reconfigure|rollbackApp|setPassword)\(/.test(String(operation.run))).map((operation) => operation.id);
     expect(rerendering.length).toBeGreaterThan(4);
-    expect([...deviceResolvingOperations].sort()).toEqual([...rerendering].sort());
+    // Several apps in one job are given each app's devices (devicesByApp, the index.mjs prepare hook).
+    const perApp = rerendering.filter((id) => operations[id].parameters.fields.devicesByApp);
+    expect(perApp).toEqual(["app.update.many"]);
+    expect([...deviceResolvingOperations].sort()).toEqual(rerendering.filter((id) => !perApp.includes(id)).sort());
     for (const id of deviceResolvingOperations) expect(operations[id].parameters.fields.devices, id).toBeTruthy();
   });
 
@@ -271,5 +275,29 @@ describe("restoring a tailnet-only app's backup", () => {
     const result = await operations["app.backup.restore"].run(parameters, { apps: restoring("lan"), run });
     expect(run).not.toHaveBeenCalled();
     expect(result.served).toBeUndefined();
+  });
+});
+
+describe("updating several apps in one job (M36)", () => {
+  it("updates each in turn with its own devices, carries on past one that fails, and names it at the end", async () => {
+    const calls = [];
+    const apps = { update: vi.fn(async ({ id, devices }) => { calls.push([id, devices]); if (id === "immich") throw new Error("the new image did not become healthy; the previous one is back"); return { updated: true }; }) };
+    const progress = vi.fn();
+    const run = operations["app.update.many"].run({ ids: ["jellyfin", "immich", "plex"], devicesByApp: { plex: ["/dev/dri/renderD128"] } }, { apps, progress, timeScale: 1 });
+    await expect(run).rejects.toThrow("immich: the new image did not become healthy; the previous one is back. jellyfin, plex were updated.");
+    expect(calls).toEqual([["jellyfin", null], ["immich", null], ["plex", ["/dev/dri/renderD128"]]]);
+    expect(apps.update.mock.calls.every(([, options]) => options.checkpoint === true)).toBe(true);
+    await expect(operations["app.update.many"].run({ ids: ["jellyfin"] }, { apps: { update: async () => ({}) }, progress })).resolves.toEqual({ updated: true, apps: ["jellyfin"] });
+    expect(operations["app.update.many"].risk).toBe("medium");
+  });
+
+  it("takes 1 to 20 different apps, and devices only as /dev paths per named app", () => {
+    const spec = operations["app.update.many"].parameters;
+    expect(validateParameters(spec, { ids: ["jellyfin", "plex"] }, "t")).toBeNull();
+    expect(validateParameters(spec, { ids: [] }, "t")).toContain("1 to 20");
+    expect(validateParameters(spec, { ids: ["jellyfin", "jellyfin"] }, "t")).toContain("1 to 20");
+    expect(validateParameters(spec, { ids: ["../etc"] }, "t")).toContain("1 to 20");
+    expect(validateParameters(spec, { ids: ["plex"], devicesByApp: { plex: ["/dev/dri/renderD128"] } }, "t")).toBeNull();
+    expect(validateParameters(spec, { ids: ["plex"], devicesByApp: { plex: ["/etc/shadow"] } }, "t")).toContain("/dev paths");
   });
 });

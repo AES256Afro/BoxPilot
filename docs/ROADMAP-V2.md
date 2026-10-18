@@ -1890,7 +1890,9 @@ Proposed, value to the owner against effort:
 - **Fold "What you can do" into the page header** - low to medium, small: the strip on every Classic
   page explains rather than does. A design call for the owner.
 - **Quiet hours or a daily digest for pushes** - medium, medium.
-- **Update every app with an update ready, in one approval** - medium, medium.
+- ✅ **Update every app with an update ready, in one approval** - medium, medium. `app.update.many`
+  (one app at a time, each with its checkpoint and its own devices; one that fails does not stop the
+  others), offered as "Update all" on the App catalog once two apps have updates.
 
 ## M37 — Agents
 
