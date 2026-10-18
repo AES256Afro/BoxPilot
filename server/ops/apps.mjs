@@ -1,4 +1,4 @@
-import { defineOperation } from "./registry.mjs";
+import { defineOperation, moreTimeCeilingMs } from "./registry.mjs";
 import { parseServeStatus } from "../tailscale-serve.mjs";
 import { composeVerdicts, planProbes } from "../reachability.mjs";
 import { coversEveryAddress, serveUrl } from "../ports.mjs";
@@ -431,16 +431,25 @@ export function appOperations() {
     }),
     defineOperation({
       // M36: every app with an update ready, in one approval, one job and one log.
-      id: "app.update.many", title: "Update several applications", risk: "medium", timeoutMs: minutes(360),
-      description: "Updates each app in turn exactly as Update application does: a data checkpoint, the catalog's current image, the container recreated, and the previous image restored if the new one does not become healthy. One app at a time. One that fails does not stop the others; the job names it at the end.",
+      // Twenty apps at app.update's worst case would outlast any budget, so this has the longest one,
+      // and the run starts no app it could not finish in what is left (see below).
+      id: "app.update.many", title: "Update several applications", risk: "medium", timeoutMs: moreTimeCeilingMs,
+      description: "Updates each app in turn exactly as Update application does: a data checkpoint, the catalog's current image, the container recreated, and the previous image restored if the new one does not become healthy. One app at a time. One that fails does not stop the others; the job names it at the end, and any app it had no time left to start.",
       parameters: { fields: {
         ids: { type: "array", validate: (value) => (value.length >= 1 && value.length <= 20 && value.every((entry) => typeof entry === "string" && idField.pattern.test(entry)) && new Set(value).size === value.length ? null : "must list 1 to 20 different app ids") },
         // Found by the web process for each app that globs for a device (index.mjs prepare hook), never the browser's.
         devicesByApp: { type: "object", optional: true, nullable: true, validate: (value) => (Object.entries(value).every(([id, devices]) => idField.pattern.test(id) && Array.isArray(devices) && devicesField.validate(devices) === null) ? null : "must map app ids to /dev paths") },
       } },
-      run: async (parameters, { apps, progress, timeScale }) => {
-        const done = []; const failed = [];
+      run: async (parameters, { apps, progress, timeScale, now = Date.now }) => {
+        const done = []; const failed = []; const notStarted = [];
+        // An app is started only while what is left of the budget covers one update at its worst
+        // (app.update's own budget): the job's deadline must not pass while the helper still holds
+        // the remaining apps' lanes and changes them with no job watching.
+        const startedAt = now();
+        const budget = moreTimeCeilingMs * (timeScale ?? 1);
+        const worstCase = (checkpointMs + minutes(40)) * (timeScale ?? 1);
         for (const id of parameters.ids) {
+          if (now() - startedAt + worstCase > budget) { notStarted.push(id); continue; }
           progress?.(`── ${id} ──`, "stdout");
           try {
             await apps.update({ id, devices: parameters.devicesByApp?.[id] ?? null }, { progress, checkpoint: true, timeScale });
@@ -450,7 +459,11 @@ export function appOperations() {
             progress?.(`${id}: ${error.message}`, "stderr");
           }
         }
-        if (failed.length) throw new Error(`${failed.map((entry) => `${entry.id}: ${entry.error}`).join("; ")}${done.length ? `. ${done.join(", ")} ${done.length === 1 ? "was" : "were"} updated.` : ""}`);
+        if (notStarted.length) progress?.(`Not started, to stay within the job's time: ${notStarted.join(", ")}`, "stderr");
+        if (failed.length || notStarted.length) {
+          const parts = [...failed.map((entry) => `${entry.id}: ${entry.error}`), ...(notStarted.length ? [`not started in the time left: ${notStarted.join(", ")}`] : [])];
+          throw new Error(`${parts.join("; ")}${done.length ? `. ${done.join(", ")} ${done.length === 1 ? "was" : "were"} updated.` : ""}`);
+        }
         return { updated: true, apps: done };
       },
     }),
