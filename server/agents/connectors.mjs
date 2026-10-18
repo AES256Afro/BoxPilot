@@ -68,13 +68,16 @@ export function readFolderSetting(value) {
  * The folder's documents: Markdown, text and PDF files at its top and one level down, each at most
  * 5 MB, at most 100. A file that cannot be read is skipped and named.
  */
-export async function scanFolder(folder, { read = readFile, list = readdir, info = stat } = {}) {
+export async function scanFolder(folder, { read = readFile, list = readdir, info = stat, until = Infinity, now = Date.now } = {}) {
   const found = [];
   const skipped = [];
   const walk = async (directory, depth) => {
     const entries = await list(directory, { withFileTypes: true }).catch((error) => { throw new ConnectorError(`The folder could not be read: ${error.code ?? error.message}`); });
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (found.length >= connectorLimits.files) return;
+      // Each PDF is read on the web process's thread. The caller stops waiting at its deadline;
+      // without this the scan went on reading every remaining file behind its back.
+      if (now() > until) throw new ConnectorError("The folder took too long to read");
       if (entry.name.startsWith(".")) continue;
       const full = path.posix.join(directory, entry.name);
       if (entry.isDirectory() && depth === 0) { await walk(full, 1); continue; }

@@ -17,7 +17,7 @@ export class PdfError extends Error {
  * streams may inflate to together, how big a font's map may be, and how long the whole read may
  * take. Every pattern below runs on a bounded slice or cannot backtrack across the file.
  */
-const limits = { bytes: 10 * 1024 * 1024, pages: 300, streamBytes: 8 * 1024 * 1024, chars: 256_000, decodedBytes: 64 * 1024 * 1024, cmapChars: 1024 * 1024, cmapEntries: 200_000, readMs: 5_000 };
+const limits = { bytes: 10 * 1024 * 1024, pages: 300, streamBytes: 8 * 1024 * 1024, chars: 256_000, decodedBytes: 64 * 1024 * 1024, cmapChars: 1024 * 1024, cmapEntries: 200_000, readMs: 5_000, objects: 100_000 };
 
 /** What one document may still spend: inflated bytes and time. */
 function budgetFor(now = Date.now()) {
@@ -62,6 +62,10 @@ function readObjects(buffer, budget = null) {
       if (dataEnd < dataStart || dataEnd > end) dataEnd = text.indexOf("endstream", dataStart);
       if (dataEnd > dataStart && dataEnd - dataStart <= limits.streamBytes) stream = buffer.subarray(dataStart, dataEnd);
     }
+    // Each object is a cheap slice, so the inflate budget does not bound how many a file declares:
+    // millions of tiny ones held hundreds of megabytes of the web process. A real document of at most
+    // 300 pages comes nowhere near this many.
+    if (objects.size >= limits.objects) throw new PdfError("The PDF holds more objects than BoxPilot reads; it may be damaged");
     objects.set(Number(match[1]), { dict, stream });
     pattern.lastIndex = end;
   }
@@ -102,6 +106,7 @@ function expandObjectStreams(objects, budget = null) {
       const offset = header[index * 2 + 1];
       const next = index + 1 < count ? header[index * 2 + 3] : content.length - first;
       if (!Number.isFinite(number) || objects.has(number)) continue;
+      if (objects.size >= limits.objects) throw new PdfError("The PDF holds more objects than BoxPilot reads; it may be damaged");
       objects.set(number, { dict: content.slice(first + offset, first + next), stream: null });
     }
   }

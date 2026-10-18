@@ -3745,7 +3745,7 @@ export function createAgentService({
     if (!force && now().getTime() - lastFolderScan < 3600_000) return { skipped: "recent" };
     if (folderScanning) return { error: "The folder is still being read from the last time. Try again later." };
     lastFolderScan = now().getTime();
-    const scanning = Promise.resolve().then(() => folderScan(folder.path));
+    const scanning = Promise.resolve().then(() => folderScan(folder.path, { until: Date.now() + limits.folderScanTimeoutMs }));
     folderScanning = scanning;
     void scanning.catch(() => null).finally(() => { if (folderScanning === scanning) folderScanning = null; });
     try {
