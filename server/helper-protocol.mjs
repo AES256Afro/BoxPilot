@@ -64,8 +64,8 @@ export function validateHelperRequest(value) {
   if (value.operation === "controller.database.protection.retention.inspect" && Object.keys(value.parameters).length !== 0) return "Controller retention inspection accepts no parameters";
   if (value.operation === "virtualization.inventory.inspect") {
     const keys = Object.keys(value.parameters);
-    if (keys.length !== 1 || keys[0] !== "scope" || !["status", "domains", "resources"].includes(value.parameters.scope)) {
-      return "Virtualization inventory accepts only a fixed status, domains, or resources scope";
+    if (keys.length !== 1 || keys[0] !== "scope" || !["status", "domains", "domains-summary", "resources"].includes(value.parameters.scope)) {
+      return "Virtualization inventory accepts only a fixed status, domains, domains-summary, or resources scope";
     }
   }
   if (value.operation === "virtualization.console.inspect" && Object.keys(value.parameters).length !== 0) return "Virtualization console inspection accepts no parameters";

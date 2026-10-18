@@ -39,9 +39,11 @@ export function createHelperLibvirtService({ helper }) {
     }
   }
 
-  async function listDomains() {
+  // `summary` is Home's read (M50): it was dropped here, so every Home load ran the full per-VM
+  // read in the helper (addresses, disks, snapshots) for the name, state and size it shows.
+  async function listDomains({ summary = false } = {}) {
     try {
-      return await inspect("domains");
+      return await inspect(summary ? "domains-summary" : "domains");
     } catch (error) {
       return { connected: false, domains: [], error: error.message };
     }
