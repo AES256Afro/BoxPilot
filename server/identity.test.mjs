@@ -235,3 +235,64 @@ describe("recognising this service behind Tailscale Serve", () => {
     expect(await forge("http://127.0.0.1:8787@evil.example:9", 8787)).toBe(false);
   });
 });
+
+describe("GitHub links and the device flow's answers", () => {
+  it("never signs in through a link saved before ids were recorded, and keeps a login linked to one account", async () => {
+    const state = await store();
+    const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    const operator = state.createOwnerAccount({ username: "helper", passwordHash: "x", role: "operator", createdBy: owner.id });
+    const identity = createIdentityService({ store: state, now: () => 1000 });
+    // A link from before ids: GitHub may have given the name to someone else since.
+    state.setSetting("githubLinks", { oldname: { ownerId: owner.id, login: "OldName" } }, { updatedBy: owner.id });
+    expect(identity.githubAccountFor("OldName", 7)).toBeNull();
+    expect(identity.githubAccountFor("OldName", null)).toBeNull();
+    identity.linkGithub(owner.id, "Alex-GH", 7);
+    expect(() => identity.linkGithub(operator.id, "alex-gh", 8)).toThrow("already linked to another account");
+    expect(identity.githubAccountFor("ALEX-GH", 7)).toBe(owner.id);
+    expect(() => identity.linkGithub(owner.id, "-bad login-", 9)).toThrow("looks invalid");
+    state.close();
+  });
+
+  it("slows down when GitHub asks, and says expired, denied or failed without completing", async () => {
+    const state = await store();
+    const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    let answer = { error: "slow_down" };
+    let profile = { ok: true, body: { login: "alex-gh", id: 7 } };
+    const fetchImpl = vi.fn(async (url) => {
+      if (url === "https://github.com/login/device/code") return { ok: true, status: 200, json: async () => ({ device_code: "dev", user_code: "AAAA-BBBB", verification_uri: "https://github.com/login/device", expires_in: 900, interval: 5 }) };
+      if (url === "https://github.com/login/oauth/access_token") return { ok: true, status: 200, json: async () => answer };
+      return { ok: profile.ok, status: profile.ok ? 200 : 401, json: async () => profile.body };
+    });
+    let clock = 0;
+    const identity = createIdentityService({ store: state, fetchImpl, now: () => clock });
+    identity.setGithubClientId(owner.id, "Iv1.abcdef1234567890");
+    const start = () => identity.githubStart({ purpose: "signin", client: `c${clock}` });
+
+    const slow = await start();
+    expect(await identity.githubPoll(slow.flowId)).toMatchObject({ status: "pending" });
+    clock += 6_000; // the old interval has passed, but slow_down added five seconds to it
+    expect(await identity.githubPoll(slow.flowId)).toMatchObject({ status: "pending" });
+    expect(fetchImpl.mock.calls.filter(([url]) => url.endsWith("access_token"))).toHaveLength(1);
+
+    for (const [error, status] of [["expired_token", "expired"], ["access_denied", "denied"]]) {
+      clock += 60_000; answer = { error };
+      const flow = await start();
+      expect(await identity.githubPoll(flow.flowId)).toMatchObject({ status });
+      expect(await identity.githubPoll(flow.flowId)).toEqual({ status: "expired" });
+    }
+    clock += 60_000; answer = { error: "incorrect_client_credentials", error_description: "The client_id is not valid" };
+    expect(await identity.githubPoll((await start()).flowId)).toMatchObject({ status: "error", error: "The client_id is not valid" });
+    clock += 60_000; answer = { access_token: "gho_x" }; profile = { ok: false, body: { login: "alex-gh", id: 7, message: "Bad credentials" } };
+    expect(await identity.githubPoll((await start()).flowId)).toMatchObject({ status: "error", error: "Could not read the GitHub profile" });
+    state.close();
+  });
+
+  it("says why a flow could not start", async () => {
+    const state = await store();
+    const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    const identity = createIdentityService({ store: state, fetchImpl: async () => ({ ok: false, status: 404, json: async () => ({ error: "Not Found" }) }), now: () => 0 });
+    identity.setGithubClientId(owner.id, "Iv1.abcdef1234567890");
+    await expect(identity.githubStart({ purpose: "link", ownerId: owner.id })).rejects.toThrow("Not Found");
+    state.close();
+  });
+});
