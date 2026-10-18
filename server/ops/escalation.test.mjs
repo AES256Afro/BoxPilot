@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRegistry } from "./registry.mjs";
 import { operationModules, registry } from "./index.mjs";
-import { escalationRiskHooks, packetFilterUnit, serveWithdrawRisk } from "./escalation.mjs";
+import { escalationRiskHooks, higherOf, packetFilterUnit, serveWithdrawRisk } from "./escalation.mjs";
 import { readFile } from "node:fs/promises";
 
 /** The tier a job is staged at, as the jobs service works it out. */
@@ -83,5 +83,27 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
     expect(await hooks.effectiveRisk("app.serve.withdraw", { port: 8084 })).toBe("medium");
     const unreadable = createRegistry(operationModules).useRiskHooks({ "app.serve.withdraw": serveWithdrawRisk(async () => { throw new Error("tailscale is not running"); }) });
     expect(await unreadable.effectiveRisk("app.serve.withdraw", { port: 443 })).toBe("medium");
+  });
+
+  it("raises a data folder chosen outside /mnt, /media and /srv, on install and on a settings change", async () => {
+    for (const folder of ["/var/spool/cron", "/home/admin", "/home/admin/Photos", "/opt/data", "/mnt", "/srvx/media", "/tmp"]) {
+      expect(await tier("app.install", { id: "filebrowser", values: { volumes: { data: folder } } }), folder).toBe("high");
+      expect(await tier("app.reconfigure", { id: "filebrowser", values: { volumes: { data: folder } } }), folder).toBe("high");
+    }
+    for (const folder of ["/mnt/media", "/media/usb/photos", "/srv/files/", "/srv/a/b"]) {
+      expect(await tier("app.install", { id: "filebrowser", values: { volumes: { data: folder } } }), folder).toBe("medium");
+    }
+    // No folder chosen: the manifest's own default, which the catalog wrote.
+    expect(await tier("app.install", { id: "filebrowser", values: {} })).toBe("medium");
+    expect(await tier("app.reconfigure", { id: "filebrowser", values: { ports: { web: 8080 } } })).toBe("medium");
+  });
+
+  it("stages an install at the higher of its manifest's tier and its folders'", async () => {
+    const manifestTier = async (parameters) => (parameters.id === "pihole" ? "high" : "medium");
+    const install = higherOf(escalationRiskHooks["app.install"], manifestTier);
+    expect(await install({ id: "pihole", values: {} })).toBe("high");
+    expect(await install({ id: "jellyfin", values: { volumes: { media: "/home/admin" } } })).toBe("high");
+    expect(await install({ id: "jellyfin", values: { volumes: { media: "/mnt/media" } } })).toBe("medium");
+    expect(await higherOf(async () => { throw new Error("catalog down"); }, async () => "medium")({})).toBe("medium");
   });
 });

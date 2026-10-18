@@ -1181,13 +1181,18 @@ the root-side operations found medium operations that reach what a high one guar
 - `app.backup` with `keep: 1` prunes every older backup: `app.backup.delete` by another door.
 - `app.serve.withdraw` could withdraw the tailnet address BoxPilot itself is served at, cutting off
   tailnet browsers and Tailscale sign-in.
+- `app.install` and `app.reconfigure` accept any data folder outside the system deny list. A
+  configurable volume pointed at `/var/spool/cron` or an admin's home is mounted read-write into a
+  container that often runs as root: a crontab or `~/.ssh/authorized_keys` written from inside is
+  root or a shell on this server.
 
 ### Decision
 
 1. **The tier follows the target.** `server/ops/escalation.mjs` holds one risk hook per operation
    that raises it to high for those targets: a share or export under `/home`, an account created with
    keys, a protected package, a packet-filter unit, a mount at the backup destination, a new tunnel
-   token, a backup that keeps fewer than housekeeping does (3), and BoxPilot's own Serve address.
+   token, a backup that keeps fewer than housekeeping does (3), BoxPilot's own Serve address, and
+   an app data folder outside `/mnt`, `/media` and `/srv` (`dataRoots`).
    The Cloudflare Tunnel manifest is high, so installing it is too. Hooks only
    raise a tier, and the jobs service, flows, the scheduler and the agents' plans already take the
    tier from them, so a raised job needs the owner and a password and can never run unattended.
