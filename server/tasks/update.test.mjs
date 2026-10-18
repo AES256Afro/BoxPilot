@@ -15,7 +15,7 @@ async function fixture() {
   await writeFile(path.join(root, "boxpilot.env"), "BOXPILOT_HOST=127.0.0.1\nBOXPILOT_PORT=8787\n");
   const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
   const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sha }) }));
-  const options = { run, fetchImpl, installDir: path.join(root, "install"), stagingDirectory: path.join(root, "run"), nodeBinary: "/usr/local/bin/node", now: () => new Date("2026-08-21T15:00:00.000Z"), lockPath: path.join(root, "boxpilot-upgrade.lock"), envPath: path.join(root, "boxpilot.env") };
+  const options = { run, fetchImpl, installDir: path.join(root, "install"), stagingDirectory: path.join(root, "run"), nodeBinary: "/usr/local/bin/node", now: () => new Date("2026-08-21T15:00:00.000Z"), lockPath: path.join(root, "boxpilot-upgrade.lock"), envPath: path.join(root, "boxpilot.env"), installedVersion: "0.61.0" };
   return { root, run, fetchImpl, options };
 }
 
@@ -71,6 +71,12 @@ describe("system.update root task", () => {
 
   it("refuses when the tag moved, when GitHub cannot resolve it, or when input is malformed", async () => {
     const { run, options } = await fixture();
+    // Only forward: an older or the same release, with its real commit, is refused before GitHub is asked.
+    for (const installedVersion of ["0.62.0", "0.63.1"]) {
+      const asked = vi.fn(options.fetchImpl);
+      await expect(systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, { ...options, installedVersion, fetchImpl: asked })).rejects.toThrow(`v0.62.0 is not newer than the installed ${installedVersion}`);
+      expect(asked).not.toHaveBeenCalled();
+    }
     await expect(systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, { ...options, fetchImpl: async () => ({ ok: true, json: async () => ({ sha: "b".repeat(40) }) }) })).rejects.toThrow("not the reviewed");
     await expect(systemUpdate({ tag: "v0.62.0", expectedCommit: sha }, { ...options, fetchImpl: async () => ({ ok: false, status: 404 }) })).rejects.toThrow("status 404");
     await expect(systemUpdate({ tag: "main", expectedCommit: sha }, options)).rejects.toThrow("look like v1.2.3");
