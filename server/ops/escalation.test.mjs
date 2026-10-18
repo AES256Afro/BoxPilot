@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createRegistry } from "./registry.mjs";
 import { operationModules, registry } from "./index.mjs";
-import { escalationRiskHooks, higherOf, packetFilterUnit, serveWithdrawRisk } from "./escalation.mjs";
+import { escalationRiskHooks, higherOf, loginHomesFrom, packetFilterUnit, serveWithdrawRisk } from "./escalation.mjs";
+import { onWindows } from "../../test/platform.mjs";
 import { readFile } from "node:fs/promises";
 
 /** The tier a job is staged at, as the jobs service works it out. */
@@ -107,5 +108,26 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
     expect(await install({ id: "jellyfin", values: { volumes: { media: "/home/admin" } } })).toBe("high");
     expect(await install({ id: "jellyfin", values: { volumes: { media: "/mnt/media" } } })).toBe("medium");
     expect(await higherOf(async () => { throw new Error("catalog down"); }, async () => "medium")({})).toBe("medium");
+  });
+
+  it("reads which accounts can log in, and where their homes are, from /etc/passwd", () => {
+    const passwd = [
+      "root:x:0:0:root:/root:/bin/bash",
+      "daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin",
+      "postgres:x:114:120:PostgreSQL administrator:/var/lib/postgresql:/bin/bash",
+      "backup:x:34:34:backup:/var/backups:/usr/sbin/nologin",
+      "nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin",
+      "sync:x:4:65534:sync:/bin:/bin/sync",
+      "git:x:998:998::/srv/git/:/usr/bin/git-shell",
+      "",
+    ].join("\n");
+    expect(loginHomesFrom(passwd)).toEqual(["/root", "/var/lib/postgresql", "/srv/git"]);
+  });
+
+  // Linux only: reads the host's own /etc/passwd, where root logs in with a shell at /root.
+  it.skipIf(onWindows)("raises a share or export inside any login account's home, not only under /home", async () => {
+    expect(await tier("samba.apply", { shares: [{ name: "Root", path: "/root/files" }] })).toBe("high");
+    expect(await tier("nfs.apply", { exports: [{ path: "/root" }] })).toBe("high");
+    expect(await tier("samba.apply", { shares: [{ name: "Media", path: "/mnt/media" }] })).toBe("medium");
   });
 });

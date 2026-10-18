@@ -1185,6 +1185,11 @@ the root-side operations found medium operations that reach what a high one guar
   configurable volume pointed at `/var/spool/cron` or an admin's home is mounted read-write into a
   container that often runs as root: a crontab or `~/.ssh/authorized_keys` written from inside is
   root or a shell on this server.
+- A share of a service account's home outside `/home` (Ubuntu's `postgres` logs in with a shell at
+  `/var/lib/postgresql`) writes as that account just as a share under `/home` does. `apt-get
+  install` removes what Conflicts with the new package, and `remove --auto-remove` takes what
+  depends on the removed one, so a protected package can go without being named. `app.backup.many`
+  takes `keep` like `app.backup`.
 
 ### Decision
 
@@ -1192,7 +1197,10 @@ the root-side operations found medium operations that reach what a high one guar
    that raises it to high for those targets: a share or export under `/home`, an account created with
    keys, a protected package, a packet-filter unit, a mount at the backup destination, a new tunnel
    token, a backup that keeps fewer than housekeeping does (3), BoxPilot's own Serve address, and
-   an app data folder outside `/mnt`, `/media` and `/srv` (`dataRoots`).
+   an app data folder outside `/mnt`, `/media` and `/srv` (`dataRoots`). A share counts as a home
+   when it is inside any account's home that has a login shell in `/etc/passwd`. Installs and
+   selected upgrades pass `--no-remove`, and a removal whose plan (`apt-get -s`) takes a protected
+   package nobody named is refused.
    The Cloudflare Tunnel manifest is high, so installing it is too. Hooks only
    raise a tier, and the jobs service, flows, the scheduler and the agents' plans already take the
    tier from them, so a raised job needs the owner and a password and can never run unattended.
