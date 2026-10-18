@@ -22,7 +22,7 @@ import { encodeVector, readVector } from "./memory.mjs";
  *   agentFor: (caller: any, id: string, options?: { edit?: boolean }) => any,
  *   canEdit: (caller: any, agent: any) => boolean,
  *   ownActor: (caller: any, id: string | null) => string | null, knowledge: any,
- *   folderScan: (folder: string) => Promise<any>, moduleSettings: () => any,
+ *   folderScan: (folder: string, options?: { until?: number }) => Promise<any>, moduleSettings: () => any,
  *   modulePaused: (settings?: any) => boolean, runtimeSettings: () => any,
  *   knowledgeSettings: () => Record<string, boolean>, moduleBudget: () => any, embedModelName: () => string,
  *   heldRun: (runId: string, lease: string) => any, runtimeClaim: (spec: any, cpuInfo?: any) => any,
@@ -243,7 +243,7 @@ export function createAgentLibrary({ store, state, limits, now, audit, redact, c
     if (!force && now().getTime() - lastFolderScan < 3600_000) return { skipped: "recent" };
     if (folderScanning) return { error: "The folder is still being read from the last time. Try again later." };
     lastFolderScan = now().getTime();
-    const scanning = Promise.resolve().then(() => folderScan(folder.path));
+    const scanning = Promise.resolve().then(() => folderScan(folder.path, { until: Date.now() + limits.folderScanTimeoutMs }));
     folderScanning = scanning;
     void scanning.catch(() => null).finally(() => { if (folderScanning === scanning) folderScanning = null; });
     try {
