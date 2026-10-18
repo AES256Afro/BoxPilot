@@ -288,7 +288,14 @@ if [ -n "$OLD_VERSION" ]; then
     # shellcheck disable=SC2086 # AS_OWNER is a command prefix, empty or three words.
     if ! copied="$(cd / && umask 077 && $AS_OWNER "$NODE_BIN" --no-warnings --input-type=module -e "$DB_COPY_JS" "$DATABASE" "$DB_COPY" 2>&1)"; then
       reason="$(printf '%s\n' "$copied" | tail -n 1)"
-    elif ! chown --reference="$DATABASE" "$DB_COPY" || ! chmod --reference="$DATABASE" "$DB_COPY"; then
+    # The copy sits in the database's own folder, which its user can write while the service still
+    # runs: root following a name there could be led by a link to any file on the server. Copied as
+    # that user, the copy is theirs already, and its mode is set as that user too, who can change no
+    # file but their own. Only a database root owns, in a folder root owns, is finished by root.
+    # shellcheck disable=SC2086 # AS_OWNER is a command prefix, empty or three words.
+    elif [ -n "$AS_OWNER" ] && ! $AS_OWNER chmod --reference="$DATABASE" "$DB_COPY"; then
+      reason="the copy could not be given the database's mode"
+    elif [ -z "$AS_OWNER" ] && { ! chown --no-dereference --reference="$DATABASE" "$DB_COPY" || ! chmod --reference="$DATABASE" "$DB_COPY"; }; then
       reason="the copy could not be given the database's owner and mode"
     else
       COPY_OK=1
