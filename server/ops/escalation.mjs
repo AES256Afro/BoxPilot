@@ -97,6 +97,8 @@ export const escalationRiskHooks = Object.freeze({
   // The journal holds sudo and SSH history: shrinking it to a day erases the trail of what was done.
   "space.cleanup": (parameters) => high(((parameters?.categories ?? []).includes("journal") && (below(parameters?.journalMaxAgeDays, historyFloor.days) || below(parameters?.journalMaxBytes, historyFloor.journalBytes)))
     || ((parameters?.categories ?? []).includes("job-logs") && below(parameters?.jobLogRetentionDays, historyFloor.days))),
+  // A recycle bin is the share's undo: emptying what was recycled this week is deleting it for good.
+  "samba.recycle.empty": (parameters) => high(!(Number(parameters?.olderThanDays ?? 0) >= historyFloor.days)),
   // index.mjs combines this with the manifest's own tier (installRiskLookup) through higherOf.
   "app.install": (parameters) => high(foldersOutsideDataRoots(parameters?.values).length > 0),
   // Each backup prunes all but the newest `keep`: a few runs with keep 1 delete what

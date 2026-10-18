@@ -143,4 +143,11 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
     expect(await tier("space.cleanup", { categories: ["journal", "job-logs"], journalMaxAgeDays: 30, jobLogRetentionDays: 14 })).toBe("medium");
     expect(await tier("space.cleanup", { categories: ["apt-cache"], journalMaxAgeDays: 1 })).toBe("medium");
   });
+
+  it("raises emptying a share's recycle bin of anything recycled this week", async () => {
+    expect(await tier("samba.recycle.empty", { share: "Media" })).toBe("high");
+    expect(await tier("samba.recycle.empty", { share: "Media", olderThanDays: 0 })).toBe("high");
+    expect(await tier("samba.recycle.empty", { share: "Media", olderThanDays: 30 })).toBe("medium");
+    expect(registry.get("vm.snapshot.delete").minimumRole).toBe("owner");
+  });
 });
