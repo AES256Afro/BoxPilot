@@ -152,7 +152,11 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
           {jobs.length > 0 && shown.length === 0 && (
             <p className="jobs-quiet" role="status">
               None of the last {jobs.length} jobs {query.trim() ? <>match “{query.trim()}”{scope !== "all" ? " here" : ""}</> : scope === "running" ? "is running" : scope === "waiting" ? "is waiting for approval" : "failed"}.{" "}
-              <Button variant="ghost" onClick={() => { setScope("all"); setQuery(""); }}>Show all</Button>
+              {/* The button goes with the message it is in: focus moves to the filter's All, not off the drawer. */}
+              <Button variant="ghost" onClick={() => {
+                setScope("all"); setQuery("");
+                window.requestAnimationFrame(() => document.querySelector<HTMLElement>('.jobs-filters [role="radio"][data-value="all"]')?.focus());
+              }}>Show all</Button>
             </p>
           )}
           {shown.length > 0 && (
