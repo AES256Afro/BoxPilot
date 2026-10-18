@@ -1870,8 +1870,9 @@ Proposed, value to the owner against effort:
   so a half-typed form is not lost to the sign-in page.
 - **A weekly read of a drive that is always asleep** - medium, small: wake it once a week so its SMART
   health is not unknown for months. Wakes the drive, so the owner's call.
-- **Suggest actions in an empty command bar** - medium, small: what is waiting for approval, the
-  failed job to retry, the update ready.
+- ✅ **Suggest actions in an empty command bar** - medium, small: what is waiting for approval, the
+  failed job to retry, the update ready. A "Suggested" group above the pages: the approvals open
+  Today, the newest failure nobody has dealt with opens Activity at it, each app update is its action.
 - ✅ **Activity filters** (failed, waiting, running) and search - medium, small to medium. The counts
   above the list are the filter, with a search over the title and the operation; a job opened from
   elsewhere is shown whatever the filter was left at.
