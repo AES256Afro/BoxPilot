@@ -280,6 +280,11 @@ if [ -n "$OLD_VERSION" ]; then
     # not open its own database. From /, so root's home not being readable to that user is no matter.
     DB_OWNER="$(stat -c %U "$DATABASE")"
     AS_OWNER=""
+    # Root finishes the copy only in a folder root owns: in anyone else's, the name could be a link.
+    if [ "$DB_OWNER" = root ] && [ "$(stat -c %U "$DB_COPY_DIR")" != root ]; then
+      cleanup_staging
+      fail "the database is root's but ${DB_COPY_DIR} belongs to $(stat -c %U "$DB_COPY_DIR"), so its copy cannot be made safely. Nothing was changed. Give the database to the service's user, or set BOXPILOT_DB_COPY_DIR to a folder root owns."
+    fi
     if [ "$DB_OWNER" != root ]; then
       command -v runuser >/dev/null 2>&1 || fail "runuser is required to copy the database as ${DB_OWNER}"
       AS_OWNER="runuser -u ${DB_OWNER} --"
@@ -295,6 +300,10 @@ if [ -n "$OLD_VERSION" ]; then
     # shellcheck disable=SC2086 # AS_OWNER is a command prefix, empty or three words.
     elif [ -n "$AS_OWNER" ] && ! $AS_OWNER chmod --reference="$DATABASE" "$DB_COPY"; then
       reason="the copy could not be given the database's mode"
+    # The database's group as well, when its user is in that group (a 0640 database read by a group).
+    # shellcheck disable=SC2086 # AS_OWNER is a command prefix, empty or three words.
+    elif [ -n "$AS_OWNER" ] && id -nG "$DB_OWNER" | tr ' ' '\n' | grep -qxF "$(stat -c %G "$DATABASE")" && ! $AS_OWNER chgrp --reference="$DATABASE" "$DB_COPY"; then
+      reason="the copy could not be given the database's group"
     elif [ -z "$AS_OWNER" ] && { ! chown --no-dereference --reference="$DATABASE" "$DB_COPY" || ! chmod --reference="$DATABASE" "$DB_COPY"; }; then
       reason="the copy could not be given the database's owner and mode"
     else
