@@ -14,7 +14,7 @@ import { deployedImages } from "./catalog/compose.mjs";
 import { isDeniedHostPath, keepsBackupData, resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 import { keepTimeout } from "./timeouts.mjs";
 import { snapshotBackupReferences } from "./machine-snapshot-helper.mjs";
-import { appFolderMounts, composeFindingsText, composeSha256, powerfulComposeSettings, sameCompose } from "./catalog/compose-review.mjs";
+import { appFolderMounts, composeFindingsText, composeSha256, imageRepository, powerfulComposeSettings, sameCompose } from "./catalog/compose-review.mjs";
 import { readArchiveMembers } from "./archive-members.mjs";
 import { homepageSyncFile } from "./app-homepage.mjs";
 
@@ -94,6 +94,16 @@ function composeDevices(composeText) {
  *   resolveExisting: (target: string, options?: { realpath?: (target: string) => Promise<string> }) => Promise<string>,
  * }} dependencies `root` is the resolved catalog root; the rest are createAppHelper's own options and steps.
  */
+/**
+ * An image a backup or a saved boxpilot.json names, kept only when it is the catalog's own image for
+ * that service at another tag or digest. Those files can come from a drive or a mirror someone else
+ * writes, and whatever they name runs with everything the catalog grants the app (the Docker socket,
+ * host networking, devices): a different repository is never taken from them.
+ */
+export function catalogImagePin(candidate, catalogReference) {
+  return typeof candidate === "string" && candidate && imageRepository(candidate) === imageRepository(catalogReference) ? candidate : null;
+}
+
 export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBinary, runCommand, catalog, wait, clock, realpathOf, idPattern, dirFor, presentIds, readState, ensureManifest, containerStatus, compose, waitHealthy, assertPortsFree, renderProject, readProjectFiles, withSavedSecrets, redact, parseEnvFile, resolveExisting }) {
   const backupDirFor = (id) => path.join(path.resolve(backupRoot), id);
 
@@ -905,10 +915,15 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     if (fit.verbatim === "unfit") return { rendered: null, warning: `${manifest.name}'s settings in this backup no longer fit the catalog (${fit.errors.join("; ")}), so its compose file was restored exactly as it was backed up.` };
     const { values } = fit;
     const ran = deployedImages(archivedCompose);
+    const foreign = Object.entries(ran).filter(([service, reference]) => {
+      const catalog = service === manifest.id ? manifest.image.reference : (manifest.sidecars ?? []).find((sidecar) => sidecar.id === service)?.image;
+      return catalog && !catalogImagePin(reference, catalog);
+    });
+    for (const [service, reference] of foreign) progress?.(`The backup ran ${service} on ${reference}, which is not ${manifest.name}'s catalog image; the catalog's is used`, "stderr");
     const pinned = {
       ...manifest,
-      image: { ...manifest.image, reference: ran[manifest.id] ?? state.image?.reference ?? manifest.image.reference },
-      sidecars: (manifest.sidecars ?? []).map((sidecar) => (ran[sidecar.id] ? { ...sidecar, image: ran[sidecar.id] } : sidecar)),
+      image: { ...manifest.image, reference: catalogImagePin(ran[manifest.id], manifest.image.reference) ?? catalogImagePin(state.image?.reference, manifest.image.reference) ?? manifest.image.reference },
+      sidecars: (manifest.sidecars ?? []).map((sidecar) => (catalogImagePin(ran[sidecar.id], sidecar.image) ? { ...sidecar, image: ran[sidecar.id] } : sidecar)),
     };
     const current = await readFileWithoutFollowing(path.join(dirFor(manifest.id), "compose.yaml")).catch(() => null);
     const rendered = await renderProject(pinned, values, { existingEnv, devices: composeDevices(current ?? archivedCompose) });
