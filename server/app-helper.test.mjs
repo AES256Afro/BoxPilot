@@ -1509,7 +1509,7 @@ describe.skipIf(onWindows)("restoring an application backup", () => {
     const restored = await readFile(composePath, "utf8");
     expect(restored).not.toContain("attacker.example");
     expect(restored).toContain(`image: ${catalogImage}`);
-    expect(progress.some((line) => line.includes("attacker.example/root:latest, which is not"))).toBe(true);
+    expect(progress.some((line) => line.includes("attacker.example/root:latest, which is not") && line.includes(`restored on ${catalogImage}`))).toBe(true);
   });
 
   it("keeps the original after a healthy restore when its safety backup failed", async () => {
