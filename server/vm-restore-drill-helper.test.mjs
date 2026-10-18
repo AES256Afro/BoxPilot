@@ -19,7 +19,7 @@ function digest(content) {
   return createHash("sha256").update(content).digest("hex");
 }
 
-async function fixture({ guestAgent = true, uefi = false } = {}) {
+async function fixture({ guestAgent = true, uefi = false, diskInfo = { format: "qcow2", "virtual-size": 1073741824 } } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-restore-drill-"));
   directories.push(directory);
   const managedRoot = path.join(directory, "managed");
@@ -55,6 +55,7 @@ async function fixture({ guestAgent = true, uefi = false } = {}) {
       await writeFile(path.join(restored, "vda.qcow2"), disk);
       return { stdout: "", stderr: "" };
     }
+    if (binary === "/usr/bin/qemu-img" && args[0] === "info") return { stdout: JSON.stringify(diskInfo), stderr: "" };
     if (binary === "/usr/bin/qemu-img") return { stdout: '{"corruptions":0,"check-errors":0}', stderr: "" };
     if (binary === "/usr/bin/id") return { stdout: "64055", stderr: "" };
     if (binary === "/usr/bin/virt-install") {
@@ -107,6 +108,20 @@ afterEach(async () => {
 describe("isolated VM restore drill helper", () => {
   it("accepts only exact secret-free durable evidence", () => {
     expect(validateVmRestoreDrillInput({ drillId: "bad" })).toEqual(expect.arrayContaining(["Drill id must be a UUID", "Backup id must be a UUID", "Repository id is invalid", "Snapshot id is invalid"]));
+  });
+
+  // A restored qcow2 can name a backing file anywhere on the host, and libvirt opens what it names
+  // for the guest. The export side never writes a chain, so a restored disk with one is refused.
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("refuses a restored disk that names a backing file, or is not qcow2", async () => {
+    const chained = await fixture({ diskInfo: { format: "qcow2", "virtual-size": 1073741824, "backing-filename": "/etc/shadow", "full-backing-filename": "/etc/shadow" } });
+    await expect(chained.helper.runDrill(chained.input)).rejects.toThrow("Restored disk vda names a backing file (/etc/shadow)");
+    expect(chained.run.mock.calls.some(([binary]) => binary === "/usr/bin/virt-install")).toBe(false);
+    const raw = await fixture({ diskInfo: { format: "raw", "virtual-size": 1073741824 } });
+    await expect(raw.helper.runDrill(raw.input)).rejects.toThrow("Restored disk vda is raw, not qcow2");
+    const fine = await fixture();
+    await fine.helper.runDrill(fine.input);
+    expect(fine.run.mock.calls.filter(([binary]) => binary === "/usr/bin/qemu-img").map(([, args]) => args.slice(0, 4))).toEqual([["info", "--output=json", "-f", "qcow2"], ["check", "--output=json", "-f", "qcow2"]]);
   });
 
   it("reports fixed transient no-network readiness", async () => {

@@ -1638,6 +1638,25 @@ describe.skipIf(onWindows)("restoring an application backup", () => {
     for (const args of extractions) expect(args).not.toEqual(expect.arrayContaining(["--no-same-owner"]));
   });
 
+  // An archive can carry a "./" entry naming a mode for the folder it is unpacked into, and tar
+  // applies it: one whose top folder was 0777 made the restored app folder 0777. BoxPilot's own
+  // backups list their members and carry none, but a backup on a drive or a mirror is whatever
+  // was written there. Only that folder is kept as BoxPilot made it; what is inside keeps the
+  // archive's modes and owners, as above.
+  it("keeps the restored app folder 0700 whatever mode a backup gives its top folder", async () => {
+    const { apps, catalogRoot, backupRoot } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    const artifact = path.join(backupRoot, "demo", made.artifact);
+    const repack = await mkdtemp(path.join(os.tmpdir(), "boxpilot-repack-"));
+    expect((await fixedRun("/usr/bin/tar", ["-xzf", artifact, "-C", repack])).ok).toBe(true);
+    await chmod(repack, 0o777);
+    expect((await fixedRun("/usr/bin/tar", ["-czf", artifact, "-C", repack, "."])).ok).toBe(true);
+    await rm(artifact.replace(/\.tar\.gz$/, ".json"), { force: true });
+    await apps.restoreAppBackup({ id: "demo", backup: made.artifact });
+    expect((await stat(path.join(catalogRoot, "demo"))).mode & 0o777).toBe(0o700);
+  });
+
   it("clears them from one file restored on its own too", async () => {
     const { apps, made, modeOf } = await withSetIdFiles();
     await apps.restoreAppBackupPath({ id: "demo", backup: made.artifact, path: "data/tool" });
