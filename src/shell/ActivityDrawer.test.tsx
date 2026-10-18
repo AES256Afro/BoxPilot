@@ -52,7 +52,7 @@ describe("Activity drawer", () => {
   });
 
   // M36: fifty jobs are a long list to scan for the one that failed or the one waiting on you.
-  it("narrows the list to running, waiting or failed jobs, and to a search, and opens at a job whatever the filter", () => {
+  it("narrows the list to running, waiting or failed jobs, and to a search, and opens at a job whatever the filter", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     render(<ActivityDrawer />);
     act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [
@@ -80,6 +80,7 @@ describe("Activity drawer", () => {
     expect(screen.getByRole("status").textContent).toContain("None of the last 4 jobs match “IMMICH back” here.");
     fireEvent.click(screen.getByRole("button", { name: "Show all" }));
     expect(titles()).toHaveLength(4);
+    await waitFor(() => expect(document.activeElement).toBe(within(filters).getByRole("radio", { name: "All 4" })));
     // Opened at a job from elsewhere: it is shown even if the filter would have hidden it.
     fireEvent.click(within(filters).getByRole("radio", { name: "Failed 1" }));
     act(() => openActivity("d"));
