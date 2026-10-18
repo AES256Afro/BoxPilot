@@ -21,12 +21,17 @@ export function SessionEndingBanner({ expiresAt, now = Date.now }: { expiresAt: 
   useEffect(() => {
     if (!Number.isFinite(end)) return undefined;
     setAt(now());
-    // Asleep until ten minutes before; then once a minute, so the count stays true.
+    // Asleep until ten minutes before; then every half minute, so the count stays true.
     const untilWarning = end - warnMs - now();
     let interval = 0;
     const tick = () => setAt(now());
     const timer = window.setTimeout(() => { tick(); interval = window.setInterval(tick, 30_000); }, Math.min(2_147_000_000, Math.max(0, untilWarning)));
-    return () => { window.clearTimeout(timer); if (interval) window.clearInterval(interval); };
+    // A laptop that slept through the timeout wakes with it late or not yet fired: look again when
+    // the tab is seen.
+    const seen = () => { if (document.visibilityState !== "hidden") tick(); };
+    document.addEventListener("visibilitychange", seen);
+    window.addEventListener("focus", seen);
+    return () => { window.clearTimeout(timer); if (interval) window.clearInterval(interval); document.removeEventListener("visibilitychange", seen); window.removeEventListener("focus", seen); };
   }, [end, now]);
   if (!Number.isFinite(end) || dismissed === end) return null;
   if (end - at > warnMs || at >= end) return null;
@@ -34,7 +39,7 @@ export function SessionEndingBanner({ expiresAt, now = Date.now }: { expiresAt: 
   const clock = new Date(end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
     <Notice tone="warning" live title={`Your session ends at ${clock}, in ${minutes} minute${minutes === 1 ? "" : "s"}`}
-      action={<Button variant="ghost" onClick={() => setDismissed(end)}>Got it</Button>}>
+      action={<Button variant="ghost" onClick={() => { setDismissed(end); document.getElementById("content")?.focus(); }}>Got it</Button>}>
       Sessions last twelve hours. Finish or copy anything you are typing: after {clock} BoxPilot asks you to sign in again, and a form left open is not kept.
     </Notice>
   );
