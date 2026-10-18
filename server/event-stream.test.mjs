@@ -85,6 +85,12 @@ describe("a stream that outlives its session", () => {
     expect(stream.ended).toBe(true);
   });
 
+  it("ends, rather than throwing from its timer, when the session cannot be looked up", () => {
+    const { stream, tick } = watch(session, () => { throw new Error("database is locked"); });
+    expect(() => tick()).not.toThrow();
+    expect(stream.ended).toBe(true);
+  });
+
   it("ends when the session has expired", () => {
     const { stream, tick } = watch(session, () => live("owner", "2026-10-18T04:59:59Z"));
     tick();

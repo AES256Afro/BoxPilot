@@ -101,9 +101,15 @@ export function endWhenSessionEnds(stream, { session, lookup, everyMs = 15_000, 
   if (!session?.token || typeof lookup !== "function") return;
   const role = session.owner?.role ?? null;
   const check = () => {
-    const live = lookup(session.token);
-    const expiresAt = Date.parse(live?.expiresAt ?? "");
-    if (!live || live.owner?.role !== role || !(expiresAt > now())) stream.end();
+    // A throw from a timer is uncaught and takes the web process down (a busy or closing database):
+    // a session that cannot be looked up is treated as one that ended.
+    try {
+      const live = lookup(session.token);
+      const expiresAt = Date.parse(live?.expiresAt ?? "");
+      if (!live || live.owner?.role !== role || !(expiresAt > now())) stream.end();
+    } catch {
+      stream.end();
+    }
   };
   const timer = every(check, everyMs);
   timer?.unref?.();
