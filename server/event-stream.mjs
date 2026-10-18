@@ -94,6 +94,8 @@ export function createEventStream(response, {
  * password change all delete or change the session row, so looking it up again now and then is
  * what makes them reach a connection already open. An owner demoted to operator would otherwise
  * keep receiving every account's jobs.
+ * @param {{ end: () => void, onClose: (handler: () => void) => void, closed?: boolean }} stream
+ * @param {{ session?: { token?: string, owner?: { id?: string, role?: string } } | null, lookup?: (token: string) => any, everyMs?: number, now?: () => number, setInterval?: (handler: () => void, ms: number) => any, clearInterval?: (handle: any) => void }} [options]
  */
 export function endWhenSessionEnds(stream, { session, lookup, everyMs = 15_000, now = () => Date.now(), setInterval: every = globalThis.setInterval, clearInterval: stop = globalThis.clearInterval } = {}) {
   if (!session?.token || typeof lookup !== "function") return;
