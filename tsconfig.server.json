@@ -10,6 +10,10 @@
     "checkJs": true,
     "noEmit": true,
     "strict": false,
+    "noImplicitThis": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "types": [
       "node"
