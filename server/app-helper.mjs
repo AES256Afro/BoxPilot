@@ -2675,7 +2675,9 @@ export function createAppHelper({
     // files next to newer WAL segments, which is neither the backup nor the present state.
     await mkdir(staged, { mode: 0o700 });
     progress?.(`$ tar -xzf ${backupName}`, "stdout");
-    const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+    // --no-overwrite-dir: an archive's "./" entry would otherwise give the app folder its own mode
+    // (0777, say). Everything inside keeps the archive's owners and modes, which container users need.
+    const extract = await runCommand(tarBinary, ["-xzf", artifact, "--no-overwrite-dir", "-C", staged], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
     if (!extract.ok) {
       await rm(staged, { recursive: true, force: true });
       throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The live application directory was not replaced.`);
@@ -2953,7 +2955,7 @@ export function createAppHelper({
       await mkdir(staged, { mode: 0o700 });
       progress?.(`$ tar -xzf ${backupName} ${relativePath}`, "stdout");
       // "--" before the member name (M50): one starting with "-" would be read as an option.
-      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged, "--", relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+      const extract = await runCommand(tarBinary, ["-xzf", artifact, "--no-overwrite-dir", "-C", staged, "--", relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
       if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
       const planted = await linksWhereBoxPilotWrites(staged, manifest);
       if (planted.length) throw new Error(plantedWords(manifest, planted, relativePath));

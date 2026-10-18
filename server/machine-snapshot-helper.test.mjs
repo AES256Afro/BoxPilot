@@ -577,6 +577,27 @@ describe("finding snapshots on a drive that was just plugged in", () => {
     expect(found.snapshots[0]).toMatchObject({ artifact: "machine-snapshot-20260820T020000Z-abcdef12.tar.gz", apps: 2, sizeBytes: 13 });
   });
 
+  // Linux only: creates symlinks. Everything discovery reads, it reads as root; a link on the drive
+  // could name a device or a huge file elsewhere on the server and hang the checksum, or make
+  // another folder of this server look like the drive's.
+  it.skipIf(onWindows)("does not follow a link on the drive to a folder or a snapshot elsewhere", async () => {
+    const { helper, paths } = await fixture();
+    const elsewhere = await mkdtemp(path.join(os.tmpdir(), "boxpilot-elsewhere-"));
+    await plant(elsewhere, "machine-snapshot-20260820T020000Z-abcdef12.tar.gz");
+    await mkdir(paths.rescueRoot, { recursive: true });
+    await symlink(elsewhere, path.join(paths.rescueRoot, "machine-snapshots"));
+    const mirror = path.join(paths.rescueRoot, "boxpilot-local-mirror", "machine-snapshots");
+    await mkdir(mirror, { recursive: true });
+    await symlink(path.join(elsewhere, "machine-snapshot-20260820T020000Z-abcdef12.tar.gz"), path.join(mirror, "machine-snapshot-20260821T020000Z-abcdef12.tar.gz"));
+    await plant(mirror, "machine-snapshot-20260822T020000Z-abcdef12.tar.gz");
+    await symlink("/dev/zero", path.join(mirror, "machine-snapshot-20260822T020000Z-abcdef12.tar.gz.meta.json.tmp"));
+    const { locations } = await helper.discover();
+    const onDrive = locations.filter((location) => location.root.startsWith(path.resolve(paths.rescueRoot)));
+    expect(onDrive.map((location) => location.root)).toEqual([path.resolve(mirror)]);
+    expect(onDrive[0].snapshots.map((snapshot) => snapshot.artifact)).toEqual(["machine-snapshot-20260822T020000Z-abcdef12.tar.gz"]);
+    await rm(elsewhere, { recursive: true, force: true });
+  });
+
   it("says nothing about a drive that has none", async () => {
     const { helper, paths } = await fixture();
     const { locations } = await helper.discover();
