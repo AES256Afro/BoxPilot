@@ -5,6 +5,7 @@
  * medium operation, what a high one guards. The jobs service, flows, the scheduler and the agents' plans
  * all take the tier from these (server/index.mjs registers them), and a hook can only raise a tier.
  */
+import { readFile } from "node:fs/promises";
 import { backupMountName } from "../backup-mount.mjs";
 import { servesHome } from "../tasks/served-folder.mjs";
 import { packageBase, protectedPackages } from "../tasks/apt.mjs";
@@ -21,6 +22,25 @@ import { defaultKeepBackupsPerApp } from "../housekeeping.mjs";
 export const packetFilterUnit = /^(nftables|netfilter-persistent|iptables|ip6tables|ebtables|arptables)(-[a-z0-9-]+)?\.service$/;
 
 const high = (condition) => (condition ? "high" : null);
+
+/**
+ * The homes of accounts that can log in, from /etc/passwd: a share writes as the folder's owner, and
+ * a service account with a shell (postgres, at /var/lib/postgresql) is a shell like any other.
+ */
+export function loginHomesFrom(passwd) {
+  return String(passwd ?? "").split("\n").map((line) => line.split(":")).filter((fields) => fields.length >= 7)
+    .filter(([, , , , , home, shell]) => home && home !== "/" && home !== "/nonexistent" && !/(?:nologin|false|sync|halt|shutdown)$/.test(shell.trim()))
+    .map(([, , , , , home]) => home.replace(/\/+$/, ""));
+}
+const insideAny = (homes) => (folder) => {
+  const path = String(folder ?? "").replace(/\/+$/, "") || "/";
+  return homes.some((home) => path === home || path.startsWith(`${home}/`));
+};
+async function servesLoginHome(paths, readPasswd = () => readFile("/etc/passwd", "utf8")) {
+  if (servesHome(paths)) return true;
+  const homes = loginHomesFrom(await readPasswd().catch(() => ""));
+  return (paths ?? []).some(insideAny(homes));
+}
 
 /**
  * Where an app's data folders are expected to live. A configurable volume is mounted read-write
@@ -46,8 +66,8 @@ export function higherOf(...hooks) {
 
 export const escalationRiskHooks = Object.freeze({
   // A share or export of a login account's home writes as that account: its ~/.ssh is a shell.
-  "samba.apply": (parameters) => high(servesHome((parameters?.shares ?? []).map((share) => share?.path))),
-  "nfs.apply": (parameters) => high(servesHome((parameters?.exports ?? []).map((entry) => entry?.path))),
+  "samba.apply": async (parameters) => high(await servesLoginHome((parameters?.shares ?? []).map((share) => share?.path))),
+  "nfs.apply": async (parameters) => high(await servesLoginHome((parameters?.exports ?? []).map((entry) => entry?.path))),
   // Importing keys is users.keys.import, which is high; creating the account with them is the same.
   "users.add": (parameters) => high(Boolean(parameters?.githubUser)),
   "apt.install": (parameters) => high((parameters?.packages ?? []).some((name) => protectedPackages.includes(packageBase(name)))),
