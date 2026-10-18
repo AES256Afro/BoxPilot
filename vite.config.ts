@@ -99,8 +99,12 @@ export default defineConfig({
     // Only the interface needs a DOM. Building jsdom for each of the server's three hundred files
     // was over a third of the suite's time, and a server test could lean on browser globals that
     // the server itself never has.
+    // The interface's files each run in a VM context on a shared worker ("vmThreads") rather than
+    // in a fresh worker with a fresh jsdom: the same isolation per file, and the UI run takes about
+    // a minute instead of over two. A test that needs another page address reconfigures jsdom
+    // (CatalogPage.test.tsx); window.location cannot be redefined in a VM context.
     projects: [
-      { extends: true, test: { name: "ui", include: ["src/**/*.test.{ts,tsx,mjs}"], environment: "jsdom", setupFiles: ["src/testSetup.ts"], testTimeout: 15_000 } },
+      { extends: true, test: { name: "ui", include: ["src/**/*.test.{ts,tsx,mjs}"], environment: "jsdom", pool: "vmThreads", setupFiles: ["src/testSetup.ts"], testTimeout: 15_000 } },
       { extends: true, test: { name: "node", include: ["{server,scripts,packages,test,demo-site}/**/*.test.mjs"], environment: "node" } },
     ],
   },
