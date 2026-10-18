@@ -212,3 +212,22 @@ export function createConcurrencyGate(limit, { maxWaiting = limit * 4 } = {}) {
   }
   return { run, active: () => running, waiting: () => waiting.length };
 }
+
+/**
+ * How many mutations the helper holds at once, running or waiting in a lane. Each keeps its
+ * connection open the whole time (up to the 24-hour queue ceiling), and the helper serves at most
+ * maxConnections: without this, sixty-odd jobs queued behind one long apt upgrade filled every
+ * connection and every read after them was dropped, so the pages went blank and nothing new could
+ * start. The one past the limit is answered at once, with nothing done.
+ */
+export function createAdmission(limit) {
+  if (!Number.isInteger(limit) || limit < 1) throw new Error("Invalid helper admission limit");
+  let held = 0;
+  function enter() {
+    if (held >= limit) throw Object.assign(new Error(`${limit} operations are already running or waiting for the helper. Nothing was changed; run this again once some of them finish.`), { code: "HELPER_BUSY" });
+    held += 1;
+    let left = false;
+    return () => { if (!left) { left = true; held -= 1; } };
+  }
+  return { enter, held: () => held, limit };
+}
