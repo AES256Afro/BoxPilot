@@ -15,7 +15,7 @@ import { composeSha256 } from "./catalog/compose-review.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, nvidiaReady = undefined, execTable = { vpn: "running", leaks: false, noCurl: false }, hostListeners = undefined, lanAddress = "192.168.1.10", dockerPs = [], machineSnapshotRoot = undefined, realpathOf = undefined } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, nvidiaReady = undefined, execTable = { vpn: "running", leaks: false, noCurl: false }, hostListeners = undefined, lanAddress = "192.168.1.10", dockerPs = [], machineSnapshotRoot = undefined, realpathOf = undefined, freeBytesOf = undefined } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -100,7 +100,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
   // Machine snapshots a backup's pruning must not take the archives of: none, unless a test makes some.
   const snapshots = machineSnapshotRoot ?? path.join(catalogDirectory, "no-machine-snapshots");
-  const apps = createAppHelper({ catalogRoot, backupRoot, machineSnapshotRoot: snapshots, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress, ...(hostListeners ? { hostListeners } : {}), ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(realpathOf ? { realpathOf } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}), ...(nvidiaReady ? { nvidiaReady } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, machineSnapshotRoot: snapshots, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress, ...(hostListeners ? { hostListeners } : {}), ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(realpathOf ? { realpathOf } : {}), ...(freeBytesOf ? { freeBytesOf } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}), ...(nvidiaReady ? { nvidiaReady } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance, runDocker };
 }
@@ -1466,6 +1466,20 @@ describe.skipIf(onWindows)("restoring an application backup", () => {
     const result = await apps.restoreAppBackup({ id: "demo", backup: made.artifact });
     expect(result.retainedOriginal).toBe(true);
     expect(await readFile(path.join(catalogRoot, "demo.replaced", "latest-data"), "utf8")).toBe("original newer data");
+  });
+
+  // A data archive a machine snapshot copies in from a drive or a mirror is whatever was written
+  // there: one that inflates past the free space would fill the disk as root before anything checks it.
+  it("refuses a backup that unpacks to more than the disk can take, before anything stops", async () => {
+    let free = 64 * 1024 ** 3;
+    const { apps, catalogRoot, containers } = await setup({ freeBytesOf: async () => free });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    free = 1024 ** 3 + 16;
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow(/unpacks to .* more than this server can take while keeping 1\.0 GiB free.*Nothing was changed/);
+    await expect(apps.restoreAppBackupPath({ id: "demo", backup: made.artifact, path: "compose.yaml" })).rejects.toThrow(/compose\.yaml in .* unpacks to/);
+    expect(containers.get("demo")?.running ?? true).toBe(true);
+    await expect(stat(path.join(catalogRoot, "demo.restoring"))).rejects.toThrow();
   });
 
   it("leaves the app running when archive extraction fails before the data swap", async () => {
