@@ -146,3 +146,13 @@
 .storage-trend { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
 /* A sparkline fills its box; here the box is a fixed strip beside the figure, at any column width. */
 .storage-trend .ui-spark { width: 96px; height: 24px; flex: none; }
+.storage-growth .storage-rows__item { display: grid; grid-template-columns: minmax(0, 1fr) 96px auto; justify-content: stretch; gap: 4px 12px; align-items: center; }
+.storage-growth__who { display: flex; flex-direction: column; min-width: 0; }
+.storage-growth__who > * { min-width: 0; max-width: 100%; }
+.storage-growth__who code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.storage-growth .ui-spark { width: 96px; height: 24px; }
+.storage-growth__figure { white-space: nowrap; }
+@media (max-width: 640px) {
+  .storage-growth .storage-rows__item { grid-template-columns: minmax(0, 1fr) 96px; }
+  .storage-growth__figure { grid-column: 1 / -1; white-space: normal; }
+}
