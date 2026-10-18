@@ -1881,8 +1881,9 @@ Proposed, value to the owner against effort:
 - ✅ **Activity filters** (failed, waiting, running) and search - medium, small to medium. The counts
   above the list are the filter, with a search over the title and the operation; a job opened from
   elsewhere is shown whatever the filter was left at.
-- **A Home item when old database copies pile up** - medium, small: points at the copies panel when
-  copies from before the secret scrub are still on disk.
+- ✅ **A Home item when old database copies pile up** - medium, small: points at the copies panel when
+  copies from before the secret scrub are still on disk (Home's `databaseCopies` fact, an operator's
+  read; "Review copies" opens System → Housekeeping).
 - **Restore a database copy as an operation** (high risk, stops BoxPilot) - medium, medium to large;
   today it is the three manual steps the rollback prints.
 - ✅ **Hold the update button while jobs run** - low to medium, small: the approval already refuses;
