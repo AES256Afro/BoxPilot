@@ -504,10 +504,17 @@ describe("the words", () => {
 });
 
 describe("database copies from before the secret scrub (M36)", () => {
-  it("says so once any are on disk, and opens System's Housekeeping, where they are removed", () => {
-    expect(buildNeeds({ ...none, databaseCopies: { heldSecrets: 0, total: 3 } }, { now, role: "owner" }).find((need) => need.id === "database-copies")).toBeUndefined();
-    const one = buildNeeds({ ...none, databaseCopies: { heldSecrets: 1, total: 3 } }, { now, role: "owner" }).find((need) => need.id === "database-copies");
-    expect(one).toMatchObject({ severity: "warning", title: "A database copy from before the secret scrub is still on disk", view: "system", action: { kind: "open", open: { view: "system", tab: "housekeeping" }, label: "Review copies" } });
-    expect(buildNeeds({ ...none, databaseCopies: { heldSecrets: 2, total: 2 } }, { now, role: "operator" }).find((need) => need.id === "database-copies")?.title).toBe("2 database copies from before the secret scrub are still on disk");
+  const need = (databaseCopies: { heldSecrets: number; removable: number; total: number }, role = "owner") => buildNeeds({ ...none, databaseCopies }, { now, role }).find((entry) => entry.id === "database-copies");
+
+  it("says so when removal can take any, and opens System's Housekeeping, where they are removed", () => {
+    expect(need({ heldSecrets: 0, removable: 0, total: 3 })).toBeUndefined();
+    expect(need({ heldSecrets: 1, removable: 1, total: 3 })).toMatchObject({ severity: "warning", title: "A database copy from before the secret scrub is still on disk", view: "system", action: { kind: "open", open: { view: "system", tab: "housekeeping" }, label: "Review copies" } });
+    expect(need({ heldSecrets: 3, removable: 2, total: 4 })?.title).toBe("2 database copies from before the secret scrub are still on disk");
+  });
+
+  it("stays quiet about copies the rule always keeps, and for anyone who cannot remove them", () => {
+    // The newest copy predates the scrub: removal never takes it, so Home would never clear.
+    expect(need({ heldSecrets: 1, removable: 0, total: 1 })).toBeUndefined();
+    expect(need({ heldSecrets: 2, removable: 2, total: 2 }, "operator")).toBeUndefined();
   });
 });
