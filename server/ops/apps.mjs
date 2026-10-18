@@ -343,7 +343,8 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.restoreAppBackupPath({ id: parameters.id, backup: parameters.backup, path: parameters.path }, { progress }),
     }),
     defineOperation({
-      id: "app.backup.delete", title: "Delete an application backup", risk: "medium",
+      // The owner's: an operator could otherwise remove every app's backups, one job at a time.
+      id: "app.backup.delete", title: "Delete an application backup", risk: "medium", minimumRole: "owner",
       description: "Removes one archive and its record. The app and its live data are untouched, and any copy already mirrored off this server stays where it is.", timeoutMs: 60_000,
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
       run: (parameters, { apps }) => apps.deleteAppBackup(parameters),

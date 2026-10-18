@@ -39,6 +39,12 @@ describe("what an export may serve", () => {
     await expect(nfsApply({ exports: [{ path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/system location/);
     expect(files.writeFile).not.toHaveBeenCalled();
   });
+
+  it("refuses a folder that reaches a login account's home only through a link", async () => {
+    const files = { ...fakeFiles(), realpath: vi.fn(async () => "/home/admin/media") };
+    await expect(nfsApply({ exports: [{ path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/inside a login account's home/);
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
 });
 
 describe("nfs tasks", () => {

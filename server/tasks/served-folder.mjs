@@ -15,3 +15,24 @@ export function cleanServedPath(value, denyPrefixes, { forbidden = /[\0\r\n]/ } 
   if (denyPrefixes.some((prefix) => within(prefix, trimmed) || within(trimmed, prefix))) return null;
   return trimmed;
 }
+
+/** Where the server's login accounts live. */
+export const homeRoot = "/home";
+const insideHome = (path) => typeof path === "string" && (path === homeRoot || path.startsWith(`${homeRoot}/`));
+
+/**
+ * Whether a share or export reaches into a login account's home. Samba forces writes as the folder's
+ * owner and NFS squashes every client to it, so serving /home/<admin> lets whoever can reach the share
+ * write that account's ~/.ssh: the owner's call, with a password (ops/samba.mjs, ops/nfs.mjs).
+ */
+export function servesHome(paths) {
+  return (paths ?? []).some((path) => insideHome(String(path ?? "").replace(/\/+$/, "") || "/"));
+}
+
+/**
+ * A folder that only reaches a home through a link is refused: the approval was given for the path as
+ * written, and its tier for a path outside /home.
+ */
+export function homeThroughLink(path, real) {
+  return !insideHome(path) && insideHome(real) ? `${path} leads to ${real}, inside a login account's home; share that folder by its own path` : null;
+}

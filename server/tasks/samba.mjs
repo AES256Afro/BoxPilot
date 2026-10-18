@@ -1,7 +1,7 @@
 import { access, copyFile, lchown, readFile, realpath, rename, stat } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
-import { cleanServedPath } from "./served-folder.mjs";
+import { cleanServedPath, homeThroughLink } from "./served-folder.mjs";
 
 /**
  * Root-side Samba (SMB file server) tasks executed by scripts/boxpilot-run.mjs.
@@ -66,6 +66,8 @@ async function resolvedShareFolder(files, share) {
   const path = cleanPath(share.path);
   const real = typeof files.realpath === "function" ? await files.realpath(path) : path;
   if (cleanPath(real) !== real) throw new Error(`share "${share.name}": ${path} leads to ${real}, a system location BoxPilot does not share`);
+  const linked = homeThroughLink(path, real);
+  if (linked) throw new Error(`share "${share.name}": ${linked}`);
   return real;
 }
 
