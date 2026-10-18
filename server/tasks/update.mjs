@@ -2,6 +2,7 @@ import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { productVersion } from "../version.mjs";
+import { compareVersions } from "../release-updates.mjs";
 
 /**
  * Self-update (root side, runs inside boxpilot-run@ with network). Re-checks that the release
@@ -48,9 +49,13 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   nodeBinary = process.execPath,
   now = () => new Date(),
   lockPath = upgradeLockPath,
+  installedVersion = productVersion,
 } = {}) {
   if (typeof tag !== "string" || !releaseTagPattern.test(tag)) throw new Error("Release tag must look like v1.2.3");
   if (typeof expectedCommit !== "string" || !shaPattern.test(expectedCommit)) throw new Error("Expected commit must be a full SHA-1");
+  // The web side only offers a newer release, but this runs as root on whatever reaches the helper:
+  // an older tag, with its real commit, would put back an older helper and the bugs fixed since.
+  if (compareVersions(tag.slice(1), installedVersion) <= 0) throw new Error(`${tag} is not newer than the installed ${installedVersion}; BoxPilot only updates forward. Nothing was changed.`);
 
   log?.(`Checking that ${tag} still points at ${expectedCommit.slice(0, 12)}`, "stdout");
   const response = await fetchImpl(`https://api.github.com/repos/${repository}/commits/${encodeURIComponent(tag)}`, {
