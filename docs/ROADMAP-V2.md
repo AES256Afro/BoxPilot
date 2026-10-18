@@ -1254,8 +1254,10 @@ clear until v1.112.0. The lesson generalises.
   filesystem to verify against.
 - **M31.2** Per-disk SMART trend chart in the UI (the sampler and alert exist).
 - **M31.3** Guided array/mount setup from bare disk to mounted-and-backed-up (M23.4).
-- **M31.4** "Where the space went" over time: the app-data sampler's history as a chart, so a
-  download folder growing 240 GB a week is a slope the owner can see, not only a sentence.
+- ✅ **M31.4** "Where the space went" over time: the app-data sampler's history as a chart, so a
+  download folder growing 240 GB a week is a slope the owner can see, not only a sentence. Storage
+  → Mounts lists the folders that grew most over the 30 days kept, each as a line, with what it grew
+  and holds (`growthByApp(..., { series: true })` in `/storage/forecast`).
 
 ## Review follow-through: 2026-09-07
 

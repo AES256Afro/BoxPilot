@@ -120,7 +120,7 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
     // Those sizes are app.data.usage's, which needs an operator (ADR-003): the path and size of
     // every app's data. A viewer gets the drive forecasts, which any account can read from df.
     const sizes = readsThroughHelper(request);
-    response.json({ forecasts, tracking: Object.keys(history).length, usage: sizes ? growthByApp(usage, { now, windowDays: 7, limit: 200 }) : [], lastMeasured: sizes ? state?.getSetting?.("appDataUsageLastRun", null) ?? null : null });
+    response.json({ forecasts, tracking: Object.keys(history).length, usage: sizes ? growthByApp(usage, { now, windowDays: 7, limit: 200, series: true }) : [], lastMeasured: sizes ? state?.getSetting?.("appDataUsageLastRun", null) ?? null : null });
   });
 
   // Discover LAN hosts offering SMB (445) or NFS (2049): recent neighbours plus a sweep of each /24.
