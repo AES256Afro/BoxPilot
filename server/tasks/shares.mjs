@@ -184,7 +184,7 @@ async function holdersOf(majMin, processes) {
  * Mount a share permanently at /mnt/<name>. Rolls back fstab and credentials if the first mount fails.
  * @param {{ kind?: string, host?: string, share?: string, name?: string, username?: string | null, password?: string | null, domain?: string | null, readOnly?: boolean }} [parameters]
  */
-export async function shareMount({ kind, host, share, name, username = null, password = null, domain = null, readOnly = false } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir, unlink, rmdir }, exists = (file) => access(file).then(() => true, () => false), now = () => new Date() } = {}) {
+export async function shareMount({ kind, host, share, name, username = null, password = null, domain = null, readOnly = false } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir, unlink, rmdir, readdir }, exists = (file) => access(file).then(() => true, () => false), now = () => new Date() } = {}) {
   const problem = validateShare({ kind, host, share, name, username, password, domain });
   if (problem) throw new Error(`Invalid share: ${problem}`);
   if (typeof readOnly !== "boolean") throw new Error("readOnly must be true or false");
