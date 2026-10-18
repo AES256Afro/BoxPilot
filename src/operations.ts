@@ -215,6 +215,7 @@ export function followJobs(listener: JobFeedListener): () => void {
         each((entry) => entry.onJob(job));
       },
       onStatus: (status) => { feed.status = status; each((entry) => entry.onStatus?.(status)); },
+      // The first follower's timings drive the shared feed; a later one's are not used.
       pollAfterMs: listener.pollAfterMs, pollEveryMs: listener.pollEveryMs,
     });
   } else {
