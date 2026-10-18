@@ -133,6 +133,6 @@ describe("PUT /settings/assistant", () => {
 describe("GET /assistant/status", () => {
   it("says whether the model answers and how big the index is", async () => {
     const body = await (await fetch(`${base}/api/v1/assistant/status`, { headers: { "x-test-role": "owner" } })).json();
-    expect(body).toMatchObject({ ready: true, reachable: true, chatModel: "hermes3:8b", embeddings: false, index: { documents: 2, operations: registry.list().length, apps: 0 } });
+    expect(body).toMatchObject({ ready: true, reachable: true, chatModel: "hermes3:8b", embeddings: false, index: { documents: 2, operations: registry.list().filter((operation) => !operation.internal).length, apps: 0 } });
   });
 });

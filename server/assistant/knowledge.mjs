@@ -134,9 +134,13 @@ function describeField(name, field) {
   return `${name} (${details.join(", ")})`;
 }
 
-/** One chunk per registered operation: what it does, its tier, who may run it, its parameters. */
+/**
+ * One chunk per registered operation: what it does, its tier, who may run it, its parameters.
+ * BoxPilot's own plumbing is left out: the planner drops it, so describing it only invites a step
+ * that is thrown away.
+ */
 export function operationChunks(registry) {
-  return registry.list().map((operation) => {
+  return registry.list().filter((operation) => !operation.internal).map((operation) => {
     const fields = Object.entries(operation.parameters?.fields ?? {}).map(([name, field]) => describeField(name, field));
     const who = operation.minimumRole === "owner" || operation.risk === "high" ? "the owner" : operation.minimumRole === "operator" || !operation.readOnly ? "an operator or the owner" : "anyone signed in";
     return {

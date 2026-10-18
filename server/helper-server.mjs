@@ -34,8 +34,7 @@ import { fixedRun } from "./exec.mjs";
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const idleGraceMs = 30_000;
 const maxRequestBytes = 128 * 1024; // compose edits and key imports declare 64 KiB fields
-const legacyReadOnlyOperations = new Set(["container.docker.inspect", "container.docker.inventory", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
-const readOnlyOperations = new Set([...registry.readOnlyIds(), ...legacyReadOnlyOperations]);
+const readOnlyOperations = new Set(registry.readOnlyIds());
 const lanes = createLaneQueues();
 // BoxPilot restarting itself after an upgrade or a KVM install: once no lane is held, waiting without
 // holding any, then holding the exclusive lane so nothing new starts before it. From the moment it

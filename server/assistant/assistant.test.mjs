@@ -438,7 +438,7 @@ describe("settings and status", () => {
     expect(viewer).not.toHaveProperty("settings");
     const owner = await assistant.status(caller("owner"));
     expect(owner).toMatchObject({ endpoint: fake.url, settings: { endpoint: fake.url } });
-    expect(owner.index.operations).toBe(registry.list().length);
+    expect(owner.index.operations).toBe(registry.list().filter((operation) => !operation.internal).length);
     expect(owner.index.documents).toBe(3);
   });
 });
