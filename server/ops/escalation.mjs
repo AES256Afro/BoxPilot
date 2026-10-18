@@ -6,6 +6,7 @@
  * all take the tier from these (server/index.mjs registers them), and a hook can only raise a tier.
  */
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import { backupMountName } from "../backup-mount.mjs";
 import { servesHome } from "../tasks/served-folder.mjs";
 import { packageBase, protectedPackages } from "../tasks/apt.mjs";
@@ -55,6 +56,13 @@ export function foldersOutsideDataRoots(values) {
   return chosen.filter((folder) => typeof folder !== "string" || !dataRoots.some((root) => folder.replace(/\/+$/, "").startsWith(`${root}/`)));
 }
 
+/** This server's own IPv4 addresses, the ones local names may point at. */
+const ownAddresses = () => Object.values(os.networkInterfaces()).flat().filter((entry) => entry?.family === "IPv4").map((entry) => entry.address);
+
+/** The least history space.cleanup may leave without the owner: a week, and a quarter GiB of journal. */
+export const historyFloor = Object.freeze({ days: 7, journalBytes: 256 * 1024 ** 2 });
+const below = (value, floor) => value !== undefined && value !== null && Number(value) < floor;
+
 /** The higher of several hooks' tiers, for an operation two concerns raise (a manifest's tier, a folder). */
 export function higherOf(...hooks) {
   const order = ["low", "medium", "high"];
@@ -81,6 +89,14 @@ export const escalationRiskHooks = Object.freeze({
   // own Cloudflare account can route the internet to any port on 127.0.0.1, BoxPilot's included.
   // Installing it is high in its manifest; handing it a new token is the same.
   "app.reconfigure": (parameters) => high((parameters?.id === tunnelAppId && Object.hasOwn(parameters?.values?.env ?? {}, "TUNNEL_TOKEN")) || foldersOutsideDataRoots(parameters?.values).length > 0),
+  // Every app's name pointed at another machine is every app's sign-in page served from there.
+  "dns.names.apply": (parameters) => high(!ownAddresses().includes(String(parameters?.address ?? ""))),
+  // Offering an exit node or routes opens the LAN (or Docker's and libvirt's networks) to the tailnet,
+  // which is the firewall's kind of decision.
+  "tailscale.set": (parameters) => high(parameters?.exitNode === true || (parameters?.subnetRouter === true && (parameters?.routes ?? []).length > 0)),
+  // The journal holds sudo and SSH history: shrinking it to a day erases the trail of what was done.
+  "space.cleanup": (parameters) => high(((parameters?.categories ?? []).includes("journal") && (below(parameters?.journalMaxAgeDays, historyFloor.days) || below(parameters?.journalMaxBytes, historyFloor.journalBytes)))
+    || ((parameters?.categories ?? []).includes("job-logs") && below(parameters?.jobLogRetentionDays, historyFloor.days))),
   // index.mjs combines this with the manifest's own tier (installRiskLookup) through higherOf.
   "app.install": (parameters) => high(foldersOutsideDataRoots(parameters?.values).length > 0),
   // Each backup prunes all but the newest `keep`: a few runs with keep 1 delete what

@@ -1190,6 +1190,11 @@ the root-side operations found medium operations that reach what a high one guar
   install` removes what Conflicts with the new package, and `remove --auto-remove` takes what
   depends on the removed one, so a protected package can go without being named. `app.backup.many`
   takes `keep` like `app.backup`.
+- An app given port 443 and then served (`app.serve.set`) replaced the Serve entry BoxPilot is
+  reached at; withdrawing it, or moving the app back to the home network, took that address down.
+- `dns.names.apply` pointed every app's name at any address; `tailscale.set` offered the LAN,
+  Docker's or libvirt's networks to the tailnet; `space.cleanup` could cut the journal, with its
+  sudo and SSH history, to a day.
 
 ### Decision
 
@@ -1200,7 +1205,10 @@ the root-side operations found medium operations that reach what a high one guar
    an app data folder outside `/mnt`, `/media` and `/srv` (`dataRoots`). A share counts as a home
    when it is inside any account's home that has a login shell in `/etc/passwd`. Installs and
    selected upgrades pass `--no-remove`, and a removal whose plan (`apt-get -s`) takes a protected
-   package nobody named is refused.
+   package nobody named is refused. Local names that point anywhere but this server, an exit node or
+   advertised routes, and a cleanup that leaves less than a week of history (or 256 MiB of journal)
+   are high. An app's tailnet switch refuses a port whose Serve entry forwards to anything but that
+   app, and a share is not mounted over a folder that holds files.
    The Cloudflare Tunnel manifest is high, so installing it is too. Hooks only
    raise a tier, and the jobs service, flows, the scheduler and the agents' plans already take the
    tier from them, so a raised job needs the owner and a password and can never run unattended.
