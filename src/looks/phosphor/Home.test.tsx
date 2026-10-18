@@ -33,6 +33,9 @@ describe("Home as a phosphor terminal", () => {
     vi.stubGlobal("fetch", stubFetch());
     renderHome();
     await screen.findByRole("button", { name: "Install: 4 updates available" });
+    // The fixes arrive from their own request: a key pressed before the one it starts is drawn
+    // does nothing, and the dialog never comes however long the test waits.
+    await screen.findByRole("button", { name: "Start: Vaultwarden is not running" });
     fireEvent.keyDown(document, { key: "s" });
     expect(await screen.findByRole("dialog", { name: "Start Vaultwarden" })).toBeTruthy();
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/v1/operations/app.action/jobs", expect.objectContaining({ method: "POST", body: JSON.stringify({ parameters: { id: "vaultwarden", action: "start" } }) }));
