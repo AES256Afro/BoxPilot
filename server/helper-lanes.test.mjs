@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backupTreeLane, createConcurrencyGate, createLaneQueues, dockerLane, exclusiveLane, laneFor } from "./helper-lanes.mjs";
+import { createAdmission, backupTreeLane, createConcurrencyGate, createLaneQueues, dockerLane, exclusiveLane, laneFor } from "./helper-lanes.mjs";
 
 describe("helper lanes", () => {
   it("gives each app and VM its own lane and keeps shared host work on one", () => {
@@ -416,4 +416,28 @@ it("keeps an operation's lanes held for what it asks to be held for, after it ha
   expect(order).toEqual(["reconnect", "app start"]);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(queues.size()).toBe(0);
+});
+
+describe("how many mutations the helper holds at once", () => {
+  it("answers the one past the limit at once, and makes room as each leaves, once", () => {
+    const admission = createAdmission(2);
+    const first = admission.enter();
+    const second = admission.enter();
+    expect(() => admission.enter()).toThrow(expect.objectContaining({ code: "HELPER_BUSY", message: expect.stringMatching(/Nothing was changed/) }));
+    first();
+    first(); // leaving twice frees one place, not two
+    const third = admission.enter();
+    expect(admission.held()).toBe(2);
+    expect(() => admission.enter()).toThrow(/2 operations are already running or waiting/);
+    second(); third();
+    expect(admission.held()).toBe(0);
+  });
+
+  it("leaves room in the helper's connections for every read the read gate lets through", async () => {
+    const source = await import("node:fs/promises").then(({ readFile }) => readFile("server/helper-server.mjs", "utf8"));
+    const mutations = Number(/createAdmission\((\d+)\)/.exec(source)[1]);
+    const [, running, waiting] = /createConcurrencyGate\((\d+)(?:, \{ maxWaiting: (\d+) \})?\)/.exec(source).map(Number);
+    const connections = Number(/const maxConnections = (\d+)/.exec(source)[1]);
+    expect(connections).toBeGreaterThan(mutations + running + (Number.isFinite(waiting) ? waiting : running * 4));
+  });
 });

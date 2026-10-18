@@ -11,7 +11,7 @@ import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
 import { helperErrorReply, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
-import { createConcurrencyGate, createLaneQueues, laneFor } from "./helper-lanes.mjs";
+import { createAdmission, createConcurrencyGate, createLaneQueues, laneFor } from "./helper-lanes.mjs";
 import { createDrainedRestart, restartRefusalError } from "./self-restart.mjs";
 import { resumeInterruptedBackups } from "./interrupted-backups.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
@@ -53,6 +53,10 @@ const selfRestart = createDrainedRestart({ lanes, run: fixedRun, onRestarting: (
 // Inspections do not queue per subject, so this is what stops a page in a reload loop from
 // starting dozens of root child processes at once.
 const reads = createConcurrencyGate(8);
+// Mutations held at once, and the connections that leaves room for: 64 mutations, 8 reads running
+// and 32 waiting (the gate above), and the rest for connections that have not sent their request yet.
+const mutations = createAdmission(64);
+const maxConnections = 128;
 const queuedHeartbeatMs = 20_000;
 /** Mutations waiting in a lane, not yet started. */
 const waiting = new Set();
@@ -155,6 +159,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
         result = await reads.run(() => executeHelperOperation(request, helperDependencies), { signal: abandoned.signal });
       } else {
         if (restarting) throw restartRefusalError();
+        const admitted = mutations.enter();
         const held = laneFor(request.operation, request.parameters);
         // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
         // both idle timers alive; the client reads those lines as progress, not as the reply.
@@ -189,6 +194,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
         } finally {
           waiting.delete(queued);
           if (heartbeat) clearInterval(heartbeat);
+          admitted();
         }
       }
       reply(result);
@@ -221,7 +227,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 });
 // Bound even peers that connect without submitting a request. The socket is local and group
 // protected, but valid web requests must not turn into unlimited root-process connections.
-server.maxConnections = 64;
+server.maxConnections = maxConnections;
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
