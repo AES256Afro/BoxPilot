@@ -476,7 +476,10 @@ export function validateManifest(raw) {
   return { manifest, errors: [] };
 }
 
-const hostPathDenyPrefixes = ["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/docker", "/var/lib/libvirt", "/opt/boxpilot", "/snap", "/var/lib/snapd"];
+// Each is a place a container writing as root turns into root on the server: cron's spool, dpkg's
+// maintainer scripts, cloud-init's per-boot scripts, polkit's rules, containerd's own state.
+export const rootReachableLocations = Object.freeze(["/var/lib/containerd", "/var/spool", "/var/lib/dpkg", "/var/lib/cloud", "/var/lib/polkit-1"]);
+const hostPathDenyPrefixes = ["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/docker", "/var/lib/libvirt", "/opt/boxpilot", "/snap", "/var/lib/snapd", ...rootReachableLocations];
 
 /**
  * True when a (resolved) host path is one the deployer must never bind-mount: a protected location,
