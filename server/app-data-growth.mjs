@@ -73,7 +73,7 @@ export function growthOverWindow(samples, { now, windowDays = 7 } = {}) {
  * cleared out is worth seeing next to one that doubled.
  *
  * @param {Record<string, any[]>} history
- * @param {{ now?: Date | number, mount?: string | null, windowDays?: number, limit?: number }} [options]
+ * @param {{ now?: Date | number, mount?: string | null, windowDays?: number, limit?: number, series?: boolean }} [options]
  */
 export function growthByApp(history, { now, mount = null, windowDays = 7, limit = 6, series = false } = {}) {
   const rows = [];
