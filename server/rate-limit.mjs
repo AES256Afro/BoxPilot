@@ -55,6 +55,8 @@ export function rateLimited(limit, name, { keyOf = (request) => request.boxpilot
  * A limit per caller for a door before the session wall. Behind Tailscale Serve every request
  * arrives from 127.0.0.1, so the caller is the tailnet peer `clientAddress` names when it names one
  * (identity.mjs); keyed by `request.ip` alone, one caller spent every other caller's window.
+ * @param {{ clientAddress?: (request: any) => string | null | Promise<string | null>, prefix?: string, count?: number, perMs?: number, maxKeys?: number, now?: () => number }} [options]
+ * @returns {(request: any) => Promise<boolean>}
  */
 export function createSourceLimit({ clientAddress = async () => null, prefix = "source", ...options } = {}) {
   const limit = createRateLimit(options);
