@@ -27,6 +27,28 @@ export const packetFilterUnit = /^(nftables|netfilter-persistent|iptables|ip6tab
 
 const high = (condition) => (condition ? "high" : null);
 
+/**
+ * Where an app's data folders are expected to live. A configurable volume is mounted read-write
+ * into a container that often runs as root inside: pointed at /var/spool/cron or an admin's home
+ * it writes a crontab or ~/.ssh, which is root on this server. Outside these, choosing the folder
+ * is the owner's, with a password; the deny list in schema.mjs still refuses system locations
+ * for everyone.
+ */
+export const dataRoots = Object.freeze(["/mnt", "/media", "/srv"]);
+export function foldersOutsideDataRoots(values) {
+  const chosen = Object.values(values?.volumes && typeof values.volumes === "object" ? values.volumes : {});
+  return chosen.filter((folder) => typeof folder !== "string" || !dataRoots.some((root) => folder.replace(/\/+$/, "").startsWith(`${root}/`)));
+}
+
+/** The higher of several hooks' tiers, for an operation two concerns raise (a manifest's tier, a folder). */
+export function higherOf(...hooks) {
+  const order = ["low", "medium", "high"];
+  return async (parameters) => {
+    const tiers = await Promise.all(hooks.map((hook) => Promise.resolve(hook(parameters)).catch(() => null)));
+    return tiers.reduce((best, tier) => (order.indexOf(tier) > order.indexOf(best) ? tier : best), null);
+  };
+}
+
 export const escalationRiskHooks = Object.freeze({
   // A share or export of a login account's home writes as that account: its ~/.ssh is a shell.
   "samba.apply": (parameters) => high(servesHome((parameters?.shares ?? []).map((share) => share?.path))),
@@ -43,7 +65,9 @@ export const escalationRiskHooks = Object.freeze({
   // The tunnel runs on the host's network with whatever token it is given: a token for someone's
   // own Cloudflare account can route the internet to any port on 127.0.0.1, BoxPilot's included.
   // Installing it is high in its manifest; handing it a new token is the same.
-  "app.reconfigure": (parameters) => high(parameters?.id === tunnelAppId && Object.hasOwn(parameters?.values?.env ?? {}, "TUNNEL_TOKEN")),
+  "app.reconfigure": (parameters) => high((parameters?.id === tunnelAppId && Object.hasOwn(parameters?.values?.env ?? {}, "TUNNEL_TOKEN")) || foldersOutsideDataRoots(parameters?.values).length > 0),
+  // index.mjs combines this with the manifest's own tier (installRiskLookup) through higherOf.
+  "app.install": (parameters) => high(foldersOutsideDataRoots(parameters?.values).length > 0),
   // Each backup prunes all but the newest `keep`: a few runs with keep 1 delete what
   // app.backup.delete (owner only) guards. Keeping fewer than housekeeping always keeps is the owner's call.
   "app.backup": (parameters) => high(parameters?.keep !== undefined && parameters?.keep !== null && Number(parameters.keep) < defaultKeepBackupsPerApp),
