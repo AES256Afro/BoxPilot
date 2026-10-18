@@ -85,3 +85,27 @@ export function createEventStream(response, {
   function end() { if (!closed) response.end(); }
   return { send, write, output, ready, onClose, end, abort, get closed() { return closed; } };
 }
+
+/**
+ * End a stream when the session that opened it ends, or its account's role changes.
+ *
+ * A stream is authorized once, when it opens, and can stay open for hours: the Activity drawer's
+ * for as long as the tab is. Signing out, a revoked session, a disabled or demoted account and a
+ * password change all delete or change the session row, so looking it up again now and then is
+ * what makes them reach a connection already open. An owner demoted to operator would otherwise
+ * keep receiving every account's jobs.
+ * @param {{ end: () => void, onClose: (handler: () => void) => void, closed?: boolean }} stream
+ * @param {{ session?: { token?: string, owner?: { id?: string, role?: string } } | null, lookup?: (token: string) => any, everyMs?: number, now?: () => number, setInterval?: (handler: () => void, ms: number) => any, clearInterval?: (handle: any) => void }} [options]
+ */
+export function endWhenSessionEnds(stream, { session, lookup, everyMs = 15_000, now = () => Date.now(), setInterval: every = globalThis.setInterval, clearInterval: stop = globalThis.clearInterval } = {}) {
+  if (!session?.token || typeof lookup !== "function") return;
+  const role = session.owner?.role ?? null;
+  const check = () => {
+    const live = lookup(session.token);
+    const expiresAt = Date.parse(live?.expiresAt ?? "");
+    if (!live || live.owner?.role !== role || !(expiresAt > now())) stream.end();
+  };
+  const timer = every(check, everyMs);
+  timer?.unref?.();
+  stream.onClose(() => stop(timer));
+}

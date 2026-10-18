@@ -3,7 +3,7 @@
  * Activity-drawer event stream, and operation schedules. Mounted at /api/v1 behind the session.
  */
 import { Router } from "express";
-import { createEventStream, createStreamBudget } from "../event-stream.mjs";
+import { createEventStream, createStreamBudget, endWhenSessionEnds } from "../event-stream.mjs";
 import { suggestFlows, suggestionFacts } from "../flow-suggestions.mjs";
 import { callerId, readsThroughHelper, seesEveryAccount } from "./access.mjs";
 import { registry } from "../ops/index.mjs";
@@ -32,6 +32,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     const stream = createEventStream(response);
     stream.onClose(release);
+    endWhenSessionEnds(stream, { session: request.boxpilotSession, lookup: (token) => state.getSession(token) });
     return stream;
   }
 
