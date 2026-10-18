@@ -336,8 +336,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   router.get("/network/dns-resilience", async (request, response) => {
     if (!dnsResilience) return response.status(404).json({ error: "Not found", code: "not_found" });
     try {
-      const verdict = await dnsResilience.check({ fresh: request.query?.fresh === "1" && (request.boxpilotSession?.owner?.role ?? "disabled") !== "viewer" });
-      return response.json({ ...verdict, afterOutage: latestOutageCheck(state) });
+      const verdict = await dnsResilience.check({ fresh: request.query?.fresh === "1" && (request.boxpilotSession?.owner?.role ?? "disabled") !== "viewer", counts: readsThroughHelper(request) });
+      return response.json(withOwnActors(request, { ...verdict, afterOutage: latestOutageCheck(state) }));
     } catch (error) {
       return response.status(500).json({ error: `The DNS check could not run: ${error.message}`, code: "dns_resilience_failed" });
     }
