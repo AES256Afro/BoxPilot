@@ -2404,6 +2404,7 @@ describe("saved settings from an older catalog", () => {
       await writeFile(path.join(staging, "apps", "tunnel", ".env"), "TUNNEL_TOKEN='eyJ-the-token'\n");
     };
     const run = vi.fn(async (_binary, args) => {
+      if (args[0] === "-tvzf") return { ok: true, stdout: "", stderr: "" };
       if (args[0] !== "-xzf" || !args.includes("-C")) return { ok: false, stdout: "", stderr: "unexpected" };
       await unpack(args[args.indexOf("-C") + 1]);
       return { ok: true, stdout: "", stderr: "" };
@@ -2787,6 +2788,7 @@ describe("devices for apps a machine snapshot restore installs", () => {
     await writeFile(path.join(snapshotRoot, artifact), "archive-bytes");
     await writeFile(path.join(snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ checksumSha256: createHash("sha256").update("archive-bytes").digest("hex") }));
     const run = vi.fn(async (_binary, args) => {
+      if (args[0] === "-tvzf") return { ok: true, stdout: "", stderr: "" };
       const staging = args[args.indexOf("-C") + 1];
       await writeFile(path.join(staging, "manifest.json"), JSON.stringify({ contents: { apps: [{ id: "stick", installed: true }, { id: "transcoder", installed: true }] }, files: [] }));
       for (const id of ["stick", "transcoder"]) {
