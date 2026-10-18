@@ -843,6 +843,16 @@ export function createMachineSnapshotHelper({
     return { source, artifact, createdAt: manifest.createdAt ?? meta?.createdAt ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps, system: manifest.contents?.system ?? null, vms: vms ?? null, containsSecrets: true };
   }
 
+  /** The bytes an archive holds once unpacked, from its listing; throws when it cannot be listed. */
+  async function expandedBytes(artifactPath) {
+    const listing = await run(tarBinary, ["-tvzf", artifactPath, "--numeric-owner"], { timeout: 30 * 60_000, maxBuffer: 64 * 1024 * 1024 });
+    if (!listing.ok) throw new Error(`Could not read the snapshot: ${listing.stderr.split("\n").slice(-2).join(" ")}`);
+    let total = 0;
+    for (const line of listing.stdout.split("\n")) total += Number(/^\S+\s+\S+\s+(\d+)\s/.exec(line)?.[1] ?? 0);
+    return total;
+  }
+  const gib = (bytes) => `${(Math.max(0, bytes) / 1024 ** 3).toFixed(1)} GiB`;
+
   /**
    * Rehydrate from a snapshot. Apps: project files are restored, the app is (re)installed through the
    * generic deployer using the archived settings and secrets, then (optionally) its newest data
@@ -855,15 +865,6 @@ export function createMachineSnapshotHelper({
    * `allowCompose` is, per app id, the sha256 of a data archive's compose file the owner allowed to
    * be started exactly as archived although it gives the app more than the catalog does (sweep 4).
    */
-  /** The bytes an archive holds once unpacked, from its listing; throws when it cannot be listed. */
-  async function expandedBytes(artifactPath) {
-    const listing = await run(tarBinary, ["-tvzf", artifactPath, "--numeric-owner"], { timeout: 30 * 60_000, maxBuffer: 64 * 1024 * 1024 });
-    if (!listing.ok) throw new Error(`Could not read the snapshot: ${listing.stderr.split("\n").slice(-2).join(" ")}`);
-    let total = 0;
-    for (const line of listing.stdout.split("\n")) total += Number(/^\S+\s+\S+\s+(\d+)\s/.exec(line)?.[1] ?? 0);
-    return total;
-  }
-  const gib = (bytes) => `${(Math.max(0, bytes) / 1024 ** 3).toFixed(1)} GiB`;
 
   async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, devicesByApp = null, allowCompose = null }, { apps: appHelper, progress = null, serve = null } = {}) {
     if (!appHelper) throw new Error("Application deployer is unavailable");
