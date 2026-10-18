@@ -1154,3 +1154,53 @@ examples and, only if it beats the base model on the evaluations, for a GPU fine
   few seconds of model time once.
 - Training stays off the box. If the owner trains an adapter elsewhere, the gate is the same
   evaluation that gates everything else: it ships only if it beats the base model.
+
+## ADR-016: catalog images are pinned by digest, and rollback goes back to the digest that ran
+
+**Date:** 2026-10-18 · **Status:** Proposed (needs the owner's decision)
+
+### Context
+
+A catalog manifest names an image by tag (`vaultwarden/server:1.37.1-alpine`). 2 of 170 manifests
+also pin a digest; the schema already accepts `repo:tag@sha256:…` and the App sheet shows "digest
+pinned". A tag is a pointer the publisher can move:
+
+- Some publishers rebuild a version tag for base-image fixes (LinuxServer's `version-*` tags, for
+  one). Two servers installing "1.2.3" a week apart can run different bytes, and nothing records
+  which.
+- A rollback (`app.rollback`) redeploys the previous *tag* and pulls it again. If the tag moved,
+  the rollback lands on bytes the app never ran, and reports success.
+- A compromised registry account can repoint a tag. `catalog-check-images` checks that a tag
+  exists, not that it still points where it did.
+
+#485 already keeps restored backups and saved history to the catalog's own repository. This
+is the remaining half: which bytes inside that repository.
+
+### Proposal
+
+1. **Manifests carry `tag@sha256:digest`.** `catalog-update-images.mjs --write` writes the digest it
+   resolved next to the tag it chose (the registry's `Docker-Content-Digest` for the multi-arch
+   index), so the weekly catalog-updates pull request shows both moving together. A one-off run
+   pins the 168 manifests that have no digest yet.
+2. **`catalog-check-images` fails on drift.** It already does a HEAD on each manifest. It would also
+   compare `Docker-Content-Digest` with the pinned digest and fail when a tag now points elsewhere,
+   naming the image. A moved tag becomes a reviewed change instead of a silent one.
+3. **Update history stores the digest that ran.** Before an update, the deployer reads the running
+   container's `RepoDigests` and records `repo@sha256:…` beside the tag in `updateHistory`. Rollback
+   deploys that digest when it is the same repository as the catalog's (`catalogImagePin` already
+   enforces the repository), and falls back to the tag only for history written before this.
+4. **Sidecars too.** The same pin, check and history apply to sidecar images.
+
+### Consequences
+
+- What a server runs is reproducible from the manifest, and a rollback is the bytes that ran.
+- A publisher's silent rebuild shows up as a failed check and then a catalog pull request. The cost
+  is one more review in the weekly update when that happens.
+- Digests are per index, so multi-arch images keep working: Docker picks the platform under the
+  pinned index.
+- Not covered: signature verification (cosign) and catalog signing, which remain on the roadmap
+  (M3.1 "signature check") and need keys the owner holds.
+
+### Decision needed
+
+Accept 1–4 as one change, or take 3 alone (rollback by digest, no catalog churn).
