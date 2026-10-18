@@ -190,7 +190,8 @@ export function storageOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.fs-snapshot.create", { kind: parameters.kind, target: parameters.target, name: parameters.name }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "storage.fs-snapshot.delete", title: "Delete a filesystem snapshot", risk: "medium", timeoutMs: minutes(2), confirm: (parameters) => String(parameters.name ?? ""),
+      // The owner's, as rolling back to one is: an operator could otherwise remove every restore point.
+      id: "storage.fs-snapshot.delete", title: "Delete a filesystem snapshot", risk: "medium", minimumRole: "owner", timeoutMs: minutes(2), confirm: (parameters) => String(parameters.name ?? ""),
       description: "Removes one snapshot: a btrfs snapshot under the managed .boxpilot-snapshots folder, or a ZFS snapshot by its @name. The filesystem's live data is untouched.",
       parameters: { fields: {
         kind: { type: "string", enum: [...snapshotKinds] },
@@ -329,8 +330,10 @@ export function storageOperations() {
       parameters: { fields: {
         device: { type: "string", maxLength: 32, pattern: devicePattern },
         label: { type: "string", optional: true, nullable: true, maxLength: 16, pattern: labelPattern },
+        // Which disk this was when it was staged, read by the web process (index.mjs prepare hook).
+        identity: { type: "object", optional: true, nullable: true, validate: (value) => (Object.entries(value).every(([key, field]) => ["serial", "wwn", "size", "model"].includes(key) && (field === null || (typeof field === "string" && field.length <= 128))) ? null : "must name only the disk's serial, wwn, size and model") },
       } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.format", { device: parameters.device, label: parameters.label ?? null }, { timeoutMs: minutes(32), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.format", { device: parameters.device, label: parameters.label ?? null, identity: parameters.identity ?? null }, { timeoutMs: minutes(32), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.swapfile.set", title: "Create or remove the swap file", risk: "medium", timeoutMs: minutes(10),
@@ -358,7 +361,7 @@ export function storageOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-snapshot-create", { path: parameters.path, sizeGiB: parameters.sizeGiB ?? 10, suffix: parameters.suffix ?? null }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "storage.lvm.snapshot.delete", title: "Remove a snapshot", risk: "medium", timeoutMs: minutes(6),
+      id: "storage.lvm.snapshot.delete", title: "Remove a snapshot", risk: "medium", minimumRole: "owner", confirm: (parameters) => snapshotNameFromPath(parameters.path), timeoutMs: minutes(6),
       description: "Removes a BoxPilot snapshot and frees its space in the volume group.",
       parameters: { fields: { path: { type: "string", maxLength: 120, pattern: /^\/dev\/mapper\/[A-Za-z0-9._+-]+-boxpilot--snap--[A-Za-z0-9._+-]+$/ } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-snapshot-delete", { path: parameters.path }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),

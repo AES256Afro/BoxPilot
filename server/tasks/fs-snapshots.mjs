@@ -1,4 +1,4 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, realpath } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
 
 /**
@@ -130,13 +130,19 @@ export async function fsSnapshotCreate({ kind, target, name } = {}, { run = fixe
  * Delete one snapshot created here (btrfs: only under the managed snapshot folder; zfs: only an @snapshot).
  * @param {{ kind?: string, target?: string, name?: string }} [parameters]
  */
-export async function fsSnapshotDelete({ kind, target, name } = {}, { run = fixedRun, log = null } = {}) {
+export async function fsSnapshotDelete({ kind, target, name } = {}, { run = fixedRun, log = null, resolve = realpath } = {}) {
   checkName(name);
   if (kind === "btrfs") {
     const mounts = await btrfsMounts(run);
     const mount = mounts.find((entry) => entry.target === target);
     if (!mount) throw new Error(`${target} is not a mounted btrfs filesystem`);
     const path = `${mount.target}/${btrfsSnapshotDirectory}/${name}`;
+    // A drive mounted for the apps is theirs to write, and its snapshot folder can be swapped for a
+    // link to the drive's top: the same name would then delete a live subvolume. Only the path that
+    // resolves to itself inside the real snapshot folder is deleted.
+    const real = await resolve(path).catch(() => null);
+    const expected = `${await resolve(mount.target).catch(() => mount.target)}/${btrfsSnapshotDirectory}/${name}`;
+    if (real !== expected) throw new Error(`${path} is not a snapshot in ${mount.target}'s ${btrfsSnapshotDirectory} folder${real ? ` (it leads to ${real})` : ""}; nothing was deleted`);
     const removed = await run(binaries.btrfs, ["subvolume", "delete", path], { timeout: 60_000 });
     if (!removed.ok) throw new Error(`btrfs subvolume delete failed: ${tail(removed.stderr)}`);
     log?.(`Deleted btrfs snapshot ${path}`, "stdout");
