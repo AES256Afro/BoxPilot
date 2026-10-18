@@ -75,6 +75,9 @@ export function createAgentsCloud({ state, gateway = createGatewayClient(), now 
     /**
      * One model call through the gateway, held to the cap here before it goes. Rejects with a coded
      * Error (the gateway's codes, Claude's, `gateway-down`, or `budget` when the month is spent).
+     *
+     * @param {import("../../packages/harness/src/provider.mjs").ChatRequest} request
+     * @param {{ signal?: AbortSignal, timeoutMs?: number }} [options]
      */
     async chat(request, { signal, timeoutMs } = {}) {
       const usable = this.usable();

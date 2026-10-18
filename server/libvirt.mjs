@@ -142,6 +142,7 @@ export function validateSnapshotName(name) {
   return typeof name === "string" && snapshotPattern.test(name);
 }
 
+/** @param {{ runCommand?: typeof defaultRunCommand, checkKvmAccess?: () => Promise<boolean> }} [options] */
 export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmAccess } = {}) {
   const hasKvmAccess = checkKvmAccess ?? (async () => {
     try {

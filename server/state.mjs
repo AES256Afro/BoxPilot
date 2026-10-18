@@ -48,6 +48,7 @@ function normalizeJob(row, steps = [], approvals = []) {
   };
 }
 
+/** @param {{ stateDirectory?: string, databasePath?: string, now?: () => Date, tokenBytes?: typeof randomBytes }} [options] */
 export function createStateStore({
   stateDirectory = process.env.BOXPILOT_STATE_DIRECTORY ?? defaultStateDirectory,
   databasePath,
@@ -574,6 +575,7 @@ export function createStateStore({
   function getSession(token) {
     if (typeof token !== "string" || token.length < 20) return null;
     const at = timestamp();
+    /** @type {Record<string, any> | undefined} */
     const row = database.prepare(`
       SELECT sessions.*, owners.username, owners.role
       FROM sessions JOIN owners ON owners.id = sessions.owner_id
@@ -596,7 +598,7 @@ export function createStateStore({
   /** Every live session for an owner, newest activity first, for the session list (M19.4). */
   function listSessions(ownerId) {
     const at = timestamp();
-    return database.prepare("SELECT id, created_at, expires_at, last_seen_at, client_address, user_agent, method, elevated_until FROM sessions WHERE owner_id = ? AND expires_at > ? ORDER BY last_seen_at DESC").all(ownerId, at).map((row) => ({
+    return database.prepare("SELECT id, created_at, expires_at, last_seen_at, client_address, user_agent, method, elevated_until FROM sessions WHERE owner_id = ? AND expires_at > ? ORDER BY last_seen_at DESC").all(ownerId, at).map((/** @type {Record<string, any>} */ row) => ({
       id: row.id,
       createdAt: row.created_at,
       expiresAt: row.expires_at,
@@ -793,7 +795,7 @@ export function createStateStore({
 
   /** Newest first. `actorId` limits it to what one account did (an operator's support bundle). */
   function listAudit(limit = 100, { actorId = null } = {}) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
+    const safeLimit = Math.min(Math.max(Number.parseInt(String(limit), 10) || 100, 1), 200);
     const rows = actorId
       ? database.prepare("SELECT * FROM audit_events WHERE actor_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(actorId, safeLimit)
       : database.prepare("SELECT * FROM audit_events ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit);
@@ -963,7 +965,7 @@ export function createStateStore({
 
   /** Recent jobs, newest first. `createdBy` limits the list to one account (non-owners see only their own). */
   function listJobs(limit = 50, { createdBy = null } = {}) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const safeLimit = Math.min(Math.max(Number.parseInt(String(limit), 10) || 50, 1), 200);
     const rows = createdBy
       ? database.prepare("SELECT * FROM jobs WHERE created_by = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(createdBy, safeLimit)
       : database.prepare("SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit);
@@ -1154,7 +1156,7 @@ export function createStateStore({
   }
 
   function listBackups(limit = 50) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const safeLimit = Math.min(Math.max(Number.parseInt(String(limit), 10) || 50, 1), 200);
     return database.prepare("SELECT * FROM backups ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map((row) => ({
       id: row.id,
       applicationId: row.application_id,
@@ -1238,7 +1240,7 @@ export function createStateStore({
   }
 
   function listControllerBackupProtections(limit = 50) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const safeLimit = Math.min(Math.max(Number.parseInt(String(limit), 10) || 50, 1), 200);
     return database.prepare(`
       SELECT controller_backup_protections.*, controller_retention_members.run_id AS retention_run_id, controller_retention_members.forgotten_at
       FROM controller_backup_protections
@@ -1309,7 +1311,7 @@ export function createStateStore({
   }
 
   function listControllerRetentionRuns(limit = 50) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const safeLimit = Math.min(Math.max(Number.parseInt(String(limit), 10) || 50, 1), 200);
     return database.prepare("SELECT * FROM controller_retention_runs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map(mapControllerRetentionRun);
   }
 
@@ -1341,7 +1343,7 @@ export function createStateStore({
   }
 
   function listVmExports(limit = 50) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const safeLimit = Math.min(Math.max(Number.parseInt(String(limit), 10) || 50, 1), 200);
     return database.prepare("SELECT * FROM vm_exports ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map(mapVmExport);
   }
 
@@ -1382,7 +1384,7 @@ export function createStateStore({
   }
 
   function listVmBackups(limit = 50) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const safeLimit = Math.min(Math.max(Number.parseInt(String(limit), 10) || 50, 1), 200);
     return database.prepare(`
       SELECT vm_backups.*, vm_retention_members.run_id AS retention_run_id, vm_retention_members.forgotten_at
       FROM vm_backups LEFT JOIN vm_retention_members ON vm_retention_members.backup_id = vm_backups.id
@@ -1471,7 +1473,7 @@ export function createStateStore({
   }
 
   function listVmRecoveries(limit = 50) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const safeLimit = Math.min(Math.max(Number.parseInt(String(limit), 10) || 50, 1), 200);
     return database.prepare("SELECT * FROM vm_recoveries ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map(mapVmRecovery);
   }
 
@@ -1532,11 +1534,12 @@ export function createStateStore({
   }
 
   function listVmRetentionRuns(limit = 50) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const safeLimit = Math.min(Math.max(Number.parseInt(String(limit), 10) || 50, 1), 200);
     return database.prepare("SELECT * FROM vm_retention_runs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map(mapVmRetentionRun);
   }
 
   function recoverInterruptedJobs() {
+    /** @type {Array<Record<string, any>>} */
     const interrupted = database.prepare("SELECT id, title, state FROM jobs WHERE state IN ('applying', 'verifying')").all();
     if (!interrupted.length) return [];
     // A job whose last word from the helper was that it waited behind earlier work never began: the

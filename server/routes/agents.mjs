@@ -38,6 +38,7 @@ const handle = (fn) => async (request, response) => {
 /** Claude when no gateway is wired in (tests that do not ask about it): not connected. */
 const noCloud = { state: async () => ({ connected: false, model: null, models: [], capUsd: null, connectedAt: null, gateway: "off", month: null, spentUsd: null, calls: null, problem: null }) };
 
+/** @param {{ agents: any, state: any, auth: any, cloud?: { state: () => Promise<object> }, streamBudget?: ReturnType<typeof createStreamBudget> }} services */
 export function createAgentsRouter({ agents, state, auth, cloud = noCloud, streamBudget = createStreamBudget() }) {
   const router = Router();
 

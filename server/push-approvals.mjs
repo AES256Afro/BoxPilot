@@ -94,7 +94,7 @@ const cut = (text, limit) => (text.length <= limit ? text : `${text.slice(0, lim
  * operation - the app's name from the catalog; the job's id goes only into the link and the tag.
  * Nothing the job was given is read here. `jobs` of more than one says how many, and links to Today.
  */
-export function approvalMessage(jobs, { origin = null, subjectOf = () => null } = {}) {
+export function approvalMessage(jobs, { origin = null, subjectOf = (_job) => null } = {}) {
   const one = jobs.length === 1 ? jobs[0] : null;
   const link = (query) => (origin ? `${origin}/?${query}` : null);
   if (one) {
@@ -141,6 +141,11 @@ const serviceOf = (endpoint) => {
   return /apple\.com$/.test(host) ? "Apple" : /googleapis\.com$/.test(host) ? "Google" : /mozilla\.com$/.test(host) ? "Mozilla" : /windows\.com$/.test(host) ? "Microsoft" : host;
 };
 
+/**
+ * @param {{ store?: any, notifications?: any, history?: any, loadVapid?: () => object, fetcher?: typeof fetch, subjectOf?: (job: Record<string, any>) => string | null,
+ *   mayApprove?: typeof defaultMayApprove, contact?: string | null, now?: () => Date, limits?: typeof pushLimits,
+ *   timers?: { setInterval: typeof setInterval, clearInterval: typeof clearInterval, setTimeout: typeof setTimeout } }} [options]
+ */
 export function createPushApprovals({
   store,
   notifications = null,
@@ -177,6 +182,10 @@ export function createPushApprovals({
     return { ...settings(), openAt: openAt(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null };
   }
 
+  /**
+   * @param {object} input
+   * @param {{ actorId?: string, origin?: string | null }} [context]
+   */
   function saveSettings(input, { actorId, origin = null } = {}) {
     const next = normalizePushSettings(input);
     const where = cleanOrigin(origin) ?? openAt();
@@ -321,6 +330,7 @@ export function createPushApprovals({
     const owners = new Set((store.listOwners?.() ?? []).filter((owner) => owner.role === "owner").map((owner) => owner.id));
     const ownerReached = deliveries.some((delivery) => delivery.ok && owners.has(delivery.accountId));
     const all = approvalMessage(due, { origin: openAt(), subjectOf });
+    /** @type {{ ok: boolean, reason?: string }} */
     let target = { ok: false, reason: "not-used" };
     if (chosen.ntfy === "always" || (chosen.ntfy === "fallback" && !ownerReached)) target = await sendToTarget(all);
     const delivered = deliveries.some((delivery) => delivery.ok) || target.ok;

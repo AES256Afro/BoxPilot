@@ -433,6 +433,8 @@ export async function storageVolumeState(_parameters = {}, { run = fixedRun, fil
  * Returns `{ drives, docker, dockerError, missing }`: each drive's outcome, what happened to Docker
  * ("started", "failed", "left-stopped", or "untouched" when the preparation did not stop it), and
  * the mount points that did not come back.
+ * @param {{ drives?: any[], dockerStopped?: boolean }} summary what prepareDrivesForReboot returned
+ * @param {{ run?: typeof fixedRun, log?: ((line: string, stream?: string) => void) | null, sleep?: (ms: number) => Promise<unknown>, clock?: () => number, settleMs?: number }} [options]
  */
 export async function resumeAfterCancelledReboot(summary, { run = fixedRun, log = null, sleep, clock, settleMs } = {}) {
   const drives = [];

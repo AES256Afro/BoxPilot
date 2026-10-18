@@ -275,6 +275,7 @@ const shareOwnerId = 1000;
  *
  * A folder on an exFAT or NTFS drive cannot be handed over: those keep no owners, and the drive's
  * mount decides. That is refused with the fix that does work, before anything is changed.
+ * @param {{ share?: string }} [parameters]
  */
 export async function sambaShareWritable({ share } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, copyFile, stat, access, realpath }, chown = defaultChown } = {}) {
   if (typeof share !== "string" || !shareNamePattern.test(share)) throw new Error("Share name is invalid");
@@ -316,7 +317,10 @@ export async function sambaShareWritable({ share } = {}, { run = fixedRun, log =
 // lchown, not chown: a symlink where the folder should be is never followed as root.
 const defaultChown = (target, uid, gid) => lchown(target, uid, gid);
 
-/** Create or update a Samba user (a shell-less Linux account in sambashare). Password via stdin only. */
+/**
+ * Create or update a Samba user (a shell-less Linux account in sambashare). Password via stdin only.
+ * @param {{ username?: string, password?: string }} [parameters]
+ */
 export async function sambaUserSet({ username, password } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof username !== "string" || !sambaUsernamePattern.test(username)) throw new Error("Username must be lower-case letters, digits, underscore, or hyphen (max 32)");
   if (typeof password !== "string" || password.length < 8 || password.length > 128 || /[\r\n]/.test(password)) throw new Error("Password must be 8 to 128 characters");
@@ -348,7 +352,10 @@ export async function sambaUserSet({ username, password } = {}, { run = fixedRun
   return { username, created, updated: !created };
 }
 
-/** Remove the Samba password entry; the Linux account stays (it owns no files, but removal is the owner's call). */
+/**
+ * Remove the Samba password entry; the Linux account stays (it owns no files, but removal is the owner's call).
+ * @param {{ username?: string }} [parameters]
+ */
 export async function sambaUserRemove({ username } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof username !== "string" || !sambaUsernamePattern.test(username)) throw new Error("Username is invalid");
   const result = await run(binaries.smbpasswd, ["-x", username], { timeout: 30_000 });
@@ -370,6 +377,7 @@ export async function recycleSizeBytes(run, sharePath) {
  * removed (for a scheduled auto-clean); otherwise the whole .recycle folder is cleared. The path is
  * resolved from the applied smb.conf by share name, so only a real share's own .recycle is ever
  * touched, never an arbitrary path.
+ * @param {{ share?: string, olderThanDays?: number }} [parameters]
  */
 export async function sambaRecycleEmpty({ share, olderThanDays = 0 } = {}, { run = fixedRun, log = null, files = { readFile } } = {}) {
   if (typeof share !== "string" || !shareNamePattern.test(share)) throw new Error("Share name is invalid");
@@ -432,6 +440,7 @@ async function discoveryPackage(run) {
  * service, and allow the two discovery ports so the multicast can actually arrive. Off: stop and
  * disable the service and withdraw those rules. Shares themselves are untouched either way —
  * this only decides whether Windows lists the server without being told its name.
+ * @param {{ enabled?: boolean | string }} [parameters]
  */
 export async function sambaDiscoverySet({ enabled = true } = {}, { run = fixedRun, log = null, files = { access, readFile } } = {}) {
   const on = enabled === true || enabled === "true";

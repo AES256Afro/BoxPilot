@@ -10,6 +10,7 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import net from "node:net";
 
+/** @type {Array<[string, number]>} */
 const privateV4 = [["127.0.0.0", 8], ["10.0.0.0", 8], ["172.16.0.0", 12], ["192.168.0.0", 16], ["169.254.0.0", 16], ["100.64.0.0", 10]];
 const v4ToInt = (address) => address.split(".").reduce((value, part) => ((value << 8) | Number(part)) >>> 0, 0);
 // Names that only ever mean something on a home network or a tailnet. A single label ("gpu-box")

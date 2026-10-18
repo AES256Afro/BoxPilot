@@ -95,7 +95,10 @@ function checkName(name) {
   return name;
 }
 
-/** Create a read-only snapshot of a mounted btrfs filesystem or a ZFS dataset. */
+/**
+ * Create a read-only snapshot of a mounted btrfs filesystem or a ZFS dataset.
+ * @param {{ kind?: string, target?: string, name?: string }} [parameters]
+ */
 export async function fsSnapshotCreate({ kind, target, name } = {}, { run = fixedRun, log = null, files = { access, mkdir } } = {}) {
   checkName(name);
   if (kind === "btrfs") {
@@ -123,7 +126,10 @@ export async function fsSnapshotCreate({ kind, target, name } = {}, { run = fixe
   throw new Error("kind must be btrfs or zfs");
 }
 
-/** Delete one snapshot created here (btrfs: only under the managed snapshot folder; zfs: only an @snapshot). */
+/**
+ * Delete one snapshot created here (btrfs: only under the managed snapshot folder; zfs: only an @snapshot).
+ * @param {{ kind?: string, target?: string, name?: string }} [parameters]
+ */
 export async function fsSnapshotDelete({ kind, target, name } = {}, { run = fixedRun, log = null } = {}) {
   checkName(name);
   if (kind === "btrfs") {

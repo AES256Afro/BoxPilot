@@ -61,6 +61,10 @@ async function downloadVerified(url, target, { size, sha256, fetcher, log, label
   }
 }
 
+/**
+ * @param {{ repo: string, file: string, projector?: string | null }} parameters
+ * @param {{ stateDir: string, fetcher?: typeof fetch, log?: (line: string) => void }} options
+ */
 export async function downloadModel(parameters, { stateDir, fetcher = fetch, log = () => {} }) {
   const model = readModelParameters(parameters);
   // The model list bounded (M50): the files are checked by size and hash, the list was read whole.

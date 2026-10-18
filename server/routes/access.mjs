@@ -114,7 +114,7 @@ const everyonesFamilies = new Set([
  * recorded before that was kept is the owner's. `full` says whether the caller may read the rest of
  * the entry (its message): a key with no subject, like the weekly report's, is not shortened when cut.
  */
-export function watchEntryFor(request, key, entry, label, scheduleOwner = () => null) {
+export function watchEntryFor(request, key, entry, label, scheduleOwner = (_id) => null) {
   const title = entry?.title ?? key;
   const [family, subject] = String(key).split(":");
   if (seesEveryAccount(request)) return { title, key, full: true };

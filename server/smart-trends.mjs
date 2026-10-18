@@ -68,6 +68,10 @@ function slopePerDay(samples, key, { now, minSamples = 3, minSpanDays = 2, windo
 }
 
 /** Alerts for disks whose SMART numbers are trending toward failure. Same shape as the health checks. */
+/**
+ * @param {Record<string, any> | null} history samples by device
+ * @param {{ now?: Date | number }} [options]
+ */
 export function evaluateSmartTrends(history, { now } = {}) {
   const alerts = [];
   for (const [device, samples] of Object.entries(history ?? {})) {
@@ -101,6 +105,10 @@ export function evaluateSmartTrends(history, { now } = {}) {
 }
 
 /** Background sampler: once a day, record SMART numbers so the trends have something to fit. */
+/**
+ * @param {{ inventory?: any, store?: any, now?: () => Date, intervalMs?: number, initialDelayMs?: number, maxDays?: number, setInterval?: typeof setInterval,
+ *   setTimeout?: typeof setTimeout, clearInterval?: typeof clearInterval, clearTimeout?: typeof clearTimeout }} [options]
+ */
 export function createSmartSampler({ inventory, store, now = () => new Date(), intervalMs = 6 * 60 * 60 * 1000, initialDelayMs = 6 * 60 * 1000, maxDays = 45, setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   async function sample() {
     const snapshot = await inventory.inspect();
