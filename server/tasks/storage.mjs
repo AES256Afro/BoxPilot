@@ -303,7 +303,10 @@ export function fstabNames(content, nodes) {
   ]).filter(Boolean);
 }
 
-/** Erase a block device and create a fresh ext4 filesystem. The guards are absolute. */
+/**
+ * Erase a block device and create a fresh ext4 filesystem. The guards are absolute.
+ * @param {{ device?: string, label?: string | null, identity?: { serial?: string | null, wwn?: string | null, size?: number | string | null, model?: string | null } | null }} [parameters]
+ */
 export async function storageFormat({ device, label = null, identity = null } = {}, { run = fixedRun, log = null, files = { readFile } } = {}) {
   if (typeof device !== "string" || !devicePattern.test(device)) throw new Error("Device path is invalid");
   if (label !== null && (typeof label !== "string" || !labelPattern.test(label))) throw new Error("Label may use letters, digits, underscore, hyphen (max 16)");
