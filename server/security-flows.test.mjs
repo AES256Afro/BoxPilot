@@ -4,7 +4,7 @@ import path from "node:path";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createStateStore } from "./state.mjs";
-import { createAuthService, hashPassword } from "./security.mjs";
+import { createAuthService, hashPassword, verifyPassword } from "./security.mjs";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
 vi.setConfig({ testTimeout: 60_000 });
@@ -36,6 +36,10 @@ async function boot({ owner = null } = {}) {
   app.post("/auth/password", auth.requireSession, auth.requireCsrf, auth.changePassword);
   app.get("/owner-only", auth.requireSession, auth.requireRole("owner"), (_request, response) => response.json({ ok: true }));
   app.get("/no-session-guard", auth.requireRole("owner"), (_request, response) => response.json({ ok: true }));
+  app.get("/auth/status", auth.status);
+  app.post("/auth/logout", auth.requireSession, auth.requireCsrf, auth.logout);
+  app.post("/auth/elevate", auth.requireSession, auth.requireCsrf, auth.elevate);
+  app.delete("/auth/elevate", auth.requireSession, auth.requireCsrf, auth.dropElevation);
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   opened.push({ server, state, directory });
@@ -137,5 +141,50 @@ describe("the role guard", () => {
     expect((await call("GET", "/owner-only")).status).toBe(401);
     // Mounted without requireSession ahead of it, the guard refuses rather than granting anything.
     expect(await call("GET", "/no-session-guard", { cookie: alex.cookie })).toMatchObject({ status: 401, body: { code: "unauthenticated" } });
+  });
+});
+
+describe("signing out and unlocking high-risk approvals", () => {
+  const owner = { username: "alex", password: "owner password 1" };
+
+  it("ends the session for good, needs the CSRF token, and clears the cookie", async () => {
+    const { call, signIn } = await boot({ owner });
+    const session = await signIn(owner.username, owner.password);
+    expect((await call("POST", "/auth/logout", { cookie: session.cookie })).status).toBe(403);
+    const out = await call("POST", "/auth/logout", { cookie: session.cookie, csrf: session.csrf });
+    expect(out.status).toBe(204);
+    // The cookie comes back emptied (Max-Age=0), so the browser drops it.
+    expect(out.cookie).toBe("boxpilot_session=");
+    expect((await call("GET", "/owner-only", { cookie: session.cookie })).status).toBe(401);
+    expect((await call("GET", "/auth/status", { cookie: session.cookie })).body).toMatchObject({ authenticated: false, csrfToken: null });
+  });
+
+  it("unlocks only with the password, says until when, and locks again on request", async () => {
+    const { call, signIn } = await boot({ owner });
+    const session = await signIn(owner.username, owner.password);
+    const as = { cookie: session.cookie, csrf: session.csrf };
+    expect(await call("POST", "/auth/elevate", { ...as, body: { password: "wrong password 1" } })).toMatchObject({ status: 401, body: { code: "invalid_credentials" } });
+    expect((await call("GET", "/auth/status", { cookie: session.cookie })).body.elevatedUntil).toBeNull();
+    const unlocked = await call("POST", "/auth/elevate", { ...as, body: { password: owner.password } });
+    expect(unlocked.status).toBe(200);
+    expect(Date.parse(unlocked.body.elevatedUntil)).toBeGreaterThan(Date.now());
+    expect((await call("GET", "/auth/status", { cookie: session.cookie })).body.elevatedUntil).toBe(unlocked.body.elevatedUntil);
+    expect((await call("DELETE", "/auth/elevate", as)).status).toBe(204);
+    expect((await call("GET", "/auth/status", { cookie: session.cookie })).body.elevatedUntil).toBeNull();
+  });
+
+  it("never unlocks for a viewer, even with the right password", async () => {
+    const { call, signIn, state } = await boot({ owner });
+    const ownerId = state.listOwners()[0].id;
+    state.createOwnerAccount({ username: "vic", passwordHash: await hashPassword("viewer password 1"), role: "viewer", createdBy: ownerId });
+    const viewer = await signIn("vic", "viewer password 1");
+    expect(await call("POST", "/auth/elevate", { cookie: viewer.cookie, csrf: viewer.csrf, body: { password: "viewer password 1" } })).toMatchObject({ status: 403, body: { code: "forbidden" } });
+  });
+
+  it("refuses a stored hash it does not recognise rather than throw or accept", async () => {
+    const good = await hashPassword("owner password 1");
+    expect(await verifyPassword("owner password 1", good)).toBe(true);
+    for (const encoded of ["", "md5$abc", "scrypt$16384$8$1$$", `bcrypt${good.slice(6)}`, null]) expect(await verifyPassword("owner password 1", encoded)).toBe(false);
+    expect(await verifyPassword(undefined, good)).toBe(false);
   });
 });
