@@ -74,6 +74,8 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
     expect(await tier("app.backup", { id: "vaultwarden", keep: 2 })).toBe("high");
     expect(await tier("app.backup", { id: "vaultwarden", keep: 3 })).toBe("medium");
     expect(await tier("app.backup", { id: "vaultwarden" })).toBe("medium");
+    expect(await tier("app.backup.many", { ids: ["vaultwarden", "immich"], keep: 1 })).toBe("high");
+    expect(await tier("app.backup.many", { ids: ["vaultwarden", "immich"] })).toBe("medium");
   });
 
   it("raises withdrawing the tailnet address BoxPilot itself is served at", async () => {
