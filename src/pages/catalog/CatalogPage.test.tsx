@@ -2,7 +2,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CatalogPage from "./CatalogPage";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); window.history.replaceState(null, "", "/"); });
+// The page's own address, put back after a test that serves it from another name. vitest exposes
+// the jsdom instance; reconfiguring it moves window.location, which cannot be redefined or spied on
+// when each file runs in its own VM context (pool: "vmThreads").
+const pageUrl = window.location.href;
+const jsdom = (globalThis as unknown as { jsdom: { reconfigure: (options: { url: string }) => void } }).jsdom;
+
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); jsdom.reconfigure({ url: pageUrl }); window.history.replaceState(null, "", "/"); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const stagedJob = (type: string, tier = "medium", passwordRequired = false) => json({ job: { id: `job-${type}`, type: `op:${type}`, title: type, state: "awaiting_approval", risk: tier, error: null, result: null, steps: [], approvals: [] }, approval: { tier, passwordRequired, elevated: false, mode: "tiered", reason: tier } }, 201);
 
@@ -802,8 +808,8 @@ describe("App catalog: reach", () => {
 describe("App catalog: where the Open button sends you", () => {
   const catalogBody = catalogOf([{ manifest, live: running("jellyfin") }], { lanAddress: "192.168.1.10", tailscaleDnsName: "box.tail1234.ts.net" });
   const mount = (hostname: string, serves: Array<{ dnsName: string; port: number; target: string | null }> = []) => {
-    // jsdom serves from localhost; the page reads window.location.hostname, so stub that.
-    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, hostname } as Location);
+    // jsdom serves from localhost; the page reads window.location.hostname, so serve it from `hostname`.
+    jsdom.reconfigure({ url: `http://${hostname}/` });
     serve(catalogBody, (url) => (url.includes("app.serve.inspect") ? json({ result: { available: true, serves } }) : undefined));
     render(<CatalogPage csrfToken="csrf-token" />);
   };
