@@ -838,6 +838,15 @@ api.get("/firewall/overview", (_request, response) => json(response, {
 }));
 api.get("/firewall/plan", (request, response) => json(response, buildPlan({ profileId: request.query.profile ?? "home-server", serviceIds: typeof request.query.services === "string" && request.query.services ? request.query.services.split(",") : [], replace: request.query.replace === "true", sshRateLimit: request.query.sshRateLimit === "true", webPort: 8787, webHost: "127.0.0.1" })));
 api.get("/storage/overview", (_request, response) => json(response, storageOverview));
+// Thirty days of the SMART sampler (M31.2): the NVMe slowly wearing, the USB disk steady.
+api.get("/storage/smart-history", (_request, response) => {
+  const day = (offset) => new Date(now().getTime() - offset * 24 * 60 * 60 * 1000).toISOString();
+  const samples = (make) => Array.from({ length: 30 }, (_value, index) => ({ at: day(29 - index), ...make(index) }));
+  json(response, { disks: [
+    { device: "/dev/nvme0n1", days: 29, wearChange: 1, errorChange: 0, samples: samples((index) => ({ temperatureCelsius: Math.round(41 + 3 * Math.sin(index / 3)), percentageUsed: index < 15 ? 2 : 3, mediaErrors: 0 })) },
+    { device: "/dev/sda", days: 29, wearChange: null, errorChange: 0, samples: samples((index) => ({ temperatureCelsius: Math.round(35 + 1.5 * Math.sin(index / 4 + 1)), percentageUsed: null, mediaErrors: 0 })) },
+  ] });
+});
 api.get("/storage/forecast", (_request, response) => json(response, { tracking: 2, forecasts: [
   { target: "/mnt/media", daysToFull: 11, availableBytes: 214 * 1024 ** 3, totalBytes: 4000 * 1024 ** 3, samples: 14 },
   { target: "/", daysToFull: 63, availableBytes: 41 * 1024 ** 3, totalBytes: 234 * 1024 ** 3, samples: 14 },
