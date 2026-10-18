@@ -1872,7 +1872,9 @@ Proposed, value to the owner against effort:
   health is not unknown for months. Wakes the drive, so the owner's call.
 - **Suggest actions in an empty command bar** - medium, small: what is waiting for approval, the
   failed job to retry, the update ready.
-- **Activity filters** (failed, waiting, running) and search - medium, small to medium.
+- ✅ **Activity filters** (failed, waiting, running) and search - medium, small to medium. The counts
+  above the list are the filter, with a search over the title and the operation; a job opened from
+  elsewhere is shown whatever the filter was left at.
 - **A Home item when old database copies pile up** - medium, small: points at the copies panel when
   copies from before the secret scrub are still on disk.
 - **Restore a database copy as an operation** (high risk, stops BoxPilot) - medium, medium to large;
