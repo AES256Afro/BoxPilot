@@ -5,8 +5,7 @@
  * the job engine, and the UI need: the id, a human title, a risk tier, whether it
  * is read-only (skips the mutation queue), a timeout, a parameter spec, and `run`.
  *
- * During the transition the helper protocol unions this registry with its legacy
- * hand-written allowlists; new operations must be declared here, not there.
+ * The helper's allowlist and read-only set are this registry and nothing else.
  */
 
 export const riskTiers = Object.freeze(["low", "medium", "high"]);
@@ -48,8 +47,9 @@ export const rerunsAfterInterrupt = (operation) => Boolean(operation && (operati
 const idPattern = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 
 /**
- * Parameter spec: `{ exact: true, fields: { name: { type, pattern?, nullable?, enum?, maxLength?, validate? } } }`.
+ * Parameter spec: `{ exact: true, fields: { name: { type, pattern?, nullable?, enum?, maxLength?, validate? } }, validate? }`.
  * `exact` (default true) rejects any key not listed. Every listed key is required unless `optional: true`.
+ * The spec's own `validate(parameters)` runs last and returns a problem or null.
  * Returns an error string or null. Deliberately tiny; swap for JSON Schema later without changing callers.
  */
 export function validateParameters(spec, parameters, title = "Operation") {
@@ -87,6 +87,12 @@ export function validateParameters(spec, parameters, title = "Operation") {
       const problem = field.validate(value, parameters);
       if (problem) return `${title} parameter "${name}": ${problem}`;
     }
+  }
+  // A check across fields, run once each field has passed its own: the typed plans the VM restore
+  // and recovery reads take are validated by the same function the helper revalidates them with.
+  if (typeof spec?.validate === "function") {
+    const problem = spec.validate(parameters);
+    if (problem) return `${title}: ${problem}`;
   }
   return null;
 }

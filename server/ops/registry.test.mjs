@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { OperationRegistry, budgetFor, confirmTextFor, createRegistry, defineOperation, maskSecrets, moreTimeCeilingMs, nextBudgetMs, placeholderPaths, rerunsAfterInterrupt, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
 import { registry } from "./index.mjs";
-import { helperOperations, legacyHelperOperations, validateHelperRequest } from "../helper-protocol.mjs";
+import { helperOperations, validateHelperRequest } from "../helper-protocol.mjs";
 
 describe("operation registry", () => {
   it("rejects malformed definitions", () => {
@@ -24,6 +24,15 @@ describe("operation registry", () => {
     expect(validateParameters({ fields: {} }, { anything: 1 })).toContain("accepts no parameters");
     expect(validateParameters({ fields: {} }, [])).toContain("must be an object");
     expect(validateParameters({ fields: { v: { validate: (value) => (value === "bad" ? "is bad" : null) } } }, { v: "bad" })).toContain("is bad");
+  });
+
+  it("runs the spec's own check last, and only once every field has passed", () => {
+    const seen = [];
+    const spec = { fields: { from: { type: "number" }, to: { type: "number" } }, validate: ({ from, to }) => { seen.push([from, to]); return from <= to ? null : "from must not be after to"; } };
+    expect(validateParameters(spec, { from: 1, to: 2 }, "Range")).toBeNull();
+    expect(validateParameters(spec, { from: 3, to: 2 }, "Range")).toBe("Range: from must not be after to");
+    expect(validateParameters(spec, { from: "3", to: 2 }, "Range")).toContain("must be a number");
+    expect(seen).toEqual([[1, 2], [3, 2]]);
   });
 
   it("registers, lists, validates, and executes operations with injected dependencies", async () => {
@@ -49,12 +58,9 @@ describe("operation registry", () => {
   });
 });
 
-describe("default registry and legacy allowlists stay consistent", () => {
-  it("declares every operation in exactly one place", () => {
-    for (const id of registry.ids()) expect(legacyHelperOperations.has(id), `${id} is declared both in the registry and the legacy allowlist`).toBe(false);
-    for (const id of registry.ids()) expect(helperOperations.has(id)).toBe(true);
-    for (const id of legacyHelperOperations) expect(helperOperations.has(id)).toBe(true);
-    expect(helperOperations.size).toBe(registry.ids().length + legacyHelperOperations.size);
+describe("the default registry is the helper's whole allowlist", () => {
+  it("allows exactly the registered operations", () => {
+    expect([...helperOperations].sort()).toEqual(registry.ids().sort());
   });
 
   it("routes registered operations through the registry validator", () => {

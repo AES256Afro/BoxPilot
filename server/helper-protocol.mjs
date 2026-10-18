@@ -10,11 +10,10 @@ import { createJobLogWriter, serviceGroupId, jobIdPattern } from "./job-log.mjs"
 export { serviceGroupId };
 import { createVmHelper } from "./vm-helper.mjs";
 import { createVmMediaHelper } from "./vm-media-helper.mjs";
-import { validateDomainName } from "./libvirt.mjs";
 import { createVmProtectionHelper } from "./vm-protection-helper.mjs";
-import { createVmRecoveryHelper, validateVmRecoveryInput } from "./vm-recovery-helper.mjs";
+import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
-import { createVmRestoreDrillHelper, validateVmRestoreDrillInput } from "./vm-restore-drill-helper.mjs";
+import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 import { createPrerequisiteHelper } from "./prerequisite-helper.mjs";
 import { createLibvirtFoundationHelper } from "./libvirt-foundation-helper.mjs";
 import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
@@ -24,16 +23,7 @@ import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
 
 export const helperProtocolVersion = 1;
 
-/**
- * Hand-declared read-only inspections. Every mutation runs as a registry operation
- * (server/ops/, ADR-001); the executing service revalidates its own typed input.
- */
-export const legacyHelperOperations = new Set(["container.docker.inspect", "container.docker.inventory", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
-export const helperOperations = new Set([...registry.ids(), ...legacyHelperOperations]);
-const vmRestoreDrillKeys = ["backupId", "domainName", "domainUuid", "drillId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "snapshotId"];
-const vmRecoveryKeys = ["backupId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "restoreDrillId", "restoreId", "snapshotId", "sourceDomainName", "sourceDomainUuid", "targetDomainName"];
-
-/** gid of the unprivileged web service group (boxpilot) so job logs are group-readable; null when unknown. */
+export const helperOperations = new Set(registry.ids());
 
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";
@@ -54,99 +44,21 @@ export function validateHelperRequest(value) {
     }
   }
   if (!value.parameters || typeof value.parameters !== "object" || Array.isArray(value.parameters)) return "Parameters must be an object";
-  if (registry.has(value.operation)) return registry.validate(value.operation, value.parameters);
-  if (value.operation === "virtualization.foundation.inspect" && Object.keys(value.parameters).length !== 0) return "Libvirt foundation inspection accepts no parameters";
-  if (value.operation === "virtualization.media.inspect" && Object.keys(value.parameters).length !== 0) return "VM media inspection accepts no parameters";
-  if (value.operation === "container.docker.inspect" && Object.keys(value.parameters).length !== 0) return "Docker inspection accepts no parameters";
-  if (value.operation === "container.docker.inventory" && Object.keys(value.parameters).length !== 0) return "Docker inventory accepts no parameters";
-  if (value.operation === "controller.database.backup.inspect" && Object.keys(value.parameters).length !== 0) return "Controller backup inspection accepts no parameters";
-  if (value.operation === "controller.database.protection.inspect" && Object.keys(value.parameters).length !== 0) return "Controller protection inspection accepts no parameters";
-  if (value.operation === "controller.database.protection.retention.inspect" && Object.keys(value.parameters).length !== 0) return "Controller retention inspection accepts no parameters";
-  if (value.operation === "virtualization.inventory.inspect") {
-    const keys = Object.keys(value.parameters);
-    if (keys.length !== 1 || keys[0] !== "scope" || !["status", "domains", "resources"].includes(value.parameters.scope)) {
-      return "Virtualization inventory accepts only a fixed status, domains, or resources scope";
-    }
-  }
-  if (value.operation === "virtualization.console.inspect" && Object.keys(value.parameters).length !== 0) return "Virtualization console inspection accepts no parameters";
-  if (value.operation === "virtualization.domain.export.inspect") {
-    const keys = Object.keys(value.parameters);
-    if (keys.length !== 1 || keys[0] !== "name" || !validateDomainName(value.parameters.name)) return "VM export inspection accepts only an exact domain name";
-  }
-  if (value.operation === "virtualization.export.backup.inspect" && Object.keys(value.parameters).length !== 0) return "VM protection inspection accepts no parameters";
-  if (value.operation === "virtualization.export.backup.retention.inspect" && Object.keys(value.parameters).length !== 0) return "VM retention inspection accepts no parameters";
-  if (value.operation === "virtualization.export.backup.restore-drill.inspect") {
-    const keys = Object.keys(value.parameters).sort();
-    if (keys.length !== vmRestoreDrillKeys.length || keys.some((key, index) => key !== vmRestoreDrillKeys[index])) return "VM restore drills accept only the fixed typed evidence fields";
-    const errors = validateVmRestoreDrillInput(value.parameters);
-    if (errors.length) return `Invalid VM restore drill plan: ${errors.join(" | ")}`;
-  }
-  if (value.operation === "virtualization.backup.recovery.inspect") {
-    const keys = Object.keys(value.parameters).sort();
-    if (keys.length !== vmRecoveryKeys.length || keys.some((key, index) => key !== vmRecoveryKeys[index])) return "VM recovery accepts only the fixed typed protected-backup fields";
-    const errors = validateVmRecoveryInput(value.parameters);
-    if (errors.length) return `Invalid VM recovery plan: ${errors.join(" | ")}`;
-  }
-  return null;
+  return registry.validate(value.operation, value.parameters);
 }
 
 export async function executeHelperOperation(request, dependencies = {}) {
   const { hostInspect = createHostInspectHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), controllerRetention = createControllerRetentionHelper(), prerequisites = createPrerequisiteHelper(), foundation = createLibvirtFoundationHelper(), vmMedia = createVmMediaHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper(), machineSnapshot = createMachineSnapshotHelper() } = dependencies;
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
-  if (registry.has(request.operation)) {
-    const jobLog = createJobLogWriter({ jobId: request.context?.jobId ?? null, gid: serviceGroupId() });
-    const progress = (line, stream) => { void jobLog.append(line, stream); };
-    // How much more time than normal this run has (1 = the normal budget). Operations that offer
-    // more time grow the limits of their slow steps by it; the rest never read it.
-    const timeScale = registry.budgetFor(request.operation, request.context?.budgetMs ?? null) / registry.timeoutFor(request.operation);
-    // Every service the ops can name is passed explicitly (with its default), so a
-    // dependency missing from the caller's set can never reach an op as undefined.
-    try {
-      return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), vmCloud: dependencies.vmCloud ?? createVmCloudHelper(), credentials: dependencies.credentials ?? createCredentialStore(), vpnProfile: dependencies.vpnProfile ?? createVpnProfileStore(), ...dependencies, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRetention, vmRestoreDrill, vmRecovery, machineSnapshot, progress, jobLog, timeScale }) };
-    } finally { await jobLog.flush(); }
-  }
-  if (request.operation === "container.docker.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await hostInspect.inspectDocker() };
-  }
-  if (request.operation === "container.docker.inventory") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await hostInspect.inventoryDocker() };
-  }
-  if (request.operation === "controller.database.backup.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await controllerBackups.inspect() };
-  }
-  if (request.operation === "controller.database.protection.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await controllerProtection.inspect() };
-  }
-  if (request.operation === "controller.database.protection.retention.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await controllerRetention.inspect() };
-  }
-  if (request.operation === "virtualization.foundation.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await foundation.inspect() };
-  }
-  if (request.operation === "virtualization.media.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmMedia.inspect() };
-  }
-  if (request.operation === "virtualization.inventory.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.inventory(request.parameters) };
-  }
-  if (request.operation === "virtualization.console.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.consoleGuidance() };
-  }
-  if (request.operation === "virtualization.domain.export.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.inspectExport(request.parameters) };
-  }
-  if (request.operation === "virtualization.export.backup.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmProtection.inspect() };
-  }
-  if (request.operation === "virtualization.export.backup.retention.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmRetention.inspect() };
-  }
-  if (request.operation === "virtualization.export.backup.restore-drill.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmRestoreDrill.inspect(request.parameters) };
-  }
-  if (request.operation === "virtualization.backup.recovery.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmRecovery.inspect(request.parameters) };
-  }
-  return { version: helperProtocolVersion, id: request.id, ok: false, error: "Operation is not implemented", code: "not_implemented" };
+  const jobLog = createJobLogWriter({ jobId: request.context?.jobId ?? null, gid: serviceGroupId() });
+  const progress = (line, stream) => { void jobLog.append(line, stream); };
+  // How much more time than normal this run has (1 = the normal budget). Operations that offer
+  // more time grow the limits of their slow steps by it; the rest never read it.
+  const timeScale = registry.budgetFor(request.operation, request.context?.budgetMs ?? null) / registry.timeoutFor(request.operation);
+  // Every service the ops can name is passed explicitly (with its default), so a
+  // dependency missing from the caller's set can never reach an op as undefined.
+  try {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), vmCloud: dependencies.vmCloud ?? createVmCloudHelper(), credentials: dependencies.credentials ?? createCredentialStore(), vpnProfile: dependencies.vpnProfile ?? createVpnProfileStore(), ...dependencies, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRetention, vmRestoreDrill, vmRecovery, machineSnapshot, progress, jobLog, timeScale }) };
+  } finally { await jobLog.flush(); }
 }

@@ -341,7 +341,7 @@ describe("native systemd network boundaries", () => {
     expect(initializer).toContain('["pool-undefine", libvirtFoundationSpec.poolName]');
     expect(initializer).not.toContain("process.argv[2]");
     expect(initializer).not.toContain("virt-install");
-    expect(protocol).toContain("virtualization.foundation.inspect");
+    expect(helperOperations.has("virtualization.foundation.inspect")).toBe(true);
     expect(helperOperations.has("vm.foundation.initialize")).toBe(true);
     expect(helperOperations.has("virtualization.foundation.initialize")).toBe(false);
     expect(protocol).not.toContain("virtualization.resource.execute");
