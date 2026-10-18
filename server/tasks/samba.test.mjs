@@ -48,7 +48,7 @@ describe("what a share may serve, and who may sign in", () => {
 
   it("refuses a folder that reaches a login account's home only through a link", async () => {
     const files = { ...fakeFiles({ existing: "# Managed by BoxPilot\n[global]\n" }), realpath: vi.fn(async () => "/home/admin") };
-    await expect(sambaApply({ shares: [{ name: "Media", path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/leads to \/home\/admin, inside a login account's home/);
+    await expect(sambaApply({ shares: [{ name: "Media", path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/leads to \/home\/admin, which reaches a login account's home/);
     expect(files.writeFile).not.toHaveBeenCalled();
   });
 

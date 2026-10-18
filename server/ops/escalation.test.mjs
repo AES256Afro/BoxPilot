@@ -3,6 +3,7 @@ import { createRegistry } from "./registry.mjs";
 import { operationModules, registry } from "./index.mjs";
 import { escalationRiskHooks, higherOf, loginHomesFrom, packetFilterUnit, serveWithdrawRisk } from "./escalation.mjs";
 import { onWindows } from "../../test/platform.mjs";
+import { servesHome } from "../tasks/served-folder.mjs";
 import { readFile } from "node:fs/promises";
 
 /** The tier a job is staged at, as the jobs service works it out. */
@@ -30,13 +31,14 @@ describe("a medium operation is high for what it acts on", () => {
     expect(registry.get("users.keys.import").risk).toBe("high");
   });
 
-  it("raises installing or removing what keeps SSH, Tailscale and the firewall up, however apt is told", async () => {
+  it("raises removing what keeps SSH, Tailscale and the firewall up, however apt is told", async () => {
     for (const packages of [["openssh-server"], ["htop", "ufw"], ["tailscale"], ["openssh-server-"], ["sudo:amd64"], ["docker-ce"]]) {
       expect(await tier("apt.remove", { packages }), packages.join(" ")).toBe("high");
-      expect(await tier("apt.install", { packages }), packages.join(" ")).toBe("high");
     }
     expect(await tier("apt.remove", { packages: ["htop", "ncdu"] })).toBe("medium");
-    expect(await tier("apt.install", { packages: ["openssh-server-extra"] })).toBe("medium");
+    // Installing passes --no-remove (tasks/apt.mjs): "ufw-" or a Conflicts is refused by apt itself,
+    // so installing ufw or fail2ban from the Firewall page stays an operator's.
+    expect(await tier("apt.install", { packages: ["ufw"] })).toBe("medium");
   });
 
   it("raises any action on a unit that loads or flushes the packet filter", async () => {
@@ -122,6 +124,10 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
       "",
     ].join("\n");
     expect(loginHomesFrom(passwd)).toEqual(["/root", "/var/lib/postgresql", "/srv/git"]);
+    // A share that holds a home serves it too.
+    expect(servesHome(["/mnt/data"], ["/mnt/data/alice"])).toBe(true);
+    expect(servesHome(["/mnt/media"], ["/mnt/data/alice"])).toBe(false);
+    expect(servesHome(["/var/lib"], ["/var/lib/postgresql"])).toBe(true);
   });
 
   // Linux only: reads the host's own /etc/passwd, where root logs in with a shell at /root.
@@ -136,6 +142,8 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
     expect(await tier("dns.names.apply", { address: "127.0.0.1" })).toBe("medium");
     expect(await tier("tailscale.set", { exitNode: true })).toBe("high");
     expect(await tier("tailscale.set", { subnetRouter: true, routes: ["172.17.0.0/16"] })).toBe("high");
+    // What the Network page sends: no routes, and the task advertises the LAN's own subnets.
+    expect(await tier("tailscale.set", { exitNode: false, subnetRouter: true })).toBe("high");
     expect(await tier("tailscale.set", { exitNode: false, subnetRouter: false, routes: [] })).toBe("medium");
     expect(await tier("space.cleanup", { categories: ["journal"], journalMaxAgeDays: 1 })).toBe("high");
     expect(await tier("space.cleanup", { categories: ["journal"], journalMaxBytes: 64 * 1024 ** 2 })).toBe("high");
