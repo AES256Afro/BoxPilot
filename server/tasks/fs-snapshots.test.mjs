@@ -42,10 +42,17 @@ describe("filesystem snapshots", () => {
 
   it("deletes only managed btrfs snapshots and @-suffixed zfs snapshots", async () => {
     const run = fakeRun();
-    await fsSnapshotDelete({ kind: "btrfs", target: "/mnt/pool", name: "before-upgrade" }, { run });
+    const resolve = async (value) => value;
+    await fsSnapshotDelete({ kind: "btrfs", target: "/mnt/pool", name: "before-upgrade" }, { run, resolve });
     expect(run).toHaveBeenCalledWith(expect.stringContaining("btrfs"), ["subvolume", "delete", "/mnt/pool/.boxpilot-snapshots/before-upgrade"], expect.anything());
     await fsSnapshotDelete({ kind: "zfs", target: "tank/media", name: "nightly" }, { run });
     expect(run).toHaveBeenCalledWith(expect.stringContaining("zfs"), ["destroy", "tank/media@nightly"], expect.anything());
+    // The snapshot folder of a drive the apps write to can be swapped for a link to the drive's top:
+    // the same name would then delete a live subvolume.
+    const linked = fakeRun();
+    const swapped = async (value) => value.replace("/.boxpilot-snapshots/", "/");
+    await expect(fsSnapshotDelete({ kind: "btrfs", target: "/mnt/pool", name: "photos" }, { run: linked, resolve: swapped })).rejects.toThrow(/leads to \/mnt\/pool\/photos.*nothing was deleted/);
+    expect(linked).not.toHaveBeenCalledWith(expect.stringContaining("btrfs"), expect.arrayContaining(["delete"]), expect.anything());
     // A bare dataset can never be destroyed from here: the @name is always appended.
     expect(run.mock.calls.some(([binary, args]) => binary.endsWith("/zfs") && args[0] === "destroy" && !args[1].includes("@"))).toBe(false);
   });
