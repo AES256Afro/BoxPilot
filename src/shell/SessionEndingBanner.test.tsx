@@ -38,6 +38,17 @@ describe("the notice before a session ends (M36)", () => {
     expect(screen.getByText(/Your session ends/)).toBeTruthy();
   });
 
+  it("looks again when the tab is seen, for a laptop that slept through its timer", () => {
+    let clock = Date.parse("2026-10-18T14:00:00Z");
+    const ends = new Date(Date.parse("2026-10-18T14:30:00Z")).toISOString();
+    render(<SessionEndingBanner expiresAt={ends} now={() => clock} />);
+    expect(screen.queryByText(/Your session ends/)).toBeNull();
+    // Asleep for 25 minutes: no timer has run, and the tab comes back into view.
+    clock += 25 * 60_000;
+    act(() => { window.dispatchEvent(new Event("focus")); });
+    expect(screen.getByText(/in 5 minutes/)).toBeTruthy();
+  });
+
   it("says nothing without an expiry", () => {
     const { container } = render(<SessionEndingBanner expiresAt={null} />);
     expect(container.textContent).toBe("");
