@@ -41,10 +41,17 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
   /** The owner is shown every job, so the owner may open every job; everyone else only their own. */
   const mayRead = (request, job) => request.boxpilotSession?.owner?.role === "owner" || job.createdBy === request.boxpilotSession.owner.id;
 
-  // Home, Ops and Today read up to 200 jobs for the backup matrix and the overnight summary, and use
-  // none of their results or step logs: an inspect's result or a long run's steps can each be larger
-  // than the rest of the job. ?view=summary leaves those two out (empty), as /catalog's does.
-  const summarize = (job) => ({ ...job, result: null, steps: [] });
+  // Home, Ops and Today read up to 200 jobs for the backup matrix and the overnight summary. An
+  // inspect's result or a long run's step log can each be larger than the rest of the job, and the
+  // views show neither; what their state words read is kept (src/jobStatus.ts): the steps that mark
+  // a failure dismissed or run again, without their text, and a result's warnings ("Completed with
+  // notice"). ?view=summary, as /catalog's.
+  const markerSteps = new Set(["rerun", "dismissed"]);
+  const summarize = (job) => ({
+    ...job,
+    result: Array.isArray(job.result?.warnings) && job.result.warnings.length ? { warnings: job.result.warnings } : null,
+    steps: (job.steps ?? []).filter((step) => markerSteps.has(step?.name)).map((step) => ({ ...step, detail: "" })),
+  });
   router.get("/jobs", (request, response) => {
     const jobs = state.listJobs(request.query.limit, scopeFor(request));
     response.json({ jobs: request.query.view === "summary" ? jobs.map(summarize) : jobs });
