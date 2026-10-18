@@ -67,7 +67,10 @@ async function main() {
   let askers = null;
   for (let attempt = 0; attempt < 60; attempt += 1) {
     askers = await piholeAskers(context, { localDns, run: fixedRun });
-    if (askers.available && askers.lanClients >= devices.length) break;
+    // Every lookup the checks below count, not only the devices': Pi-hole writes its log to the
+    // database in batches, and the server's own lookup (sent last) could still be waiting for the
+    // next one when the eighth device's had landed.
+    if (askers.available && askers.lanClients >= devices.length && askers.routerAsks && askers.selfQueries >= 1) break;
     await sleep(3000);
   }
   console.log(`    ${JSON.stringify(askers)}`);
