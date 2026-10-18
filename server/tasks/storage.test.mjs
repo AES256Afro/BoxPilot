@@ -173,6 +173,16 @@ describe("root storage tasks", () => {
       await expect(storageFormat({ device: "/dev/sdb" }, { run, files: { readFile: async () => `${BASE_FSTAB}${line}\n` } }), line).rejects.toThrow(/listed in \/etc\/fstab.*Nothing was erased/);
       expect(run).not.toHaveBeenCalledWith(expect.stringContaining("wipefs"), expect.anything(), expect.anything());
     }
+    // Any other name blkid or the kernel would answer to: a label, quoted or other-case identifiers, a link.
+    const labelled = [{ ...drive[0], children: [{ ...drive[0].children[0], uuid: "AAAA-1111", label: "media", partlabel: "Data Part" }] }];
+    const links = new Map([["/dev/disk/by-id/usb-Stick-part1", "/dev/sdb1"], ["/dev/sdb1", "/dev/sdb1"]]);
+    const realpath = async (name) => { if (links.has(name)) return links.get(name); throw new Error("ENOENT"); };
+    for (const line of ["LABEL=media /mnt/m ext4 defaults 0 2", "PARTLABEL=\"Data\\040Part\" /mnt/m ext4 defaults 0 2", "UUID=\"aaaa-1111\" /mnt/m ext4 defaults 0 2", "uuid=aaaa-1111 /mnt/m ext4 defaults 0 2", "/dev/disk/by-label/media /mnt/m ext4 defaults 0 2", "/dev/disk/by-id/usb-Stick-part1 /mnt/m ext4 defaults 0 2"]) {
+      const run = fakeRun({ lsblkNodes: labelled });
+      await expect(storageFormat({ device: "/dev/sdb" }, { run, files: { readFile: async () => `${BASE_FSTAB}${line}\n`, realpath } }), line).rejects.toThrow(/listed in \/etc\/fstab.*Nothing was erased/);
+    }
+    const otherLabel = fakeRun({ lsblkNodes: labelled });
+    await expect(storageFormat({ device: "/dev/sdb" }, { run: otherLabel, files: { readFile: async () => `${BASE_FSTAB}LABEL=Media /mnt/m ext4 defaults 0 2\n`, realpath } })).resolves.toMatchObject({ formatted: true });
     const commented = fakeRun({ lsblkNodes: drive });
     await expect(storageFormat({ device: "/dev/sdb" }, { run: commented, files: { readFile: async () => `${BASE_FSTAB}# UUID=aaaa-1111 /mnt/old ext4 defaults 0 2\n` } })).resolves.toMatchObject({ formatted: true });
   });

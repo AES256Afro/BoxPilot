@@ -1,4 +1,4 @@
-import { access, mkdir, realpath } from "node:fs/promises";
+import { access, lstat, mkdir, realpath } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
 
 /**
@@ -58,7 +58,8 @@ async function listBtrfsSnapshots(run, target) {
   if (!result.ok) return [];
   return result.stdout.split("\n").filter(Boolean).map((line) => {
     const match = line.match(/ path (.+)$/);
-    return match ? { path: match[1], name: match[1].split("/").pop() } : null;
+    const id = line.match(/^ID (\d+) /)?.[1] ?? null;
+    return match ? { id, path: match[1], name: match[1].split("/").pop() } : null;
   }).filter(Boolean);
 }
 
@@ -96,7 +97,7 @@ function checkName(name) {
 }
 
 /** Create a read-only snapshot of a mounted btrfs filesystem or a ZFS dataset. */
-export async function fsSnapshotCreate({ kind, target, name } = {}, { run = fixedRun, log = null, files = { access, mkdir } } = {}) {
+export async function fsSnapshotCreate({ kind, target, name } = {}, { run = fixedRun, log = null, files = { access, mkdir, lstat }, resolve = realpath } = {}) {
   checkName(name);
   if (kind === "btrfs") {
     const mounts = await btrfsMounts(run);
@@ -104,6 +105,13 @@ export async function fsSnapshotCreate({ kind, target, name } = {}, { run = fixe
     if (!mount) throw new Error(`${target} is not a mounted btrfs filesystem`);
     const directory = `${mount.target}/${btrfsSnapshotDirectory}`;
     await files.mkdir(directory, { recursive: true, mode: 0o700 });
+    // mkdir -p is satisfied by a link of that name, and a snapshot of the whole drive written through
+    // it lands wherever the apps pointed it. Only the real folder at the drive's top is written to.
+    const folder = await (files.lstat ?? lstat)(directory).catch(() => null);
+    const real = await resolve(directory).catch(() => null);
+    if (!folder?.isDirectory() || folder.isSymbolicLink() || real !== `${await resolve(mount.target).catch(() => mount.target)}/${btrfsSnapshotDirectory}`) {
+      throw new Error(`${directory} is not a folder on ${mount.target}${real && real !== directory ? ` (it leads to ${real})` : ""}; no snapshot was taken`);
+    }
     const destination = `${directory}/${name}`;
     const created = await run(binaries.btrfs, ["subvolume", "snapshot", "-r", mount.target, destination], { timeout: 60_000 });
     if (!created.ok) throw new Error(`btrfs snapshot failed: ${tail(created.stderr)}`);
@@ -137,7 +145,11 @@ export async function fsSnapshotDelete({ kind, target, name } = {}, { run = fixe
     const real = await resolve(path).catch(() => null);
     const expected = `${await resolve(mount.target).catch(() => mount.target)}/${btrfsSnapshotDirectory}/${name}`;
     if (real !== expected) throw new Error(`${path} is not a snapshot in ${mount.target}'s ${btrfsSnapshotDirectory} folder${real ? ` (it leads to ${real})` : ""}; nothing was deleted`);
-    const removed = await run(binaries.btrfs, ["subvolume", "delete", path], { timeout: 60_000 });
+    // The folder can still be swapped between that check and the delete, so the snapshot is deleted by
+    // its subvolume id, read from btrfs's own list of snapshots on this filesystem, not by its path.
+    const snapshot = (await listBtrfsSnapshots(run, mount.target)).find((entry) => entry.id && (entry.path === `${btrfsSnapshotDirectory}/${name}` || entry.path.endsWith(`/${btrfsSnapshotDirectory}/${name}`)));
+    if (!snapshot) throw new Error(`btrfs lists no snapshot ${btrfsSnapshotDirectory}/${name} on ${mount.target}; nothing was deleted`);
+    const removed = await run(binaries.btrfs, ["subvolume", "delete", "--subvolid", snapshot.id, mount.target], { timeout: 60_000 });
     if (!removed.ok) throw new Error(`btrfs subvolume delete failed: ${tail(removed.stderr)}`);
     log?.(`Deleted btrfs snapshot ${path}`, "stdout");
     return { deleted: true, kind, path };
