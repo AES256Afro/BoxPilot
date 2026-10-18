@@ -50,7 +50,7 @@ import { createRateLimit } from "./agents/budget.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
-import { collectStorage, createStorageReader, diskIdentity } from "./storage-inventory.mjs";
+import { collectStorage, createStorageReader, pinDiskIdentity } from "./storage-inventory.mjs";
 import { listListeners } from "./ports.mjs";
 import { scanRemediations } from "./remediations-scan.mjs";
 import { createJobService, recordFailed } from "./jobs.mjs";
@@ -270,7 +270,7 @@ const jobs = createJobService(state, helper, {
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
     // Which disk the path is now; the format refuses a different one behind the same name later.
     // Last, so a browser cannot name the identity itself.
-    "storage.format": async (parameters) => ({ ...parameters, identity: await diskIdentity(parameters?.device) }),
+    "storage.format": (parameters) => pinDiskIdentity(parameters),
     "system.update": (parameters) => releaseUpdates.prepareOperation(parameters),
     // Dashboard links need the address the browser uses; fall back to the LAN address for scheduled runs.
     "homepage.sync": async (parameters) => ({ host: parameters.host ?? (await inventory.inspect().catch(() => null))?.network?.addresses?.find((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address))?.address ?? "127.0.0.1" }),
