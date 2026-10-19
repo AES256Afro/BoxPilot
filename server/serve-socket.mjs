@@ -51,7 +51,7 @@ export async function startServeSocketListener(app, { socketPath = serveSocketPa
   });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(socketPath, () => { server.off("error", reject); resolve(); });
+    server.listen(socketPath, () => { server.off("error", reject); resolve(undefined); });
   });
   await chmod(socketPath, 0o600).catch(() => {});
   return server;
