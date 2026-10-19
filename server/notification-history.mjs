@@ -44,7 +44,7 @@ export function createNotificationHistory({ store, now = () => new Date(), limit
   };
 
   /**
-   * Something was said, or tried. `delivered` false with `reason` "no-target" or "failed" when it did
+   * Something was said, or tried. `delivered` false with `reason` "no-target", "failed" or "held" (waiting for the quiet-hours summary) when it did
    * not arrive. The same key said again before it arrived updates that entry; once it has arrived,
    * or cleared, saying it again is a new entry. `actorId`, when given, is whose run the words describe
    * (an automation's, sweep 3); it goes with the words, so newer words take their own or none.

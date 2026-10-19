@@ -355,7 +355,7 @@ describe("durable job executor", () => {
       expect(recordFailed(failed)).toBe(true);
       expect(failed.steps.find((step) => step.name === "record").detail).toContain("The operation ran, but BoxPilot could not save its result: UNIQUE constraint failed");
       expect(send).toHaveBeenCalledTimes(1);
-      expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Result not saved: Export a stopped VM (ubuntu-lab)", message: expect.stringContaining("could not save what it did: UNIQUE constraint failed: vm_exports.id. Pages that show it"), priority: "high" });
+      expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Result not saved: Export a stopped VM (ubuntu-lab)", message: expect.stringContaining("could not save what it did: UNIQUE constraint failed: vm_exports.id. Pages that show it"), priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
 
       await runOnce();
       expect(send).toHaveBeenCalledTimes(1); // the same record failing again is not a second push
@@ -421,7 +421,7 @@ describe("durable job executor", () => {
       expect(store.getJobOutput(first.id)).toBeNull();
       expect(helper.request).not.toHaveBeenCalledWith("job.output.release", expect.anything(), expect.anything());
       expect(send).toHaveBeenCalledTimes(1);
-      expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Job output cannot be read", message: expect.stringContaining("The helper wrote the output of Refresh package lists, but BoxPilot could not open it: permission denied"), priority: "high" });
+      expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Job output cannot be read", message: expect.stringContaining("The helper wrote the output of Refresh package lists, but BoxPilot could not open it: permission denied"), priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
       expect(Object.keys(state())).toEqual([jobLogAlertKey]);
 
       // Every job after it is the same failure, and the same one push.
