@@ -50,6 +50,21 @@ export function tailnetClientAddress(request, { trustForwarded = false } = {}) {
   return null;
 }
 
+/**
+ * The caller a sign-in flow is counted against. An IPv6 address outside the tailnet counts by its
+ * /64: one host is handed a whole /64 (and privacy addresses change within it), so counting single
+ * addresses let one caller hold every slot. IPv4-mapped addresses count as their IPv4 address.
+ */
+export function signinClientKey(address) {
+  const value = normalizeAddress(typeof address === "string" ? address : "");
+  if (!value || !value.includes(":") || isTailnetAddress(value)) return value;
+  const [head, tail] = value.includes("::") ? value.split("::") : [value, null];
+  const front = head ? head.split(":") : [];
+  const back = tail ? tail.split(":") : [];
+  const groups = tail === null ? front : [...front, ...Array(Math.max(0, 8 - front.length - back.length)).fill("0"), ...back];
+  return `${groups.slice(0, 4).map((group) => (Number.parseInt(group || "0", 16) || 0).toString(16)).join(":")}::/64`;
+}
+
 export function createIdentityService({
   store,
   run = fixedRun,
@@ -232,7 +247,11 @@ export function createIdentityService({
   const signinFlowLimit = 10;
   const signinFlowsPerClient = 2;
 
-  /** Drop the oldest sign-in flow of the caller holding the most of them. */
+  /**
+   * Drop the oldest sign-in flow of a caller holding more than one, and say whether one went. A caller
+   * with a single flow is never pushed out: otherwise nine addresses restarting their one flow each
+   * cancelled the owner's sign-in while the owner was still typing the code at GitHub.
+   */
   function evictSigninFlow() {
     const held = new Map();
     for (const [id, flow] of githubFlows) {
@@ -241,9 +260,11 @@ export function createIdentityService({
       held.set(key, [...(held.get(key) ?? []), [id, flow]]);
     }
     const most = Math.max(0, ...[...held.values()].map((entries) => entries.length));
+    if (most < 2) return false;
     const candidates = [...held.values()].filter((entries) => entries.length === most).flat();
     const [oldestId] = candidates.reduce((oldest, entry) => (!oldest || entry[1].startedAt < oldest[1].startedAt ? entry : oldest), null) ?? [];
     if (oldestId) githubFlows.delete(oldestId);
+    return Boolean(oldestId);
   }
   function pruneFlows() {
     for (const [id, flow] of githubFlows) {
@@ -254,8 +275,9 @@ export function createIdentityService({
     }
   }
 
-  async function githubStart({ purpose = "signin", ownerId = null, client = null } = {}) {
+  async function githubStart({ purpose = "signin", ownerId = null, client: address = null } = {}) {
     pruneFlows();
+    const client = purpose === "signin" ? signinClientKey(address) : address;
     if (!githubConfigured()) throw new Error("GitHub sign-in is not configured: add an OAuth App client ID in Settings");
     // Anonymous sign-in flows are capped separately (and per client) so nobody can fill the table
     // and lock the owner out of linking or signing in.
@@ -264,9 +286,11 @@ export function createIdentityService({
       if (client && flows.filter((flow) => flow.purpose === "signin" && flow.client === client).length >= signinFlowsPerClient) throw new Error("Too many GitHub sign-in attempts from this device; try again in a minute");
       // A full table used to refuse everyone, so a few addresses that kept their flows polled held
       // every slot and nobody else could sign in with GitHub. Now the newcomer takes the oldest
-      // flow of whoever holds the most: one caller with two flows gives one up before a caller with
-      // one does, and filling the table takes as many addresses as it has slots.
-      if (flows.filter((flow) => flow.purpose === "signin").length >= signinFlowLimit) evictSigninFlow();
+      // flow of a caller holding two; only a table of ten callers with one flow each refuses it, and
+      // nobody's flow in progress is cancelled to make room.
+      if (flows.filter((flow) => flow.purpose === "signin").length >= signinFlowLimit && !evictSigninFlow()) {
+        throw new Error("Every GitHub sign-in slot is in use; try again in a few minutes");
+      }
     } else if (flows.filter((flow) => flow.purpose === "link").length >= 5) {
       throw new Error("Too many GitHub link attempts in progress; try again in a minute");
     }
