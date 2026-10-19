@@ -120,7 +120,7 @@ export function DatabaseCopies({ csrfToken, role }: { csrfToken: string; role: s
     preview: (
       <div className="system-preview">
         <p>Stops BoxPilot, saves the database as it is now as a new copy here, puts <code>{copy.name}</code> in its place and starts BoxPilot again. If BoxPilot does not answer on it, the database it had is put back.</p>
-        <p>Everything recorded since {takenOn(copy.takenAt)} (jobs, settings, accounts, sign-ins) is not in this copy. The page reconnects by itself when BoxPilot is back.</p>
+        <p>Everything recorded since {takenOn(copy.takenAt)} (jobs, settings, accounts) is not in this copy. Accounts, passwords and passkeys go back to what they were then, so one removed since works again: check them afterwards. Everyone is signed out, you included; sign in again once BoxPilot is back.</p>
       </div>
     ),
   });
