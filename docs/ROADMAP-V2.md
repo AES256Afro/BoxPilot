@@ -1875,8 +1875,12 @@ Proposed, value to the owner against effort:
 - **Activity filters** (failed, waiting, running) and search - medium, small to medium.
 - **A Home item when old database copies pile up** - medium, small: points at the copies panel when
   copies from before the secret scrub are still on disk.
-- **Restore a database copy as an operation** (high risk, stops BoxPilot) - medium, medium to large;
-  today it is the three manual steps the rollback prints.
+- ✅ **Restore a database copy as an operation** (high risk, stops BoxPilot) - medium, medium to large.
+  System → Housekeeping → Database copies → *Put back* (`housekeeping.database-copies.restore`, owner,
+  the copy's name typed out): a unit of its own checks the copy's integrity, stops BoxPilot, saves the
+  database as it is as a new copy, puts the copy in with the live file's owner and mode, drops the old
+  -wal/-shm, starts BoxPilot and, if it does not answer, puts the saved database back
+  (`server/db-restore.mjs`). A copy from a newer release than the one running is refused.
 - **Hold the update button while jobs run** - low to medium, small: the approval already refuses;
   the button could say so first.
 - **Fold "What you can do" into the page header** - low to medium, small: the strip on every Classic

@@ -1,0 +1,76 @@
+import { chmod, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
+import { restoreDatabaseCopy } from "./db-restore.mjs";
+
+const directories = [];
+afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+
+const owners = (file) => { const db = new DatabaseSync(file, { readOnly: true }); try { return db.prepare("SELECT username FROM owners ORDER BY username").all().map((row) => row.username); } finally { db.close(); } };
+
+/** A live database in WAL mode with rows still in the WAL, and an update's copy beside it holding other rows. */
+async function setup() {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-db-restore-"));
+  directories.push(directory);
+  const database = path.join(directory, "boxpilot.sqlite3");
+  const live = new DatabaseSync(database);
+  live.exec("PRAGMA journal_mode = WAL; CREATE TABLE owners (username TEXT); INSERT INTO owners VALUES ('now-alex'), ('now-sam');");
+  live.close();
+  await chmod(database, 0o640);
+  const copyName = "boxpilot-rollback-1.150.0-20261018T101500Z.sqlite3";
+  const copy = new DatabaseSync(path.join(directory, copyName));
+  copy.exec("CREATE TABLE owners (username TEXT); INSERT INTO owners VALUES ('then-alex');");
+  copy.close();
+  const calls = [];
+  const run = vi.fn(async (binary, args) => { calls.push(args.join(" ")); return { ok: true, stderr: "" }; });
+  return { directory, database, copyName, run, calls, log: vi.fn() };
+}
+
+describe.skipIf(onWindows)("putting a database copy back", () => {
+  it("saves the database first, puts the copy in with the live file's mode, and starts BoxPilot on it", async () => {
+    const { directory, database, copyName, run, calls, log } = await setup();
+    const result = await restoreDatabaseCopy({ database, copyName, version: "1.151.0", stamp: "20261019T130000Z", run, healthy: async () => true, log });
+    expect(result).toEqual({ restored: copyName, saved: "boxpilot-rollback-1.151.0-20261019T130000Z.sqlite3", rolledBack: false });
+    expect(calls).toEqual(["stop boxpilot.service", "start boxpilot.service"]);
+    expect(owners(database)).toEqual(["then-alex"]);
+    // What was there before is a copy of its own, rows from the WAL included, readable by root alone.
+    const saved = path.join(directory, result.saved);
+    expect(owners(saved)).toEqual(["now-alex", "now-sam"]);
+    expect((await stat(saved)).mode & 0o777).toBe(0o600);
+    expect((await stat(database)).mode & 0o777).toBe(0o640);
+    // The old database's WAL would replay over the copy: gone, and no staging file left behind.
+    const left = await readdir(directory);
+    expect(left.filter((name) => /-wal$|-shm$|\.restoring$/.test(name))).toEqual([]);
+    expect(log.mock.calls.map(([line]) => line).every((line) => line.startsWith("[boxpilot-db-restore] "))).toBe(true);
+  });
+
+  it("puts the database back when BoxPilot does not answer on the copy", async () => {
+    const { database, copyName, run, calls } = await setup();
+    let checks = 0;
+    const failure = await restoreDatabaseCopy({ database, copyName, version: "1.151.0", stamp: "20261019T130000Z", run, healthy: async () => (checks += 1) > 1, log: () => {} }).catch((error) => error);
+    expect(failure.message).toMatch(/did not answer on .*put back and BoxPilot answers again/);
+    expect(failure.rolledBack).toBe(true);
+    expect(calls).toEqual(["stop boxpilot.service", "start boxpilot.service", "stop boxpilot.service", "start boxpilot.service"]);
+    expect(owners(database)).toEqual(["now-alex", "now-sam"]);
+  });
+
+  it("stops nothing when the copy is damaged, missing, or not a copy", async () => {
+    const { directory, database, copyName, run } = await setup();
+    await writeFile(path.join(directory, copyName), "not a database at all, just bytes that are long enough to matter");
+    await expect(restoreDatabaseCopy({ database, copyName, version: "1", stamp: "s", run, healthy: async () => true, log: () => {} })).rejects.toThrow(/integrity check.*Nothing was changed/);
+    await expect(restoreDatabaseCopy({ database, copyName: "boxpilot-rollback-9.9.9-20260101T000000Z.sqlite3", version: "1", stamp: "s", run, healthy: async () => true, log: () => {} })).rejects.toThrow("Nothing was changed");
+    await expect(restoreDatabaseCopy({ database, copyName: "../../etc/shadow", version: "1", stamp: "s", run, healthy: async () => true, log: () => {} })).rejects.toThrow("not a database copy");
+    expect(run).not.toHaveBeenCalled();
+    expect(owners(database)).toEqual(["now-alex", "now-sam"]);
+  });
+
+  it("leaves the database alone and starts BoxPilot again when BoxPilot will not stop", async () => {
+    const { database, copyName, log } = await setup();
+    const run = vi.fn(async (_binary, args) => ({ ok: args[0] !== "stop", stderr: "Job for boxpilot.service canceled" }));
+    await expect(restoreDatabaseCopy({ database, copyName, version: "1", stamp: "s", run, healthy: async () => true, log })).rejects.toThrow("would not stop");
+    expect(owners(database)).toEqual(["now-alex", "now-sam"]);
+  });
+});
