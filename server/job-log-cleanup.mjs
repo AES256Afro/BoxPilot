@@ -3,16 +3,28 @@ import { lstat, open, unlink } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { defaultJobLogDirectory, jobLogPath, maxJobLogBytes } from "./job-log.mjs";
+import { mayStillBeRunning } from "./timeouts.mjs";
 
-/** Read an existing durable copy without opening the state store or running migrations. */
+/**
+ * Read an existing durable copy without opening the state store or running migrations: a completed
+ * job's, or a failed one's when nothing it started can still be writing to the log (a job that ran
+ * out of time may have left a root task running, whose later lines would go to an unlinked file).
+ */
 export function savedCompletedOutput(jobId, databasePath = process.env.BOXPILOT_CONTROLLER_DATABASE ?? path.join(process.env.BOXPILOT_STATE_DIRECTORY ?? "/var/lib/boxpilot", "boxpilot.sqlite3")) {
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
-    return database.prepare("SELECT o.output FROM jobs AS j JOIN job_output AS o ON o.job_id = j.id WHERE j.id = ? AND j.state = 'completed' AND length(CAST(o.output AS BLOB)) <= ?").get(jobId, maxJobLogBytes)?.output ?? null;
+    const row = database.prepare("SELECT o.output, j.state, j.timeout_json FROM jobs AS j JOIN job_output AS o ON o.job_id = j.id WHERE j.id = ? AND j.state IN ('completed', 'failed') AND length(CAST(o.output AS BLOB)) <= ?").get(jobId, maxJobLogBytes);
+    if (!row) return null;
+    if (row.state === "failed") {
+      let timeout = null;
+      try { timeout = row.timeout_json ? JSON.parse(row.timeout_json) : null; } catch { return null; }
+      if (mayStillBeRunning(timeout)) return null;
+    }
+    return row.output ?? null;
   } finally { database.close(); }
 }
 
-/** Remove only a fully saved, completed log from the fixed protected runtime directory. */
+/** Remove only a fully saved log of a finished job from the fixed protected runtime directory. */
 export async function releaseSavedJobLog({ jobId }, {
   directory = defaultJobLogDirectory,
   lookup = savedCompletedOutput,
