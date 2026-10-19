@@ -112,6 +112,20 @@ export function DatabaseCopies({ csrfToken, role }: { csrfToken: string; role: s
     });
   };
 
+  const putBack = (copy: DatabaseCopy) => start({
+    operationId: "housekeeping.database-copies.restore",
+    title: `Put back the database copy from ${copy.version}`,
+    parameters: { name: copy.name },
+    confirmText: copy.name,
+    preview: (
+      <div className="system-preview">
+        <p>Stops BoxPilot, saves the database as it is now as a new copy here, puts <code>{copy.name}</code> in its place and starts BoxPilot again. If BoxPilot does not answer on it, the database it had is put back.</p>
+        <p>Everything recorded since {takenOn(copy.takenAt)} (jobs, settings, accounts, sign-ins) is not in this copy. The page reconnects by itself when BoxPilot is back.</p>
+      </div>
+    ),
+  });
+  const canPutBack = mayStart(role, "housekeeping.database-copies.restore");
+
   return (
     <Panel className="system-copies" title="Database copies from updates" count={verdict}
       meta={report ? <><b>{report.totalHumanBytes}</b> in <code>{report.directory}</code></> : undefined}
@@ -156,6 +170,7 @@ export function DatabaseCopies({ csrfToken, role }: { csrfToken: string; role: s
                   </span>
                 ),
               },
+              ...(canPutBack ? [{ id: "restore", header: "", cell: (copy: DatabaseCopy) => <Button variant="ghost" risk={riskOf("housekeeping.database-copies.restore")} onClick={() => putBack(copy)} aria-label={`Put back the copy from ${copy.version}, ${takenOn(copy.takenAt)}`}>Put back</Button> }] : []),
             ]}
           />
         </>
