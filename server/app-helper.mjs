@@ -1051,7 +1051,7 @@ export function createAppHelper({
       const existingEnv = await readEnv(id);
       const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), existingEnv));
       if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
-      const savedImage = catalogImagePin(state.image?.reference, manifest.image.reference);
+      const savedImage = catalogImagePin(state.image?.reference, manifest.image.reference, manifest.image.formerRepositories);
       const pinned = savedImage ? { ...manifest, image: { ...manifest.image, reference: savedImage } } : manifest;
       progress?.(`${manifest.name}'s compose project is gone too; writing it again from its saved settings, on ${pinned.image.reference}`, "stdout");
       await writeProject(pinned, values, { existingEnv, devices });
@@ -1193,7 +1193,7 @@ export function createAppHelper({
     // restored backup brings with it.
     const catalogImageOf = (service) => (service === id ? manifest.image.reference : (manifest.sidecars ?? []).find((sidecar) => sidecar.id === service)?.image ?? null);
     const restoreTo = Object.fromEntries(Object.entries(last.from).filter(([service, reference]) =>
-      catalogImageOf(service) !== null && catalogImagePin(reference, catalogImageOf(service))));
+      catalogImageOf(service) !== null && catalogImagePin(reference, catalogImageOf(service), service === id ? manifest.image.formerRepositories : [])));
     if (!Object.keys(restoreTo).length) throw new Error(`${manifest.name} has no recorded version that still matches how it is built today, so there is nothing to go back to`);
 
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));

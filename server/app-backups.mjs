@@ -103,8 +103,12 @@ function composeDevices(composeText) {
  * writes, and whatever they name runs with everything the catalog grants the app (the Docker socket,
  * host networking, devices): a different repository is never taken from them.
  */
-export function catalogImagePin(candidate, catalogReference) {
-  return typeof candidate === "string" && candidate && imageRepository(candidate) === imageRepository(catalogReference) ? candidate : null;
+export function catalogImagePin(candidate, catalogReference, formerRepositories = []) {
+  if (typeof candidate !== "string" || !candidate) return null;
+  // The catalog's repository, or one it says the app moved from (image.formerRepositories): a backup
+  // or rollback from before the move names the old one and is still the catalog's image.
+  const accepted = new Set([catalogReference, ...(Array.isArray(formerRepositories) ? formerRepositories : [])].map(imageRepository));
+  return accepted.has(imageRepository(candidate)) ? candidate : null;
 }
 
 export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBinary, runCommand, catalog, wait, clock, realpathOf, freeBytesOf, restoreReserveBytes, idPattern, dirFor, presentIds, readState, ensureManifest, containerStatus, compose, waitHealthy, assertPortsFree, renderProject, readProjectFiles, withSavedSecrets, redact, parseEnvFile, resolveExisting }) {
@@ -920,11 +924,11 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     const ran = deployedImages(archivedCompose);
     const foreign = Object.entries(ran).filter(([service, reference]) => {
       const catalog = service === manifest.id ? manifest.image.reference : (manifest.sidecars ?? []).find((sidecar) => sidecar.id === service)?.image;
-      return catalog && !catalogImagePin(reference, catalog);
+      return catalog && !catalogImagePin(reference, catalog, service === manifest.id ? manifest.image.formerRepositories : []);
     });
     const pinned = {
       ...manifest,
-      image: { ...manifest.image, reference: catalogImagePin(ran[manifest.id], manifest.image.reference) ?? catalogImagePin(state.image?.reference, manifest.image.reference) ?? manifest.image.reference },
+      image: { ...manifest.image, reference: catalogImagePin(ran[manifest.id], manifest.image.reference, manifest.image.formerRepositories) ?? catalogImagePin(state.image?.reference, manifest.image.reference, manifest.image.formerRepositories) ?? manifest.image.reference },
       sidecars: (manifest.sidecars ?? []).map((sidecar) => (catalogImagePin(ran[sidecar.id], sidecar.image) ? { ...sidecar, image: ran[sidecar.id] } : sidecar)),
     };
     // Named with the image that is used instead: when the catalog moved the app to another repository,

@@ -498,3 +498,14 @@ describe("the tier of installing an app", () => {
     expect(await lookup({})).toBeNull();
   });
 });
+
+describe("an app's former image repositories", () => {
+  const base = { schemaVersion: 2, id: "moved", name: "Moved", category: "T", description: "d" };
+  it("are repositories alone, at most eight, and default to none", () => {
+    expect(validateManifest({ ...base, image: { reference: "ghcr.io/neworg/app:2.0" } }).manifest.image.formerRepositories).toEqual([]);
+    expect(validateManifest({ ...base, image: { reference: "ghcr.io/neworg/app:2.0", formerRepositories: ["oldorg/app", "registry.example:5000/team/app"] } })).toMatchObject({ errors: [], manifest: { image: { formerRepositories: ["oldorg/app", "registry.example:5000/team/app"] } } });
+    for (const formerRepositories of [["oldorg/app:1.0"], ["oldorg/app@sha256:" + "a".repeat(64)], ["Oldorg/App"], "oldorg/app", Array.from({ length: 9 }, (_, index) => `org${index}/app`), [""]]) {
+      expect(validateManifest({ ...base, image: { reference: "ghcr.io/neworg/app:2.0", formerRepositories } }).errors.join(" ")).toContain("manifest.image.formerRepositories");
+    }
+  });
+});
