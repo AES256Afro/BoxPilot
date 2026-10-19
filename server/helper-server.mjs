@@ -3,15 +3,15 @@ import net from "node:net";
 import path from "node:path";
 import { productVersion } from "./version.mjs";
 import { registry } from "./ops/index.mjs";
-import { createRunUnitClient, whileHoldingRootTasks } from "./run-unit.mjs";
+import { createRunUnitClient } from "./run-unit.mjs";
 import { createCredentialStore } from "./credentials.mjs";
 import { createVpnProfileStore } from "./vpn-profile.mjs";
 import { createAppHelper } from "./app-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
-import { helperErrorReply, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
-import { createAdmission, createConcurrencyGate, createLaneQueues, laneFor } from "./helper-lanes.mjs";
+import { createHelperConnectionHandler } from "./helper-connection.mjs";
+import { createAdmission, createConcurrencyGate, createLaneQueues } from "./helper-lanes.mjs";
 import { createDrainedRestart, restartRefusalError } from "./self-restart.mjs";
 import { resumeInterruptedBackups } from "./interrupted-backups.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
@@ -122,113 +122,12 @@ await unlink(socketPath).catch((error) => {
   if (error.code !== "ENOENT") throw error;
 });
 
-const server = net.createServer({ allowHalfOpen: true }, (connection) => {
-  const abandoned = new AbortController();
-  connection.once("close", () => abandoned.abort());
-  // The web side destroys its socket when a request times out or the service restarts. Writing the
-  // reply then raises EPIPE, and an unhandled 'error' here would take the root helper down mid-operation.
-  connection.on("error", () => connection.destroy());
-  /** Send a reply only if the peer is still there. */
-  const reply = (payload) => { if (!connection.destroyed && connection.writable) connection.end(`${JSON.stringify(payload)}\n`); else connection.destroy(); };
-  connection.setEncoding("utf8");
-  connection.setTimeout(180000);
-  let payload = "";
-  let handled = false;
-
-  async function respond() {
-    if (handled) return;
-    handled = true;
-    let request;
-    try {
-      request = JSON.parse(payload);
-      payload = "";
-    } catch {
-      reply({ version: 1, id: null, ok: false, error: "Malformed JSON request", code: "malformed_json" });
-      return;
-    }
-    try {
-      // The budget this request runs under: the operation's own, or a larger one a job was given
-      // with "Try again with more time" (the protocol validator checks it against the registry).
-      // The idle limit sits a little past it, so the web side's deadline - the one that records the
-      // timeout on the job - is the one that fires, and this stays the backstop for a dead peer.
-      const budget = registry.budgetFor(request.operation, request.context?.budgetMs ?? null);
-      const registeredTimeout = budget ? budget + idleGraceMs : null;
-      if (registeredTimeout) connection.setTimeout(registeredTimeout);
-      let result;
-      if (readOnlyOperations.has(request.operation)) {
-        result = await reads.run(() => executeHelperOperation(request, helperDependencies), { signal: abandoned.signal });
-      } else {
-        if (restarting) throw restartRefusalError();
-        const admitted = mutations.enter();
-        // Left on every path out, a throw before the lane included: a slot that leaks is one fewer for good.
-        try {
-          const held = laneFor(request.operation, request.parameters);
-          // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
-          // both idle timers alive; the client reads those lines as progress, not as the reply.
-          let heartbeat = null;
-          // Anything can be held up by the exclusive lane, and an exclusive request waits for every lane.
-          const willWait = lanes.busy(held);
-          const frame = (value) => { if (!connection.destroyed && connection.writable) connection.write(`${JSON.stringify(value)}\n`); };
-          if (willWait) {
-            // Say so at once: the client holds a queued request to its queue ceiling rather than the
-            // operation's own budget, which starts only when the "started" frame below arrives.
-            frame(helperQueuedFrame(request?.id ?? null, held.join("+")));
-            heartbeat = setInterval(() => frame(helperQueuedFrame(request?.id ?? null, held.join("+"))), queuedHeartbeatMs);
-            heartbeat.unref?.();
-          }
-          // While it waits, a stop of the helper (a drained self-restart holds every lane until then)
-          // answers it at once with nothing done, rather than holding the stop until systemd kills it.
-          const queued = { refused: false, refuse: (refusal = restartRefusalError("BoxPilot's helper restarted before this began, so nothing was changed. Run it again.")) => { queued.refused = true; if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } reply(helperErrorReply(request?.id ?? null, refusal)); } };
-          waiting.add(queued);
-          try {
-            result = await lanes.run(held, async (holdUntil) => {
-              waiting.delete(queued);
-              if (queued.refused) throw new Error("The helper stopped before this request began");
-              // The web side gave up while this waited: running it now would change the host with no job watching.
-              // allowHalfOpen keeps `destroyed` false after the peer's FIN, so check the read side too.
-              if (connection.destroyed || connection.readableEnded) throw new Error("The request was abandoned while it waited for an earlier operation on this subject");
-              if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
-              if (registeredTimeout) connection.setTimeout(registeredTimeout); // the operation's own budget starts now
-              if (willWait) frame(helperStartedFrame(request.id)); // ...and the client's deadline restarts with it
-              // A root task it leaves running past its own limit keeps these lanes until its unit stops.
-              return whileHoldingRootTasks(holdUntil, () => executeHelperOperation(request, helperDependencies));
-            });
-          } finally {
-            waiting.delete(queued);
-            if (heartbeat) clearInterval(heartbeat);
-          }
-        } finally {
-          admitted();
-        }
-      }
-      reply(result);
-    } catch (error) {
-      // A step that ran out of its own time, and whether a rollback worked, go in fields.
-      reply(helperErrorReply(request?.id ?? null, error));
-    }
-  }
-
-  connection.on("data", (chunk) => {
-    if (handled) return;
-    payload += chunk;
-    if (Buffer.byteLength(payload, "utf8") > maxRequestBytes) {
-      handled = true;
-      reply({ version: 1, id: null, ok: false, error: "Request is too large", code: "request_too_large" });
-      return;
-    }
-    if (payload.includes("\n")) {
-      payload = payload.slice(0, payload.indexOf("\n"));
-      void respond();
-    }
-  });
-  connection.on("end", () => {
-    // Official clients keep the request side open until the reply. A FIN after submission
-    // means that caller has gone; release a queued read before it starts expensive host work.
-    if (handled) abandoned.abort();
-    else void respond();
-  });
-  connection.on("timeout", () => connection.destroy());
+const handleConnection = createHelperConnectionHandler({
+  registry, readOnlyOperations, lanes, reads, mutations, waiting, idleGraceMs, maxRequestBytes, queuedHeartbeatMs,
+  isRestarting: () => restarting,
+  execute: (request) => executeHelperOperation(request, helperDependencies),
 });
+const server = net.createServer({ allowHalfOpen: true }, handleConnection);
 // Bound even peers that connect without submitting a request. The socket is local and group
 // protected, but valid web requests must not turn into unlimited root-process connections.
 server.maxConnections = maxConnections;
