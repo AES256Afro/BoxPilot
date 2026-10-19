@@ -149,8 +149,16 @@ function parseModelSize(text) {
  * host networking, devices): a different repository is never taken from them.
  */
 export function catalogImagePin(candidate, catalogReference) {
-  return typeof candidate === "string" && candidate && imageRepository(candidate) === imageRepository(catalogReference) ? candidate : null;
+  return typeof candidate === "string" && pinnableReference.test(candidate) && imageRepository(candidate) === imageRepository(catalogReference) ? candidate : null;
 }
+
+/**
+ * The shape a pinned reference may take: repository (with an optional registry port), an optional
+ * tag, an optional sha256 digest. Nothing else: the reference is written into compose.yaml as is,
+ * and Compose would expand a `${…}` in it from the app's .env, sending a secret to the registry
+ * in the pull. The repository check alone looked only at what comes before an `@`.
+ */
+const pinnableReference = /^[a-z0-9][a-z0-9._-]*(?::[0-9]{1,5})?(?:\/[a-z0-9][a-z0-9._-]*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$/;
 
 export function createAppHelper({
   catalogRoot = process.env.BOXPILOT_CATALOG_ROOT ?? "/var/lib/boxpilot-managed/catalog",
