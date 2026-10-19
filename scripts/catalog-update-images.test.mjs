@@ -47,8 +47,9 @@ describe("choosing the newest release", () => {
 });
 
 describe("which images are followed", () => {
-  it("follows only the owner's own GHCR images, pinned by tag", () => {
+  it("follows only the owner's own GHCR images, pinned by tag (with or without a digest)", () => {
     expect(isOwnedImage("ghcr.io/owner/game:1.0.0", "Owner")).toBe(true);
+    expect(isOwnedImage("ghcr.io/owner/game:1.0.0@sha256:" + "a".repeat(64), "owner")).toBe(true);
     expect(isOwnedImage("ghcr.io/someone-else/game:1.0.0", "owner")).toBe(false);
     expect(isOwnedImage("ghcr.io/owner/game@sha256:" + "a".repeat(64), "owner")).toBe(false);
     expect(isOwnedImage("owner/game:1.0.0", "owner")).toBe(false);
@@ -74,6 +75,16 @@ describe("rewriting a manifest", () => {
   it("does not touch a longer tag that starts with the same digits", () => {
     const text = manifest({ reference: "ghcr.io/owner/game:1.2.30", version: "1.2.30" });
     expect(retag(text, { repo: "ghcr.io/owner/game", from: "1.2.3", to: "1.3.0", main: true, version: "1.2.3" })).toBe(text);
+  });
+
+  it("moves a digest pin to the new tag's digest", () => {
+    const [oldDigest, newDigest] = [`sha256:${"a".repeat(64)}`, `sha256:${"b".repeat(64)}`];
+    const text = manifest({ reference: `ghcr.io/owner/game:1.2.3@${oldDigest}` });
+    const next = retag(text, { repo: "ghcr.io/owner/game", from: "1.2.3", to: "1.3.0", main: true, version: "1.2.3", fromDigest: oldDigest, toDigest: newDigest });
+    expect(next).toContain(`reference: ghcr.io/owner/game:1.3.0@${newDigest}\n`);
+    expect(next).toContain('version: "1.3.0"');
+    // A plain-tag move never touches a pinned reference, and a pinned move needs its own digest.
+    expect(retag(text, { repo: "ghcr.io/owner/game", from: "1.2.3", to: "1.3.0", main: false })).toBe(text);
   });
 
   it("moves a sidecar's image without touching the main image's version", () => {
@@ -129,6 +140,22 @@ describe("finding updates", () => {
     expect(failures).toEqual([{ id: "notes", reference: "ghcr.io/owner/notes:1.0.0", error: "https://ghcr.io/v2/owner/notes/tags/list answered HTTP 503" }]);
   });
 
+  it("keeps a digest-pinned image pinned, and does not move it without the new digest", async () => {
+    const pinned = `sha256:${"a".repeat(64)}`;
+    const manifests = [
+      { id: "game", name: "Game", file: "game.yaml", image: { reference: `ghcr.io/owner/game:1.2.3@${pinned}`, version: "1.2.3" } },
+      { id: "notes", name: "Notes", file: "notes.yaml", image: { reference: `ghcr.io/owner/notes:1.0.0@${pinned}`, version: "1.0.0" } },
+    ];
+    const clientFor = (reference) => ({
+      tags: async () => (reference.includes("game") ? ["1.2.3", "1.2.4"] : ["1.0.0", "1.0.1"]),
+      shape: async () => shape(),
+      digest: async (tag) => { if (reference.includes("notes")) throw new Error("gave no digest"); return `sha256:${tag === "1.2.4" ? "b".repeat(64) : "0".repeat(64)}`; },
+    });
+    const { updates, failures } = await findUpdates(manifests, "owner", { clientFor });
+    expect(updates).toEqual([expect.objectContaining({ id: "game", from: "1.2.3", to: "1.2.4", fromDigest: pinned, toDigest: `sha256:${"b".repeat(64)}` })]);
+    expect(failures).toEqual([{ id: "notes", reference: `ghcr.io/owner/notes:1.0.0@${pinned}`, error: "gave no digest" }]);
+  });
+
   it("still offers the move when the pinned image can no longer be inspected", async () => {
     const manifests = [{ id: "game", name: "Game", file: "game.yaml", image: { reference: "ghcr.io/owner/game:1.2.3", version: "1.2.3" } }];
     const clientFor = () => ({
@@ -161,6 +188,14 @@ describe("writing updates into the catalog", () => {
     expect(manifests.find((entry) => entry.id === "game").image).toMatchObject({ reference: "ghcr.io/owner/game:1.3.0", version: "1.3.0" });
     expect(manifests.find((entry) => entry.id === "stack").sidecars[0].image).toBe("ghcr.io/owner/worker:0.5.0");
     expect(manifests.find((entry) => entry.id === "stack").image.version).toBe("1.29.0");
+  });
+
+  it("writes a digest move and checks the catalog now names the new digest", async () => {
+    const [oldDigest, newDigest] = [`sha256:${"a".repeat(64)}`, `sha256:${"b".repeat(64)}`];
+    await writeFile(path.join(directory, "game.yaml"), manifest({ reference: `ghcr.io/owner/game:1.2.3@${oldDigest}` }));
+    await applyUpdates([{ file: "game.yaml", repo: "ghcr.io/owner/game", from: "1.2.3", to: "1.3.0", main: true, version: "1.2.3", fromDigest: oldDigest, toDigest: newDigest }], directory);
+    const { manifests } = await loadCatalog({ directory });
+    expect(manifests[0].image).toMatchObject({ reference: `ghcr.io/owner/game:1.3.0@${newDigest}`, version: "1.3.0", digestPinned: true });
   });
 
   it("refuses when the pin it was asked to move is not in the file", async () => {
