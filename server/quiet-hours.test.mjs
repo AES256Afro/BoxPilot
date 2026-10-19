@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createNotificationHistory } from "./notification-history.mjs";
 import { createNotificationService } from "./notifications.mjs";
 import { holds, isQuiet, normalizeQuietHours, quietHoursProblem, summaryOf } from "./quiet-hours.mjs";
 import { createStateStore } from "./state.mjs";
@@ -59,10 +60,11 @@ async function setup() {
   let up = true;
   const sent = [];
   const fetcher = vi.fn(async (_url, options) => { if (!up) return { ok: false, status: 503 }; sent.push(options); return { ok: true, status: 200 }; });
-  const service = createNotificationService({ store, fetcher, now: () => clock, timeZone: "UTC", lookup: async () => [{ address: "127.0.0.1", family: 4 }] });
+  const history = createNotificationHistory({ store, now: () => clock });
+  const service = createNotificationService({ store, fetcher, now: () => clock, timeZone: "UTC", history, lookup: async () => [{ address: "127.0.0.1", family: 4 }] });
   service.setTarget({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" });
   store.setSetting("notificationQuietHours", night);
-  return { store, service, sent, setClock: (time) => { clock = at(time); }, setUp: (value) => { up = value; } };
+  return { store, service, history, fetcher, sent, setClock: (time) => { clock = at(time); }, setUp: (value) => { up = value; } };
 }
 
 describe("pushes during quiet hours", () => {
@@ -103,5 +105,38 @@ describe("pushes during quiet hours", () => {
     store.setSetting("notificationQuietHours", { ...night, holdHigh: true });
     expect(await service.send({ title: "BoxPilot: Disk failing", message: "m", priority: "high" })).toMatchObject({ held: true });
     expect(sent).toEqual([]);
+  });
+
+  it("says a held push is held, and delivered once the summary goes", async () => {
+    const { store, service, history, setClock } = await setup();
+    store.setSetting("notificationQuietHours", { ...night, holdHigh: true });
+    service.onJob({ id: "job-7", state: "failed", title: "Back up application data", error: "tar failed" });
+    await vi.waitFor(() => expect(history.list()).toEqual([expect.objectContaining({ key: "job.failed:job-7", delivered: false, reason: "held" })]));
+    setClock("07:00");
+    expect(await service.flushHeld()).toEqual({ sent: true, count: 1 });
+    expect(history.list()).toEqual([expect.objectContaining({ key: "job.failed:job-7", delivered: true, reason: null })]);
+  });
+
+  it("audits a summary that keeps failing once, not every minute", async () => {
+    const { store, service, setClock, setUp } = await setup();
+    const audit = vi.spyOn(store, "recordAudit");
+    await service.send({ title: "BoxPilot: one", message: "m" });
+    setClock("07:05");
+    setUp(false);
+    for (let tries = 0; tries < 5; tries += 1) await service.flushHeld();
+    expect(audit.mock.calls.filter(([type]) => type === "notifications.failed")).toHaveLength(1);
+  });
+
+  it("keeps a push held while the summary was on its way", async () => {
+    const { store, service, fetcher, setClock } = await setup();
+    await service.send({ title: "BoxPilot: one", message: "m" });
+    setClock("07:00");
+    // The quiet starts again (the owner moved it) while the summary is being sent.
+    fetcher.mockImplementationOnce(async () => {
+      store.setSetting("notificationHeld", [...store.getSetting("notificationHeld", []), { title: "BoxPilot: two", message: "m", priority: "default", at: "x" }]);
+      return { ok: true, status: 200 };
+    });
+    expect(await service.flushHeld()).toEqual({ sent: true, count: 1 });
+    expect(store.getSetting("notificationHeld", []).map((item) => item.title)).toEqual(["BoxPilot: two"]);
   });
 });
