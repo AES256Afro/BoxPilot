@@ -49,15 +49,35 @@ describe("durable job executor", () => {
     expect(seen).toEqual(["final output"]);
     store.close();
   });
-  it("preserves failed output without requesting cache deletion", async () => {
-    const helper = { request: vi.fn(async () => { throw new Error("operation failed"); }) };
-    const { store, owner } = await setup(helper);
+  it("saves failed output and then releases the cache too, which used to stay until reboot", async () => {
+    const seen = [];
+    let store;
+    const helper = { request: vi.fn(async (operation, parameters) => {
+      if (operation === "job.output.release") { seen.push(store.getJobOutput(parameters.jobId)); return { removed: true }; }
+      throw new Error("operation failed");
+    }) };
+    const setupResult = await setup(helper); store = setupResult.store;
     const jobs = createJobService(store, helper, { jobLog: { read: async () => ({ text: "failure details", exists: true }) } });
-    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
-    await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("operation failed");
+    const job = await jobs.createOperationJob("apt.refresh", {}, setupResult.owner.id);
+    await expect(jobs.approveAndRun(job.id, setupResult.owner.id, {})).rejects.toThrow("operation failed");
     expect(store.getJobOutput(job.id)).toBe("failure details");
-    expect(helper.request).toHaveBeenCalledOnce();
+    expect(seen).toEqual(["failure details"]);
     store.close();
+  });
+  it("keeps a timed-out job's cache while work it started may still be writing to it", async () => {
+    for (const [timeout, released] of [[{ scope: "step", budgetMs: 60_000, stillRunning: true }, false], [{ scope: "step", budgetMs: 60_000 }, true]]) {
+      const helper = { request: vi.fn(async (operation) => {
+        if (operation === "job.output.release") return { removed: true };
+        throw Object.assign(new Error("Root task did not finish within 1 minute"), { code: "timeout", timeout });
+      }) };
+      const { store, owner } = await setup(helper);
+      const jobs = createJobService(store, helper, { jobLog: { read: async () => ({ text: "partial", exists: true }) } });
+      const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+      await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("did not finish");
+      expect(store.getJobOutput(job.id)).toBe("partial");
+      expect(helper.request.mock.calls.some(([operation]) => operation === "job.output.release")).toBe(released);
+      store.close();
+    }
   });
   it.each([false, true])("refreshes evidence after a settled operation without masking its outcome (failure=%s)", async (failed) => {
     const helper = { request: async () => { if (failed) throw new Error("original operation error"); return { ok: true }; } };
