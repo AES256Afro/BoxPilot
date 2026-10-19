@@ -7,7 +7,7 @@ description: "Modern wiki with Markdown and visual editors, search, and many aut
 website: https://js.wiki
 risk: low
 image:
-  reference: requarks/wiki:2.5.314
+  reference: requarks/wiki:2.5.314@sha256:68f0d1848261ae76492ba358e30a96a76fed5d97a3fff381656082bf90f70d7e
   version: "2.5.314"
 ports:
   - id: web
@@ -43,7 +43,7 @@ env:
     generate: true
 sidecars:
   - id: database
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     env:
       POSTGRES_DB: wiki
       POSTGRES_USER: wiki

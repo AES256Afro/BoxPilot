@@ -7,7 +7,7 @@ description: One place for your torrent indexers. Add each site once, and Prowla
 website: https://prowlarr.com
 risk: medium
 image:
-  reference: lscr.io/linuxserver/prowlarr:2.5.2.5491-ls157
+  reference: lscr.io/linuxserver/prowlarr:2.5.2.5491-ls157@sha256:ab91301778251f82a31bbfc87f0497376d59e84439d9a1ceff6a61d594d1e3d7
   version: 2.5.2
 ports:
   - id: web

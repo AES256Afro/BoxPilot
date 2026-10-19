@@ -7,7 +7,7 @@ description: Browse, upload, and share the files on this server (including mount
 website: https://filebrowser.org
 risk: medium
 image:
-  reference: filebrowser/filebrowser:v2.63.23
+  reference: filebrowser/filebrowser:v2.63.23@sha256:a469ea076d4a1b4b1d86a41d130f2f536cd9da996a2b1fb39c0d7635f9d89b9a
   version: v2.63.23
 ports:
   - id: web
