@@ -434,6 +434,12 @@ describe("catalog freshness", () => {
 
       clock += 61_000;                                                        // past the max age
       expect((await catalog.all()).manifests[0].ports[0].host).toBe(9090);    // reloaded
+
+      // A file replaced (removed and written again) moves the directory: with a ttl of 0 that is seen
+      // at once, even in the same millisecond as the last look.
+      await rm(path.join(directory, "solo.yaml"));
+      await writeFile(path.join(directory, "solo.yaml"), manifest(7070));
+      expect((await catalog.all()).manifests[0].ports[0].host).toBe(7070);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
