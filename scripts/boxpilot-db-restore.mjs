@@ -7,7 +7,7 @@
 import { readFile } from "node:fs/promises";
 import { webListenFromEnv } from "../server/env-file.mjs";
 import { fixedRun } from "../server/exec.mjs";
-import { restoreDatabaseCopy } from "../server/db-restore.mjs";
+import { restoreDatabaseCopy, restoreResultPath } from "../server/db-restore.mjs";
 import { localHealthUrl } from "../server/tasks/update.mjs";
 
 const [copyName, database, version, stamp] = process.argv.slice(2);
@@ -25,7 +25,7 @@ async function healthy() {
 }
 
 try {
-  await restoreDatabaseCopy({ database, copyName, version, stamp, healthy, run: (binary, args) => fixedRun(binary, args, { timeout: 120_000 }) });
+  await restoreDatabaseCopy({ database, copyName, version, stamp, healthy, resultFile: restoreResultPath, run: (binary, args) => fixedRun(binary, args, { timeout: 120_000 }) });
 } catch (error) {
   console.log(`[boxpilot-db-restore] ERROR: ${error.message}`);
   process.exitCode = 1;

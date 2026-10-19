@@ -19,6 +19,7 @@ import { fixedRun } from "./exec.mjs";
 import { shared } from "./cache.mjs";
 import { createTreeScanBudget, listTreeEntries, measureTreeBytes } from "./tree-scan.mjs";
 import { snapshotBackupReferences, snapshotLeftoverKind, snapshotNamePattern } from "./machine-snapshot-helper.mjs";
+import { readRestoreResult, restoreResultPath } from "./db-restore.mjs";
 
 /**
  * Directories in /opt left behind by past upgrades, under every naming scheme BoxPilot has used.
@@ -187,6 +188,7 @@ export function createHousekeepingService({
   liveDatabase = process.env.BOXPILOT_CONTROLLER_DATABASE ?? "/var/lib/boxpilot/boxpilot.sqlite3",
   now = () => new Date(),
   treeScanLimits = {},
+  restoreResultFile = restoreResultPath,
 } = {}) {
   const docker = (args, options = {}) => run(dockerBinary, args, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, ...options });
   const copyDirectory = path.dirname(path.resolve(liveDatabase));
@@ -214,7 +216,7 @@ export function createHousekeepingService({
    * approving the removal, and the removal takes exactly the names it showed.
    */
   async function databaseCopies(parameters = {}) {
-    return databaseCopyReport(await listDatabaseCopies(), { rule: databaseCopyRule(parameters), now: now().getTime(), directory: copyDirectory });
+    return { ...databaseCopyReport(await listDatabaseCopies(), { rule: databaseCopyRule(parameters), now: now().getTime(), directory: copyDirectory }), lastRestore: await readRestoreResult(restoreResultFile) };
   }
 
   /**

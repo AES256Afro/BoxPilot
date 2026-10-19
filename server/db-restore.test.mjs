@@ -4,7 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { onWindows } from "../test/platform.mjs";
-import { restoreDatabaseCopy } from "./db-restore.mjs";
+import { readRestoreResult, restoreDatabaseCopy } from "./db-restore.mjs";
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -110,5 +110,22 @@ describe.skipIf(onWindows)("putting a database copy back", () => {
     expect(calls).toEqual(["stop boxpilot.service", "start boxpilot.service"]);
     expect(owners(database)).toEqual(["now-alex", "now-sam"]);
     expect(await readFile(database)).toBeTruthy();
+  });
+
+  it("writes how it ended where the System page reads it", async () => {
+    const { directory, database, copyName, run } = await setup();
+    const resultFile = path.join(directory, "elsewhere-result.json");
+    const now = () => new Date("2026-10-19T13:00:00Z");
+    await restoreDatabaseCopy({ database, copyName, version: "1.151.0", stamp: "20261019T130000Z", run, healthy: async () => true, log: () => {}, resultFile, now });
+    expect(await readRestoreResult(resultFile)).toEqual({ at: "2026-10-19T13:00:00.000Z", copy: copyName, outcome: "restored", message: expect.any(String), saved: "boxpilot-rollback-1.151.0-20261019T130000Z.sqlite3" });
+    let checks = 0;
+    await restoreDatabaseCopy({ database, copyName: "boxpilot-rollback-1.151.0-20261019T130000Z.sqlite3", version: "1.151.0", stamp: "20261019T140000Z", run, healthy: async () => (checks += 1) > 1, log: () => {}, resultFile, now }).catch(() => {});
+    expect(await readRestoreResult(resultFile)).toMatchObject({ outcome: "rolled-back", message: expect.stringContaining("did not answer") });
+    await restoreDatabaseCopy({ database, copyName: "boxpilot-rollback-9.9.9-20260101T000000Z.sqlite3", version: "1", stamp: "s", run, healthy: async () => true, log: () => {}, resultFile, now }).catch(() => {});
+    expect(await readRestoreResult(resultFile)).toMatchObject({ outcome: "failed", message: expect.stringContaining("Nothing was changed") });
+    // A file that says something else is not shown.
+    await writeFile(resultFile, JSON.stringify({ at: "x", copy: "../../etc/shadow", outcome: "restored" }));
+    expect(await readRestoreResult(resultFile)).toBeNull();
+    expect(await readRestoreResult(path.join(directory, "missing.json"))).toBeNull();
   });
 });
