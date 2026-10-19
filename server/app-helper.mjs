@@ -106,6 +106,18 @@ function digestsOf(digests, movedFrom) {
 /** A recorded `tag@sha256:…` belongs to the tag it was recorded beside. */
 const sameTag = (pinned, reference) => typeof pinned === "string" && pinned.startsWith(`${reference}@sha256:`);
 
+/**
+ * Whether the catalog's image is a move from the installed one. The catalog pinning a digest beside
+ * the tag an app already runs (`app:1.2` → `app:1.2@sha256:…`) is not: offering it would put every
+ * installed app through an update, checkpoint and restart for the same release. The next real
+ * update records the pinned reference.
+ */
+export function isCatalogUpdate(installed, catalog) {
+  if (typeof installed !== "string" || !installed || installed === catalog) return false;
+  const pinsSameTag = !installed.includes("@") && typeof catalog === "string" && /^sha256:[a-f0-9]{64}$/.test(catalog.slice(installed.length + 1)) && catalog.startsWith(`${installed}@`);
+  return !pinsSameTag;
+}
+
 export function createAppHelper({
   catalogRoot = process.env.BOXPILOT_CATALOG_ROOT ?? "/var/lib/boxpilot-managed/catalog",
   backupRoot = path.join(process.env.BOXPILOT_APPLICATION_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups", "catalog"),
@@ -939,7 +951,7 @@ export function createAppHelper({
         const hostNetworked = (state.values?.networkMode ?? manifest.network) === "host";
         return manifest.ports.filter((port) => port.protocol === "tcp" && (port.tailnet ?? "serve") === "serve").map((port) => ({ id: port.id, label: port.label, host: hostNetworked ? port.container : state.values?.ports?.[port.id] ?? port.host, exposure: port.exposure, path: signInPortId(manifest) === port.id ? manifest.signIn?.path ?? null : null }));
       })() : [],
-      updateAvailable: Boolean(state?.installed && state.image?.reference && state.image.reference !== manifest.image.reference),
+      updateAvailable: Boolean(state?.installed && isCatalogUpdate(state.image?.reference, manifest.image.reference)),
       updateHistory: state?.updateHistory ?? [],
       installedImage: state?.image?.reference ?? null,
       folderProblems: await folderProblems(manifest, state).catch(() => []),

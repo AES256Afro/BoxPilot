@@ -7,7 +7,7 @@ import { strandedServes } from "../../strandedServes";
 import { AppIcon, Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, SearchField, Select, Sheet, StatusChip, Table, Tabs, Tag, Tile, Toolbar, appHue, mayStart, riskOf, useUrlParam, type Status, type TableColumn } from "../../ui";
 import { AppSheet, type SheetTab } from "./AppSheet";
 import { ConfigSheet } from "./ConfigSheet";
-import { appStatus, installTier, isRunning, runRead, tileDetail } from "./appState";
+import { appStatus, installTier, isRunning, runRead, shortImage, tileDetail } from "./appState";
 import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, Values } from "./types";
 import "./catalog.css";
 
@@ -426,7 +426,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
                               <AppIcon id={manifest.id} name={manifest.name} icon={manifest.icon} />
                               <span className="catalog-card__title">
                                 <span className="catalog-card__name">{manifest.name}</span>
-                                <span className="catalog-card__meta">{manifest.category} · {manifest.image.version ?? manifest.image.reference}</span>
+                                <span className="catalog-card__meta">{manifest.category} · {manifest.image.version ?? shortImage(manifest.image.reference)}</span>
                               </span>
                             </button>
                             <p className="catalog-card__description">{manifest.description}</p>
@@ -457,7 +457,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
           onCancel={() => { const back = config.back; setConfig(null); if (back) setSheet(back); }}
           onSubmit={(values: Values, form: Values) => {
             const { entry: { manifest }, mode } = config;
-            act({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${manifest.image.reference}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> },
+            act({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${shortImage(manifest.image.reference)}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> },
               { config: { ...config, seed: form } });
           }}
         />
