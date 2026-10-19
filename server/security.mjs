@@ -97,7 +97,14 @@ export async function verifyPassword(password, encoded) {
   return safeEqual(Buffer.from(derived).toString("base64url"), expected);
 }
 
-export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, resolveClientAddress = null, notify = null } = {}) {
+/**
+ * How long a session lasts (sessionTtlMs) and how long it can be kept alive by use (sessionMaxAgeMs).
+ * A session used after half its time is gone gets a fresh twelve hours, up to three days from the
+ * sign-in; after that the password, passkey or identity is asked for again, however busy it was.
+ */
+export const sessionMaxAgeMs = 3 * 24 * 60 * 60 * 1000;
+
+export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, sessionMaxAgeMs: maxAgeMs = sessionMaxAgeMs, resolveClientAddress = null, notify = null, now = () => Date.now() } = {}) {
   /**
    * "From where" for the session list, the audit log and new-sign-in alerts: the tailnet peer if
    * there is one, otherwise the socket address, plus the user agent. X-Forwarded-For counts only
@@ -243,13 +250,31 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     response.setHeader("Set-Cookie", [...(Array.isArray(earlier) ? earlier : earlier ? [String(earlier)] : []), value]);
   }
 
+  /**
+   * Keep a session in use alive: once half its time is gone, a request moves its end to a fresh
+   * sessionTtlMs from now, never past maxAgeMs from the sign-in, and sends the cookie again to match.
+   * At most once per half-lifetime, so ordinary use does not rewrite the row or the cookie.
+   */
+  function renewIfDue(request, response, session) {
+    const at = now();
+    const ends = Date.parse(session.expiresAt);
+    const started = Date.parse(session.createdAt ?? "");
+    if (!Number.isFinite(ends) || !Number.isFinite(started) || ends - at > sessionTtlMs / 2) return session;
+    const until = Math.min(at + sessionTtlMs, started + maxAgeMs);
+    if (until <= ends) return session;
+    const renewed = store.renewSession?.(session.tokenHash, new Date(until));
+    if (!renewed || Date.parse(renewed) <= ends) return session;
+    appendCookie(request, response, cookieHeader(request, session.token, Math.max(1, Math.floor((Date.parse(renewed) - at) / 1000))));
+    return { ...session, expiresAt: renewed };
+  }
+
   async function requireSession(request, response, next) {
     const session = await requestSession(request);
     if (!session) {
       refuseUnauthenticated(request, response);
       return;
     }
-    request.boxpilotSession = session;
+    request.boxpilotSession = renewIfDue(request, response, session);
     next();
   }
 
