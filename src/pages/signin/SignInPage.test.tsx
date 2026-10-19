@@ -62,7 +62,7 @@ describe("signing in again after a session ended (M36)", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ tailscale: { available: false, login: null, displayName: null, node: null, linked: false }, github: { configured: false } }), { status: 200, headers: { "Content-Type": "application/json" } })));
     render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} notice={{ reason: "expired", page: "System" }} />);
     expect(screen.getByRole("heading", { name: "Your session ended" })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("Your session ended: a sign-in lasts twelve hours, and restarts and updates do not end it. Sign in to go back to System.");
+    expect(screen.getByRole("status").textContent).toBe("Your session ended: a sign-in lasts twelve hours after you last used BoxPilot (three days at most), and restarts and updates do not end it. Sign in to go back to System.");
   });
 
   it("tells a session ended elsewhere from one that ran out", () => {
