@@ -1868,8 +1868,9 @@ Proposed, value to the owner against effort:
 
 - **Say before the twelve hours are up** - medium, small: a notice ten minutes before a session ends,
   so a half-typed form is not lost to the sign-in page.
-- **A weekly read of a drive that is always asleep** - medium, small: wake it once a week so its SMART
-  health is not unknown for months. Wakes the drive, so the owner's call.
+- ✅ **A weekly read of a drive that is always asleep** - medium, small: wake it once a week so its SMART
+  health is not unknown for months. Wakes the drive, so the owner's call: off until the owner turns it
+  on (Storage → Drives, the `storageWeeklyWake` setting the root storage scan reads).
 - **Suggest actions in an empty command bar** - medium, small: what is waiting for approval, the
   failed job to retry, the update ready.
 - **Activity filters** (failed, waiting, running) and search - medium, small to medium.
