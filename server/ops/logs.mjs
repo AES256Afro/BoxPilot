@@ -81,7 +81,7 @@ export function logOperations() {
   return [
     defineOperation({
       id: "job.output.release", title: "Clear a saved job's live-output cache", risk: "low", minimumRole: "owner", timeoutMs: 15_000,
-      description: "Clears a completed job's runtime log only when its entire contents already match the saved database output. Retains incomplete or changed logs.",
+      description: "Clears a finished job's runtime log only when its entire contents already match the saved database output. Retains incomplete or changed logs, and a failed job's log while work it started may still be writing to it.",
       parameters: { fields: { jobId: { type: "string", pattern: jobIdPattern } } },
       run: (parameters) => releaseSavedJobLog(parameters),
     }),

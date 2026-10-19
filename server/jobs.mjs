@@ -315,9 +315,12 @@ export function createJobService(store, helper, {
       const { text, exists } = await jobLog.read(jobId, 0);
       if (exists && typeof store.saveJobOutput === "function") {
         store.saveJobOutput(jobId, text);
-        // The runtime directory belongs to root. The helper verifies the full durable copy
-        // before unlinking; failed, incomplete and truncated logs remain available.
-        if (store.getJob(jobId)?.state === "completed") await helper.request("job.output.release", { jobId }, { timeoutMs: 10_000 });
+        // The runtime directory belongs to root. The helper verifies the full durable copy before
+        // unlinking, and keeps incomplete and truncated logs. A failed job's log goes too once it is
+        // saved whole (it stayed in /run until reboot), unless the job ran out of time with work that
+        // may still be writing to it.
+        const finished = store.getJob(jobId);
+        if (finished?.state === "completed" || (finished?.state === "failed" && !mayStillBeRunning(finished.timeout))) await helper.request("job.output.release", { jobId }, { timeoutMs: 10_000 });
       }
     } catch { /* output is best-effort */ }
   }
