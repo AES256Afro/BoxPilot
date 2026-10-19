@@ -90,7 +90,7 @@ export function buildChecklist(evidence = {}) {
       known: true,
       done: Boolean(cloudDestination?.lastSync || backupDestination?.lastSync || backupSync?.lastSync),
       detail: cloudDestination?.lastSync ? `Last mirrored to ${cloudDestination.provider} on ${new Date(cloudDestination.lastSync).toLocaleDateString()}.`
-        : backupDestination?.lastSync ? `Last mirrored over SSH to ${backupDestination.host} on ${new Date(backupDestination.lastSync).toLocaleDateString()}.`
+        : backupDestination?.lastSync ? `Last mirrored over SSH on ${new Date(backupDestination.lastSync).toLocaleDateString()}.`
         : backupSync?.lastSync ? `Last mirrored to the backup drive on ${new Date(backupSync.lastSync).toLocaleDateString()}.`
         : cloudDestination || backupDestination || backupSync?.mounted ? "A destination is set up but nothing has been mirrored to it yet: run a sync from the Backups page."
         : "A disk failure should not take the backups with it: add a cloud destination, an SSH destination, or a backup drive.",

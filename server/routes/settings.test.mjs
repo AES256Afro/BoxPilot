@@ -155,6 +155,27 @@ describe("GET /settings/vpn-profile role gate", () => {
   });
 });
 
+describe("where the copies go", () => {
+  it("shows the SSH and cloud destinations to an operator or the owner, and to a viewer only that one is set", async () => {
+    settings.set("backupDestination", { host: "backup.example", port: 22, user: "boxpilot", path: "/srv/copies" });
+    settings.set("backupDestinationLastSync", { completedAt: "2026-10-18T02:00:00.000Z", filesTransferred: 3, destination: "boxpilot@backup.example:/srv/copies" });
+    settings.set("cloudDestination", { provider: "b2", account: "0012abc", bucket: "home-copies", path: "box" });
+    settings.set("cloudDestinationLastSync", { completedAt: "2026-10-18T03:00:00.000Z", filesTransferred: 2, destination: "boxpilot:home-copies/box" });
+    const read = async (path, role) => (await fetch(`${base}/api/v1/settings/${path}`, { headers: { "x-test-role": role } })).json();
+    for (const role of ["owner", "operator"]) {
+      expect((await read("backup-destination", role)).destination).toMatchObject({ host: "backup.example", user: "boxpilot" });
+      expect((await read("cloud-destination", role)).destination).toMatchObject({ account: "0012abc", bucket: "home-copies" });
+    }
+    const ssh = await read("backup-destination", "viewer");
+    expect(ssh).toEqual({ destination: { hidden: true }, lastSync: { completedAt: "2026-10-18T02:00:00.000Z", filesTransferred: 3, destination: null } });
+    const cloud = await read("cloud-destination", "viewer");
+    expect(cloud).toEqual({ destination: { provider: "b2" }, lastSync: { completedAt: "2026-10-18T03:00:00.000Z", filesTransferred: 2, destination: null } });
+    expect(JSON.stringify([ssh, cloud])).not.toMatch(/backup\.example|0012abc|home-copies/);
+    for (const key of ["backupDestination", "backupDestinationLastSync", "cloudDestination", "cloudDestinationLastSync"]) settings.delete(key);
+    expect(await read("backup-destination", "viewer")).toEqual({ destination: null, lastSync: null });
+  });
+});
+
 describe("the notification centre (M36)", () => {
   it("lists what was said, whether it arrived and whether it is still going, and marks it seen for the caller", async () => {
     const stored = new Map();

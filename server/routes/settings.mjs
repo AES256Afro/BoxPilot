@@ -182,14 +182,23 @@ export function createSettingsRouter({ state, notifications, notificationHistory
     response.json({ profile: state.getSetting("vpnProfile", null), providers: vpnProviders, protocols: vpnProtocols });
   });
 
+  // Where the copies go names an account: an SSH user and host, or a cloud account, bucket and
+  // folder. An operator mirrors to it and the owner sets it; a viewer learns that one is set (Home's
+  // off-box verdict needs no more) and, for the cloud, which provider, but not where.
+  const seesDestinations = (request) => ["owner", "operator"].includes(request.boxpilotSession?.owner?.role);
+  const lastSyncFor = (request, lastSync) => (seesDestinations(request) || !lastSync || typeof lastSync !== "object" ? lastSync : { ...lastSync, destination: null });
+
   // Cloud (rclone) destination: the non-secret description saved by backup.cloud.setup, plus the last mirror.
-  router.get("/settings/cloud-destination", (_request, response) => {
-    response.json({ destination: state.getSetting("cloudDestination", null), lastSync: state.getSetting("cloudDestinationLastSync", null) });
+  router.get("/settings/cloud-destination", (request, response) => {
+    const destination = state.getSetting("cloudDestination", null);
+    const shown = destination && !seesDestinations(request) ? { provider: destination.provider ?? null } : destination;
+    response.json({ destination: shown, lastSync: lastSyncFor(request, state.getSetting("cloudDestinationLastSync", null)) });
   });
 
-  // Off-box SSH backup destination (M6.2). Not secret — the key stays root-only on the server.
-  router.get("/settings/backup-destination", (_request, response) => {
-    response.json({ destination: state.getSetting("backupDestination", null), lastSync: state.getSetting("backupDestinationLastSync", null) });
+  // Off-box SSH backup destination (M6.2). The key stays root-only on the server.
+  router.get("/settings/backup-destination", (request, response) => {
+    const destination = state.getSetting("backupDestination", null);
+    response.json({ destination: destination && !seesDestinations(request) ? { hidden: true } : destination, lastSync: lastSyncFor(request, state.getSetting("backupDestinationLastSync", null)) });
   });
 
   router.put("/settings/backup-destination", auth.requireCsrf, async (request, response) => {

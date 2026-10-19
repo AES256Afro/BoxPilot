@@ -137,13 +137,29 @@ describe("GitHub device-flow limits", () => {
     let issued = 0;
     const fetchImpl = async (url) => (String(url).includes("device/code")
       ? { ok: true, json: async () => ({ device_code: `d${issued++}`, user_code: "ABCD-EFGH", verification_uri: "https://github.com/login/device", interval: 5, expires_in: 900 }) }
-      : { ok: false, json: async () => ({}) });
-    const identity = createIdentityService({ store: state, fetchImpl, now: () => 1000 });
-    await identity.githubStart({ purpose: "signin", client: "100.64.0.9" });
-    await identity.githubStart({ purpose: "signin", client: "100.64.0.9" });
-    await expect(identity.githubStart({ purpose: "signin", client: "100.64.0.9" })).rejects.toThrow("from this device");
-    for (const client of ["a", "b", "c"]) await identity.githubStart({ purpose: "signin", client });
-    await expect(identity.githubStart({ purpose: "signin", client: "d" })).rejects.toThrow("sign-in attempts in progress");
+      : { ok: true, json: async () => ({ error: "authorization_pending" }) });
+    let clock = 1000;
+    const identity = createIdentityService({ store: state, fetchImpl, now: () => clock });
+    const start = (client) => { clock += 1; return identity.githubStart({ purpose: "signin", client }); };
+    const first = await start("100.64.0.9");
+    await start("100.64.0.9");
+    await expect(start("100.64.0.9")).rejects.toThrow("from this device");
+    // Four more callers hold two flows each: the table of ten is full.
+    for (const client of ["a", "a", "b", "b", "c", "c", "d", "d"]) await start(client);
+    // A newcomer is not refused: the oldest flow of a caller holding two gives way, and that is the
+    // first one 100.64.0.9 started, the oldest of all of them.
+    const newcomer = await start("honest");
+    expect(await identity.githubPoll(first.flowId)).toEqual({ status: "expired" });
+    // More newcomers take from the callers still holding two, never the first newcomer's only flow.
+    for (const client of ["e", "f", "g"]) await start(client);
+    expect(await identity.githubPoll(newcomer.flowId)).toMatchObject({ status: "pending" });
+    // Even when its flow is the oldest, a caller holding one keeps it while another holds two.
+    const fresh = createIdentityService({ store: state, fetchImpl, now: () => clock });
+    const startFresh = (client) => { clock += 1; return fresh.githubStart({ purpose: "signin", client }); };
+    const patient = await startFresh("patient");
+    for (const client of ["w", "w", "x", "x", "y", "y", "z", "z", "solo"]) await startFresh(client);
+    await startFresh("late");
+    expect(await fresh.githubPoll(patient.flowId)).toMatchObject({ status: "pending" });
     // The owner can still start a link flow while sign-in slots are full.
     await expect(identity.githubStart({ purpose: "link", ownerId: owner.id, client: "e" })).resolves.toMatchObject({ userCode: "ABCD-EFGH" });
     state.close();
