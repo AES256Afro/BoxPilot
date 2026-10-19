@@ -14,7 +14,7 @@ const auth = {
   requireCsrf: (_request, _response, next) => next(),
 };
 const notifications = { describe: () => ({ configured: true, kind: "ntfy" }) };
-const state = { getSetting: (key, fallback) => settings.get(key) ?? fallback };
+const state = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: () => {} };
 const report = { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed." };
 const weeklyReport = {
   status: vi.fn(() => ({ enabled: true, cadence: "Sundays at 09:00", nextDueAt: "2026-10-04T13:00:00.000Z", lastSentAt: null, lastResult: null, targetConfigured: true })),
@@ -173,6 +173,20 @@ describe("where the copies go", () => {
     expect(JSON.stringify([ssh, cloud])).not.toMatch(/backup\.example|0012abc|home-copies/);
     for (const key of ["backupDestination", "backupDestinationLastSync", "cloudDestination", "cloudDestinationLastSync"]) settings.delete(key);
     expect(await read("backup-destination", "viewer")).toEqual({ destination: null, lastSync: null });
+  });
+});
+
+describe("the weekly read of a sleeping drive (M36)", () => {
+  it("is off until the owner turns it on, and only the owner changes it", async () => {
+    const read = async (role) => (await fetch(`${base}/api/v1/settings/storage-wake`, { headers: { "x-test-role": role } })).json();
+    const put = (role, body) => fetch(`${base}/api/v1/settings/storage-wake`, { method: "PUT", headers: { "Content-Type": "application/json", "x-test-role": role }, body: JSON.stringify(body) });
+    expect(await read("viewer")).toEqual({ enabled: false });
+    expect((await put("operator", { enabled: true })).status).toBe(403);
+    expect((await put("owner", { enabled: "yes" })).status).toBe(400);
+    expect(await (await put("owner", { enabled: true })).json()).toEqual({ enabled: true });
+    expect(settings.get("storageWeeklyWake")).toEqual({ enabled: true });
+    expect(await read("viewer")).toEqual({ enabled: true });
+    settings.delete("storageWeeklyWake");
   });
 });
 

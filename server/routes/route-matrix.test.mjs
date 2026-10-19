@@ -220,6 +220,7 @@ const changeRoutes = [
   "POST /api/v1/people", "PUT /api/v1/people/:id", "DELETE /api/v1/people/:id",
   "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test",
   "PUT /api/v1/settings/approval-mode", "PUT /api/v1/settings/backup-destination", "PUT /api/v1/settings/github-client-id", "PUT /api/v1/settings/assistant",
+  "PUT /api/v1/settings/storage-wake",
   "POST /api/v1/storage/shares/list", "POST /api/v1/virtualization/media/uploads", "POST /api/v1/virtualization/plans",
   // Agents (M37): making, changing, running, pausing and stopping them, their cards, notes, library
   // and evaluations, and the owner's switch. None stages or runs an operation.
@@ -385,6 +386,7 @@ const dataRoutes = {
   }],
   "GET /api/v1/settings/weekly-report/preview": [ownerOnly],
   "GET /api/v1/settings/approval-mode": [open],
+  "GET /api/v1/settings/storage-wake": [open],
   "GET /api/v1/settings/vpn-profile": [ownerOnly],
   "GET /api/v1/settings/cloud-destination": [open],
   "GET /api/v1/settings/backup-destination": [open],
