@@ -267,7 +267,9 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
     const said = (delivered, reason = null) => history?.record({ key, kind, title, message, priority, delivered, reason, actorId });
     if (!notifications.getTarget()) { said(false, "no-target"); return false; }
     try {
-      await notifications.send({ title: `BoxPilot: ${title}`, message, priority });
+      const result = await notifications.send({ title: `BoxPilot: ${title}`, message, priority }, { key, kind });
+      // Held for the summary at the end of quiet hours: it will be said, so not kept for a retry.
+      if (result?.held) { store.recordAudit("health.alert.held", { actorId: null, subjectId: key, details: { title, at: now().toISOString() } }); said(false, "held"); return true; }
       store.recordAudit("health.alert.sent", { actorId: null, subjectId: key, details: { title, at: now().toISOString() } });
       said(true);
       return true;

@@ -138,14 +138,15 @@ export function createNotificationService({ store, fetcher = fetch, lookup = dns
 
   /**
    * Send a push, or hold it for the summary at the end of quiet hours. `immediate` is for a push the
-   * owner asked for just now (the test button), which nobody wants held.
+   * owner asked for just now (the test button), which nobody wants held. `key` and `kind` name the
+   * notification centre's entry, so the summary marks it delivered once it goes out.
    */
-  async function send({ title, message, priority = "default", click = null }, { immediate = false } = {}) {
+  async function send({ title, message, priority = "default", click = null }, { immediate = false, key = null, kind = null } = {}) {
     const target = getTarget();
     if (!target) throw new Error("No notification target is configured");
     if (!immediate && holds(store.getSetting(quietHoursKey, null), priority, now(), timeZone)) {
       const held = store.getSetting(heldKey, []);
-      const kept = [...(Array.isArray(held) ? held : []), { title, message: String(message ?? "").slice(0, 300), priority, at: now().toISOString() }].slice(-heldLimit);
+      const kept = [...(Array.isArray(held) ? held : []), { title: String(title ?? "").slice(0, 200), message: String(message ?? "").slice(0, 300), priority, at: now().toISOString(), ...(key && kind ? { key, kind } : {}) }].slice(-heldLimit);
       store.setSetting(heldKey, kept);
       return { sent: false, held: true, kind: target.kind };
     }
@@ -182,15 +183,20 @@ export function createNotificationService({ store, fetcher = fetch, lookup = dns
     const message = (job.error ?? "The job failed; open Activity for the log.").slice(0, 500);
     // The notification centre's record of it (M36): what was pushed, and whether it arrived.
     const said = (delivered) => history?.record({ key: `job.failed:${job.id}`, kind: "job", title: `${job.title} failed`, message, priority: "high", delivered, reason: delivered ? null : "failed" });
-    void send({ title: `BoxPilot: ${job.title} failed`, message, priority: "high" })
-      .then(() => { store.recordAudit("notifications.sent", { subjectId: job.id, details: { title: job.title } }); said(true); })
+    void send({ title: `BoxPilot: ${job.title} failed`, message, priority: "high" }, { key: `job.failed:${job.id}`, kind: "job" })
+      .then((result) => {
+        if (result?.held) { history?.record({ key: `job.failed:${job.id}`, kind: "job", title: `${job.title} failed`, message, priority: "high", delivered: false, reason: "held" }); return; }
+        store.recordAudit("notifications.sent", { subjectId: job.id, details: { title: job.title } }); said(true);
+      })
       .catch((error) => { store.recordAudit("notifications.failed", { subjectId: job.id, details: { error: error.message, at: now().toISOString() } }); said(false); });
   }
 
   /**
    * Once quiet hours are over, send what waited as one push. Kept until that push is accepted, so a
-   * target that is down at 7 a.m. gets the summary on a later minute instead of losing it.
+   * target that is down at 7 a.m. gets the summary on a later minute instead of losing it; only the
+   * first failure in a row is audited, so a target down all day is one row, not one a minute.
    */
+  let flushFailing = false;
   async function flushHeld() {
     const held = store.getSetting(heldKey, []);
     if (!Array.isArray(held) || !held.length || isQuiet(store.getSetting(quietHoursKey, null), now(), timeZone)) return { sent: false, count: 0 };
@@ -199,10 +205,16 @@ export function createNotificationService({ store, fetcher = fetch, lookup = dns
     try {
       await deliver(target, { ...summaryOf(held), click: null });
     } catch (error) {
-      store.recordAudit("notifications.failed", { details: { error: error.message, held: held.length, at: now().toISOString() } });
+      if (!flushFailing) store.recordAudit("notifications.failed", { details: { error: error.message, held: held.length, at: now().toISOString() } });
+      flushFailing = true;
       return { sent: false, count: held.length };
     }
-    store.setSetting(heldKey, []);
+    flushFailing = false;
+    // Held while the summary was on its way: kept for the next one.
+    const sent = new Set(held.map((item) => JSON.stringify(item)));
+    const after = store.getSetting(heldKey, []);
+    store.setSetting(heldKey, (Array.isArray(after) ? after : []).filter((item) => !sent.has(JSON.stringify(item))));
+    for (const item of held) if (item?.key && item?.kind) history?.record({ key: item.key, kind: item.kind, title: String(item.title ?? "").replace(/^BoxPilot: /, ""), message: item.message, priority: item.priority, delivered: true });
     store.recordAudit("notifications.sent", { details: { title: "quiet hours summary", count: held.length } });
     return { sent: true, count: held.length };
   }

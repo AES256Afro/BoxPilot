@@ -1128,7 +1128,7 @@ describe("an automation that fails (M27.2)", () => {
     expect(failing.owns("job-1")).toBe(true);
     await drained();
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Automation stopped: Nightly", message: expect.stringMatching(/^Nightly stopped at step 1 .*the step went wrong/), priority: "high" });
+    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Automation stopped: Nightly", message: expect.stringMatching(/^Nightly stopped at step 1 .*the step went wrong/), priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
 
     await expect(failing.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/stopped at step 1/);
     await drained();

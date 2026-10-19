@@ -292,7 +292,7 @@ describe("a scheduled task that fails (M27.2)", () => {
 
     await run("03", "failed");
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Scheduled task failed: Back up application data (jellyfin)", message: "tar failed: disk full. The job log is in Activity.", priority: "high" });
+    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Scheduled task failed: Back up application data (jellyfin)", message: "tar failed: disk full. The job log is in Activity.", priority: "high" }, expect.anything());
     await run("04", "failed");
     await run("05", "failed");
     expect(send).toHaveBeenCalledTimes(1); // three failed runs, one push
@@ -518,7 +518,7 @@ describe("a scheduled run whose result was not saved (M27.2)", () => {
     expect(job.state).toBe("failed");
     expect(Object.keys(state())).toEqual(["record.failed:app.backup.verify:jellyfin"]);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ title: "BoxPilot: Result not saved: Rehearse restoring a backup (jellyfin)" }));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ title: "BoxPilot: Result not saved: Rehearse restoring a backup (jellyfin)" }), expect.anything());
     // The panel still says the run failed, and why.
     expect(store.getSchedule(schedule.id).lastResult).toBe("failed: database is locked");
 
