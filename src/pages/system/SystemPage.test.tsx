@@ -465,6 +465,18 @@ describe("the database copies updates took", () => {
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { name: "boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3" } });
   });
 
+  it("says how the last restore ended", async () => {
+    const lastRestore = { at: "2026-10-19T13:00:00.000Z", copy: "boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3", outcome: "rolled-back", message: "BoxPilot did not answer on it", saved: null };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/housekeeping.database-copies.inspect/inspect")) return json({ operation: "housekeeping.database-copies.inspect", result: { ...copies, lastRestore } });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<DatabaseCopies csrfToken="csrf-token" role="owner" />);
+    expect(await screen.findByText(/boxpilot-rollback-1\.138\.0-20260929T101500Z\.sqlite3 did not work, so the database it had was put back/)).toBeTruthy();
+    expect(screen.getByText("BoxPilot did not answer on it")).toBeTruthy();
+  });
+
   it("asks again when the rule changes, and offers nothing until the answer matches it", async () => {
     const asked: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
