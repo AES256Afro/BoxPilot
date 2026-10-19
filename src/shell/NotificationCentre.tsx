@@ -28,7 +28,7 @@ export interface NotificationEntry {
   message: string | null;
   at: string;
   delivered: boolean;
-  reason: "no-target" | "failed" | null;
+  reason: "no-target" | "failed" | "held" | null;
   deliveredAt: string | null;
   resolvedAt: string | null;
   live: boolean;
@@ -65,6 +65,7 @@ export function destinationOf(entry: NotificationEntry): { kind: "activity"; job
 export function deliveryOf(entry: NotificationEntry): { status: Status; words: string } {
   if (entry.delivered) return { status: "good", words: "Sent" };
   if (entry.reason === "no-target") return { status: "neutral", words: "Not sent: no target set" };
+  if (entry.reason === "held") return { status: "neutral", words: "Held for quiet hours" };
   return { status: "warning", words: "Sending failed" };
 }
 

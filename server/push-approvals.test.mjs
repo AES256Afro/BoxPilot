@@ -49,7 +49,7 @@ function harness({ store = memoryStore(), answer = () => 201, body = () => null,
   const requests = [];
   const notifications = {
     getTarget: () => target,
-    send: async (message) => { const { url, options } = buildRequest(target, message); requests.push({ kind: "target", url, options }); return { sent: true }; },
+    send: async (message, { immediate = false } = {}) => { const { url, options } = buildRequest(target, message); requests.push({ kind: "target", url, options, immediate }); return { sent: true }; },
   };
   const fetcher = async (url, options) => { requests.push({ kind: "push", url, options }); return new Response(body(url), { status: answer(url) }); };
   const history = createNotificationHistory({ store, now: () => new Date(time) });
@@ -101,6 +101,8 @@ describe("what a push says", () => {
     const [push] = test.opened();
     expect(push.payload.notification.navigate).toBe(`${origin}/?view=today`);
     const ntfy = test.requests.find((request) => request.kind === "target");
+    // Approvals keep to their own quiet hours: held for the notification summary, the link would be lost.
+    expect(ntfy.immediate).toBe(true);
     expect(ntfy.options.headers.Click).toBe(`${origin}/?view=today`);
     expect(ntfy.options.body).toBe("Tap to review them in BoxPilot; nothing runs until you approve each one there.");
     expect(job.parameters.password).toBe(secrets[0]); // the job itself is untouched
