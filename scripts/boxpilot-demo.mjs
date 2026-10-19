@@ -636,6 +636,7 @@ api.get("/push", (_request, response) => json(response, {
   devices: [{ id: "demo-iphone", label: "iPhone", service: "Apple", createdAt: ago(72), lastSentAt: ago(2), lastError: null }],
   settings: { tiers: { low: false, medium: true, high: true }, quietHours: { enabled: true, start: "22:00", end: "07:00" }, ntfy: "fallback", openAt: `https://${host.tailnet}`, timeZone: "Europe/London" },
 }));
+api.get("/settings/quiet-hours", (_request, response) => json(response, { enabled: true, start: "22:30", end: "07:00", holdHigh: false, held: 0, quietNow: false }));
 api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
 api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { approvalMode: "tiered", modes: ["tiered", "always-password"], elevationTtlMs: 10 * 60_000 }));
