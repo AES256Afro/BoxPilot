@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { onWindows } from "../test/platform.mjs";
-import { startServeSocketListener, viaServeSocket } from "./serve-socket.mjs";
+import { isServeSocketTarget, startServeSocketListener, viaServeSocket } from "./serve-socket.mjs";
 
 const cleanup = [];
 afterEach(async () => { for (const step of cleanup.splice(0).reverse()) await step(); });
@@ -46,5 +46,17 @@ describe("the Tailscale Serve socket", () => {
     await writeFile(notSocket, "keep me");
     expect(await startServeSocketListener(app, { socketPath: notSocket, log: { warn: () => {} } })).toBeNull();
     expect((await stat(notSocket)).isFile()).toBe(true);
+  });
+});
+
+describe("naming the Serve socket as a proxy target", () => {
+  it("matches the socket however tailscale writes it, and nothing else", () => {
+    const socket = "/run/boxpilot-web/serve.sock";
+    expect(isServeSocketTarget(`unix:${socket}`, socket)).toBe(true);
+    expect(isServeSocketTarget(`unix://${socket}`, socket)).toBe(true);
+    expect(isServeSocketTarget("unix:/run/boxpilot-web/../boxpilot-web/serve.sock", socket)).toBe(true);
+    expect(isServeSocketTarget("unix:/run/other/serve.sock", socket)).toBe(false);
+    expect(isServeSocketTarget("http://127.0.0.1:8787", socket)).toBe(false);
+    expect(isServeSocketTarget(null, socket)).toBe(false);
   });
 });

@@ -322,11 +322,16 @@ esac
 # Serve uses it BoxPilot stops believing the loopback port (server/serve-socket.mjs).
 SERVE_SOCKET=/run/boxpilot-web/serve.sock
 publish_serve() {
-  # The web service was just restarted; give it a moment to create the socket.
+  # The web service was just restarted; give it time to create the socket (a slow first start runs
+  # migrations), so a socket setup is not quietly moved back to the port.
   waited=0
-  while [ ! -S "$SERVE_SOCKET" ] && [ "$waited" -lt 10 ]; do sleep 1; waited=$((waited + 1)); done
-  if [ -S "$SERVE_SOCKET" ] && tailscale serve --bg "unix:${SERVE_SOCKET}" >/dev/null 2>&1; then return 0; fi
-  tailscale serve --bg "http://127.0.0.1:${PORT}" >/dev/null 2>&1
+  while [ ! -S "$SERVE_SOCKET" ] && [ "$waited" -lt 60 ]; do sleep 1; waited=$((waited + 1)); done
+  if [ -S "$SERVE_SOCKET" ] && tailscale serve --bg --yes "unix:${SERVE_SOCKET}" >/dev/null 2>&1; then
+    log "Tailscale Serve forwards to ${SERVE_SOCKET}"
+    return 0
+  fi
+  log "Tailscale Serve forwards to port ${PORT}: this Tailscale cannot forward to a socket, or BoxPilot did not create one (Network page can move it later)"
+  tailscale serve --bg --yes "http://127.0.0.1:${PORT}" >/dev/null 2>&1
 }
 #
 # A Tailscale install stays published through Serve after its owner turns on the LAN in Settings

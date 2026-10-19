@@ -1196,3 +1196,5 @@ sign-in with a captured device cookie.
   that too; it needs Tailscale Services and is not done here.
 - Needs a Tailscale release with `unix:` proxy targets. Older ones keep the loopback behaviour and
   the notice stays up.
+- Going back to a BoxPilot release from before this one leaves Serve pointing at a socket nothing
+  listens on: run `sudo tailscale serve --bg http://127.0.0.1:<port>` first.
