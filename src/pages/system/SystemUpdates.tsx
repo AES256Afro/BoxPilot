@@ -1,4 +1,5 @@
-import { Button, CodeBlock, KeyValue, Notice, Panel, Progress, mayStart, riskOf, type Status } from "../../ui";
+import { useState } from "react";
+import { Button, CodeBlock, Field, KeyValue, Notice, Panel, Progress, Sheet, Textarea, mayStart, riskOf, type Status } from "../../ui";
 import { useRunningJobs } from "./runningJobs";
 import type { ReleaseUpdate, UpdateStatus } from "./systemTypes";
 
@@ -27,7 +28,7 @@ const moment = (iso: string | null | undefined) => { const time = Date.parse(iso
  * itself (high risk, the tag typed out), its progress until the new version answers, the database
  * copy it took first, and its log.
  */
-export function SystemUpdates({ release, releaseError, checking, onCheck, status, updating, outcome, role, onUpdate }: {
+export function SystemUpdates({ release, releaseError, checking, onCheck, status, updating, outcome, role, onUpdate, onSigner }: {
   release: ReleaseUpdate | null;
   releaseError: string | null;
   checking: boolean;
@@ -37,7 +38,13 @@ export function SystemUpdates({ release, releaseError, checking, onCheck, status
   outcome: "live" | "timeout" | "failed" | null;
   role: string;
   onUpdate: (target: NonNullable<ReleaseUpdate["latest"]>) => void;
+  /** Set the key releases must be signed with, or clear it (null). */
+  onSigner?: (publicKey: string | null) => void;
 }) {
+  const [keying, setKeying] = useState(false);
+  const [publicKey, setPublicKey] = useState("");
+  const signer = status?.signer ?? null;
+  const canSign = Boolean(onSigner) && mayStart(role, "system.update.signer.set");
   const facts = updateLogFacts(status?.log ?? []);
   const state = releaseState(release, releaseError);
   const latest = release?.latest ?? null;
@@ -51,12 +58,14 @@ export function SystemUpdates({ release, releaseError, checking, onCheck, status
       <Panel padded title="BoxPilot" count={state}
         actions={<>
           <Button variant="ghost" busy={checking} onClick={onCheck}>Check again</Button>
+          {canSign && status && <Button variant="ghost" onClick={() => { setPublicKey(""); setKeying(true); }}>Release key…</Button>}
           {offer && <Button variant="primary" risk={riskOf("system.update")} disabled={Boolean(waitFor)} title={waitFor ?? undefined} onClick={() => onUpdate(latest)}>Update to {latest.tag}</Button>}
         </>}>
         <KeyValue items={[
           { id: "running", label: "Running", value: release?.current.version ?? __BOXPILOT_VERSION__, mono: true },
           { id: "latest", label: "Latest release", mono: true, value: latest ? <>{latest.tag}{day(latest.publishedAt) ? ` · ${day(latest.publishedAt)}` : ""} <a className="system-link" href={latest.url} target="_blank" rel="noreferrer">Release notes</a></> : problem ? "—" : checking ? "Checking GitHub…" : "No releases published yet" },
           { id: "checked", label: "Checked", value: release ? moment(release.checkedAt) : "—", mono: true },
+          ...(status ? [{ id: "signed", label: "Signed releases", mono: Boolean(signer?.fingerprint), value: signer?.fingerprint ? `required, key ${signer.fingerprint}` : signer?.unreadable ? "a key file is set but cannot be read" : "not required", hint: signer ? "An update builds only a release tag signed with this key." : undefined }] : []),
         ]} />
         {problem && <Notice tone="warning" title="The release check did not answer">{problem}</Notice>}
         {offer && waitFor && <p className="system-asks">{waitFor}</p>}
@@ -88,6 +97,18 @@ export function SystemUpdates({ release, releaseError, checking, onCheck, status
         <Panel padded title="Database copy from the last update">
           <KeyValue items={[{ id: "copy", label: "Copied to", value: facts.databaseCopy, mono: true, hint: "It matches the version it replaced. Housekeeping lists every copy." }]} />
         </Panel>
+      )}
+
+      {keying && onSigner && (
+        <Sheet kicker="BoxPilot updates" title="Release key" onClose={() => setKeying(false)} footer={<>
+          {signer && <Button variant="ghost" risk={riskOf("system.update.signer.set")} onClick={() => { setKeying(false); onSigner(null); }}>Stop checking signatures</Button>}
+          <Button variant="primary" risk={riskOf("system.update.signer.set")} disabled={!publicKey.trim()} onClick={() => { setKeying(false); onSigner(publicKey.trim()); }}>Require this key</Button>
+        </>}>
+          <p>With a key set, an update builds a release only when its tag is signed with that key, so a release published from a stolen GitHub account is refused before anything changes. The private key stays with you.</p>
+          <Field label="SSH public key" hint={<>One line, as <code>cat ~/.ssh/id_ed25519.pub</code> prints it. Sign each release with <code>git tag -s vX.Y.Z</code> after <code>git config gpg.format ssh</code> and <code>git config user.signingkey ~/.ssh/id_ed25519.pub</code>.</>}>
+            <Textarea mono rows={3} value={publicKey} onValueChange={setPublicKey} placeholder="ssh-ed25519 AAAA…" />
+          </Field>
+        </Sheet>
       )}
 
       {status && status.log.length > 0 && (

@@ -180,6 +180,7 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
 
   const { start, dialog } = useOperation(csrfToken, (job) => {
     if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) { setUpdateOutcome(null); setUpdating(updateTarget.current); }
+    if (job.type === "op:system.update.signer.set" && job.state === "completed") inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => setUpdateStatus(result && Array.isArray(result.log) ? result : null)).catch(() => {});
     // A finished cleanup invalidates its own figures: leaving them up says gigabytes are still
     // waiting when they have just gone, and a snapshot removed by name is still offered for removal.
     if ((job.type === "op:housekeeping.reclaim" || job.type === "op:housekeeping.unreadable-snapshot.remove") && job.state === "completed") void scan();
@@ -188,6 +189,16 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
     void refresh();
   });
   const begin: StartOperation = start;
+
+  const setSigner = (publicKey: string | null) => start({
+    operationId: "system.update.signer.set",
+    title: publicKey ? "Require signed BoxPilot releases" : "Stop checking release signatures",
+    parameters: publicKey ? { publicKey } : {},
+    confirmText: publicKey ? "require signed releases" : "stop checking signatures",
+    preview: publicKey
+      ? <span>From now on an update builds a release only when its tag is signed with this key. An unsigned release, or one signed with another key, stops before anything changes. Keep signing releases with it, or updates stop.</span>
+      : <span>Updates go back to building whatever commit the release tag points at, signed or not.</span>,
+  });
 
   const update = (target: NonNullable<ReleaseUpdate["latest"]>) => {
     updateTarget.current = target.version;
@@ -279,7 +290,7 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
             )}
           </>
         ) : current === "updates" ? (
-          <SystemUpdates release={release} releaseError={releaseError} checking={checkingRelease} onCheck={() => void loadRelease(true)} status={updateStatus} updating={updating} outcome={updateOutcome} role={role} onUpdate={update} />
+          <SystemUpdates release={release} releaseError={releaseError} checking={checkingRelease} onCheck={() => void loadRelease(true)} status={updateStatus} updating={updating} outcome={updateOutcome} role={role} onUpdate={update} onSigner={setSigner} />
         ) : current === "housekeeping" ? (
           <SystemHousekeeping csrfToken={csrfToken} role={role} housekeeping={housekeeping} scanning={scanning} onRescan={() => void scan()} dockerDisk={dockerDisk} start={begin} />
         ) : current === "time" ? (
