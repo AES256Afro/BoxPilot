@@ -13,8 +13,6 @@ const auth = {
   requireRole: (role) => (request, response, next) => ((request.headers["x-test-role"] === role || request.headers["x-test-role"] === "owner") ? next() : response.status(403).json({ error: "forbidden" })),
   requireCsrf: (_request, _response, next) => next(),
 };
-const notifications = { describe: () => ({ configured: true, kind: "ntfy" }) };
-const state = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: () => {} };
 const notifications = { describe: () => ({ configured: true, kind: "ntfy" }), quietHours: () => ({ ...(settings.get("notificationQuietHours") ?? { enabled: false }), held: 2 }) };
 const audits = [];
 const state = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: (type, entry) => audits.push({ type, ...entry }) };

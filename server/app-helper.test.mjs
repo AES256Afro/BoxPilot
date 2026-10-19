@@ -3753,6 +3753,8 @@ describe("whether the catalog offers an update", () => {
     expect(isCatalogUpdate("nginx:1.2", `nginx:1.27@${pinned}`)).toBe(true);
     expect(isCatalogUpdate("nginx:1.27", "nginx:1.27")).toBe(false);
     expect(isCatalogUpdate(null, "nginx:1.27")).toBe(false);
+  });
+});
 
 describe("which image a backup or saved history may pin", () => {
   const digest = `sha256:${"a".repeat(64)}`;
