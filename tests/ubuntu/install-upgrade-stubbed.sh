@@ -572,7 +572,7 @@ check "a staging tree an earlier run left: the upgrade went live" '[ "$status" -
 check "a staging tree an earlier run left: it is gone, and the upgrade said so" '! staging_left && grep -q "removed .*/opt/boxpilot.staging.20260101T000000Z" <<<"$out"'
 
 echo "8. A new --port moves Tailscale Serve with it wherever Serve is in use"
-served() { grep -x "serve --bg $1" "${STUB_LOG}/tailscale" 2>/dev/null | wc -l | tr -d ' '; }
+served() { grep -x "serve --bg --yes $1" "${STUB_LOG}/tailscale" 2>/dev/null | wc -l | tr -d ' '; }
 # A Tailscale install on port 9000 (cookies https-only, which only the Tailscale access sets) whose
 # owner then turned on the LAN in Settings: a re-run reads that as "lan", and Serve was re-pointed
 # only for "tailscale", so --port 9100 left the tailnet address on 9000, where nothing answers.
