@@ -24,6 +24,7 @@ import { dataScanCommand } from "./scan-resources.mjs";
 import { shared } from "./cache.mjs";
 import { formatDuration, keepTimeout, timedOut } from "./timeouts.mjs";
 import { catalogImagePin, createAppBackups } from "./app-backups.mjs";
+import { imageRepository } from "./catalog/compose-review.mjs";
 export { catalogImagePin };
 import { createAppHomepage } from "./app-homepage.mjs";
 import { createAppModels } from "./app-models.mjs";
@@ -95,6 +96,15 @@ function parseEnvFile(text) {
   }
   return env;
 }
+
+/** `fromDigest` for a history entry: the recorded digest of each service that moved, when any has one. */
+function digestsOf(digests, movedFrom) {
+  const kept = Object.fromEntries(Object.keys(movedFrom).filter((service) => digests[service]).map((service) => [service, digests[service]]));
+  return Object.keys(kept).length ? { fromDigest: kept } : {};
+}
+
+/** A recorded `tag@sha256:…` belongs to the tag it was recorded beside. */
+const sameTag = (pinned, reference) => typeof pinned === "string" && pinned.startsWith(`${reference}@sha256:`);
 
 export function createAppHelper({
   catalogRoot = process.env.BOXPILOT_CATALOG_ROOT ?? "/var/lib/boxpilot-managed/catalog",
@@ -180,6 +190,28 @@ export function createAppHelper({
     const result = await docker(["inspect", "--format", '{"running":{{.State.Running}},"status":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}","restarts":{{.RestartCount}},"image":"{{.Image}}","startedAt":"{{.State.StartedAt}}","exitCode":{{.State.ExitCode}}}', name], { timeout: 10_000 });
     if (!result.ok) return { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null, startedAt: null };
     try { return { exists: true, ...JSON.parse(result.stdout) }; } catch { return { exists: true, running: false, status: "unknown", health: "none", restarts: 0, image: null, startedAt: null }; }
+  }
+
+  /**
+   * The registry digest of each running service's image, as `tag@sha256:…`. A tag can be re-pushed,
+   * so going back by tag alone may pull bytes the app never ran; the digest names exactly the image
+   * that was running. Services whose image has no digest from that repository (built locally, or
+   * Docker would not answer) are left out, and going back uses the tag for them.
+   */
+  async function runningDigests(id, references) {
+    const pinned = {};
+    for (const [service, reference] of Object.entries(references)) {
+      if (typeof reference !== "string" || reference.includes("@")) continue;
+      const status = await containerStatus(service === id ? id : `${id}-${service}`).catch(() => null);
+      if (!status?.image) continue;
+      const inspected = await docker(["image", "inspect", "--format", "{{json .RepoDigests}}", status.image], { timeout: 10_000 }).catch(() => null);
+      if (!inspected?.ok) continue;
+      let digests = [];
+      try { digests = JSON.parse(String(inspected.stdout).trim() || "[]"); } catch { continue; }
+      const match = (Array.isArray(digests) ? digests : []).find((entry) => typeof entry === "string" && imageRepository(entry) === imageRepository(reference) && /@sha256:[a-f0-9]{64}$/.test(entry));
+      if (match) pinned[service] = `${reference}${match.slice(match.indexOf("@"))}`;
+    }
+    return pinned;
   }
 
   /** Container status for many apps in one docker call; names that do not exist only add stderr noise. */
@@ -1110,6 +1142,7 @@ export function createAppHelper({
     // state carries the app's own image but never its sidecars'.
     const previous = await readProjectFiles(id);
     const runningBefore = deployedImages(previous.compose ?? "");
+    const digestsBefore = await runningDigests(id, runningBefore);
     try {
       await writeProject(manifest, values, { existingEnv: await readEnv(id), devices }); // picks up manifest changes (new image tag)
       declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
@@ -1135,7 +1168,7 @@ export function createAppHelper({
       // when something actually moved: re-running an update that changes nothing is not history.
       const movedFrom = Object.fromEntries(Object.entries(runningBefore).filter(([service, reference]) => deployedNow[service] !== reference));
       const history = Object.keys(movedFrom).length
-        ? [{ at: clock().toISOString(), from: movedFrom, to: Object.fromEntries(Object.keys(movedFrom).map((service) => [service, deployedNow[service] ?? null])) }, ...(state.updateHistory ?? [])].slice(0, updateHistoryLimit)
+        ? [{ at: clock().toISOString(), from: movedFrom, ...digestsOf(digestsBefore, movedFrom), to: Object.fromEntries(Object.keys(movedFrom).map((service) => [service, deployedNow[service] ?? null])) }, ...(state.updateHistory ?? [])].slice(0, updateHistoryLimit)
         : state.updateHistory ?? [];
       await writeState(id, { ...state, updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, values.env), pinnedRollback: false, updateHistory: history });
       return { updated: true, id, previousImage: before.image, image: status.image, changed: before.image !== status.image, previousReference: runningBefore[id] ?? state.image?.reference ?? null, reference: manifest.image.reference, checkpoint: saved };
@@ -1192,8 +1225,11 @@ export function createAppHelper({
     // And only to that service's own catalog image: the history lives in boxpilot.json, which a
     // restored backup brings with it.
     const catalogImageOf = (service) => (service === id ? manifest.image.reference : (manifest.sidecars ?? []).find((sidecar) => sidecar.id === service)?.image ?? null);
-    const restoreTo = Object.fromEntries(Object.entries(last.from).filter(([service, reference]) =>
-      catalogImageOf(service) !== null && catalogImagePin(reference, catalogImageOf(service), service === id ? manifest.image.formerRepositories : [])));
+    const pinFor = (service, reference) => catalogImageOf(service) !== null && catalogImagePin(reference, catalogImageOf(service), service === id ? manifest.image.formerRepositories : []);
+    // The digest recorded beside the tag is the exact image that ran; history written before
+    // digests were recorded has only the tag. The digest is held to the same repository rule.
+    const restoreTo = Object.fromEntries(Object.entries(last.from).filter(([service, reference]) => pinFor(service, reference))
+      .map(([service, reference]) => [service, pinFor(service, last.fromDigest?.[service]) && sameTag(last.fromDigest[service], reference) ? last.fromDigest[service] : reference]));
     if (!Object.keys(restoreTo).length) throw new Error(`${manifest.name} has no recorded version that still matches how it is built today, so there is nothing to go back to`);
 
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));
@@ -1211,6 +1247,7 @@ export function createAppHelper({
     // actually is — reading the deployed file is the only answer that stays true at any depth.
     const previous = await readProjectFiles(id);
     const runningBefore = deployedImages(previous.compose ?? "");
+    const digestsBefore = await runningDigests(id, runningBefore);
     const restoring = Object.entries(restoreTo).map(([service, reference]) => `${service} to ${reference}`).join(", ");
     progress?.(`Putting ${manifest.name} back: ${restoring}`, "stdout");
     let started = false;
@@ -1238,7 +1275,7 @@ export function createAppHelper({
     }
     // The rollback is itself an entry, so going back twice steps back twice rather than ping-ponging.
     const movedFrom = Object.fromEntries(Object.keys(restoreTo).map((service) => [service, runningBefore[service] ?? last.to?.[service] ?? null]));
-    const entry = { at: clock().toISOString(), from: movedFrom, to: restoreTo, rolledBack: true };
+    const entry = { at: clock().toISOString(), from: movedFrom, ...digestsOf(digestsBefore, movedFrom), to: restoreTo, rolledBack: true };
     await writeState(id, {
       ...state,
       updatedAt: clock().toISOString(),
