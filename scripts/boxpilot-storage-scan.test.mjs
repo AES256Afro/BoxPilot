@@ -243,6 +243,34 @@ describe("the owner's weekly read of a drive that is always asleep", () => {
     expect((await carried.scanner.scan({ wake: true, previous })).disks[0]).toMatchObject({ reason: "asleep" });
   });
 
+  it("tries a drive that does not answer the waking read once a week, not at every scan", async () => {
+    const smart = [];
+    let clock = at;
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("findmnt")) return { ok: true, stdout: JSON.stringify({ filesystems: [] }) };
+      if (binary.endsWith("lsblk")) return { ok: true, stdout: JSON.stringify({ blockdevices: [{ name: "/dev/sda", type: "disk", tran: "sata" }] }) };
+      smart.push(args);
+      return args.includes("standby") ? { ok: true, stdout: asleep } : { ok: false, stdout: "" };
+    });
+    const scanner = createStorageScanner({ run, checkAccess: async () => {}, now: () => clock });
+    let previous = null;
+    const wakes = () => smart.filter((args) => !args.includes("standby")).length;
+    for (let scan = 0; scan < 8; scan += 1) {
+      previous = carryLastReadings(await scanner.scan({ wake: true, previous }), previous);
+      clock = new Date(clock.getTime() + 6 * 60 * 60 * 1000);
+    }
+    expect(wakes()).toBe(1);
+    expect(previous.disks[0]).toMatchObject({ reason: "asleep", wakeTriedAt: at.toISOString() });
+    clock = new Date(at.getTime() + wakeAfterMs);
+    await scanner.scan({ wake: true, previous });
+    expect(wakes()).toBe(2);
+  });
+
+  it("wakes a drive whose last reading is dated ahead of the clock", async () => {
+    const { scanner } = sleepyDisk();
+    expect((await scanner.scan({ wake: true, previous: readAgo(-365 * 24 * 60 * 60 * 1000) })).disks[0]).toMatchObject({ wokenForWeeklyRead: true });
+  });
+
   it("reads the owner's choice from the database, read-only, and is off when it cannot", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-wake-"));
     directories.push(directory);
