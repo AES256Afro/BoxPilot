@@ -324,8 +324,9 @@ SERVE_SOCKET=/run/boxpilot-web/serve.sock
 publish_serve() {
   # The web service was just restarted; give it time to create the socket (a slow first start runs
   # migrations), so a socket setup is not quietly moved back to the port.
+  # systemd creates its directory as the unit starts; without one this BoxPilot has no socket to wait for.
   waited=0
-  while [ ! -S "$SERVE_SOCKET" ] && [ "$waited" -lt 60 ]; do sleep 1; waited=$((waited + 1)); done
+  while [ -d "$(dirname "$SERVE_SOCKET")" ] && [ ! -S "$SERVE_SOCKET" ] && [ "$waited" -lt 60 ]; do sleep 1; waited=$((waited + 1)); done
   if [ -S "$SERVE_SOCKET" ] && tailscale serve --bg --yes "unix:${SERVE_SOCKET}" >/dev/null 2>&1; then
     log "Tailscale Serve forwards to ${SERVE_SOCKET}"
     return 0
