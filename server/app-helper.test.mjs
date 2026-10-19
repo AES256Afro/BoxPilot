@@ -1444,7 +1444,7 @@ sidecars:
   });
 
   // Linux only: needs /usr/bin/tar.
-  it.skipIf(onWindows)("falls back to the tag when the recorded digest is missing, from another repository, or beside another tag", async () => {
+  it.skipIf(onWindows)("falls back to the tag when the recorded digest is missing, from another repository, beside another tag, or not a digest", async () => {
     const { apps, catalogRoot, catalogDirectory } = await setup();
     const manifest = (image) => [
       "schemaVersion: 2", "id: pong", "name: Pong", "category: T", "description: d",
@@ -1463,7 +1463,7 @@ sidecars:
     // Docker gave no digest here (the stub has no `image inspect`): history written the old way.
     expect(original.updateHistory[0].fromDigest).toBeUndefined();
 
-    for (const fromDigest of [undefined, { pong: `attacker.example/root:1.0@sha256:${"d".repeat(64)}` }, { pong: `app:0.9@sha256:${"e".repeat(64)}` }]) {
+    for (const fromDigest of [undefined, { pong: `attacker.example/root:1.0@sha256:${"d".repeat(64)}` }, { pong: `app:0.9@sha256:${"e".repeat(64)}` }, { pong: "app:1.0@sha256:${SECRET_TOKEN}" }, { pong: `app:1.0@sha256:${"f".repeat(64)}x` }]) {
       await writeFile(statePath, JSON.stringify({ ...original, updateHistory: [{ ...original.updateHistory[0], ...(fromDigest ? { fromDigest } : {}) }] }));
       const back = await apps.rollbackApp({ id: "pong" }, { checkpoint: false });
       expect(back.restored).toEqual({ pong: "app:1.0" });
