@@ -1398,6 +1398,81 @@ sidecars:
     expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).toContain("image: oldorg/pong:1.0");
   });
 
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("goes back to the exact image that ran, by the digest recorded before the update", async () => {
+    // A tag can be re-pushed after the update; the digest names the bytes the app actually ran.
+    const { apps, catalogRoot, catalogDirectory, runDocker, calls, containers } = await setup();
+    const appDigest = `sha256:${"a".repeat(64)}`;
+    const dbDigest = `sha256:${"b".repeat(64)}`;
+    const base = runDocker.getMockImplementation();
+    runDocker.mockImplementation(async (binary, args) => {
+      if (args[0] === "image" && args[1] === "inspect") {
+        calls.push(args.join(" "));
+        // One image can carry digests from several repositories; only the service's own counts.
+        return { ok: true, stdout: JSON.stringify([`elsewhere.example/app@sha256:${"c".repeat(64)}`, `app@${appDigest}`, `docker.io/library/postgres@${dbDigest}`]), stderr: "" };
+      }
+      return base(binary, args);
+    });
+    const manifest = (image, sidecarImage) => [
+      "schemaVersion: 2", "id: pair", "name: Pair", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "sidecars:", "  - id: db", `    image: ${sidecarImage}`,
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image, sidecarImage) => {
+      await rm(path.join(catalogDirectory, "pair.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "pair.yaml"), manifest(image, sidecarImage));
+    };
+    await publish("app:1.0", "postgres:15"); await apps.install({ id: "pair" });
+    // The stub keeps one container per project; the sidecar's runs beside it under its own name.
+    containers.set("bp-pair-db", { running: true, status: "running", health: "none", restarts: 0, image: "sha256:db", startedAt: "x", exitCode: 0 });
+    await publish("app:2.0.1", "postgres:16.2"); await apps.update({ id: "pair" });
+
+    const statePath = path.join(catalogRoot, "pair", "boxpilot.json");
+    const stored = JSON.parse(await readFile(statePath, "utf8"));
+    expect(stored.updateHistory[0]).toMatchObject({ from: { pair: "app:1.0", db: "postgres:15" }, fromDigest: { pair: `app:1.0@${appDigest}`, db: `postgres:15@${dbDigest}` } });
+
+    const back = await apps.rollbackApp({ id: "pair" });
+    expect(back.restored).toEqual({ pair: `app:1.0@${appDigest}`, db: `postgres:15@${dbDigest}` });
+    const composeText = await readFile(path.join(catalogRoot, "pair", "compose.yaml"), "utf8");
+    expect(composeText).toContain(`app:1.0@${appDigest}`);
+    expect(composeText).toContain(`postgres:15@${dbDigest}`);
+    // The rollback records where it came from by digest too, so going forward again is exact.
+    const after = JSON.parse(await readFile(statePath, "utf8"));
+    expect(after.updateHistory[0]).toMatchObject({ rolledBack: true, fromDigest: { pair: `app:2.0.1@${appDigest}` } });
+  });
+
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("falls back to the tag when the recorded digest is missing, from another repository, or beside another tag", async () => {
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image) => [
+      "schemaVersion: 2", "id: pong", "name: Pong", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image) => {
+      await rm(path.join(catalogDirectory, "pong.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "pong.yaml"), manifest(image));
+    };
+    await publish("app:1.0"); await apps.install({ id: "pong" });
+    await publish("app:2.0.0"); await apps.update({ id: "pong" });
+    const statePath = path.join(catalogRoot, "pong", "boxpilot.json");
+    const original = JSON.parse(await readFile(statePath, "utf8"));
+    // Docker gave no digest here (the stub has no `image inspect`): history written the old way.
+    expect(original.updateHistory[0].fromDigest).toBeUndefined();
+
+    for (const fromDigest of [undefined, { pong: `attacker.example/root:1.0@sha256:${"d".repeat(64)}` }, { pong: `app:0.9@sha256:${"e".repeat(64)}` }]) {
+      await writeFile(statePath, JSON.stringify({ ...original, updateHistory: [{ ...original.updateHistory[0], ...(fromDigest ? { fromDigest } : {}) }] }));
+      const back = await apps.rollbackApp({ id: "pong" }, { checkpoint: false });
+      expect(back.restored).toEqual({ pong: "app:1.0" });
+      const composeText = await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8");
+      expect(composeText).toContain("image: app:1.0\n");
+      expect(composeText).not.toContain("attacker.example");
+    }
+  });
+
   it("refuses to roll back an app that has never been updated", async () => {
     const { apps } = await setup();
     await apps.install({ id: "demo" });
