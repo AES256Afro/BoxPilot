@@ -5,11 +5,13 @@ const socketPath = "/run/boxpilot-web/serve.sock";
 const files = (isSocket = true) => ({ readFile: async () => "BOXPILOT_PORT=8787\n", lstat: async () => ({ isSocket: () => isSocket }) });
 
 /** A tailscale CLI whose Serve table starts as `table` (https port → target). */
-function tailscale(table, { refuse = null } = {}) {
+function tailscale(table, { refuse = null, plain = [] } = {}) {
   const serve = new Map(Object.entries(table).map(([port, target]) => [Number(port), target]));
   const run = vi.fn(async (_binary, args) => {
-    if (args[1] === "status") return { ok: true, stdout: JSON.stringify({ Web: Object.fromEntries([...serve].map(([port, target]) => [`box.tail1234.ts.net:${port}`, { Handlers: { "/": { Proxy: target } } }])) }), stderr: "" };
-    const port = Number(args.find((arg) => arg.startsWith("--https=")).slice(8));
+    if (args[1] === "status") return { ok: true, stdout: JSON.stringify({ TCP: Object.fromEntries([...serve.keys()].map((port) => [String(port), plain.includes(port) ? { HTTP: true } : { HTTPS: true }])), Web: Object.fromEntries([...serve].map(([port, target]) => [`box.tail1234.ts.net:${port}`, { Handlers: { "/": { Proxy: target } } }])) }), stderr: "" };
+    const schemeFlag = args.find((arg) => /^--https?=/.test(arg));
+    if (plain.includes(Number(schemeFlag.split("=")[1])) !== schemeFlag.startsWith("--http=")) return { ok: false, stdout: "", stderr: `wrong scheme ${schemeFlag}` };
+    const port = Number(schemeFlag.split("=")[1]);
     const target = args.at(-1);
     if (refuse && target.startsWith("unix:") && refuse(port)) return { ok: false, stdout: "", stderr: "invalid proxy target: unix sockets not supported" };
     serve.set(port, target);
@@ -47,6 +49,13 @@ describe("moving Tailscale Serve to the socket", () => {
     expect(await serveSocketMove({ run: reportsUrl, socketPath, files: files() })).toMatchObject({ moved: [443], already: false });
     expect(serve.get(443)).toBe(`unix:${socketPath}`);
     expect(await serveSocketMove({ run: reportsUrl, socketPath, files: files() })).toMatchObject({ already: true });
+  });
+
+  it("keeps a plain HTTP entry plain", async () => {
+    const { run, serve } = tailscale({ 80: "http://127.0.0.1:8787" }, { plain: [80] });
+    expect(await serveSocketMove({ run, socketPath, files: files() })).toMatchObject({ moved: [80] });
+    expect(serve.get(80)).toBe(`unix:${socketPath}`);
+    expect(run).toHaveBeenCalledWith(expect.anything(), ["serve", "--bg", "--yes", "--http=80", `unix:${socketPath}`], expect.anything());
   });
 
   it("puts back what it moved when Tailscale cannot forward to a socket, and says to update it", async () => {
