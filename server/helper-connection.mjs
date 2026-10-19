@@ -18,7 +18,7 @@ import { whileHoldingRootTasks } from "./run-unit.mjs";
  *   readOnlyOperations: Set<string>,
  *   execute: (request: any) => Promise<any>,
  *   lanes: any, reads: any, mutations: { enter: () => () => void },
- *   waiting: Set<{ refused: boolean, refuse: (refusal?: Error) => void }>,
+ *   waiting: Set<{ refused: boolean, refuse: (refusal?: any) => void }>,
  *   isRestarting: () => boolean,
  *   idleGraceMs?: number, maxRequestBytes?: number, queuedHeartbeatMs?: number, initialTimeoutMs?: number,
  *   holdRootTasks?: typeof whileHoldingRootTasks,
