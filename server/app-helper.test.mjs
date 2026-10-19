@@ -1444,7 +1444,7 @@ sidecars:
   });
 
   // Linux only: needs /usr/bin/tar.
-  it.skipIf(onWindows)("falls back to the tag when the recorded digest is missing, from another repository, or beside another tag", async () => {
+  it.skipIf(onWindows)("falls back to the tag when the recorded digest is missing, from another repository, beside another tag, or not a digest", async () => {
     const { apps, catalogRoot, catalogDirectory } = await setup();
     const manifest = (image) => [
       "schemaVersion: 2", "id: pong", "name: Pong", "category: T", "description: d",
@@ -1463,7 +1463,7 @@ sidecars:
     // Docker gave no digest here (the stub has no `image inspect`): history written the old way.
     expect(original.updateHistory[0].fromDigest).toBeUndefined();
 
-    for (const fromDigest of [undefined, { pong: `attacker.example/root:1.0@sha256:${"d".repeat(64)}` }, { pong: `app:0.9@sha256:${"e".repeat(64)}` }]) {
+    for (const fromDigest of [undefined, { pong: `attacker.example/root:1.0@sha256:${"d".repeat(64)}` }, { pong: `app:0.9@sha256:${"e".repeat(64)}` }, { pong: "app:1.0@sha256:${SECRET_TOKEN}" }, { pong: `app:1.0@sha256:${"f".repeat(64)}x` }]) {
       await writeFile(statePath, JSON.stringify({ ...original, updateHistory: [{ ...original.updateHistory[0], ...(fromDigest ? { fromDigest } : {}) }] }));
       const back = await apps.rollbackApp({ id: "pong" }, { checkpoint: false });
       expect(back.restored).toEqual({ pong: "app:1.0" });
@@ -3704,5 +3704,23 @@ describe("a folder a backup archives that has become a link", () => {
     expect(failure?.message).toMatch(/^Demo was not restored; nothing was changed\. In this backup data is a link/);
     expect(failure?.message).not.toMatch(/never holds/);
     expect(failure?.message).toMatch(/holds only that link and none of what it pointed at/);
+  });
+});
+
+describe("which image a backup or saved history may pin", () => {
+  const digest = `sha256:${"a".repeat(64)}`;
+  it("takes the catalog's repository at another tag or digest, and nothing shaped otherwise", () => {
+    expect(catalogImagePin("ghcr.io/acme/app:1.0", "ghcr.io/acme/app:2.0")).toBe("ghcr.io/acme/app:1.0");
+    expect(catalogImagePin(`ghcr.io/acme/app:1.0@${digest}`, "ghcr.io/acme/app:2.0")).toBe(`ghcr.io/acme/app:1.0@${digest}`);
+    expect(catalogImagePin(`ghcr.io/acme/app@${digest}`, "ghcr.io/acme/app:2.0")).toBe(`ghcr.io/acme/app@${digest}`);
+    expect(catalogImagePin("localhost:5000/app:1", "localhost:5000/app:2")).toBe("localhost:5000/app:1");
+    expect(catalogImagePin("evil.example/app:1.0", "ghcr.io/acme/app:2.0")).toBeNull();
+    // Compose expands ${...} from the app's .env: a pin carrying one would send a secret in the pull.
+    expect(catalogImagePin("ghcr.io/acme/app:1.0@sha256:${SECRET_TOKEN}", "ghcr.io/acme/app:2.0")).toBeNull();
+    expect(catalogImagePin("ghcr.io/acme/app:${TAG}", "ghcr.io/acme/app:2.0")).toBeNull();
+    // Only a sha256 digest may follow an @, never another reference.
+    expect(catalogImagePin("ghcr.io/acme/app:1.0@evil.example/x:1", "ghcr.io/acme/app:2.0")).toBeNull();
+    expect(catalogImagePin("ghcr.io/acme/app:1.0\nprivileged: true", "ghcr.io/acme/app:2.0")).toBeNull();
+    expect(catalogImagePin("", "ghcr.io/acme/app:2.0")).toBeNull();
   });
 });
