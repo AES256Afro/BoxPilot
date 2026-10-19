@@ -7,7 +7,7 @@ description: "Low-latency voice chat for gaming and family calls; the Mumble app
 website: https://www.mumble.info
 risk: low
 image:
-  reference: mumblevoip/mumble-server:v1.6.870
+  reference: mumblevoip/mumble-server:v1.6.870@sha256:3da59810c07528a344f6bcd4b43338f69e8c56d26678456253bc3d9639487596
   version: "1.6.870"
 user: "10000:10000"
 ports:

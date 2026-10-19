@@ -11,7 +11,7 @@ risk: medium
 # apps require. Zulip's address (EXTERNAL_HOST) is that Serve address, filled in at every deploy.
 defaultExposure: tailnet
 image:
-  reference: ghcr.io/zulip/zulip-server:12.3-0
+  reference: ghcr.io/zulip/zulip-server:12.3-0@sha256:76a1ecc4ba5470869d9609ef1ec16497b410189918b2daba85862183a59aa275
   version: "12.3-0"
 ports:
   - id: web
@@ -138,7 +138,7 @@ sidecars:
         container: /var/lib/postgresql/data
         path: postgres
   - id: memcached
-    image: memcached:1.6.45-alpine
+    image: memcached:1.6.45-alpine@sha256:9e4de012dc607573052061c0bcb38abc775e1dd59b24e7ac38d1892842094aaf
     # As docker-zulip does it: SASL with Zulip's generated password, read from the environment.
     command:
       - sh
@@ -153,7 +153,7 @@ sidecars:
       MEMCACHED_SASL_PWDB: /home/memcache/memcached-sasl-db
       MEMCACHED_PASSWORD: ${SECRETS_memcached_password}
   - id: rabbitmq
-    image: rabbitmq:4.2.9
+    image: rabbitmq:4.2.9@sha256:817c76db481515bb00ef727e022593a7435aa70e1d81c5341f4ad33c81b68636
     command:
       - sh
       - -euc
@@ -170,7 +170,7 @@ sidecars:
         path: rabbitmq
         backup: false
   - id: redis
-    image: redis:8.10.2-alpine
+    image: redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
     command:
       - sh
       - -euc

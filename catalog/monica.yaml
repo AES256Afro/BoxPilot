@@ -7,7 +7,7 @@ description: "Personal CRM: remember birthdays, gifts, conversations, and the li
 website: https://www.monicahq.com
 risk: low
 image:
-  reference: monica:4.1.2-apache
+  reference: monica:4.1.2-apache@sha256:787c7e9972cad3956f378afd93e0ac140863dba9199f81f6b368a65a96b32e54
   version: "4.1.2"
 ports:
   - id: web
@@ -51,7 +51,7 @@ env:
     fixed: true
 sidecars:
   - id: database
-    image: mariadb:11.8.8
+    image: mariadb:11.8.8@sha256:24e76fcec8c003a0362d0dd53f4806e7e79458d7fdeaf47437760e19496f5a9c
     env:
       MARIADB_DATABASE: monica
       MARIADB_USER: monica

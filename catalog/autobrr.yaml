@@ -7,7 +7,7 @@ description: Watches tracker announce channels and pushes matching releases to y
 website: https://autobrr.com
 risk: low
 image:
-  reference: ghcr.io/autobrr/autobrr:v1.84.0
+  reference: ghcr.io/autobrr/autobrr:v1.84.0@sha256:f4792e86b79965eadb2b24ad290ab46d21cab7ae6c18002ce2d18275fa54a4d0
   version: 1.84.0
 ports:
   - id: web

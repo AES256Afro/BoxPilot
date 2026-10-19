@@ -7,7 +7,7 @@ description: Lightweight server monitoring with history and alerts (CPU, memory,
 website: https://beszel.dev
 risk: low
 image:
-  reference: ghcr.io/henrygd/beszel/beszel:0.18.8
+  reference: ghcr.io/henrygd/beszel/beszel:0.18.8@sha256:99181067e5a46b3147231f456114280a8119eed371808bce79e6e7f173946975
   version: 0.18.8
 ports:
   - id: web

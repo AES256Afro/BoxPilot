@@ -7,7 +7,7 @@ description: Workflow automation with hundreds of integrations. The self-hosted 
 website: https://n8n.io
 risk: medium
 image:
-  reference: n8nio/n8n:1.123.73
+  reference: n8nio/n8n:1.123.73@sha256:0020259ad8bff93361e7de85723ec4d05ed1c50b81a67b7f8c493a08e6acdcc5
   version: 1.123.73
 ports:
   - id: web

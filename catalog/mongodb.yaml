@@ -7,7 +7,7 @@ description: "Document database for apps that need it (Rocket.Chat, custom proje
 website: https://www.mongodb.com
 risk: low
 image:
-  reference: mongo:8.0.29
+  reference: mongo:8.0.29@sha256:02a0cc7939f5ed38f30f9bc714ef5f682d49baf9350c54acf302ce833087fe8a
   version: "8.0.29"
 ports:
   - id: db

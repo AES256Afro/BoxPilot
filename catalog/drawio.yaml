@@ -7,7 +7,7 @@ description: "Diagrams in the browser: flowcharts, network diagrams, floor plans
 website: https://www.drawio.com
 risk: low
 image:
-  reference: jgraph/drawio:31.3.1
+  reference: jgraph/drawio:31.3.1@sha256:b861fb6167172dfcb8a9f30dea6441d6e6a381828d5352c30207802b27c7b3f2
   version: "31.3.1"
 ports:
   - id: web
