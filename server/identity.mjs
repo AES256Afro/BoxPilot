@@ -53,7 +53,7 @@ export function tailnetClientAddress(request, { trustForwarded = false } = {}) {
 }
 
 /**
- * @param {{ store?: any, run?: typeof fixedRun, tailscaleBinary?: string, fetchImpl?: typeof fetch, now?: () => number, whoisTtlMs?: number, webPort?: number, serveTtlMs?: number }} [options]
+ * @param {{ store?: any, run?: typeof fixedRun, tailscaleBinary?: string, fetchImpl?: typeof fetch, now?: () => number, whoisTtlMs?: number, webPort?: number, serveTtlMs?: number, serveSocket?: string }} [options]
  */
 export function createIdentityService({
   store,
