@@ -1,5 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { fetchGuarded, isLinkLocalAddress } from "./outbound-guard.mjs";
+import { heldKey, heldLimit, holds, isQuiet, normalizeQuietHours, quietHoursKey, summaryOf } from "./quiet-hours.mjs";
 /**
  * Failed-job push notifications (M8.4 v1). Subscribes to the store's job events and sends
  * one push per failed job to the configured target — ntfy, Gotify, or a plain webhook.
@@ -86,7 +87,7 @@ export function buildRequest(target, { title, message, priority = "default", cli
   };
 }
 
-export function createNotificationService({ store, fetcher = fetch, lookup = dnsLookup, now = () => new Date(), claimed = () => false, history = null }) {
+export function createNotificationService({ store, fetcher = fetch, lookup = dnsLookup, now = () => new Date(), claimed = () => false, history = null, timeZone = undefined }) {
   const notified = new Set();
 
   function getTarget() {
@@ -135,9 +136,23 @@ export function createNotificationService({ store, fetcher = fetch, lookup = dns
     return { configured: true, kind: target.kind, url: target.url, topic: target.topic ?? null, hasToken: Boolean(target.token) };
   }
 
-  async function send({ title, message, priority = "default", click = null }) {
+  /**
+   * Send a push, or hold it for the summary at the end of quiet hours. `immediate` is for a push the
+   * owner asked for just now (the test button), which nobody wants held.
+   */
+  async function send({ title, message, priority = "default", click = null }, { immediate = false } = {}) {
     const target = getTarget();
     if (!target) throw new Error("No notification target is configured");
+    if (!immediate && holds(store.getSetting(quietHoursKey, null), priority, now(), timeZone)) {
+      const held = store.getSetting(heldKey, []);
+      const kept = [...(Array.isArray(held) ? held : []), { title, message: String(message ?? "").slice(0, 300), priority, at: now().toISOString() }].slice(-heldLimit);
+      store.setSetting(heldKey, kept);
+      return { sent: false, held: true, kind: target.kind };
+    }
+    return deliver(target, { title, message, priority, click });
+  }
+
+  async function deliver(target, { title, message, priority, click }) {
     const { url, options } = buildRequest(target, { title, message, priority, click });
     // A target saved before validateTarget refused such an address: say so without quoting it.
     if (!usableUrl(url)) throw new Error("The notification target's address is not one BoxPilot can send to; set the target again in Settings");
@@ -172,9 +187,38 @@ export function createNotificationService({ store, fetcher = fetch, lookup = dns
       .catch((error) => { store.recordAudit("notifications.failed", { subjectId: job.id, details: { error: error.message, at: now().toISOString() } }); said(false); });
   }
 
-  function start() {
-    return store.subscribeJobs(onJob);
+  /**
+   * Once quiet hours are over, send what waited as one push. Kept until that push is accepted, so a
+   * target that is down at 7 a.m. gets the summary on a later minute instead of losing it.
+   */
+  async function flushHeld() {
+    const held = store.getSetting(heldKey, []);
+    if (!Array.isArray(held) || !held.length || isQuiet(store.getSetting(quietHoursKey, null), now(), timeZone)) return { sent: false, count: 0 };
+    const target = getTarget();
+    if (!target) return { sent: false, count: held.length };
+    try {
+      await deliver(target, { ...summaryOf(held), click: null });
+    } catch (error) {
+      store.recordAudit("notifications.failed", { details: { error: error.message, held: held.length, at: now().toISOString() } });
+      return { sent: false, count: held.length };
+    }
+    store.setSetting(heldKey, []);
+    store.recordAudit("notifications.sent", { details: { title: "quiet hours summary", count: held.length } });
+    return { sent: true, count: held.length };
   }
 
-  return { getTarget, setTarget, adoptLocalNtfy, describe, send, onJob, start };
+  /** Quiet hours as saved, and how many pushes are waiting for the summary. */
+  function quietHours() {
+    const held = store.getSetting(heldKey, []);
+    return { ...normalizeQuietHours(store.getSetting(quietHoursKey, null)), held: Array.isArray(held) ? held.length : 0, quietNow: isQuiet(store.getSetting(quietHoursKey, null), now(), timeZone) };
+  }
+
+  function start({ flushEveryMs = 60_000 } = {}) {
+    const unsubscribe = store.subscribeJobs(onJob);
+    const timer = setInterval(() => { void flushHeld().catch(() => {}); }, flushEveryMs);
+    timer.unref?.();
+    return () => { clearInterval(timer); unsubscribe?.(); };
+  }
+
+  return { getTarget, setTarget, adoptLocalNtfy, describe, send, flushHeld, quietHours, onJob, start };
 }

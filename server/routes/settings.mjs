@@ -10,6 +10,7 @@ import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
 import { watchEntryFor } from "./access.mjs";
 import { createNotificationHistory } from "../notification-history.mjs";
+import { quietHoursKey, quietHoursProblem } from "../quiet-hours.mjs";
 
 export function createSettingsRouter({ state, notifications, notificationHistory = createNotificationHistory({ store: state }), weeklyReport = null, auth }) {
   const router = Router();
@@ -154,10 +155,24 @@ export function createSettingsRouter({ state, notifications, notificationHistory
 
   router.post("/settings/notifications/test", auth.requireCsrf, rateLimited(sendLimit, "notification-test", { message: "Several test notifications went out just now; wait a minute" }), async (_request, response) => {
     try {
-      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, health alerts (disk space, SMART, UPS, failed services) and the weekly report arrive like this." }));
+      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, health alerts (disk space, SMART, UPS, failed services) and the weekly report arrive like this." }, { immediate: true }));
     } catch (error) {
       response.status(502).json({ error: error.message, code: "notification_test_failed" });
     }
+  });
+
+  // Quiet hours for pushes (M36): when they wait, and how many are waiting for the summary.
+  router.get("/settings/quiet-hours", (_request, response) => {
+    response.json(notifications.quietHours());
+  });
+
+  router.put("/settings/quiet-hours", auth.requireCsrf, auth.requireRole("owner"), (request, response) => {
+    const problem = quietHoursProblem(request.body);
+    if (problem) return response.status(400).json({ error: problem, code: "invalid_setting" });
+    const { enabled, start, end, holdHigh = false } = request.body;
+    state.setSetting(quietHoursKey, { enabled, start, end, holdHigh }, { updatedBy: request.boxpilotSession.owner.id });
+    state.recordAudit("notifications.quiet-hours", { actorId: request.boxpilotSession.owner.id, details: { enabled, start, end, holdHigh } });
+    return response.json(notifications.quietHours());
   });
 
   router.get("/settings/approval-mode", (_request, response) => {

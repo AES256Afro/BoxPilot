@@ -13,8 +13,9 @@ const auth = {
   requireRole: (role) => (request, response, next) => ((request.headers["x-test-role"] === role || request.headers["x-test-role"] === "owner") ? next() : response.status(403).json({ error: "forbidden" })),
   requireCsrf: (_request, _response, next) => next(),
 };
-const notifications = { describe: () => ({ configured: true, kind: "ntfy" }) };
-const state = { getSetting: (key, fallback) => settings.get(key) ?? fallback };
+const notifications = { describe: () => ({ configured: true, kind: "ntfy" }), quietHours: () => ({ ...(settings.get("notificationQuietHours") ?? { enabled: false }), held: 2 }) };
+const audits = [];
+const state = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: (type, entry) => audits.push({ type, ...entry }) };
 const report = { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed." };
 const weeklyReport = {
   status: vi.fn(() => ({ enabled: true, cadence: "Sundays at 09:00", nextDueAt: "2026-10-04T13:00:00.000Z", lastSentAt: null, lastResult: null, targetConfigured: true })),
@@ -214,5 +215,20 @@ describe("the notification centre (M36)", () => {
     } finally {
       local.close();
     }
+  });
+});
+
+describe("quiet hours for pushes", () => {
+  it("are read by anyone signed in and changed only by the owner, with times that make sense", async () => {
+    const read = await fetch(`${base}/api/v1/settings/quiet-hours`, { headers: { "x-test-role": "viewer" } });
+    expect(await read.json()).toMatchObject({ enabled: false, held: 2 });
+    const put = (role, body) => fetch(`${base}/api/v1/settings/quiet-hours`, { method: "PUT", headers: { "Content-Type": "application/json", "x-test-role": role }, body: JSON.stringify(body) });
+    expect((await put("operator", { enabled: true, start: "22:00", end: "07:00" })).status).toBe(403);
+    expect((await put("owner", { enabled: true, start: "22:00", end: "22:00" })).status).toBe(400);
+    expect((await put("owner", { enabled: true, start: "10pm", end: "07:00" })).status).toBe(400);
+    const saved = await put("owner", { enabled: true, start: "22:30", end: "06:45", holdHigh: true, extra: "ignored" });
+    expect(saved.status).toBe(200);
+    expect(settings.get("notificationQuietHours")).toEqual({ enabled: true, start: "22:30", end: "06:45", holdHigh: true });
+    expect(audits.at(-1)).toMatchObject({ type: "notifications.quiet-hours", actorId: "owner-1" });
   });
 });

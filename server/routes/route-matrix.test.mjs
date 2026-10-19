@@ -219,7 +219,7 @@ const changeRoutes = [
   "POST /api/v1/remediations/dismissals", "DELETE /api/v1/remediations/dismissals/:id", "POST /api/v1/remediations/attempts",
   "POST /api/v1/oidc/clients", "DELETE /api/v1/oidc/clients/:id",
   "POST /api/v1/people", "PUT /api/v1/people/:id", "DELETE /api/v1/people/:id",
-  "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test",
+  "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test", "PUT /api/v1/settings/quiet-hours",
   "PUT /api/v1/settings/approval-mode", "PUT /api/v1/settings/backup-destination", "PUT /api/v1/settings/github-client-id", "PUT /api/v1/settings/assistant",
   "POST /api/v1/storage/shares/list", "POST /api/v1/virtualization/media/uploads", "POST /api/v1/virtualization/plans",
   // Agents (M37): making, changing, running, pausing and stopping them, their cards, notes, library
@@ -339,6 +339,7 @@ const dataRoutes = {
   "GET /api/v1/virtualization/retention": [{ ...open, check: ({ role, body }) => expect(body.retentionRuns.length, role).toBe(1) }],
   "GET /api/v1/virtualization/recoveries": [{ ...open, check: ({ role, body }) => expect(body.recoveries.length, role).toBe(1) }],
   "GET /api/v1/settings/notifications": [open],
+  "GET /api/v1/settings/quiet-hours": [open],
   "GET /api/v1/settings/watch": [{
     ...open,
     check: ({ role, body }) => {
