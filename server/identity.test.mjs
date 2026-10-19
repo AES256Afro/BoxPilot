@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 30_000 });
-import { createIdentityService, isTailnetAddress, tailnetClientAddress } from "./identity.mjs";
+import { createIdentityService, isTailnetAddress, signinClientKey, tailnetClientAddress } from "./identity.mjs";
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
@@ -193,8 +193,39 @@ describe("GitHub device-flow limits", () => {
     for (const client of ["w", "w", "x", "x", "y", "y", "z", "z", "solo"]) await startFresh(client);
     await startFresh("late");
     expect(await fresh.githubPoll(patient.flowId)).toMatchObject({ status: "pending" });
+    // When every caller holds a single flow, a newcomer is refused rather than cancelling one: the
+    // owner's flow in progress survives any number of restarts from other addresses.
+    const singles = createIdentityService({ store: state, fetchImpl, now: () => clock });
+    const startSingle = (client) => { clock += 1; return singles.githubStart({ purpose: "signin", client }); };
+    const ownerFlow = await startSingle("owner-laptop");
+    for (const client of ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"]) await startSingle(client);
+    for (const client of ["s1", "s2", "s3", "s9"]) await expect(startSingle(client)).rejects.toThrow("Every GitHub sign-in slot is in use");
+    expect(await singles.githubPoll(ownerFlow.flowId)).toMatchObject({ status: "pending" });
     // The owner can still start a link flow while sign-in slots are full.
     await expect(identity.githubStart({ purpose: "link", ownerId: owner.id, client: "e" })).resolves.toMatchObject({ userCode: "ABCD-EFGH" });
+    state.close();
+  });
+});
+
+describe("who a GitHub sign-in flow counts against", () => {
+  it("counts an IPv6 caller by its /64, and a tailnet or IPv4 caller by its address", () => {
+    expect(signinClientKey("2001:db8:1:2:aaaa::1")).toBe("2001:db8:1:2::/64");
+    expect(signinClientKey("2001:0db8:0001:0002:ffff:eeee:dddd:cccc")).toBe("2001:db8:1:2::/64");
+    expect(signinClientKey("2001:db8::7")).toBe("2001:db8:0:0::/64");
+    expect(signinClientKey("::ffff:192.0.2.4")).toBe("192.0.2.4");
+    expect(signinClientKey("100.64.0.9")).toBe("100.64.0.9");
+    expect(signinClientKey("fd7a:115c:a1e0::1234")).toBe("fd7a:115c:a1e0::1234");
+    expect(signinClientKey(null)).toBeNull();
+  });
+
+  it("holds two addresses in one /64 to one caller's two flows", async () => {
+    const state = await store();
+    state.setSetting("githubClientId", "Ov23liabcdefghijklmn");
+    const fetchImpl = async () => ({ ok: true, json: async () => ({ device_code: "d", user_code: "ABCD-EFGH", verification_uri: "https://github.com/login/device", interval: 5, expires_in: 900 }) });
+    const identity = createIdentityService({ store: state, fetchImpl, now: () => 1000 });
+    await identity.githubStart({ purpose: "signin", client: "2001:db8:1:2::a" });
+    await identity.githubStart({ purpose: "signin", client: "2001:db8:1:2::b" });
+    await expect(identity.githubStart({ purpose: "signin", client: "2001:db8:1:2::c" })).rejects.toThrow("from this device");
     state.close();
   });
 });
