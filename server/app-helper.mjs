@@ -148,8 +148,12 @@ function parseModelSize(text) {
  * writes, and whatever they name runs with everything the catalog grants the app (the Docker socket,
  * host networking, devices): a different repository is never taken from them.
  */
-export function catalogImagePin(candidate, catalogReference) {
-  return typeof candidate === "string" && candidate && imageRepository(candidate) === imageRepository(catalogReference) ? candidate : null;
+export function catalogImagePin(candidate, catalogReference, formerRepositories = []) {
+  if (typeof candidate !== "string" || !candidate) return null;
+  // The catalog's repository, or one it says the app moved from (image.formerRepositories): a backup
+  // or rollback from before the move names the old one and is still the catalog's image.
+  const accepted = new Set([catalogReference, ...(Array.isArray(formerRepositories) ? formerRepositories : [])].map(imageRepository));
+  return accepted.has(imageRepository(candidate)) ? candidate : null;
 }
 
 export function createAppHelper({
@@ -1154,7 +1158,7 @@ export function createAppHelper({
       const existingEnv = await readEnv(id);
       const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), existingEnv));
       if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
-      const savedImage = catalogImagePin(state.image?.reference, manifest.image.reference);
+      const savedImage = catalogImagePin(state.image?.reference, manifest.image.reference, manifest.image.formerRepositories);
       const pinned = savedImage ? { ...manifest, image: { ...manifest.image, reference: savedImage } } : manifest;
       progress?.(`${manifest.name}'s compose project is gone too; writing it again from its saved settings, on ${pinned.image.reference}`, "stdout");
       await writeProject(pinned, values, { existingEnv, devices });
@@ -1334,7 +1338,7 @@ export function createAppHelper({
     // restored backup brings with it.
     const catalogImageOf = (service) => (service === id ? manifest.image.reference : (manifest.sidecars ?? []).find((sidecar) => sidecar.id === service)?.image ?? null);
     const restoreTo = Object.fromEntries(Object.entries(last.from).filter(([service, reference]) =>
-      catalogImageOf(service) !== null && catalogImagePin(reference, catalogImageOf(service))));
+      catalogImageOf(service) !== null && catalogImagePin(reference, catalogImageOf(service), service === id ? manifest.image.formerRepositories : [])));
     if (!Object.keys(restoreTo).length) throw new Error(`${manifest.name} has no recorded version that still matches how it is built today, so there is nothing to go back to`);
 
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));
@@ -2642,11 +2646,11 @@ export function createAppHelper({
     const ran = deployedImages(archivedCompose);
     const foreign = Object.entries(ran).filter(([service, reference]) => {
       const catalog = service === manifest.id ? manifest.image.reference : (manifest.sidecars ?? []).find((sidecar) => sidecar.id === service)?.image;
-      return catalog && !catalogImagePin(reference, catalog);
+      return catalog && !catalogImagePin(reference, catalog, service === manifest.id ? manifest.image.formerRepositories : []);
     });
     const pinned = {
       ...manifest,
-      image: { ...manifest.image, reference: catalogImagePin(ran[manifest.id], manifest.image.reference) ?? catalogImagePin(state.image?.reference, manifest.image.reference) ?? manifest.image.reference },
+      image: { ...manifest.image, reference: catalogImagePin(ran[manifest.id], manifest.image.reference, manifest.image.formerRepositories) ?? catalogImagePin(state.image?.reference, manifest.image.reference, manifest.image.formerRepositories) ?? manifest.image.reference },
       sidecars: (manifest.sidecars ?? []).map((sidecar) => (catalogImagePin(ran[sidecar.id], sidecar.image) ? { ...sidecar, image: ran[sidecar.id] } : sidecar)),
     };
     // Named with the image that is used instead: when the catalog moved the app to another repository,

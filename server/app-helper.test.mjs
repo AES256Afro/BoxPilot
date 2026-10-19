@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { craftedTarGz } from "../test/crafted-tar.mjs";
 import { onWindows, testTar } from "../test/platform.mjs";
-import { createAppHelper, keepsBackupData } from "./app-helper.mjs";
+import { catalogImagePin, createAppHelper, keepsBackupData } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
@@ -1376,6 +1376,28 @@ sidecars:
     expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).not.toContain("attacker.example");
   });
 
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("goes back across a move to the repository the catalog names as the app's former one", async () => {
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image, former) => [
+      "schemaVersion: 2", "id: pong", "name: Pong", "category: T", "description: d",
+      `image:`, `  reference: ${image}`, ...(former ? ["  formerRepositories:", ...former.map((repository) => `    - ${repository}`)] : []),
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image, former) => {
+      await rm(path.join(catalogDirectory, "pong.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "pong.yaml"), manifest(image, former));
+    };
+    await publish("oldorg/pong:1.0"); await apps.install({ id: "pong" });
+    // The app moved: without the catalog saying so, the old image is another repository's.
+    await publish("neworg/pong:2.0"); await apps.update({ id: "pong" });
+    await expect(apps.rollbackApp({ id: "pong" })).rejects.toThrow("no recorded version that still matches");
+    await publish("neworg/pong:2.0", ["oldorg/pong"]);
+    await apps.rollbackApp({ id: "pong" });
+    expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).toContain("image: oldorg/pong:1.0");
+  });
+
   it("refuses to roll back an app that has never been updated", async () => {
     const { apps } = await setup();
     await apps.install({ id: "demo" });
@@ -1492,6 +1514,19 @@ describe.skipIf(onWindows)("folders an app is pointed at", () => {
 });
 
 // Linux only: needs /usr/bin/tar.
+describe("the catalog's image for a service", () => {
+  it("keeps an image from the catalog's repository or one the app moved from, at any tag or digest, and nothing else", () => {
+    expect(catalogImagePin("ghcr.io/neworg/app:1.2", "ghcr.io/neworg/app:2.0")).toBe("ghcr.io/neworg/app:1.2");
+    expect(catalogImagePin("oldorg/app:1.0", "ghcr.io/neworg/app:2.0")).toBeNull();
+    expect(catalogImagePin("oldorg/app:1.0", "ghcr.io/neworg/app:2.0", ["oldorg/app"])).toBe("oldorg/app:1.0");
+    // docker.io/oldorg/app and oldorg/app are the same repository, as Docker resolves them.
+    expect(catalogImagePin("docker.io/oldorg/app@sha256:" + "a".repeat(64), "ghcr.io/neworg/app:2.0", ["oldorg/app"])).toContain("docker.io/oldorg/app");
+    expect(catalogImagePin("attacker.example/app:1.0", "ghcr.io/neworg/app:2.0", ["oldorg/app"])).toBeNull();
+    expect(catalogImagePin("", "ghcr.io/neworg/app:2.0", ["oldorg/app"])).toBeNull();
+    expect(catalogImagePin("oldorg/app:1.0", "ghcr.io/neworg/app:2.0", null)).toBeNull();
+  });
+});
+
 describe.skipIf(onWindows)("restoring an application backup", () => {
   it("writes the compose file on the catalog's image when the backup ran one from another repository", async () => {
     // A backup from a drive or mirror someone else writes: its compose file names their image, its
