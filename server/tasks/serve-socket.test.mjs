@@ -36,6 +36,19 @@ describe("moving Tailscale Serve to the socket", () => {
     expect(await serveSocketMove({ run, socketPath, files: files() })).toMatchObject({ moved: [], already: true });
   });
 
+  it("accepts the socket written back as a URL", async () => {
+    // Tailscale may report the target as unix:///run/… rather than as it was typed.
+    const { run, serve } = tailscale({ 443: "http://127.0.0.1:8787" });
+    const reportsUrl = vi.fn(async (binary, args) => {
+      const result = await run(binary, args);
+      if (args[1] === "status") return { ...result, stdout: result.stdout.replaceAll(`unix:${socketPath}`, `unix://${socketPath}`) };
+      return result;
+    });
+    expect(await serveSocketMove({ run: reportsUrl, socketPath, files: files() })).toMatchObject({ moved: [443], already: false });
+    expect(serve.get(443)).toBe(`unix:${socketPath}`);
+    expect(await serveSocketMove({ run: reportsUrl, socketPath, files: files() })).toMatchObject({ already: true });
+  });
+
   it("puts back what it moved when Tailscale cannot forward to a socket, and says to update it", async () => {
     const { run, serve } = tailscale({ 443: "http://127.0.0.1:8787", 8443: "http://127.0.0.1:8787" }, { refuse: (port) => port === 8443 });
     await expect(serveSocketMove({ run, socketPath, files: files() })).rejects.toThrow("cannot forward to a socket. Update Tailscale");
