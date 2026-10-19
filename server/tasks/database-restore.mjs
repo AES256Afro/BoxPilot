@@ -18,6 +18,10 @@ export function copyVersion(name) {
   return stampedCopy.exec(String(name))?.[1] ?? null;
 }
 
+/**
+ * @param {{ name?: string, database?: string }} [parameters]
+ * @param {{ run?: typeof fixedRun, log?: ((line: string, stream?: string) => void) | null, installDir?: string, nodeBinary?: string, now?: () => Date, version?: string, files?: { lstat: (file: string) => Promise<any> }, upgradeRunning?: () => Promise<string | null> }} [context]
+ */
 export async function databaseCopyRestore({ name, database } = {}, {
   run = fixedRun,
   log = null,
