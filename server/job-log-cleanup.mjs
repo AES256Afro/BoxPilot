@@ -17,10 +17,10 @@ export function savedCompletedOutput(jobId, databasePath = process.env.BOXPILOT_
     if (!row) return null;
     if (row.state === "failed") {
       let timeout = null;
-      try { timeout = row.timeout_json ? JSON.parse(row.timeout_json) : null; } catch { return null; }
+      try { timeout = row.timeout_json ? JSON.parse(String(row.timeout_json)) : null; } catch { return null; }
       if (mayStillBeRunning(timeout)) return null;
     }
-    return row.output ?? null;
+    return typeof row.output === "string" ? row.output : null;
   } finally { database.close(); }
 }
 
