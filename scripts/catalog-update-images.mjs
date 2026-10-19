@@ -11,7 +11,8 @@
  * release can change ports, users or data layout, and that needs a person.
  *
  * Only plain release tags in the shape the manifest already pins (1.2.3, or v1.2.3) are
- * candidates: never `latest`, pre-releases, or digest pins. Each move compares the new image's
+ * candidates: never `latest`, pre-releases, or a bare digest with no tag. A pin that carries a
+ * digest (`repo:1.2.3@sha256:…`) moves to the new tag's digest with it. Each move compares the new image's
  * shape (platforms, user, exposed ports, volumes, healthcheck) with the pinned one and lists any
  * difference, because the manifest may need to change with it.
  */
@@ -19,15 +20,15 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { defaultCatalogDirectory, loadCatalog } from "../server/catalog/index.mjs";
-import { accept, bearer, parseReference } from "./catalog-check-images.mjs";
+import { accept, bearer, headTag, parseReference } from "./catalog-check-images.mjs";
 
 const releasePattern = /^(v?)(\d+)\.(\d+)\.(\d+)$/;
 
-/** `repo:tag` without a digest, or null when the reference is digest-pinned or has no tag. */
+/** `repo:tag`, with the digest after it when there is one, or null when the reference has no tag. */
 export function splitReference(reference) {
-  if (typeof reference !== "string" || reference.includes("@")) return null;
-  const match = reference.match(/^(.+\/[^/:]+|[^/:]+):([^/:]+)$/);
-  return match ? { repo: match[1], tag: match[2] } : null;
+  if (typeof reference !== "string") return null;
+  const match = reference.match(/^(.+\/[^/:@]+|[^/:@]+):([^/:@]+)(?:@(sha256:[a-f0-9]{64}))?$/);
+  return match ? { repo: match[1], tag: match[2], digest: match[3] ?? null } : null;
 }
 
 export function isOwnedImage(reference, owner) {
@@ -71,9 +72,10 @@ function escapeRegExp(text) {
  * Rewrite one image's tag in a manifest's text, keeping comments and layout. The main image's
  * `version:` line moves with it when it spelled the same tag.
  */
-export function retag(text, { repo, from, to, main, version }) {
-  const reference = new RegExp(`(${escapeRegExp(repo)}):${escapeRegExp(from)}(?=["'\\s]|$)`, "gm");
-  let next = text.replace(reference, (_, name) => `${name}:${to}`);
+export function retag(text, { repo, from, to, main, version, fromDigest = null, toDigest = null }) {
+  const pinned = fromDigest ? `@${escapeRegExp(fromDigest)}` : "";
+  const reference = new RegExp(`(${escapeRegExp(repo)}):${escapeRegExp(from)}${pinned}(?=["'\\s]|$)`, "gm");
+  let next = text.replace(reference, (_, name) => `${name}:${to}${fromDigest ? `@${toDigest}` : ""}`);
   if (main && version === from) {
     // `\r?` because a Windows checkout has CRLF endings, and `$` in multiline mode stops before `\n`.
     const versionLine = new RegExp(`^(\\s+version:[ \\t]*)(["']?)${escapeRegExp(from)}\\2([ \\t]*\\r?)$`, "m");
@@ -110,6 +112,11 @@ export function registryClient(reference) {
     return response;
   }
   return {
+    async digest(tag) {
+      const { status, digest } = await headTag(`${splitReference(reference)?.repo ?? reference}:${tag}`);
+      if (!digest) throw new Error(`${host}/${repository}:${tag} gave no digest (HTTP ${status})`);
+      return digest;
+    },
     async tags() {
       const tags = [];
       let next = `https://${host}/v2/${repository}/tags/list?n=1000`;
@@ -153,7 +160,7 @@ export async function findUpdates(manifests, owner, { clientFor = registryClient
     ];
     for (const image of images) {
       if (!isOwnedImage(image.reference, owner)) continue;
-      const { repo, tag: from } = splitReference(image.reference);
+      const { repo, tag: from, digest: fromDigest } = splitReference(image.reference);
       const client = clientFor(image.reference);
       let to;
       try {
@@ -163,6 +170,16 @@ export async function findUpdates(manifests, owner, { clientFor = registryClient
         continue;
       }
       if (!to) continue;
+      // A digest-pinned image stays pinned: the move carries the new tag's digest, or does not happen.
+      let toDigest = null;
+      if (fromDigest) {
+        try {
+          toDigest = await client.digest(to);
+        } catch (error) {
+          failures.push({ id: manifest.id, reference: image.reference, error: error.message });
+          continue;
+        }
+      }
       let changes;
       try {
         changes = shapeChanges(await client.shape(from), await client.shape(to));
@@ -170,7 +187,7 @@ export async function findUpdates(manifests, owner, { clientFor = registryClient
         changes = [`could not compare image shapes: ${error.message}`];
       }
       if (isMajorMove(from, to)) changes.unshift("new major version");
-      updates.push({ id: manifest.id, name: manifest.name, file: manifest.file, repo, from, to, main: image.main, sidecar: image.sidecar, version: manifest.image.version, changes });
+      updates.push({ id: manifest.id, name: manifest.name, file: manifest.file, repo, from, to, ...(fromDigest ? { fromDigest, toDigest } : {}), main: image.main, sidecar: image.sidecar, version: manifest.image.version, changes });
     }
   }
   return { updates, failures };
@@ -194,7 +211,7 @@ export async function applyUpdates(updates, directory = defaultCatalogDirectory)
   for (const update of updates) {
     const manifest = manifests.find((candidate) => candidate.file === update.file);
     const references = [manifest?.image.reference, ...(manifest?.sidecars ?? []).map((sidecar) => sidecar.image)];
-    if (!references.includes(`${update.repo}:${update.to}`)) throw new Error(`${update.file}: ${update.repo} did not move to ${update.to}`);
+    if (!references.includes(`${update.repo}:${update.to}${update.fromDigest ? `@${update.toDigest}` : ""}`)) throw new Error(`${update.file}: ${update.repo} did not move to ${update.to}`);
     if (update.main && update.version === update.from && manifest.image.version !== update.to) throw new Error(`${update.file}: image.version did not move to ${update.to}`);
   }
 }
