@@ -41,6 +41,9 @@ async function signedRepository() {
   tag("v1.0.1", stranger);
   tag("v1.0.2", null);
   run("git", ["-C", repo, "tag", "v1.0.3"]); // lightweight
+  // The signed v1.0.0 tag object published again under a newer name, as a hijacked repository could.
+  const signedObject = run("git", ["-C", repo, "rev-parse", "refs/tags/v1.0.0"]).stdout.trim();
+  run("git", ["-C", repo, "update-ref", "refs/tags/v9.9.9", signedObject]);
   await writeFile(path.join(repo, "package.json"), '{ "version": "1.0.4" }\n');
   run("git", ["-C", repo, "commit", "-q", "-am", "second"]);
   tag("v1.0.4", release);
@@ -81,6 +84,25 @@ describe("checking a release's signature before building it", () => {
     const moved = await verify(repository, "v1.0.4", repository.first);
     expect(moved).toMatchObject({ status: 3, files: [] });
     expect(moved.stderr).toContain(`not ${repository.first}`);
-    expect(await verify(repository, "v9.9.9")).toMatchObject({ status: 2, files: [] });
+    expect(await verify(repository, "v8.8.8")).toMatchObject({ status: 2, files: [] });
+  });
+
+  it.skipIf(onWindows || !haveTools)("refuses an old signed release published again under a newer tag name", async () => {
+    const repository = await signedRepository();
+    const renamed = await verify(repository, "v9.9.9");
+    expect(renamed).toMatchObject({ status: 3, files: [] });
+    expect(renamed.stderr).toContain("holds the signed tag v1.0.0, not v9.9.9");
+  });
+
+  const haveGpg = spawnSync("sh", ["-c", "command -v gpg"]).status === 0;
+  it.skipIf(onWindows || !haveTools || !haveGpg)("does not accept a PGP signature, whatever keys root's GnuPG keyring holds", async () => {
+    const repository = await signedRepository();
+    const gnupg = path.join(repository.root, "gnupg");
+    run("sh", ["-c", `mkdir -m 700 "${gnupg}" && gpg --batch --quiet --passphrase "" --quick-gen-key "Attacker <attacker@example.com>" ed25519 sign never`], { env: { GNUPGHOME: gnupg } });
+    run("git", ["-C", repository.repo, "-c", "user.signingkey=attacker@example.com", "tag", "-s", "v2.0.0", "-m", "v2.0.0"], { env: { GNUPGHOME: gnupg } });
+    const out = await mkdtemp(path.join(repository.root, "out-"));
+    const result = run("sh", ["-c", verifyProgram, "verify-release", `file://${repository.repo}`, "v2.0.0", "", repository.signers, out], { allowFail: true, env: { GNUPGHOME: gnupg } });
+    expect(result.status).toBe(3);
+    expect(await readdir(out)).toEqual([]);
   });
 });
