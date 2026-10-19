@@ -396,6 +396,24 @@ describe("the database copies updates took", () => {
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { keep: 3, keepDays: 30, names: copies.goes } });
   });
 
+  it("puts a copy back as a high-risk job with its name typed out", async () => {
+    let staged: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/housekeeping.database-copies.inspect/inspect")) return json({ operation: "housekeeping.database-copies.inspect", result: copies });
+      if (url.endsWith("/operations/housekeeping.database-copies.restore/jobs")) { staged = init?.body as string; return stagedJob("housekeeping.database-copies.restore", "high"); }
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<DatabaseCopies csrfToken="csrf-token" role="owner" />);
+    const putBack = await screen.findByRole("button", { name: /^Put back the copy from 1\.138\.0/ });
+    expect(putBack.getAttribute("data-risk")).toBe("high");
+    fireEvent.click(putBack);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("High risk")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Typed confirmation")).toBeTruthy();
+    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { name: "boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3" } });
+  });
+
   it("asks again when the rule changes, and offers nothing until the answer matches it", async () => {
     const asked: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -420,6 +438,7 @@ describe("the database copies updates took", () => {
     render(<DatabaseCopies csrfToken="csrf-token" role="operator" />);
     expect(await screen.findByRole("table", { name: "Database copies, newest first" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Put back/ })).toBeNull();
   });
 });
 

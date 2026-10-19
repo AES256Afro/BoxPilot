@@ -370,7 +370,7 @@ rollback() {
   # releases change nothing in it - but if the old version cannot read it, this is the way back.
   if [ -n "$DB_COPY" ]; then
     log "the database as ${OLD_VERSION} left it is ${DB_COPY}"
-    log "if ${OLD_VERSION} misbehaves on the current database: systemctl stop boxpilot, copy that file over ${DATABASE} (keeping its owner and mode), delete ${DATABASE}-wal and ${DATABASE}-shm, and start boxpilot. Anything recorded after ${STAMP} is not in the copy."
+    log "if ${OLD_VERSION} misbehaves on the current database: System, Housekeeping, Database copies, Put back on that copy; or by hand: systemctl stop boxpilot, copy that file over ${DATABASE} (keeping its owner and mode), delete ${DATABASE}-wal and ${DATABASE}-shm, and start boxpilot. Anything recorded after ${STAMP} is not in the copy."
   fi
   if [ "$RESTORED" -ne 1 ]; then
     if [ -e "$INSTALL_DIR" ]; then
