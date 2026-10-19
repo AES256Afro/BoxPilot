@@ -6,6 +6,8 @@
 
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const imagePattern = /^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_.-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/;
+/** An image repository alone (a registry may carry a port): no tag, no digest. */
+const repositoryPattern = /^[a-z0-9][a-z0-9._-]*(?::[0-9]{1,5})?(?:\/[a-z0-9][a-z0-9._-]*)*$/;
 // Upstream images pick their own names and not all of them shout: Tdarr reads `serverIP` and
 // `internalNode`. The rule is only that a name is a plausible identifier, not that it is upper
 // case, so that a manifest never has to lie about what the image actually looks for.
@@ -157,9 +159,12 @@ export function validateManifest(raw) {
   // image
   if (!isObject(raw.image)) fail(errors, "manifest.image", "must be a mapping");
   else {
-    checkKeys(errors, "manifest.image", raw.image, ["reference", "version"], ["reference"]);
+    checkKeys(errors, "manifest.image", raw.image, ["reference", "version", "formerRepositories"], ["reference"]);
     if (typeof raw.image.reference !== "string" || !imagePattern.test(raw.image.reference)) fail(errors, "manifest.image.reference", "must be a valid image reference (repo[:tag][@sha256:digest])");
     if (raw.image.version !== undefined && typeof raw.image.version !== "string") fail(errors, "manifest.image.version", "must be a string");
+    // Where the app's image used to come from: a backup or rollback taken before it moved names the
+    // old repository, and still counts as the catalog's image. Repositories only, no tag or digest.
+    if (raw.image.formerRepositories !== undefined && !(Array.isArray(raw.image.formerRepositories) && raw.image.formerRepositories.length <= 8 && raw.image.formerRepositories.every((entry) => typeof entry === "string" && repositoryPattern.test(entry)))) fail(errors, "manifest.image.formerRepositories", "must be a list of up to 8 image repositories, without a tag or digest");
   }
 
   // ports
@@ -431,7 +436,7 @@ export function validateManifest(raw) {
     defaultExposure: raw.defaultExposure ?? "lan",
     actions: (Array.isArray(raw.actions) ? raw.actions : []).map((action) => ({ id: action.id, label: action.label.trim(), description: action.description ?? null, operation: action.operation })),
     connections: (Array.isArray(raw.connections) ? raw.connections : []).map((connection) => ({ app: connection.app, role: connection.role, where: connection.where, note: connection.note ?? null })),
-    image: { reference: raw.image.reference, version: raw.image.version ?? null, digestPinned: raw.image.reference.includes("@sha256:") },
+    image: { reference: raw.image.reference, version: raw.image.version ?? null, digestPinned: raw.image.reference.includes("@sha256:"), formerRepositories: raw.image.formerRepositories ?? [] },
     // A TCP port is assumed to be the app's web interface unless the manifest says otherwise; a
     // UDP one never can be, so it keeps its LAN binding rather than vanishing.
     ports: ports.map((port) => ({ id: port.id, label: port.label ?? port.id, container: port.container, host: port.host ?? port.container, protocol: port.protocol ?? "tcp", exposure: port.exposure ?? "lan", fixed: port.fixed ?? false, tailnet: port.tailnet ?? ((port.protocol ?? "tcp") === "udp" ? "unchanged" : "serve"), containerFollowsHost: port.containerFollowsHost ?? false })),
