@@ -44,7 +44,8 @@ async function authRequest(path: string, body?: Record<string, string>): Promise
 
 /*
  * Why this browser is looking at the sign-in page (M36). Sessions live in BoxPilot's database and
- * survive a restart or an update; they end after twelve hours, or when ended from elsewhere (a
+ * survive a restart or an update; they end twelve hours after last use (three days after signing in
+ * at most), or when ended from elsewhere (a
  * password change, "sign out everywhere else", a role change). The page used to go back to signing
  * in without a word, which after an update looked as if the update had signed the owner out. Only
  * the session's end time is remembered here, per browser, and signing out forgets it.
@@ -65,6 +66,31 @@ export function rememberSession(status: AuthStatus | null): void {
     window.localStorage.setItem(sessionMark, status.expiresAt);
     if (status.owner) window.localStorage.setItem(accountMark, JSON.stringify({ id: status.owner.id, username: status.owner.username, role: status.owner.role ?? "owner" }));
   } catch { /* private window: nothing to say later */ }
+}
+
+/**
+ * A session renewed by an ordinary request says so in a response header. Store the new end, so what
+ * this browser says after a sign-out stays true, and ask the app to read its status again, which
+ * moves the sign-out timer and the ten-minute notice.
+ */
+export function noteSessionRenewal(expiresAt: string | null): void {
+  if (!expiresAt || !Number.isFinite(Date.parse(expiresAt))) return;
+  try {
+    const known = window.localStorage.getItem(sessionMark);
+    if (known === expiresAt) return;
+    window.localStorage.setItem(sessionMark, expiresAt);
+  } catch { /* private window: the app still hears it below */ }
+  window.dispatchEvent(new Event("boxpilot:auth-changed"));
+}
+
+/** Watch this page's own API responses for a renewed session. Pages call fetch directly, so this is the one place that sees them all. */
+export function watchSessionRenewals(target: typeof window = window): void {
+  const original = target.fetch.bind(target);
+  target.fetch = async (...args: Parameters<typeof fetch>) => {
+    const response = await original(...args);
+    try { noteSessionRenewal(response.headers?.get?.("x-boxpilot-session-expires") ?? null); } catch { /* never break a request over this */ }
+    return response;
+  };
 }
 
 export function forgetSession(): void {
@@ -108,7 +134,7 @@ export function signedOutReasonFor(status: Pick<AuthStatus, "signedOut"> | null 
   return status?.signedOut === "address-changed" ? "address-changed" : signedOutReason(now);
 }
 
-/** Whether a session this browser had ran out (its twelve hours were up) or was ended elsewhere; null if it had none. */
+/** Whether a session this browser had ran out (twelve hours unused, or three days) or was ended elsewhere; null if it had none. */
 export function signedOutReason(now = Date.now()): SignedOutReason | null {
   let until: string | null = null;
   try { until = window.localStorage.getItem(sessionMark); } catch { return null; }
