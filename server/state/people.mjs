@@ -160,11 +160,19 @@ export function createPeopleStore({ database, now, timestamp, tokenBytes, record
       tokenHash: row.token_hash,
       owner: { id: row.owner_id, username: row.username, role: row.role ?? "owner" },
       csrfToken: row.csrf_token,
+      createdAt: row.created_at,
       expiresAt: row.expires_at,
       elevatedUntil: row.elevated_until ?? null,
       // The address it was signed in from: a session answers only to that one (security.mjs).
       address: row.client_address ?? null,
     };
+  }
+
+  /** Move a live session's end to `expiresAt`, never earlier than it is now. */
+  function renewSession(tokenHash, expiresAt) {
+    const at = iso(expiresAt);
+    database.prepare("UPDATE sessions SET expires_at = ? WHERE token_hash = ? AND expires_at > ? AND expires_at < ?").run(at, tokenHash, timestamp(), at);
+    return database.prepare("SELECT expires_at FROM sessions WHERE token_hash = ?").get(tokenHash)?.expires_at ?? null;
   }
 
   /** Every live session for an owner, newest activity first, for the session list (M19.4). */
@@ -230,6 +238,7 @@ export function createPeopleStore({ database, now, timestamp, tokenBytes, record
     setOwnerPassword,
     createSession,
     getSession,
+    renewSession,
     listSessions,
     revokeSession,
     revokeOtherSessions,
