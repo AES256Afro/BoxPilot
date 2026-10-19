@@ -103,8 +103,8 @@ function digestsOf(digests, movedFrom) {
   return Object.keys(kept).length ? { fromDigest: kept } : {};
 }
 
-/** A recorded `tag@sha256:…` belongs to the tag it was recorded beside. */
-const sameTag = (pinned, reference) => typeof pinned === "string" && pinned.startsWith(`${reference}@sha256:`);
+/** A recorded `tag@sha256:…` belongs to the tag it was recorded beside, and is that and nothing more. */
+const sameTag = (pinned, reference) => typeof pinned === "string" && pinned.startsWith(`${reference}@`) && /^sha256:[a-f0-9]{64}$/.test(pinned.slice(reference.length + 1));
 
 /**
  * Whether the catalog's image is a move from the installed one. The catalog pinning a digest beside
