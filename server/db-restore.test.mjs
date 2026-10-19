@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -22,7 +22,7 @@ async function setup() {
   await chmod(database, 0o640);
   const copyName = "boxpilot-rollback-1.150.0-20261018T101500Z.sqlite3";
   const copy = new DatabaseSync(path.join(directory, copyName));
-  copy.exec("CREATE TABLE owners (username TEXT); INSERT INTO owners VALUES ('then-alex');");
+  copy.exec("CREATE TABLE owners (username TEXT); INSERT INTO owners VALUES ('then-alex'); CREATE TABLE sessions (id TEXT); INSERT INTO sessions VALUES ('revoked-since');");
   copy.close();
   const calls = [];
   const run = vi.fn(async (binary, args) => { calls.push(args.join(" ")); return { ok: true, stderr: "" }; });
@@ -72,5 +72,43 @@ describe.skipIf(onWindows)("putting a database copy back", () => {
     const run = vi.fn(async (_binary, args) => ({ ok: args[0] !== "stop", stderr: "Job for boxpilot.service canceled" }));
     await expect(restoreDatabaseCopy({ database, copyName, version: "1", stamp: "s", run, healthy: async () => true, log })).rejects.toThrow("would not stop");
     expect(owners(database)).toEqual(["now-alex", "now-sam"]);
+  });
+
+  it("signs everyone out of the copy, so a session revoked since it was taken does not work again", async () => {
+    const { database, copyName, run } = await setup();
+    await restoreDatabaseCopy({ database, copyName, version: "1.151.0", stamp: "20261019T130000Z", run, healthy: async () => true, log: () => {} });
+    const db = new DatabaseSync(database, { readOnly: true });
+    try { expect(db.prepare("SELECT COUNT(*) AS n FROM sessions").get().n).toBe(0); } finally { db.close(); }
+  });
+
+  it("never follows a link planted at the copy or at the name the saved database gets", async () => {
+    const { directory, database, copyName, run } = await setup();
+    const elsewhere = path.join(directory, "elsewhere");
+    await mkdir(elsewhere);
+    // The saved database's name is guessable: a link there must not make root write through it.
+    const savedName = "boxpilot-rollback-1.151.0-20261019T130000Z.sqlite3";
+    await symlink(path.join(elsewhere, "created-by-root"), path.join(directory, savedName));
+    await expect(restoreDatabaseCopy({ database, copyName, version: "1.151.0", stamp: "20261019T130000Z", run, healthy: async () => true, log: () => {} })).rejects.toThrow("left as it was");
+    expect(await readdir(elsewhere)).toEqual([]);
+    expect(owners(database)).toEqual(["now-alex", "now-sam"]);
+    expect(run.mock.calls.map(([, args]) => args[0])).toEqual(["stop", "start"]);
+
+    // A copy that is a link to some other file is refused before anything stops.
+    run.mockClear();
+    const secret = path.join(elsewhere, "secret.sqlite3");
+    new DatabaseSync(secret).close();
+    await symlink(secret, path.join(directory, "boxpilot-rollback-1.0.0-20260101T000000Z.sqlite3"));
+    await expect(restoreDatabaseCopy({ database, copyName: "boxpilot-rollback-1.0.0-20260101T000000Z.sqlite3", version: "1.151.0", stamp: "20261019T140000Z", run, healthy: async () => true, log: () => {} })).rejects.toThrow("not a plain file");
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("puts the database back and starts BoxPilot when the copy cannot be written in place", async () => {
+    const { database, copyName, run, calls } = await setup();
+    // Something in the staging file's way stands in for a full disk.
+    await mkdir(`${database}.restoring`);
+    await expect(restoreDatabaseCopy({ database, copyName, version: "1.151.0", stamp: "20261019T130000Z", run, healthy: async () => true, log: () => {} })).rejects.toThrow("BoxPilot started again");
+    expect(calls).toEqual(["stop boxpilot.service", "start boxpilot.service"]);
+    expect(owners(database)).toEqual(["now-alex", "now-sam"]);
+    expect(await readFile(database)).toBeTruthy();
   });
 });
