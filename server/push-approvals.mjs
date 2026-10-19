@@ -262,7 +262,9 @@ export function createPushApprovals({
   async function sendToTarget(message) {
     if (!notifications?.getTarget?.()) return { ok: false, reason: "no-target" };
     try {
-      await notifications.send({ title: `BoxPilot: ${message.title}`, message: message.body, priority: "default", click: message.url ?? null });
+      // Not held for the notification quiet hours: approvals have their own (above), and a held one
+      // would lose its link and could expire before the summary.
+      await notifications.send({ title: `BoxPilot: ${message.title}`, message: message.body, priority: "default", click: message.url ?? null }, { immediate: true });
       return { ok: true };
     } catch {
       return { ok: false, reason: "failed" };
