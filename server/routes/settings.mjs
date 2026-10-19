@@ -160,6 +160,22 @@ export function createSettingsRouter({ state, notifications, notificationHistory
     }
   });
 
+  // The weekly read of a drive that sleeps through every check (M36): the storage scan leaves a
+  // sleeping disk alone, so one that is always asleep could go months unread. With this on, a disk
+  // last read awake more than a week ago is read once even though that spins it up. Waking a drive
+  // is the owner's call; anyone may see whether it is on.
+  router.get("/settings/storage-wake", (_request, response) => {
+    response.json({ enabled: state.getSetting("storageWeeklyWake", null)?.enabled === true });
+  });
+
+  router.put("/settings/storage-wake", auth.requireCsrf, (request, response) => {
+    if (typeof request.body?.enabled !== "boolean") return response.status(400).json({ error: "enabled must be true or false", code: "invalid_setting" });
+    const owner = request.boxpilotSession.owner;
+    state.setSetting("storageWeeklyWake", { enabled: request.body.enabled }, { updatedBy: owner.id });
+    state.recordAudit?.("settings.storage-wake.changed", { actorId: owner.id, subjectId: owner.id, details: { enabled: request.body.enabled } });
+    return response.json({ enabled: request.body.enabled });
+  });
+
   router.get("/settings/approval-mode", (_request, response) => {
     response.json({ approvalMode: normalizeApprovalMode(state.getSetting("approvalMode", null) ?? process.env.BOXPILOT_APPROVAL_MODE ?? defaultApprovalMode), modes: approvalModes, elevationTtlMs });
   });
