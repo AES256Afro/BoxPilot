@@ -14,7 +14,9 @@ import { createHash } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import { replaceFileWithoutFollowing } from "./durable-file.mjs";
 
-export const releaseSignersPath = process.env.BOXPILOT_RELEASE_SIGNERS ?? "/var/lib/boxpilot/release-signers";
+// In the helper's own state directory (root, 0710): /var/lib/boxpilot belongs to the web service's
+// user, which could otherwise delete the file (turning the check off) or rename another key over it.
+export const releaseSignersPath = process.env.BOXPILOT_RELEASE_SIGNERS ?? "/var/lib/boxpilot-managed/release-signers";
 
 const keyTypes = ["ssh-ed25519", "sk-ssh-ed25519@openssh.com", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "sk-ecdsa-sha2-nistp256@openssh.com", "ssh-rsa"];
 const signerKeyPattern = /^(ssh-ed25519|sk-ssh-ed25519@openssh\.com|ecdsa-sha2-nistp(?:256|384|521)|sk-ecdsa-sha2-nistp256@openssh\.com|ssh-rsa) ([A-Za-z0-9+/]{40,2048}={0,2})(?: [^\r\n]{0,200})?$/;

@@ -63,7 +63,9 @@ move it to a key only you hold:
    approve (high risk: password and the words typed out).
 
 From then on the upgrade script fetches the tag with git and runs `git verify-tag` against that key
-(`/var/lib/boxpilot/release-signers`, git's allowed-signers format). An unsigned tag, a lightweight
-tag, one signed with another key, or one that no longer points at the commit you reviewed stops the
-update before anything changes, and the update log says which. An update run by hand
+(`/var/lib/boxpilot-managed/release-signers`, git's allowed-signers format). An unsigned tag, a lightweight
+tag, one signed with another key, a PGP signature, an old signed tag published again under a newer
+name, a tree whose version is not the tag's, or one that no longer points at the commit you reviewed
+stops the update before anything changes, and the update log says which. The key file must be
+root's and writable by nobody else. An update run by hand
 (`sudo sh scripts/boxpilot-upgrade.sh v1.2.3`) checks the same way; it has to name a tag.
