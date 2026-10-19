@@ -3,6 +3,7 @@ import { AuthError, bootstrapOwner, fetchIdentityOptions, loginOwner, loginWithT
 import { passkeysSupported, signInWithPasskey, signInWithRecoveryCode } from "../../passkey";
 import { Button, CodeBlock, Field, Progress, SecretInput, TextInput } from "../../ui";
 import { ThemeSwitch } from "../../ui/ThemeSwitch";
+import { useSigninStyle } from "./signinStyle";
 import "./signin.css";
 
 /*
@@ -11,6 +12,9 @@ import "./signin.css";
  * order they are worth using: a passkey, then GitHub, then Tailscale, then the password. When a
  * session this browser had has ended (M36) the card says why and which page signing in goes back
  * to; the address keeps that page, so signing in lands on it.
+ *
+ * Two screens hold the same controls (signinStyle.ts): the terminal, the default, a console window
+ * whose ways in are numbered and answer their number key; and the classic glass card.
  */
 
 /** Why a session this browser had is gone, and the page signing in goes back to (M36). */
@@ -24,8 +28,22 @@ export function signedOutWords({ reason, page }: SignedOutNotice): string {
     : `You were signed out from somewhere else: a password change, a role change or "sign out everywhere else" ends this browser's session.${back}`;
 }
 
-/** The wallpaper, the theme in the corner, and the glass card with the BoxPilot mark. */
+/** The wallpaper, the theme in the corner, and the glass card with the BoxPilot mark; or the terminal window. */
 function SignInFrame({ labelledBy, children }: { labelledBy: string; children: ReactNode }) {
+  const style = useSigninStyle();
+  if (style === "terminal") return (
+    <main className="signin-page signin-page--terminal">
+      <div className="signin-corner"><ThemeSwitch compact /></div>
+      <section className="signin-term" aria-labelledby={labelledBy}>
+        <div className="signin-term__bar">
+          <span className="signin-term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>boxpilot: sign in</span>
+          <span className="signin-term__version">v{__BOXPILOT_VERSION__}</span>
+        </div>
+        <div className="signin-term__body">{children}</div>
+      </section>
+    </main>
+  );
   return (
     <main className="signin-page">
       <div className="signin-corner"><ThemeSwitch compact /></div>
@@ -77,6 +95,8 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
   const [github, setGithub] = useState<GithubFlow | null>(null);
   const [githubStatus, setGithubStatus] = useState<string | null>(null);
   const pollTimer = useRef<number | null>(null);
+  const style = useSigninStyle();
+  const ways = useRef<HTMLDivElement | null>(null);
   // Bumped by Cancel and on unmount so a poll already in flight does not schedule another.
   const flowGeneration = useRef(0);
 
@@ -85,6 +105,21 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
     fetchIdentityOptions().then(setIdentity).catch(() => setIdentity(null));
   }, [bootstrapRequired]);
   useEffect(() => () => { flowGeneration.current += 1; if (pollTimer.current) window.clearTimeout(pollTimer.current); }, []);
+  // The terminal numbers the ways in; pressing a number presses that way, unless you are typing.
+  useEffect(() => {
+    if (style !== "terminal") return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || !/^[1-9]$/.test(event.key)) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+      const button = ways.current?.querySelectorAll<HTMLButtonElement>(":scope > .ui-button")[Number(event.key) - 1];
+      if (!button || button.disabled) return;
+      event.preventDefault();
+      button.click();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [style]);
 
   // First Tailscale sign-in from a browser confirms the password once; the server then remembers the browser.
   const [devicePrompt, setDevicePrompt] = useState<{ username: string } | null>(null);
@@ -192,7 +227,7 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
       )}
 
       {(passkey || githubReady || tailscale) && (
-        <div className="signin-ways" role="group" aria-label="Ways to sign in">
+        <div className="signin-ways" role="group" aria-label="Ways to sign in" ref={ways}>
           {passkey && <Button variant={variantFor("passkey")} disabled={submitting} onClick={() => void passkeySignIn()}>Sign in with a passkey</Button>}
           {githubReady && !github && <Button variant={variantFor("github")} disabled={submitting || Boolean(githubStatus)} onClick={() => void githubSignIn()}>Sign in with GitHub</Button>}
           {github && (
