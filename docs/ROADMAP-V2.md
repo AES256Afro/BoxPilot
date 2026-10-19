@@ -1873,8 +1873,9 @@ Proposed, value to the owner against effort:
 - ✅ **Say before the twelve hours are up** - medium, small: a notice ten minutes before a session ends,
   so a half-typed form is not lost to the sign-in page (`shell/SessionEndingBanner.tsx`, counting down
   by the minute; put away, it stays away for that session).
-- **A weekly read of a drive that is always asleep** - medium, small: wake it once a week so its SMART
-  health is not unknown for months. Wakes the drive, so the owner's call.
+- ✅ **A weekly read of a drive that is always asleep** - medium, small: wake it once a week so its SMART
+  health is not unknown for months. Wakes the drive, so the owner's call: off until the owner turns it
+  on (Storage → Drives, the `storageWeeklyWake` setting the root storage scan reads).
 - ✅ **Suggest actions in an empty command bar** - medium, small: what is waiting for approval, the
   failed job to retry, the update ready. A "Suggested" group above the pages: the approvals open
   Today, the newest failure nobody has dealt with opens Activity at it, each app update is its action.

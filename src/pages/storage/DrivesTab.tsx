@@ -8,6 +8,7 @@ import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Sheet, Ta
 import { DriveHealthPanel } from "./DriveHealthPanel";
 import { ReconnectSwitch, UsageMeter } from "./parts";
 import { checkableFs, gib, managedMounts, nameValid, percentUsed, permissionlessFs, slug, type DeviceRow, type MountRow, type StorageReport } from "./types";
+import { WeeklyWakePanel } from "./WeeklyWakePanel";
 
 /*
  * Drives (M33.9): the drives BoxPilot mounted, each with its check, its unmount and whether it
@@ -210,6 +211,8 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
             : <EmptyState title="No drive mounted by BoxPilot">Mount one from the disks below: it is checked first and mounts again at every boot, and a missing drive never stops the server starting.</EmptyState>}
         />
       </Panel>
+
+      <WeeklyWakePanel csrfToken={csrfToken} role={role} />
 
       <Panel
         title="Disks and partitions"

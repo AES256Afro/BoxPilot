@@ -639,6 +639,10 @@ api.get("/push", (_request, response) => json(response, {
 api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
 api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { approvalMode: "tiered", modes: ["tiered", "always-password"], elevationTtlMs: 10 * 60_000 }));
+// The weekly read of a sleeping drive (M36): off until the owner turns it on, as on a real server.
+let demoStorageWake = false;
+api.get("/settings/storage-wake", (_request, response) => json(response, { enabled: demoStorageWake }));
+api.put("/settings/storage-wake", (request, response) => { demoStorageWake = request.body?.enabled === true; json(response, { enabled: demoStorageWake }); });
 api.get("/settings/vpn-profile", (_request, response) => json(response, {
   profile: { configured: true, provider: "mullvad", type: "wireguard", wireguardAddresses: "10.64.222.21/32", countries: "Sweden, Netherlands", portForwarding: "off", dot: "on", blockMalicious: "on", blockAds: "on", blockSurveillance: "off", dnsAddress: "", outboundSubnets: "192.168.0.0/16, 10.0.0.0/8", healthTargetAddress: "", hasWireguardKey: true, hasOpenvpnPassword: false, updatedAt: ago(48) },
   providers: ["mullvad", "protonvpn", "nordvpn", "surfshark", "private internet access", "airvpn", "windscribe", "ivpn", "custom"],
