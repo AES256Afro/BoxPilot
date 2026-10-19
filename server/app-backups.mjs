@@ -103,8 +103,16 @@ function composeDevices(composeText) {
  * writes, and whatever they name runs with everything the catalog grants the app (the Docker socket,
  * host networking, devices): a different repository is never taken from them.
  */
+/**
+ * The shape a pinned reference may take: repository (with an optional registry port), an optional
+ * tag, an optional sha256 digest. Nothing else: the reference is written into compose.yaml as is,
+ * and Compose would expand a `${…}` in it from the app's .env, sending a secret to the registry
+ * in the pull. The repository check alone looked only at what comes before an `@`.
+ */
+const pinnableReference = /^[a-z0-9][a-z0-9._-]*(?::[0-9]{1,5})?(?:\/[a-z0-9][a-z0-9._-]*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$/;
+
 export function catalogImagePin(candidate, catalogReference, formerRepositories = []) {
-  if (typeof candidate !== "string" || !candidate) return null;
+  if (typeof candidate !== "string" || !pinnableReference.test(candidate)) return null;
   // The catalog's repository, or one it says the app moved from (image.formerRepositories): a backup
   // or rollback from before the move names the old one and is still the catalog's image.
   const accepted = new Set([catalogReference, ...(Array.isArray(formerRepositories) ? formerRepositories : [])].map(imageRepository));
