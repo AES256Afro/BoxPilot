@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { craftedTarGz } from "../test/crafted-tar.mjs";
 import { onWindows, testTar } from "../test/platform.mjs";
-import { createAppHelper, keepsBackupData } from "./app-helper.mjs";
+import { createAppHelper, isCatalogUpdate, keepsBackupData } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
@@ -3537,5 +3537,19 @@ describe("a folder a backup archives that has become a link", () => {
     expect(failure?.message).toMatch(/^Demo was not restored; nothing was changed\. In this backup data is a link/);
     expect(failure?.message).not.toMatch(/never holds/);
     expect(failure?.message).toMatch(/holds only that link and none of what it pointed at/);
+  });
+});
+
+describe("whether the catalog offers an update", () => {
+  const pinned = `sha256:${"a".repeat(64)}`;
+  it("offers a new tag or a new digest, and not the same tag pinned by digest", () => {
+    expect(isCatalogUpdate("nginx:1.27", "nginx:1.28")).toBe(true);
+    expect(isCatalogUpdate("nginx:1.27", `nginx:1.28@${pinned}`)).toBe(true);
+    expect(isCatalogUpdate(`nginx:1.27@sha256:${"b".repeat(64)}`, `nginx:1.27@${pinned}`)).toBe(true);
+    // The catalog pinned the digest of the release this app already runs: nothing to do.
+    expect(isCatalogUpdate("nginx:1.27", `nginx:1.27@${pinned}`)).toBe(false);
+    expect(isCatalogUpdate("nginx:1.2", `nginx:1.27@${pinned}`)).toBe(true);
+    expect(isCatalogUpdate("nginx:1.27", "nginx:1.27")).toBe(false);
+    expect(isCatalogUpdate(null, "nginx:1.27")).toBe(false);
   });
 });
