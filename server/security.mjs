@@ -266,6 +266,9 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
     const renewed = store.renewSession?.(session.tokenHash, new Date(until));
     if (!renewed || Date.parse(renewed) <= ends) return session;
     appendCookie(request, response, cookieHeader(request, session.token, Math.max(1, Math.floor((Date.parse(renewed) - at) / 1000))));
+    // The page keeps its own copy of when the session ends (the sign-out timer, the ten-minute
+    // notice, what it says after a sign-out); this is how it hears the end moved.
+    response.setHeader("X-BoxPilot-Session-Expires", renewed);
     return { ...session, expiresAt: renewed };
   }
 

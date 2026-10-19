@@ -585,7 +585,14 @@ fi
 # is noted rather than failed; 24.04 and 26.04 exercise it. What follows holds either way.
 if [ "$(cfield seen.atResume.unit)" = active ] && [ -z "$(cfield seen.atResume.source)" ]; then
   check "and the resume began with systemd behind: the unit said 'active' with the drive unmounted" true
-  check "the resume waited for systemd before starting the drive" grep -qE 'systemd took [0-9]+ ms to see /mnt/the-dump unmounted' "${WORK}/cancelled.out"
+  # This look is the test's, a moment before the resume's own: systemd can catch up in between (once
+  # on 22.04, 2026-10-18), and then the resume rightly does not wait. What must hold either way is
+  # checked below: it started the drive once, from a unit that said inactive.
+  if grep -qE 'systemd took [0-9]+ ms to see /mnt/the-dump unmounted' "${WORK}/cancelled.out"; then
+    check "the resume waited for systemd before starting the drive" true
+  else
+    note "systemd caught up between this look and the resume's own, so the resume had nothing to wait for"
+  fi
 else
   note "systemd ${SYSTEMD_VERSION} caught up before the resume too this time (the unit said '$(cfield seen.atResume.unit)', source '$(cfield seen.atResume.source)'): the wait it would have made is not exercised on this run"
 fi
