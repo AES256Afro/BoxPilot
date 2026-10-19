@@ -31,7 +31,19 @@ export interface DatabaseCopiesReport {
   goes: string[];
   goesHumanBytes: string;
   totalHumanBytes: string;
+  lastRestore?: LastRestore | null;
 }
+
+export interface LastRestore {
+  at: string;
+  copy: string;
+  outcome: "restored" | "rolled-back" | "failed";
+  message: string;
+  saved: string | null;
+}
+
+const restoreTone = { restored: "success", "rolled-back": "warning", failed: "danger" } as const;
+const restoreTitle = (last: LastRestore) => last.outcome === "restored" ? `${last.copy} was put back on ${takenOn(last.at)}` : last.outcome === "rolled-back" ? `${last.copy} did not work, so the database it had was put back (${takenOn(last.at)})` : `Putting back ${last.copy} failed on ${takenOn(last.at)}`;
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 const whole = (text: string, [low, high]: [number, number]) => {
@@ -138,6 +150,11 @@ export function DatabaseCopies({ csrfToken, role }: { csrfToken: string; role: s
       {problem && <Notice tone="danger" live title="The copies could not be listed" action={<Button onClick={() => void load(null)}>Try again</Button>}>{problem}</Notice>}
       {report && (
         <>
+          {report.lastRestore && (
+            <Notice tone={restoreTone[report.lastRestore.outcome]} title={restoreTitle(report.lastRestore)}>
+              {report.lastRestore.outcome === "restored" && report.lastRestore.saved ? <>The database from before it is <code>{report.lastRestore.saved}</code>, below.</> : report.lastRestore.message}
+            </Notice>
+          )}
           <p className="system-note system-pad">Each update copies the database before it swaps the code in, so the old version can be put back with the data it wrote. They are never removed on their own.</p>
           <fieldset className="system-rule">
             <legend>Which copies to keep</legend>

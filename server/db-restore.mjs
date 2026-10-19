@@ -20,9 +20,28 @@ import { constants } from "node:fs";
 import { lstat, mkdtemp, open, rename, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
+import { replaceFileWithoutFollowing } from "./durable-file.mjs";
 
 export const restoreCopyPattern = /^boxpilot-rollback-[A-Za-z0-9._+-]{1,80}\.sqlite3$/;
+
+// How the last restore ended, for the System page: the job that started it finished before the
+// restore stopped BoxPilot, and the database put back has no record of it. In the helper's own
+// state folder (root), out of the web user's reach.
+export const restoreResultPath = process.env.BOXPILOT_DB_RESTORE_RESULT ?? "/var/lib/boxpilot-managed/db-restore-last.json";
+const outcomes = ["restored", "rolled-back", "failed"];
+
+/** The last restore's outcome, or null when there has been none or the file cannot be read. */
+export async function readRestoreResult(file = restoreResultPath) {
+  try {
+    const value = JSON.parse(await readFile(file, "utf8"));
+    if (!outcomes.includes(value?.outcome) || typeof value.at !== "string" || !restoreCopyPattern.test(String(value.copy))) return null;
+    return { at: value.at, copy: value.copy, outcome: value.outcome, message: String(value.message ?? "").slice(0, 500), saved: restoreCopyPattern.test(String(value.saved)) ? value.saved : null };
+  } catch {
+    return null;
+  }
+}
 
 /** "ok" or why SQLite will not vouch for the file. */
 export function integrityOf(file) {
@@ -105,9 +124,27 @@ function signEveryoneOut(file) {
 }
 
 /**
- * @param {{ database: string, copyName: string, version: string, stamp: string, run: (binary: string, args: string[]) => Promise<{ ok: boolean, stderr?: string }>, healthy: () => Promise<boolean>, log?: (line: string) => void, workRoot?: string }} options
+ * Put the copy back, and write how it ended to `resultFile` when one is given.
+ * @param {{ database: string, copyName: string, version: string, stamp: string, run: (binary: string, args: string[]) => Promise<{ ok: boolean, stderr?: string }>, healthy: () => Promise<boolean>, log?: (line: string) => void, workRoot?: string, resultFile?: string | null, now?: () => Date }} options
  */
-export async function restoreDatabaseCopy({ database, copyName, version, stamp, run, healthy, log = (line) => console.log(line), workRoot = os.tmpdir() }) {
+export async function restoreDatabaseCopy({ resultFile = null, now = () => new Date(), ...options }) {
+  const record = async (fields) => {
+    if (!resultFile) return;
+    const text = `${JSON.stringify({ at: now().toISOString(), copy: options.copyName, ...fields })}\n`;
+    await replaceFileWithoutFollowing(resultFile, text, { mode: 0o600 }).catch((error) => options.log?.(`[boxpilot-db-restore] could not record the outcome: ${error.message}`));
+  };
+  try {
+    const result = await putBack(options);
+    await record({ outcome: "restored", saved: result.saved, message: "BoxPilot answers on the copy; everyone was signed out" });
+    return result;
+  } catch (error) {
+    await record({ outcome: error.rolledBack ? "rolled-back" : "failed", message: error.message });
+    throw error;
+  }
+}
+
+/** @param {{ database: string, copyName: string, version: string, stamp: string, run: (binary: string, args: string[]) => Promise<{ ok: boolean, stderr?: string }>, healthy: () => Promise<boolean>, log?: (line: string) => void, workRoot?: string }} options */
+async function putBack({ database, copyName, version, stamp, run, healthy, log = (line) => console.log(line), workRoot = os.tmpdir() }) {
   const say = (line) => log(`[boxpilot-db-restore] ${line}`);
   const directory = path.dirname(database);
   if (!restoreCopyPattern.test(copyName)) throw new Error(`${copyName} is not a database copy`);
