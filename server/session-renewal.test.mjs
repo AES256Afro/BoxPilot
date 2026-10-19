@@ -45,7 +45,7 @@ async function boot() {
   const signedInAt = clock;
   const ping = async () => {
     const response = await fetch(`${base}/ping`, { headers: { Cookie: cookie } });
-    return { status: response.status, body: response.status === 200 ? await response.json() : null, setCookie: response.headers.getSetCookie() };
+    return { status: response.status, body: response.status === 200 ? await response.json() : null, setCookie: response.headers.getSetCookie(), expiresHeader: response.headers.get("x-boxpilot-session-expires") };
   };
   return { ping, signedInAt, advance: (ms) => { clock += ms; }, now: () => clock, status: async () => (await fetch(`${base}/auth/status`, { headers: { Cookie: cookie } })).json() };
 }
@@ -57,10 +57,13 @@ describe("keeping a session in use alive", () => {
     const early = await ping();
     expect(Date.parse(early.body.expiresAt)).toBe(signedInAt + 12 * hour);
     expect(early.setCookie).toEqual([]);
+    expect(early.expiresHeader).toBeNull();
     advance(2 * hour);
     const renewed = await ping();
     expect(Date.parse(renewed.body.expiresAt)).toBe(now() + 12 * hour);
     expect(renewed.setCookie[0]).toMatch(new RegExp(`Max-Age=${12 * 60 * 60}`));
+    // The page hears the new end too, so its sign-out timer and notice move with it.
+    expect(renewed.expiresHeader).toBe(renewed.body.expiresAt);
     expect(Date.parse((await status()).expiresAt)).toBe(now() + 12 * hour);
     // A request right after does not renew again.
     advance(60_000);
