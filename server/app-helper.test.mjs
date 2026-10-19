@@ -3753,5 +3753,21 @@ describe("whether the catalog offers an update", () => {
     expect(isCatalogUpdate("nginx:1.2", `nginx:1.27@${pinned}`)).toBe(true);
     expect(isCatalogUpdate("nginx:1.27", "nginx:1.27")).toBe(false);
     expect(isCatalogUpdate(null, "nginx:1.27")).toBe(false);
+
+describe("which image a backup or saved history may pin", () => {
+  const digest = `sha256:${"a".repeat(64)}`;
+  it("takes the catalog's repository at another tag or digest, and nothing shaped otherwise", () => {
+    expect(catalogImagePin("ghcr.io/acme/app:1.0", "ghcr.io/acme/app:2.0")).toBe("ghcr.io/acme/app:1.0");
+    expect(catalogImagePin(`ghcr.io/acme/app:1.0@${digest}`, "ghcr.io/acme/app:2.0")).toBe(`ghcr.io/acme/app:1.0@${digest}`);
+    expect(catalogImagePin(`ghcr.io/acme/app@${digest}`, "ghcr.io/acme/app:2.0")).toBe(`ghcr.io/acme/app@${digest}`);
+    expect(catalogImagePin("localhost:5000/app:1", "localhost:5000/app:2")).toBe("localhost:5000/app:1");
+    expect(catalogImagePin("evil.example/app:1.0", "ghcr.io/acme/app:2.0")).toBeNull();
+    // Compose expands ${...} from the app's .env: a pin carrying one would send a secret in the pull.
+    expect(catalogImagePin("ghcr.io/acme/app:1.0@sha256:${SECRET_TOKEN}", "ghcr.io/acme/app:2.0")).toBeNull();
+    expect(catalogImagePin("ghcr.io/acme/app:${TAG}", "ghcr.io/acme/app:2.0")).toBeNull();
+    // Only a sha256 digest may follow an @, never another reference.
+    expect(catalogImagePin("ghcr.io/acme/app:1.0@evil.example/x:1", "ghcr.io/acme/app:2.0")).toBeNull();
+    expect(catalogImagePin("ghcr.io/acme/app:1.0\nprivileged: true", "ghcr.io/acme/app:2.0")).toBeNull();
+    expect(catalogImagePin("", "ghcr.io/acme/app:2.0")).toBeNull();
   });
 });
