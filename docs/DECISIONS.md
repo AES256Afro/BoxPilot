@@ -1278,3 +1278,45 @@ is the remaining half: which bytes inside that repository.
 ### Decision needed
 
 Accept 1–4 as one change, or take 3 alone (rollback by digest, no catalog churn).
+
+## ADR-017: Tailscale Serve reaches BoxPilot over a socket only it and root can open
+
+**Date:** 2026-10-19 · **Status:** Accepted
+
+### Context
+
+Behind Tailscale Serve every request arrives from loopback with the caller's tailnet address
+(`X-Forwarded-For`) and login (`Tailscale-User-Login`). BoxPilot believed those headers whenever
+Serve proxied its port. Two facts make that weaker than it looks:
+
+- Cookies ignore ports. An app published through Serve on the same hostname
+  (`https://box.ts.net:8123`) is sent BoxPilot's session and device cookies, and Serve sends it the
+  same address and login headers it sends BoxPilot.
+- Anything on the machine can open the loopback port. Eight catalog apps run on the host network
+  (Home Assistant and Plex among them); Home Assistant runs community integrations.
+
+Such an app had everything needed to replay the owner's session from loopback with the owner's
+address, passing the address binding (ADR-001 addendum, sweep 1), or to complete a Tailscale
+sign-in with a captured device cookie.
+
+### Decision
+
+- The web service also listens on `/run/boxpilot-web/serve.sock` (mode 0600, its own runtime
+  directory). Only BoxPilot's user and root, which tailscaled runs as, can open it; a container
+  cannot, host network or not.
+- When Serve proxies to that socket, forwarded headers are believed there and nowhere else. While
+  Serve still proxies to the loopback port, that port is believed as before, so an install that has
+  not moved keeps its Tailscale sign-in.
+- The installer points Serve at the socket when Tailscale accepts `unix:` targets and falls back to
+  the port otherwise. Existing installs see a notice on Network → Reach BoxPilot with a button
+  (`tailscale.serve.socket`, medium, owner only) that moves Serve and puts it back if Tailscale
+  refuses.
+
+### Consequences
+
+- Once moved, a session replayed through loopback carries 127.0.0.1, fails the address binding and
+  is ended; a forged Tailscale sign-in has no address to claim.
+- Cookies still reach apps on the same hostname. Serving apps on their own hostnames would stop
+  that too; it needs Tailscale Services and is not done here.
+- Needs a Tailscale release with `unix:` proxy targets. Older ones keep the loopback behaviour and
+  the notice stays up.

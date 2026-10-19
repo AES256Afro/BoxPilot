@@ -38,6 +38,10 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
   const untrusted = ways.some((way) => way.encrypted && !way.trusted);
   const devices = topology?.devices ?? [];
   const canWake = mayStart(role, "network.wake");
+  const moveServe = (): void => start({
+    operationId: "tailscale.serve.socket", title: "Move Tailscale Serve to BoxPilot's socket", parameters: {},
+    preview: <span>Points Tailscale Serve at <code>/run/boxpilot-web/serve.sock</code> instead of port {networkCap?.port ?? 8787}. Only BoxPilot and root can open the socket, so no app on this server can pose as Serve. Your tailnet address stays the same. Needs a Tailscale that can forward to a socket; if yours cannot, nothing changes.</span>,
+  });
   const canLan = mayStart(role, "system.web.lan.set");
   const canTls = mayStart(role, "system.web.tls.provision");
 
@@ -93,8 +97,13 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
         title="Reach BoxPilot"
         count={reach ? ways.length : undefined}
         meta={reach ? (reach.servePublished ? "published on the tailnet" : "not published on the tailnet") : undefined}
-        actions={untrusted ? <Button variant="ghost" onClick={() => setTrusting(true)}>Trust the certificate…</Button> : undefined}
-        footer={reach && !reach.servePublished ? <>Publish it on your tailnet with <code>tailscale serve --bg http://127.0.0.1:{networkCap?.port ?? 8787}</code> to reach it from anywhere over HTTPS.</> : undefined}
+        actions={untrusted || (reach?.serveOverLoopback && mayStart(role, "tailscale.serve.socket")) ? <>
+          {reach?.serveOverLoopback && mayStart(role, "tailscale.serve.socket") ? <Button variant="secondary" risk={riskOf("tailscale.serve.socket")} onClick={moveServe}>Move Serve to the socket</Button> : null}
+          {untrusted ? <Button variant="ghost" onClick={() => setTrusting(true)}>Trust the certificate…</Button> : null}
+        </> : undefined}
+        footer={reach && !reach.servePublished
+          ? <>Publish it on your tailnet with <code>tailscale serve --bg http://127.0.0.1:{networkCap?.port ?? 8787}</code> to reach it from anywhere over HTTPS.</>
+          : reach?.serveOverLoopback ? <>Tailscale Serve reaches BoxPilot through port {networkCap?.port ?? 8787}, which any program on this server can open and claim to be Serve, apps on the host network included. Move it to BoxPilot&apos;s socket so only Serve can.</> : undefined}
       >
         <Table caption="Addresses BoxPilot answers on" columns={wayColumns} rows={ways} rowKey={(way) => way.id} empty={reach ? "BoxPilot reported no address to reach it on." : "Reading…"} />
       </Panel>
