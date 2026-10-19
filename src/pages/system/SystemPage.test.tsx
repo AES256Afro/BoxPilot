@@ -64,7 +64,7 @@ function serve(overrides: Record<string, (init?: RequestInit) => Response> = {})
     const url = input.toString();
     for (const [suffix, answer] of Object.entries(overrides)) if (url.endsWith(suffix)) return answer(init);
     const job = url.match(/\/operations\/([^/]+)\/jobs$/);
-    if (job) { staged[job[1]] = JSON.parse(String(init?.body)); return stagedJob(job[1], job[1] === "system.update" ? "high" : "medium"); }
+    if (job) { staged[job[1]] = JSON.parse(String(init?.body)); return stagedJob(job[1], ["system.update", "system.update.signer.set"].includes(job[1]) ? "high" : "medium"); }
     if (url.endsWith("/operations/system.settings.inspect/inspect")) return json({ operation: "system.settings.inspect", result: settings });
     if (url.endsWith("/operations/housekeeping.inspect/inspect")) return json({ operation: "housekeeping.inspect", result: housekeeping });
     if (url.endsWith("/api/v1/system/update")) return json({ ...release, updateAvailable: false, latest: { ...release.latest, tag: "v0.61.0", version: "0.61.0" } });
@@ -201,6 +201,32 @@ describe("System page", () => {
     expect(screen.getByLabelText("Typed confirmation")).toBeTruthy();
     expect(staged["system.update"]).toEqual({ parameters: { tag: "v0.62.0" } });
     expect(screen.getByText("Last update log, live")).toBeTruthy();
+  });
+
+  it("shows whether releases must be signed and stages the release key as high risk, typed out", async () => {
+    const fingerprint = "SHA256:abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
+    let signer: { type: string; fingerprint: string } | null = null;
+    const staged = serve({
+      "/api/v1/system/update": () => json(release),
+      "/operations/system.update.status/inspect": () => json({ operation: "system.update.status", result: { units: [], log: [], outcome: null, signer } }),
+    });
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /BoxPilot update/ }));
+    expect(await screen.findByText("not required")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Release key…" }));
+    const require = screen.getByRole("button", { name: "Require this key" }) as HTMLButtonElement;
+    expect(require.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("SSH public key"), { target: { value: "  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl owner@laptop\n" } });
+    expect(require.getAttribute("data-risk")).toBe("high");
+    fireEvent.click(require);
+    expect(await screen.findByText("High risk")).toBeTruthy();
+    expect(screen.getByLabelText("Typed confirmation")).toBeTruthy();
+    expect(staged["system.update.signer.set"]).toEqual({ parameters: { publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl owner@laptop" } });
+    cleanup();
+    signer = { type: "ssh-ed25519", fingerprint };
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /BoxPilot update/ }));
+    expect(await screen.findByText(`required, key ${fingerprint}`)).toBeTruthy();
   });
 
   // "Updating to X" was never cleared when the update stopped or ran past ten minutes: the verdict

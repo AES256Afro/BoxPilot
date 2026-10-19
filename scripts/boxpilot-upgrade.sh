@@ -8,7 +8,9 @@
 #   0. Holds /run/boxpilot-upgrade.lock for the whole run: a second upgrade started meanwhile refuses
 #      and says which one to wait for; staging trees earlier runs left unfinished are removed
 #   1. Downloads the ref as a tarball from GitHub into /opt/boxpilot.staging.<stamp> (removed again
-#      if the build fails or a signal stops the run before the service is)
+#      if the build fails or a signal stops the run before the service is). When the owner has set a
+#      release key (/var/lib/boxpilot/release-signers, System page), it fetches the release tag with
+#      git instead, refuses unless `git verify-tag` says that key signed it, and builds that commit
 #   2. npm ci, npm run build, npm prune --omit=dev in the staging directory
 #   3. Copies the database the running version wrote (VACUUM INTO, integrity-checked, the live
 #      file's owner and mode) to /var/lib/boxpilot/boxpilot-rollback-<old version>-<stamp>.sqlite3,
@@ -171,6 +173,34 @@ try {
 }
 '
 
+# verify_release URL TAG EXPECTED-COMMIT SIGNERS DIR: fetch TAG from URL with git, check it is an
+# annotated tag a key in SIGNERS signed (git verify-tag, SSH format), that it points at EXPECTED (when
+# one is given), and write that commit's tree into DIR. Prints the commit. Nothing is written to DIR
+# unless every check passed. Kept as one program so scripts/boxpilot-upgrade.test.mjs runs it as is.
+VERIFY_RELEASE_SH='
+set -eu
+url="$1"; tag="$2"; expect="$3"; signers="$4"; out="$5"
+work="$(mktemp -d)"
+trap "rm -rf \"$work\"" EXIT
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+git -C "$work" init -q
+if ! git -C "$work" fetch -q --depth 1 --no-tags "$url" "+refs/tags/$tag:refs/tags/$tag" 2>"$work/fetch.err"; then
+  echo "could not fetch $tag from $url: $(tail -n 1 "$work/fetch.err")" >&2; exit 2
+fi
+if [ "$(git -C "$work" cat-file -t "refs/tags/$tag")" != tag ]; then
+  echo "$tag is a lightweight tag, which carries no signature" >&2; exit 3
+fi
+if ! git -C "$work" -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="$signers" verify-tag "$tag" >/dev/null 2>"$work/verify.err"; then
+  echo "$tag is not signed by the release key in $signers ($(grep -v "^$" "$work/verify.err" | tail -n 1))" >&2; exit 3
+fi
+commit="$(git -C "$work" rev-parse "refs/tags/$tag^{commit}")"
+if [ -n "$expect" ] && [ "$commit" != "$expect" ]; then
+  echo "$tag points at $commit, not $expect" >&2; exit 3
+fi
+git -C "$work" archive --format=tar "$commit" | tar -x -C "$out"
+echo "$commit"
+'
+
 [ "$(id -u)" -eq 0 ] || fail "run with sudo (root is required to replace ${INSTALL_DIR} and restart units)"
 for tool in curl tar flock; do command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"; done
 
@@ -231,10 +261,29 @@ stopped_building() {
 trap stopped_building HUP INT TERM PIPE
 
 # 1. Download
-log "downloading ${REPO}@${REF}"
+SIGNERS="${BOXPILOT_RELEASE_SIGNERS:-/var/lib/boxpilot/release-signers}"
 mkdir -p "$STAGING"
-if ! curl -fsSL "https://codeload.github.com/${REPO}/tar.gz/${REF}" | tar -xz -C "$STAGING" --strip-components=1; then
-  cleanup_staging; fail "download or extraction failed for ${REPO}@${REF} (does the ref exist?)"
+if [ -s "$SIGNERS" ]; then
+  # The signature is on the tag. The System page passes the commit it reviewed and the tag beside it;
+  # by hand, name the tag.
+  case "$REF" in
+    v[0-9]*) TAG="$REF"; EXPECT="" ;;
+    *) TAG="${BOXPILOT_UPDATE_TAG:-}"; EXPECT="$REF" ;;
+  esac
+  [ -n "$TAG" ] || { cleanup_staging; fail "this server only builds signed releases (${SIGNERS}); name a release tag such as v1.2.3, not ${REF}. Nothing was changed."; }
+  for tool in git ssh-keygen; do command -v "$tool" >/dev/null 2>&1 || { cleanup_staging; fail "$tool is required to check the release signature. Nothing was changed."; }; done
+  log "checking that ${TAG} is signed by the release key in ${SIGNERS}"
+  if ! VERIFIED="$(sh -c "$VERIFY_RELEASE_SH" verify-release "https://github.com/${REPO}.git" "$TAG" "$EXPECT" "$SIGNERS" "$STAGING" 2>"${STAGING}.verify")"; then
+    reason="$(tail -n 1 "${STAGING}.verify" 2>/dev/null)"; rm -f "${STAGING}.verify"
+    cleanup_staging; fail "${reason:-the release could not be verified}. Nothing was changed."
+  fi
+  rm -f "${STAGING}.verify"
+  log "${TAG} is signed by the release key; building commit ${VERIFIED}"
+else
+  log "downloading ${REPO}@${REF}"
+  if ! curl -fsSL "https://codeload.github.com/${REPO}/tar.gz/${REF}" | tar -xz -C "$STAGING" --strip-components=1; then
+    cleanup_staging; fail "download or extraction failed for ${REPO}@${REF} (does the ref exist?)"
+  fi
 fi
 [ -f "${STAGING}/package.json" ] || { cleanup_staging; fail "downloaded tree has no package.json"; }
 NEW_VERSION="$("$NODE_BIN" -p 'require(process.argv[1]).version' "${STAGING}/package.json")"

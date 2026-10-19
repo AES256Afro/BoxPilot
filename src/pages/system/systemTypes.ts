@@ -19,7 +19,7 @@ export interface Housekeeping { generatedAt: string; categories: HousekeepingCat
 export interface DockerDisk { available: boolean; rows: Array<{ type: string; total: number | string | null; active: number | string | null; size: string | null; reclaimable: string | null }>; logging?: { configured: boolean; logDriver: string | null; maxSize: string | null; liveRestore: boolean } }
 
 export interface ReleaseUpdate { current: { version: string }; latest: { tag: string; version: string; name?: string; url: string; publishedAt: string | null; prerelease?: boolean; notes?: string | null } | null; updateAvailable: boolean; checkedAt: string; error: string | null }
-export interface UpdateStatus { units?: Array<{ unit: string; active: string; sub: string }>; log: string[]; outcome?: "running" | "live" | "failed" | null }
+export interface UpdateStatus { units?: Array<{ unit: string; active: string; sub: string }>; log: string[]; outcome?: "running" | "live" | "failed" | null; signer?: { type: string | null; fingerprint: string | null; unreadable?: boolean } | null }
 
 export interface DetectedUps { vendorId: string; productId: string; manufacturer: string | null; product: string | null; driver: string; confidence: "vendor-id" | "name"; sysfs: string }
 export interface UpsDetection { devices: DetectedUps[]; nutInstalled: boolean }

@@ -89,8 +89,9 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   // with a second one that could disagree, and an update checked on the wrong port rolls back after
   // the new version has already started on the database.
   // The script downloads by the reviewed commit, not the tag, so a moved tag cannot swap the code in.
+  // The tag goes along for a server that requires signed releases: the signature is on the tag.
   log?.(`$ systemd-run --unit ${unit} /bin/sh ${scriptCopy} ${expectedCommit}`, "stdout");
-  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, `--setenv=BOXPILOT_UPDATE_UNIT=${unit}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
+  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, `--setenv=BOXPILOT_UPDATE_UNIT=${unit}`, `--setenv=BOXPILOT_UPDATE_TAG=${tag}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
   if (!started.ok) throw new Error(`Could not start the update unit: ${started.stderr.split("\n").slice(-2).join(" ")}`);
   log?.("Update unit started. BoxPilot restarts when the build finishes and rolls back on a failed health check.", "stdout");
   return { started: true, unit, tag, expectedCommit, fromVersion: productVersion, startedAt: now().toISOString() };
