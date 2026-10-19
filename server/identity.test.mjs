@@ -67,6 +67,39 @@ describe("identity service", () => {
     state.close();
   });
 
+  it("believes only BoxPilot's socket once Tailscale Serve forwards to it", async () => {
+    // A host-networked app is sent the owner's cookies and Serve's headers when the owner opens it
+    // on this hostname; over the loopback port it could write the same headers and be believed.
+    const state = await store();
+    const socketPath = "/run/boxpilot-web/serve.sock";
+    const serveTo = (target) => JSON.stringify({ Web: { "box.tail1234.ts.net:443": { Handlers: { "/": { Proxy: target } } } } });
+    const identityFor = (target) => createIdentityService({ store: state, now: () => 1000, serveSocket: socketPath, run: vi.fn(async (_binary, args) => (args[0] === "serve"
+      ? { ok: true, stdout: serveTo(target), stderr: "" }
+      : { ok: true, stdout: JSON.stringify({ UserProfile: { LoginName: "me@example.com" } }), stderr: "" })) });
+    const headers = { "x-forwarded-for": "100.67.166.49", "tailscale-user-login": "me@example.com" };
+    const overPort = req("127.0.0.1", headers);
+    const overSocket = { ...req("127.0.0.1", headers), socket: { remoteAddress: "127.0.0.1", boxpilotServeSocket: true } };
+
+    const viaSocket = identityFor(`unix:${socketPath}`);
+    expect(await viaSocket.clientAddress(overSocket)).toBe("100.67.166.49");
+    expect(await viaSocket.clientAddress(overPort)).toBeNull();
+    expect(await viaSocket.tailscaleIdentity(overPort)).toMatchObject({ available: false, reason: "not-tailnet" });
+    expect(await viaSocket.servePublishesControlPlane()).toBe(true);
+    expect(await viaSocket.serveOverLoopbackOnly()).toBe(false);
+
+    // Not moved yet: the loopback port is still how Serve reaches BoxPilot, and the socket is not Serve.
+    const viaPort = identityFor("http://127.0.0.1:8787");
+    expect(await viaPort.clientAddress(overPort)).toBe("100.67.166.49");
+    expect(await viaPort.clientAddress(overSocket)).toBeNull();
+    expect(await viaPort.serveOverLoopbackOnly()).toBe(true);
+
+    // Some other socket is not BoxPilot's.
+    const elsewhere = identityFor("unix:/run/other/app.sock");
+    expect(await elsewhere.clientAddress(overSocket)).toBeNull();
+    expect(await elsewhere.servePublishesControlPlane()).toBe(false);
+    state.close();
+  });
+
   it("runs the GitHub device flow and links or signs in by login", async () => {
     const state = await store();
     const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
