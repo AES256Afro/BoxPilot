@@ -22,6 +22,16 @@ export function serveSocketPath(env = process.env) {
   return env.BOXPILOT_SERVE_SOCKET || defaultServeSocket;
 }
 
+/**
+ * Whether a Serve proxy target is this socket. `tailscale serve` may write the target back as typed
+ * (`unix:/run/…`) or as a URL (`unix:///run/…`); both name the same file.
+ */
+export function isServeSocketTarget(target, socketPath = serveSocketPath()) {
+  if (typeof target !== "string" || !target.startsWith("unix:") || !socketPath) return false;
+  // normalize folds the URL form's extra slashes too.
+  return path.posix.normalize(target.slice("unix:".length)) === path.posix.normalize(socketPath);
+}
+
 /** Whether this request came in over the Serve socket rather than a TCP port. */
 export function viaServeSocket(request) {
   return request?.socket?.boxpilotServeSocket === true;

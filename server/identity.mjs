@@ -6,11 +6,10 @@
  * Settings keys: tailscaleLogins (string[]), githubLogins (string[]), githubClientId (string).
  */
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import { fixedRun } from "./exec.mjs";
 import { productVersion } from "./version.mjs";
 import { webPortOf } from "./env-file.mjs";
-import { serveSocketPath, viaServeSocket } from "./serve-socket.mjs";
+import { isServeSocketTarget, serveSocketPath, viaServeSocket } from "./serve-socket.mjs";
 
 const tailnetV4 = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/;
 // Anchored at both ends: the old prefix-only test accepted the marker followed by anything at all,
@@ -110,10 +109,7 @@ export function createIdentityService({
     } catch { return false; }
   }
 
-  /** True when a Serve proxy target is BoxPilot's own Serve socket (serve-socket.mjs). */
-  function proxiesOurSocket(target) {
-    return typeof target === "string" && Boolean(serveSocket) && path.posix.normalize(target.slice("unix:".length)) === path.posix.normalize(serveSocket);
-  }
+  const proxiesOurSocket = (target) => isServeSocketTarget(target, serveSocket);
 
   async function serveProxiesUs() {
     return (await serveFacts()).proxying;
@@ -168,9 +164,16 @@ export function createIdentityService({
     // every process on this machine, host-networked containers included, and they can write these
     // headers as well as Serve can. Serve over the loopback port is believed while it is the only
     // way Serve reaches BoxPilot, so an install that has not moved keeps its Tailscale sign-in.
+    // The socket is believed whatever the cached Serve facts say: only tailscaled (root) and this
+    // service's own user can open it. Waiting for the cache to see a move signed every tailnet
+    // session out, and bound a password sign-in in that minute to loopback, which is replayable.
+    if (viaServeSocket(request)) return tailnetClientAddress(request, { trustForwarded: true });
     const { proxying, viaSocket } = await serveFacts();
-    return tailnetClientAddress(request, { trustForwarded: viaServeSocket(request) ? viaSocket : proxying && !viaSocket });
+    return tailnetClientAddress(request, { trustForwarded: proxying && !viaSocket });
   }
+
+  /** Read Serve's settings again on the next request: they just changed (tailscale.serve.socket). */
+  function forgetServeState() { serveState = null; }
 
   /** Whether Serve reaches BoxPilot over the loopback port only, where a local process can pose as it. */
   async function serveOverLoopbackOnly() {
@@ -431,5 +434,5 @@ export function createIdentityService({
     };
   }
 
-  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, githubOwnerFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, servePublishesControlPlane: serveProxiesUs, serveOverLoopbackOnly, servedOrigins, internals: { whois, flows: githubFlows } };
+  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, githubOwnerFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, servePublishesControlPlane: serveProxiesUs, serveOverLoopbackOnly, forgetServeState, servedOrigins, internals: { whois, flows: githubFlows } };
 }

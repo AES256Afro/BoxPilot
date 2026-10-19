@@ -74,7 +74,7 @@ describe("identity service", () => {
     const socketPath = "/run/boxpilot-web/serve.sock";
     const serveTo = (target) => JSON.stringify({ Web: { "box.tail1234.ts.net:443": { Handlers: { "/": { Proxy: target } } } } });
     const identityFor = (target) => createIdentityService({ store: state, now: () => 1000, serveSocket: socketPath, run: vi.fn(async (_binary, args) => (args[0] === "serve"
-      ? { ok: true, stdout: serveTo(target), stderr: "" }
+      ? { ok: true, stdout: serveTo(typeof target === "function" ? target() : target), stderr: "" }
       : { ok: true, stdout: JSON.stringify({ UserProfile: { LoginName: "me@example.com" } }), stderr: "" })) });
     const headers = { "x-forwarded-for": "100.67.166.49", "tailscale-user-login": "me@example.com" };
     const overPort = req("127.0.0.1", headers);
@@ -87,16 +87,28 @@ describe("identity service", () => {
     expect(await viaSocket.servePublishesControlPlane()).toBe(true);
     expect(await viaSocket.serveOverLoopbackOnly()).toBe(false);
 
-    // Not moved yet: the loopback port is still how Serve reaches BoxPilot, and the socket is not Serve.
+    // Not moved yet: the loopback port is still how Serve reaches BoxPilot. The socket is believed
+    // all the same (only root and BoxPilot can open it), so the minute before the cached Serve facts
+    // see a move neither signs tailnet sessions out nor binds a sign-in to loopback.
     const viaPort = identityFor("http://127.0.0.1:8787");
     expect(await viaPort.clientAddress(overPort)).toBe("100.67.166.49");
-    expect(await viaPort.clientAddress(overSocket)).toBeNull();
+    expect(await viaPort.clientAddress(overSocket)).toBe("100.67.166.49");
     expect(await viaPort.serveOverLoopbackOnly()).toBe(true);
+
+    // Moving Serve forgets the cached facts, so the port stops being believed at once.
+    let target = "http://127.0.0.1:8787";
+    const moving = identityFor(() => target);
+    expect(await moving.clientAddress(overPort)).toBe("100.67.166.49");
+    target = `unix://${socketPath}`;
+    expect(await moving.clientAddress(overPort)).toBe("100.67.166.49");   // still the cached facts
+    moving.forgetServeState();
+    expect(await moving.clientAddress(overPort)).toBeNull();
+    expect(await moving.serveOverLoopbackOnly()).toBe(false);
 
     // Some other socket is not BoxPilot's.
     const elsewhere = identityFor("unix:/run/other/app.sock");
-    expect(await elsewhere.clientAddress(overSocket)).toBeNull();
     expect(await elsewhere.servePublishesControlPlane()).toBe(false);
+    expect(await elsewhere.clientAddress(overPort)).toBeNull();
     state.close();
   });
 

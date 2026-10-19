@@ -194,6 +194,8 @@ const jobs = createJobService(state, helper, {
   jobLog: jobLogReader,
   // Registry ops whose results become durable evidence rows.
   operationRecordHooks: {
+    // Serve now forwards to the socket: stop believing the loopback port now, not when the cache ages out.
+    "tailscale.serve.socket": () => identity.forgetServeState(),
     "controller.backup.create": (job, result) => {
       state.recordBackup({ id: result.backupId, applicationId: "boxpilot-controller", destination: result.destination ?? "local-managed", artifactPath: result.artifactPath, checksumSha256: result.checksumSha256, sizeBytes: result.sizeBytes, downtimeMs: result.downtimeMs ?? 0, restoreDrill: result.restoreDrill ?? {}, createdBy: job.createdBy });
     },
