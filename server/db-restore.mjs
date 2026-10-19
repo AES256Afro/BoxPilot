@@ -4,17 +4,21 @@
  *
  * The copies are the ones an update takes before it swaps the code in (scripts/boxpilot-upgrade.sh),
  * `boxpilot-rollback-<version>-<stamp>.sqlite3` beside the database. Putting one back:
- *   1. checks the copy opens and passes SQLite's integrity check, before anything stops;
+ *   1. copies it into a folder only root can open, checks that copy opens and passes SQLite's
+ *      integrity check before anything stops, and signs everyone out of it (a sign-in revoked since
+ *      the copy was taken would otherwise work again);
  *   2. stops BoxPilot, then saves the database as it is now as a copy of its own, so this can be
  *      undone the same way;
  *   3. writes the copy over the database (the live file's owner and mode kept, through a file
  *      beside it renamed into place), and removes the -wal and -shm the old database left;
- *   4. starts BoxPilot and waits for its health check; if that fails, puts the saved database back
- *      and starts BoxPilot on it again.
+ *   4. starts BoxPilot and waits for its health check; if that fails, or the copy could not be
+ *      written, puts the saved database back and starts BoxPilot on it again.
  * Runs as root in its own unit (server/tasks/database-restore.mjs starts it), because it stops the
  * web service the job came from. Every line it logs starts with [boxpilot-db-restore].
  */
-import { chmod, chown, copyFile, lstat, open, rename, rm } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, mkdtemp, open, rename, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -34,25 +38,57 @@ export function integrityOf(file) {
   }
 }
 
-const defaultFs = { chmod, chown, copyFile, lstat, open, rename, rm };
+// The database's folder belongs to BoxPilot's own user, so anything in it may be a link that user
+// planted. Root opens nothing there by name except through these: never through a link, and a new
+// file only where nothing is.
+const readNoLink = constants.O_RDONLY | constants.O_NOFOLLOW;
+const createNew = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
 
-/**
- * Write `source` over `target` with `target`'s owner and mode: copied to a file beside it, synced,
- * then renamed into place, so a crash leaves the old database or the new one and never half of one.
- */
-async function replaceWith(source, target, owner, { fs = defaultFs } = {}) {
-  const staged = `${target}.restoring`;
-  await fs.rm(staged, { force: true });
-  await fs.copyFile(source, staged);
-  await fs.chown(staged, owner.uid, owner.gid);
-  await fs.chmod(staged, owner.mode & 0o7777);
-  const handle = await fs.open(staged, "r+");
-  try { await handle.sync(); } finally { await handle.close(); }
-  await fs.rename(staged, target);
-  for (const suffix of ["-wal", "-shm", "-journal"]) await fs.rm(`${target}${suffix}`, { force: true });
+/** Copy everything from one open file to another. */
+async function copyHandle(from, to) {
+  const buffer = Buffer.alloc(1 << 20);
+  for (let position = 0; ;) {
+    const { bytesRead } = await from.read(buffer, 0, buffer.length, position);
+    if (!bytesRead) return;
+    await to.write(buffer, 0, bytesRead);
+    position += bytesRead;
+  }
 }
 
-/** Copy the live database (with whatever its -wal holds) to `target`, readable by root alone, and check the result. */
+/** Copy a plain file (never a link) into a fresh file at `target`, with `mode`, synced. */
+async function copyInto(source, target, mode, owner = null) {
+  const from = await open(source, readNoLink);
+  try {
+    if (!(await from.stat()).isFile()) throw new Error(`${source} is not a plain file`);
+    const to = await open(target, createNew, mode);
+    try {
+      await copyHandle(from, to);
+      if (owner) await to.chown(owner.uid, owner.gid);
+      await to.chmod(mode);
+      await to.sync();
+    } finally { await to.close(); }
+  } finally { await from.close(); }
+}
+
+/**
+ * Write `source` (a file in the private folder) over `target` with `target`'s owner and mode: copied
+ * to a file beside it, synced, then renamed into place, so a crash leaves the old database or the new
+ * one and never half of one.
+ */
+async function replaceWith(source, target, owner) {
+  const staged = `${target}.restoring`;
+  await rm(staged, { force: true });
+  try {
+    await copyInto(source, staged, owner.mode & 0o7777, owner);
+  } catch (error) {
+    await rm(staged, { force: true }).catch(() => {});
+    throw error;
+  }
+  await rename(staged, target);
+  for (const suffix of ["-wal", "-shm", "-journal"]) await rm(`${target}${suffix}`, { force: true });
+}
+
+/** Copy the live database (with whatever its -wal holds) to `target`, and check the result. */
 function saveCurrent(database, target) {
   const source = new DatabaseSync(database, { readOnly: true });
   try { source.exec(`VACUUM INTO '${target.replaceAll("'", "''")}'`); } finally { source.close(); }
@@ -60,48 +96,81 @@ function saveCurrent(database, target) {
   if (verdict !== "ok") throw new Error(`the copy of the current database failed its integrity check (${verdict})`);
 }
 
+/** Sign everyone out of the copy: a session revoked since it was taken would otherwise work again. */
+function signEveryoneOut(file) {
+  const database = new DatabaseSync(file);
+  try {
+    if (database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions'").get()) database.exec("DELETE FROM sessions");
+  } finally { database.close(); }
+}
+
 /**
- * @param {{ database: string, copyName: string, version: string, stamp: string, run: (binary: string, args: string[]) => Promise<{ ok: boolean, stderr?: string }>, healthy: () => Promise<boolean>, log?: (line: string) => void, fs?: any }} options
+ * @param {{ database: string, copyName: string, version: string, stamp: string, run: (binary: string, args: string[]) => Promise<{ ok: boolean, stderr?: string }>, healthy: () => Promise<boolean>, log?: (line: string) => void, workRoot?: string }} options
  */
-export async function restoreDatabaseCopy({ database, copyName, version, stamp, run, healthy, log = (line) => console.log(line), fs = defaultFs }) {
+export async function restoreDatabaseCopy({ database, copyName, version, stamp, run, healthy, log = (line) => console.log(line), workRoot = os.tmpdir() }) {
   const say = (line) => log(`[boxpilot-db-restore] ${line}`);
   const directory = path.dirname(database);
   if (!restoreCopyPattern.test(copyName)) throw new Error(`${copyName} is not a database copy`);
   const copy = path.join(directory, copyName);
-  const copyInfo = await fs.lstat(copy).catch(() => null);
-  if (!copyInfo?.isFile()) throw new Error(`${copy} is not there, or is not a plain file. Nothing was changed.`);
-  const live = await fs.lstat(database).catch(() => null);
+  const live = await lstat(database).catch(() => null);
   if (!live?.isFile()) throw new Error(`${database} is not a plain file. Nothing was changed.`);
-  const verdict = integrityOf(copy);
-  if (verdict !== "ok") throw new Error(`${copyName} failed SQLite's integrity check (${verdict}). Nothing was changed.`);
   const owner = { uid: live.uid, gid: live.gid, mode: live.mode };
 
-  say(`stopping BoxPilot to put back ${copyName}`);
-  const stopped = await run("/usr/bin/systemctl", ["stop", "boxpilot.service"]);
-  if (!stopped.ok) throw new Error(`BoxPilot would not stop (${stopped.stderr?.trim() || "systemctl failed"}). Nothing was changed.`);
-
-  const saved = path.join(directory, `boxpilot-rollback-${version}-${stamp}.sqlite3`);
+  // Everything checked or put back is first copied into a folder only root can open, so what was
+  // checked is what goes in, and the rollback uses the saved database rather than a name beside it.
+  const work = await mkdtemp(path.join(workRoot, "boxpilot-db-restore-"));
   try {
-    saveCurrent(database, saved);
-    await fs.chmod(saved, 0o600);
-    say(`database copy: ${saved} (the database as it was before this)`);
-  } catch (error) {
+    const chosen = path.join(work, "chosen.sqlite3");
+    const before = path.join(work, "before.sqlite3");
+    try {
+      await copyInto(copy, chosen, 0o600);
+    } catch (error) {
+      throw new Error(`${copy} is not there, or is not a plain file (${error.code ?? error.message}). Nothing was changed.`);
+    }
+    const verdict = integrityOf(chosen);
+    if (verdict !== "ok") throw new Error(`${copyName} failed SQLite's integrity check (${verdict}). Nothing was changed.`);
+    signEveryoneOut(chosen);
+
+    say(`stopping BoxPilot to put back ${copyName}`);
+    const stopped = await run("/usr/bin/systemctl", ["stop", "boxpilot.service"]);
+    if (!stopped.ok) throw new Error(`BoxPilot would not stop (${stopped.stderr?.trim() || "systemctl failed"}). Nothing was changed.`);
+
+    const savedName = `boxpilot-rollback-${version}-${stamp}.sqlite3`;
+    try {
+      saveCurrent(database, before);
+      await copyInto(before, path.join(directory, savedName), 0o600);
+      say(`database copy: ${path.join(directory, savedName)} (the database as it was before this)`);
+    } catch (error) {
+      await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
+      throw new Error(`the current database could not be saved first, so it was left as it was: ${error.message}`);
+    }
+
+    try {
+      await replaceWith(chosen, database, owner);
+    } catch (error) {
+      // Out of space, most likely. Whatever stage it stopped at, the database before is put back.
+      say(`ERROR: could not write ${copyName} in place (${error.message}); putting back the database it had`);
+      await replaceWith(before, database, owner).catch((again) => say(`ERROR: could not put it back either (${again.message})`));
+      await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
+      throw new Error(`${copyName} could not be written in place (${error.message}); the database it had was put back and BoxPilot started again`);
+    }
+    say(`${copyName} is the database now; starting BoxPilot`);
     await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
-    throw new Error(`the current database could not be saved first, so it was left as it was: ${error.message}`);
-  }
+    if (await healthy()) {
+      say(`RESTORED: BoxPilot answers on ${copyName}; everyone was signed out; the database before this is ${savedName}`);
+      return { restored: copyName, saved: savedName, rolledBack: false };
+    }
 
-  await replaceWith(copy, database, owner, { fs });
-  say(`${copyName} is the database now; starting BoxPilot`);
-  await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
-  if (await healthy()) {
-    say(`BoxPilot answers on ${copyName}; the database before this is ${path.basename(saved)}`);
-    return { restored: copyName, saved: path.basename(saved), rolledBack: false };
+    say(`ERROR: BoxPilot did not answer on ${copyName}; putting back the database it had`);
+    await run("/usr/bin/systemctl", ["stop", "boxpilot.service"]);
+    try {
+      await replaceWith(before, database, owner);
+    } finally {
+      await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
+    }
+    const back = await healthy();
+    throw Object.assign(new Error(`BoxPilot did not answer on ${copyName}, so the database it had was put back${back ? " and BoxPilot answers again" : "; BoxPilot does not answer on it either, see the service log"}`), { rolledBack: true });
+  } finally {
+    await rm(work, { recursive: true, force: true });
   }
-
-  say(`ERROR: BoxPilot did not answer on ${copyName}; putting back the database it had`);
-  await run("/usr/bin/systemctl", ["stop", "boxpilot.service"]);
-  await replaceWith(saved, database, owner, { fs });
-  await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
-  const back = await healthy();
-  throw Object.assign(new Error(`BoxPilot did not answer on ${copyName}, so the database it had was put back${back ? " and BoxPilot answers again" : "; BoxPilot does not answer on it either, see the service log"}`), { rolledBack: true });
 }
