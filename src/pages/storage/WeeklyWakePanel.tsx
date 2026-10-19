@@ -9,7 +9,7 @@ import { Notice, Panel, Switch } from "../../ui";
  */
 export function WeeklyWakePanel({ csrfToken, role }: { csrfToken: string; role: string }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
-  /** Disks asleep at the last check, and how many of those were read anyway this week. */
+  /** Disks asleep at the last check, and how many the last check read by waking them. */
   const [asleep, setAsleep] = useState<{ count: number; woken: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export function WeeklyWakePanel({ csrfToken, role }: { csrfToken: string; role: 
   };
 
   return (
-    <Panel title="Sleeping drives" meta={asleep ? <><b>{asleep.count}</b> asleep at the last check{asleep.woken ? <> · <b>{asleep.woken}</b> read by waking</> : null}</> : undefined} padded className="storage-wake">
+    <Panel title="Sleeping drives" meta={asleep ? <><b>{asleep.count}</b> asleep at the last check{asleep.woken ? <> · <b>{asleep.woken}</b> read by waking at the last check</> : null}</> : undefined} padded className="storage-wake">
       <Switch
         checked={enabled === true}
         busy={saving}
