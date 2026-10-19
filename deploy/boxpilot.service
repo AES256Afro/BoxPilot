@@ -19,6 +19,10 @@ EnvironmentFile=/etc/boxpilot/boxpilot.env
 Environment=BOXPILOT_VM_MEDIA_INBOX=/var/lib/boxpilot-managed/vm-media-inbox
 StateDirectory=boxpilot
 StateDirectoryMode=0700
+# serve.sock, which Tailscale Serve proxies to (server/serve-socket.mjs). Owned by this user, so
+# tailscaled (root) can open it and no container can.
+RuntimeDirectory=boxpilot-web
+RuntimeDirectoryMode=0750
 ExecStart=/usr/local/bin/node /opt/boxpilot/server/index.mjs
 Restart=on-failure
 RestartSec=5s

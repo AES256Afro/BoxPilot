@@ -96,6 +96,7 @@ import { foldVerdict, verdictFrom } from "./backup-verdicts.mjs";
 import { appStopClearingOperations, foldAppStop, seedAppStops } from "./app-stops.mjs";
 import { jsonGzip, precompressedAssets } from "./compress.mjs";
 import { rootFileHeaders, securityHeaders } from "./security-headers.mjs";
+import { serveSocketPath, startServeSocketListener } from "./serve-socket.mjs";
 
 const app = express();
 // As every reader of the env file takes them (server/env-file.mjs): the port with parseInt, since
@@ -620,3 +621,5 @@ app.listen(port, host, () => {
 // The encrypted LAN listener (M18.2), if a certificate has been provisioned. Never fatal: the HTTP
 // listener and the Tailscale Serve path above keep working regardless.
 startTlsListener(app, { host });
+// The socket Tailscale Serve can proxy to (serve-socket.mjs), when the unit provides its directory.
+startServeSocketListener(app).then((server) => { if (server) console.log(`Listening for Tailscale Serve on ${serveSocketPath()}`); }, (error) => console.warn(`Serve socket listener failed: ${error.message}`));
