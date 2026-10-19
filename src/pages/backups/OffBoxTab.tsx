@@ -62,7 +62,10 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   const mounted = Boolean(machine?.sync.mount.mounted);
   // What the last sync to the drive left out (R5B4-7): recent, and still not every backup.
   const driveSkipped = machine?.sync.lastSync?.skippedCount ?? 0;
-  const destination = remoteSettings?.destination ?? null;
+  const saved = remoteSettings?.destination ?? null;
+  // A viewer is told one is set, not where it is.
+  const destination = saved && !("hidden" in saved) ? saved : null;
+  const hiddenDestination = Boolean(saved && "hidden" in saved);
   const pinned = (remote?.hostKeysPinned ?? 0) > 0;
 
   const saveSsh = async () => {
@@ -181,7 +184,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
       >
         <KeyValue items={[
           { id: "key", label: "Mirror key", value: remote?.keyReady ? `ready${remote.fingerprint ? ` · ${remote.fingerprint}` : ""}` : remote ? "not created yet" : "not read", mono: true, status: remote && !remote.keyReady ? "warning" : undefined },
-          { id: "destination", label: "Destination", value: destination ? `${destination.user}@${destination.host}:${destination.path}${destination.port && destination.port !== 22 ? ` (port ${destination.port})` : ""}` : "not set", mono: true },
+          { id: "destination", label: "Destination", value: destination ? `${destination.user}@${destination.host}:${destination.path}${destination.port && destination.port !== 22 ? ` (port ${destination.port})` : ""}` : hiddenDestination ? "set (an operator or the owner can see where)" : "not set", mono: !hiddenDestination },
           { id: "pinned", label: "Host key", value: destination ? (pinned ? `pinned (${remote?.hostKeysPinned})` : "not pinned: test the connection first") : "—", mono: true, status: destination && !pinned ? "warning" : undefined },
           { id: "last", label: "Last mirrored", value: remoteSettings?.lastSync ? `${when(remoteSettings.lastSync.completedAt)} · ${countOf(remoteSettings.lastSync.filesTransferred, "file")}` : "never", mono: true },
         ]} />
