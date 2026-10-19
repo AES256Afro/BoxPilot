@@ -1891,7 +1891,10 @@ Proposed, value to the owner against effort:
   the button says so first, naming the running jobs (`src/pages/system/runningJobs.ts`).
 - **Fold "What you can do" into the page header** - low to medium, small: the strip on every Classic
   page explains rather than does. A design call for the owner.
-- **Quiet hours or a daily digest for pushes** - medium, medium.
+- ✅ **Quiet hours for pushes** - medium, medium. Settings → Notifications → Quiet hours: between two
+  server times, pushes wait (`notificationHeld`, at most a hundred) and go as one summary when the
+  quiet ends, kept until the target accepts it. Urgent ones (failing disk, drive gone, UPS low, a
+  failed job) still go unless held too; the test button and "Send the report now" always go at once.
 - ✅ **Update every app with an update ready, in one approval** - medium, medium. `app.update.many`
   (one app at a time, each with its checkpoint and its own devices; one that fails does not stop the
   others), offered as "Update all" on the App catalog once two apps have updates.
