@@ -5,7 +5,7 @@
 import { lstat, readFile } from "node:fs/promises";
 import { webListenFromEnv } from "../env-file.mjs";
 import { fixedRun } from "../exec.mjs";
-import { serveSocketPath } from "../serve-socket.mjs";
+import { isServeSocketTarget, serveSocketPath } from "../serve-socket.mjs";
 import { parseServeStatus } from "../tailscale-serve.mjs";
 
 const envPath = process.env.BOXPILOT_ENV_FILE ?? "/etc/boxpilot/boxpilot.env";
@@ -35,7 +35,7 @@ export async function serveSocketMove({ run = fixedRun, log = null, socketPath =
   const before = await status();
   const ours = before.filter((serve) => loopbackTargetPort(serve.target) === webPort);
   if (!ours.length) {
-    if (before.some((serve) => serve.target === target)) return { moved: [], socket: socketPath, already: true };
+    if (before.some((serve) => isServeSocketTarget(serve.target, socketPath))) return { moved: [], socket: socketPath, already: true };
     throw new Error(`Tailscale Serve does not forward to BoxPilot's port ${webPort}, so there is nothing to move.`);
   }
   const moved = [];
@@ -53,7 +53,7 @@ export async function serveSocketMove({ run = fixedRun, log = null, socketPath =
       moved.push(serve);
     }
     const after = await status();
-    const missing = ours.filter((serve) => after.find((entry) => entry.port === serve.port)?.target !== target);
+    const missing = ours.filter((serve) => !isServeSocketTarget(after.find((entry) => entry.port === serve.port)?.target, socketPath));
     if (missing.length) throw new Error(`Tailscale accepted the change but port ${missing.map((serve) => serve.port).join(", ")} does not forward to the socket; check tailscale serve status.`);
   } catch (error) {
     // Put back what was moved, so the tailnet address keeps reaching BoxPilot the way it did.
