@@ -229,6 +229,22 @@ export function createIdentityService({
   }
 
   const abandonedFlowMs = 3 * 60_000;
+  const signinFlowLimit = 10;
+  const signinFlowsPerClient = 2;
+
+  /** Drop the oldest sign-in flow of the caller holding the most of them. */
+  function evictSigninFlow() {
+    const held = new Map();
+    for (const [id, flow] of githubFlows) {
+      if (flow.purpose !== "signin") continue;
+      const key = flow.client ?? `flow:${id}`;
+      held.set(key, [...(held.get(key) ?? []), [id, flow]]);
+    }
+    const most = Math.max(0, ...[...held.values()].map((entries) => entries.length));
+    const candidates = [...held.values()].filter((entries) => entries.length === most).flat();
+    const [oldestId] = candidates.reduce((oldest, entry) => (!oldest || entry[1].startedAt < oldest[1].startedAt ? entry : oldest), null) ?? [];
+    if (oldestId) githubFlows.delete(oldestId);
+  }
   function pruneFlows() {
     for (const [id, flow] of githubFlows) {
       // A flow the browser stopped polling is abandoned, and holding it for its full fifteen
@@ -245,8 +261,12 @@ export function createIdentityService({
     // and lock the owner out of linking or signing in.
     const flows = [...githubFlows.values()];
     if (purpose === "signin") {
-      if (flows.filter((flow) => flow.purpose === "signin").length >= 5) throw new Error("Too many GitHub sign-in attempts in progress; try again in a minute");
-      if (client && flows.filter((flow) => flow.purpose === "signin" && flow.client === client).length >= 2) throw new Error("Too many GitHub sign-in attempts from this device; try again in a minute");
+      if (client && flows.filter((flow) => flow.purpose === "signin" && flow.client === client).length >= signinFlowsPerClient) throw new Error("Too many GitHub sign-in attempts from this device; try again in a minute");
+      // A full table used to refuse everyone, so a few addresses that kept their flows polled held
+      // every slot and nobody else could sign in with GitHub. Now the newcomer takes the oldest
+      // flow of whoever holds the most: one caller with two flows gives one up before a caller with
+      // one does, and filling the table takes as many addresses as it has slots.
+      if (flows.filter((flow) => flow.purpose === "signin").length >= signinFlowLimit) evictSigninFlow();
     } else if (flows.filter((flow) => flow.purpose === "link").length >= 5) {
       throw new Error("Too many GitHub link attempts in progress; try again in a minute");
     }
