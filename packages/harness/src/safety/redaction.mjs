@@ -70,10 +70,11 @@ function redactPuttyKeys(text) {
  * (DB_PASS, PLEX_CLAIM, MYSQL_PWD, DB_CREDENTIALS - never PWD alone, the working directory). Upper
  * case only, as environment variables are written: a name ending in _KEY (APP_KEY, MEILI_MASTER_KEY),
  * PASS alone, and PASS run on (DBPASS, ADMINPASS) unless the word is English or a filter (BYPASS,
- * COMPASS, HIGHPASS) - in lower case `sort_key` and `pass` are ordinary words.
+ * COMPASS, HIGHPASS) - in lower case `sort_key` and `pass` are ordinary words. A notify or webhook
+ * URL (BW_NOTIFY_URL, SLACK_WEBHOOK_URL) is a credential too: the address is the capability.
  * Every secret setting in the catalog is one of these; a test holds that to every manifest.
  */
-const secretWords = "token|password|passphrase|passwd|secret|(?:api|access|private|master|encryption|signing|account|app)[_-]?key|authorization|cookie";
+const secretWords = "token|password|passphrase|passwd|secret|(?:api|access|private|master|encryption|signing|account|app)[_-]?key|(?:notify|webhook)[_-]?url|authorization|cookie";
 const notAPassword = "BY|COM|ENCOM|SUR|TRES|OVER|UNDER|HIGH|LOW|BAND|ALL|NOTCH|MULTI|ONE|TWO|SINGLE|DOUBLE|FIRST|SECOND|NO";
 
 /**
