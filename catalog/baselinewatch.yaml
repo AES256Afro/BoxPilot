@@ -10,8 +10,8 @@ description: "Security news, CVEs and advisories in one timeline; a change regis
 website: https://github.com/AES256Afro/BaselineWatch
 risk: low
 image:
-  reference: ghcr.io/aes256afro/baselinewatch:0.36.1@sha256:d9120f066de9f8cb20cc9d3e9ccb9e24f2448cad9a52373f3481390ccae58491
-  version: "0.36.1"
+  reference: ghcr.io/aes256afro/baselinewatch:0.37.0@sha256:d6ba7c71a79433369e45f98e76d4651717c68d021d6c387cba08916873fca0c4
+  version: "0.37.0"
 ports:
   - id: web
     label: Web UI
@@ -58,7 +58,9 @@ env:
     default: ""
   - name: BW_NOTIFY_URL
     label: Notification URL (optional)
-    description: "ntfy://<this server>:8093/baselinewatch, gotify://<this server>:8080/<token>, or an https:// webhook. Receives KEV additions, changes to CVEs in your watchlist, standard releases and the digest."
+    type: password
+    secret: true
+    description: "ntfy://<this server>:8093/baselinewatch, gotify://<this server>:8080/<token>, or an https:// webhook. Receives KEV additions, changes to CVEs in your watchlist, standard releases and the digest. Kept secret: a webhook URL or an ntfy topic is the credential."
     default: ""
   - name: BW_DIGEST
     label: Digest
@@ -88,6 +90,10 @@ env:
     description: Light, dark, or whatever each device says. Each browser can pick its own from the masthead.
     default: system
     options: ["system", "light", "dark"]
+  - name: BW_PROBE_ORIGIN
+    label: Scan probe origin (optional)
+    description: "A second origin that serves the Scan page's probe images, such as another BaselineWatch instance or this one on a different hostname (https://probe.example.net, an origin only). Lets the ad-request check test a cross-site load beside the same-site one. Unset tests same-site only."
+    default: ""
 signIn:
   path: /login
   port: web
