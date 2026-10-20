@@ -38,6 +38,14 @@ export const rootTaskLingerCapMs = 12 * 60 * 60_000;
 const lanesHeld = new AsyncLocalStorage();
 export const whileHoldingRootTasks = (holdUntil, work) => lanesHeld.run(holdUntil, work);
 
+/**
+ * What systemctl says when the manager's D-Bus connection went away under it: systemd re-executed
+ * itself (its own upgrade) or dbus restarted. The unit it was waiting on is unaffected; only the
+ * wait was lost, and it returns at once, before the runner has written anything.
+ */
+const lostManager = /D-Bus connection terminated|Connection reset by peer|Transport endpoint is not connected/i;
+const firstLine = (text) => String(text ?? "").split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+
 const pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 /** `systemctl is-active` says one of these while a unit has not finished: a oneshot runs "activating". */
 const runningStates = new Set(["active", "activating", "deactivating", "reloading", "refreshing"]);
@@ -60,6 +68,7 @@ export function createRunUnitClient({
     if (!knownTasks.has(task)) throw new Error(`Root task ${task} is not in the task table`);
     if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) throw new Error("Root task parameters must be an object");
     const id = randomUUID();
+    const unit = `${unitTemplate}${id}.service`;
     const startedAt = clock();
     await mkdir(runDirectory, { recursive: true, mode: 0o700 });
     const specPath = path.join(runDirectory, `${id}.json`);
@@ -67,9 +76,17 @@ export function createRunUnitClient({
     await writeFile(specPath, JSON.stringify({ task, parameters, approvedAt: now().toISOString(), timeoutMs, ...(logPath ? { logPath } : {}) }), { mode: 0o600, flag: "wx" });
     let start;
     try {
-      start = await run(systemctlBinary, ["start", `${unitTemplate}${id}.service`], { timeout: timeoutMs + rootTaskWaitMarginMs });
+      start = await run(systemctlBinary, ["start", unit], { timeout: timeoutMs + rootTaskWaitMarginMs });
     } finally {
       await unlink(specPath).catch(() => {});
+    }
+    // An apt.upgrade that takes systemd along re-executes the manager under systemctl: the unit runs
+    // on, but systemctl comes back with "Connection reset by peer" before the runner has written a
+    // result, and the upgrade that finished fine behind it was reported as "produced no result".
+    // Wait for the unit the way the manager would have, within the same budget, then read its result.
+    if (start && !start.ok && lostManager.test(start.stderr)) {
+      log(`Root task ${task} (${unit}): systemctl lost the manager while waiting (${firstLine(start.stderr)}); waiting on the unit itself`);
+      await waitUntilStopped(unit, startedAt, timeoutMs + rootTaskWaitMarginMs);
     }
     let payload = null;
     try {
@@ -84,12 +101,22 @@ export function createRunUnitClient({
     // carry on (the unit's KillMode=process), so it may still be running: a flow must not start it
     // again beside itself, and nor must "Try again with more time".
     if (payload?.ok === false && payload.timedOut === true) {
-      await holdWhileRunning(task, `${unitTemplate}${id}.service`, startedAt);
+      await holdWhileRunning(task, unit, startedAt);
       throw timedOut(`Root task ${task} did not finish within ${formatDuration(timeoutMs)}`, { budgetMs: timeoutMs, step: `Root task ${task}`, stillRunning: true });
     }
     if (!payload) throw new Error(`Root task ${task} produced no result${start?.ok ? "" : ` (unit failed: ${start?.stderr || "see journalctl -u " + unitTemplate + id})`}`);
     if (!payload.ok) throw new Error(payload.error || `Root task ${task} failed`);
     return payload.result;
+  }
+
+  /** Ask systemd until the unit is no longer running; false when the budget ran out first. */
+  async function waitUntilStopped(unit, startedAt, budgetMs) {
+    while (await stillActive(unit)) {
+      const left = budgetMs - (clock() - startedAt);
+      if (left <= 0) return false;
+      await sleep(Math.min(lingerPollMs, Math.max(1_000, left)));
+    }
+    return true;
   }
 
   /** Whether systemd says the unit is still at work; an answer it cannot give counts as yes. */
