@@ -9,8 +9,8 @@ risk: low
 # It holds meeting notes and API keys, so it starts on the tailnet only; the Reach tab can open it to the home network.
 defaultExposure: tailnet
 image:
-  reference: ghcr.io/aes256afro/openplaud:0.2.0
-  version: "0.2.0"
+  reference: ghcr.io/aes256afro/openplaud:0.3.0
+  version: "0.3.0"
 user: "1000:1000"
 ports:
   - id: web
@@ -86,6 +86,11 @@ env:
     type: number
     description: How far back each sync looks for recordings that have no notes yet.
     default: "7"
+  - name: OPENPLAUD_LOOK
+    label: Look
+    description: "How the page is laid out: inbox (folders, list and reader), timeline (a day-by-day feed), actions (action items from every note), command (a keyboard palette), board (columns from new to filed), reader (notes beside the transcript), library (folder tiles), calendar (a week view), phone (one column) or console (sync and status). Each browser can also pick its own from the page."
+    default: inbox
+    options: ["inbox", "timeline", "actions", "command", "board", "reader", "library", "calendar", "phone", "console"]
   - name: OPENPLAUD_PASSWORD
     label: Password
     type: password
