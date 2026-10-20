@@ -8,7 +8,7 @@ The check reads actual kernel lock ownership for the four standard APT/dpkg lock
 
 APT enforces its own locks at execution time. The inspection is a snapshot, not a reservation. BoxPilot does not delete locks, kill package managers, remove packages through this repair, or refresh repositories as part of diagnosis. The dependency simulation appears under Package check details. When dpkg interruption prevents simulation, positive audit evidence can still offer configuration recovery; the execution-time no-remove guard remains in force.
 
-Package configuration scripts may restart services. Both repair commands suppress needrestart's automatic hook, matching BoxPilot's existing package-management policy. Review running-library checks in Updates afterward. A package repair does not automatically reboot the host.
+Package configuration scripts may restart services. Both repair commands suppress needrestart's automatic hook, matching BoxPilot's existing package-management policy. Both also answer dpkg's configuration-file prompt the way an operator at the terminal would (`--force-confdef --force-confold`: keep an edited file, take the maintainer's only where nothing was edited), as does every upgrade and install; without that answer a package whose shipped file had been edited was left unconfigured and blocked every later change. Review running-library checks in Updates afterward. A package repair does not automatically reboot the host.
 
 The `apt.health.inspect` read and `apt.repair` mutation are registry operations. Results and verification use existing jobs. Diagnostic text is bounded and uses the shared secret redactor. Kernel locks are matched by device and inode, with no process argument or environment reads.
 
