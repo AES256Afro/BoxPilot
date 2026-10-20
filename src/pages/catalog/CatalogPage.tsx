@@ -437,6 +437,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
           csrfToken={csrfToken}
           seed={config.seed}
           appNameFor={(id) => applications.find((entry) => entry.manifest.id === id)?.manifest.name ?? null}
+          modelRunnerApps={installedAll.filter((entry) => entry.manifest.modelRunner).map((entry) => entry.manifest.id)}
           onCancel={() => { const back = config.back; setConfig(null); if (back) setSheet(back); }}
           onSubmit={(values: Values, form: Values) => {
             const { entry: { manifest }, mode } = config;
