@@ -140,6 +140,24 @@ describe("sharing helper reads", () => {
     expect(calls).toBe(1);
   });
 
+  // M50.2: the Repair scan's drive evidence was read from the kernel journal on every Home loop.
+  it("holds the Repair scan's drive evidence for minutes, until it is invalidated", async () => {
+    let calls = 0;
+    let clock = 0;
+    const socketPath = await helperSocket(async () => { calls += 1; return { calls }; });
+    const client = createHelperClient({ socketPath, now: () => clock });
+    expect(await client.request("storage.usb.events")).toEqual({ calls: 1 });
+    clock += 14 * 60_000;
+    expect(await client.request("storage.usb.events")).toEqual({ calls: 1 });
+    clock += 2 * 60_000;
+    expect(await client.request("storage.usb.events")).toEqual({ calls: 2 });
+    client.invalidate(["storage.usb.events"]);
+    expect(await client.request("storage.usb.events")).toEqual({ calls: 3 });
+    // Everything else is still shared only while in flight.
+    expect(await client.request("app.inspect")).toEqual({ calls: 4 });
+    expect(await client.request("app.inspect")).toEqual({ calls: 5 });
+  });
+
   it("reads fresh once the previous read has finished", async () => {
     let calls = 0;
     const socketPath = await helperSocket(async () => { calls += 1; return { calls }; });

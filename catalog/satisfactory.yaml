@@ -7,7 +7,7 @@ description: "Dedicated Satisfactory server. Needs plenty of memory (8 GB or mor
 website: https://www.satisfactorygame.com
 risk: low
 image:
-  reference: wolveix/satisfactory-server:v1.9.10
+  reference: wolveix/satisfactory-server:v1.9.10@sha256:e103700ae6ae4c50f19dac80eadb2a805c5b885e179ae2a40850e967bf189efd
   version: "1.9.10"
 ports:
   - id: game

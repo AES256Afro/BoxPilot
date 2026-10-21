@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * BoxPilot restarting itself under a running automation (sweep 5, R5B2-1).
  *

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 30_000 });
-import { createIdentityService, isTailnetAddress, tailnetClientAddress } from "./identity.mjs";
+import { createIdentityService, isTailnetAddress, signinClientKey, tailnetClientAddress } from "./identity.mjs";
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
@@ -64,6 +64,51 @@ describe("identity service", () => {
     const withoutServe = createIdentityService({ store: state, now: () => 1000, run: vi.fn(async (_binary, args) => (args[0] === "serve" ? { ok: true, stdout: "{}", stderr: "" } : { ok: true, stdout: JSON.stringify({ UserProfile: { LoginName: "me@example.com" } }), stderr: "" })) });
     expect(await withoutServe.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49", "tailscale-user-login": "me@example.com" }))).toMatchObject({ available: false, reason: "not-tailnet" });
     expect(state.listAudit().map((event) => event.type)).toEqual(expect.arrayContaining(["identity.tailscale.linked", "identity.tailscale.unlinked"]));
+    state.close();
+  });
+
+  it("believes only BoxPilot's socket once Tailscale Serve forwards to it", async () => {
+    // A host-networked app is sent the owner's cookies and Serve's headers when the owner opens it
+    // on this hostname; over the loopback port it could write the same headers and be believed.
+    const state = await store();
+    const socketPath = "/run/boxpilot-web/serve.sock";
+    const serveTo = (target) => JSON.stringify({ Web: { "box.tail1234.ts.net:443": { Handlers: { "/": { Proxy: target } } } } });
+    const identityFor = (target) => createIdentityService({ store: state, now: () => 1000, serveSocket: socketPath, run: vi.fn(async (_binary, args) => (args[0] === "serve"
+      ? { ok: true, stdout: serveTo(typeof target === "function" ? target() : target), stderr: "" }
+      : { ok: true, stdout: JSON.stringify({ UserProfile: { LoginName: "me@example.com" } }), stderr: "" })) });
+    const headers = { "x-forwarded-for": "100.67.166.49", "tailscale-user-login": "me@example.com" };
+    const overPort = req("127.0.0.1", headers);
+    const overSocket = { ...req("127.0.0.1", headers), socket: { remoteAddress: "127.0.0.1", boxpilotServeSocket: true } };
+
+    const viaSocket = identityFor(`unix:${socketPath}`);
+    expect(await viaSocket.clientAddress(overSocket)).toBe("100.67.166.49");
+    expect(await viaSocket.clientAddress(overPort)).toBeNull();
+    expect(await viaSocket.tailscaleIdentity(overPort)).toMatchObject({ available: false, reason: "not-tailnet" });
+    expect(await viaSocket.servePublishesControlPlane()).toBe(true);
+    expect(await viaSocket.serveOverLoopbackOnly()).toBe(false);
+
+    // Not moved yet: the loopback port is still how Serve reaches BoxPilot. The socket is believed
+    // all the same (only root and BoxPilot can open it), so the minute before the cached Serve facts
+    // see a move neither signs tailnet sessions out nor binds a sign-in to loopback.
+    const viaPort = identityFor("http://127.0.0.1:8787");
+    expect(await viaPort.clientAddress(overPort)).toBe("100.67.166.49");
+    expect(await viaPort.clientAddress(overSocket)).toBe("100.67.166.49");
+    expect(await viaPort.serveOverLoopbackOnly()).toBe(true);
+
+    // Moving Serve forgets the cached facts, so the port stops being believed at once.
+    let target = "http://127.0.0.1:8787";
+    const moving = identityFor(() => target);
+    expect(await moving.clientAddress(overPort)).toBe("100.67.166.49");
+    target = `unix://${socketPath}`;
+    expect(await moving.clientAddress(overPort)).toBe("100.67.166.49");   // still the cached facts
+    moving.forgetServeState();
+    expect(await moving.clientAddress(overPort)).toBeNull();
+    expect(await moving.serveOverLoopbackOnly()).toBe(false);
+
+    // Some other socket is not BoxPilot's.
+    const elsewhere = identityFor("unix:/run/other/app.sock");
+    expect(await elsewhere.servePublishesControlPlane()).toBe(false);
+    expect(await elsewhere.clientAddress(overPort)).toBeNull();
     state.close();
   });
 
@@ -137,15 +182,62 @@ describe("GitHub device-flow limits", () => {
     let issued = 0;
     const fetchImpl = async (url) => (String(url).includes("device/code")
       ? { ok: true, json: async () => ({ device_code: `d${issued++}`, user_code: "ABCD-EFGH", verification_uri: "https://github.com/login/device", interval: 5, expires_in: 900 }) }
-      : { ok: false, json: async () => ({}) });
-    const identity = createIdentityService({ store: state, fetchImpl, now: () => 1000 });
-    await identity.githubStart({ purpose: "signin", client: "100.64.0.9" });
-    await identity.githubStart({ purpose: "signin", client: "100.64.0.9" });
-    await expect(identity.githubStart({ purpose: "signin", client: "100.64.0.9" })).rejects.toThrow("from this device");
-    for (const client of ["a", "b", "c"]) await identity.githubStart({ purpose: "signin", client });
-    await expect(identity.githubStart({ purpose: "signin", client: "d" })).rejects.toThrow("sign-in attempts in progress");
+      : { ok: true, json: async () => ({ error: "authorization_pending" }) });
+    let clock = 1000;
+    const identity = createIdentityService({ store: state, fetchImpl, now: () => clock });
+    const start = (client) => { clock += 1; return identity.githubStart({ purpose: "signin", client }); };
+    const first = await start("100.64.0.9");
+    await start("100.64.0.9");
+    await expect(start("100.64.0.9")).rejects.toThrow("from this device");
+    // Four more callers hold two flows each: the table of ten is full.
+    for (const client of ["a", "a", "b", "b", "c", "c", "d", "d"]) await start(client);
+    // A newcomer is not refused: the oldest flow of a caller holding two gives way, and that is the
+    // first one 100.64.0.9 started, the oldest of all of them.
+    const newcomer = await start("honest");
+    expect(await identity.githubPoll(first.flowId)).toEqual({ status: "expired" });
+    // More newcomers take from the callers still holding two, never the first newcomer's only flow.
+    for (const client of ["e", "f", "g"]) await start(client);
+    expect(await identity.githubPoll(newcomer.flowId)).toMatchObject({ status: "pending" });
+    // Even when its flow is the oldest, a caller holding one keeps it while another holds two.
+    const fresh = createIdentityService({ store: state, fetchImpl, now: () => clock });
+    const startFresh = (client) => { clock += 1; return fresh.githubStart({ purpose: "signin", client }); };
+    const patient = await startFresh("patient");
+    for (const client of ["w", "w", "x", "x", "y", "y", "z", "z", "solo"]) await startFresh(client);
+    await startFresh("late");
+    expect(await fresh.githubPoll(patient.flowId)).toMatchObject({ status: "pending" });
+    // When every caller holds a single flow, a newcomer is refused rather than cancelling one: the
+    // owner's flow in progress survives any number of restarts from other addresses.
+    const singles = createIdentityService({ store: state, fetchImpl, now: () => clock });
+    const startSingle = (client) => { clock += 1; return singles.githubStart({ purpose: "signin", client }); };
+    const ownerFlow = await startSingle("owner-laptop");
+    for (const client of ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"]) await startSingle(client);
+    for (const client of ["s1", "s2", "s3", "s9"]) await expect(startSingle(client)).rejects.toThrow("Every GitHub sign-in slot is in use");
+    expect(await singles.githubPoll(ownerFlow.flowId)).toMatchObject({ status: "pending" });
     // The owner can still start a link flow while sign-in slots are full.
     await expect(identity.githubStart({ purpose: "link", ownerId: owner.id, client: "e" })).resolves.toMatchObject({ userCode: "ABCD-EFGH" });
+    state.close();
+  });
+});
+
+describe("who a GitHub sign-in flow counts against", () => {
+  it("counts an IPv6 caller by its /64, and a tailnet or IPv4 caller by its address", () => {
+    expect(signinClientKey("2001:db8:1:2:aaaa::1")).toBe("2001:db8:1:2::/64");
+    expect(signinClientKey("2001:0db8:0001:0002:ffff:eeee:dddd:cccc")).toBe("2001:db8:1:2::/64");
+    expect(signinClientKey("2001:db8::7")).toBe("2001:db8:0:0::/64");
+    expect(signinClientKey("::ffff:192.0.2.4")).toBe("192.0.2.4");
+    expect(signinClientKey("100.64.0.9")).toBe("100.64.0.9");
+    expect(signinClientKey("fd7a:115c:a1e0::1234")).toBe("fd7a:115c:a1e0::1234");
+    expect(signinClientKey(null)).toBeNull();
+  });
+
+  it("holds two addresses in one /64 to one caller's two flows", async () => {
+    const state = await store();
+    state.setSetting("githubClientId", "Ov23liabcdefghijklmn");
+    const fetchImpl = async () => ({ ok: true, json: async () => ({ device_code: "d", user_code: "ABCD-EFGH", verification_uri: "https://github.com/login/device", interval: 5, expires_in: 900 }) });
+    const identity = createIdentityService({ store: state, fetchImpl, now: () => 1000 });
+    await identity.githubStart({ purpose: "signin", client: "2001:db8:1:2::a" });
+    await identity.githubStart({ purpose: "signin", client: "2001:db8:1:2::b" });
+    await expect(identity.githubStart({ purpose: "signin", client: "2001:db8:1:2::c" })).rejects.toThrow("from this device");
     state.close();
   });
 });
@@ -233,5 +325,66 @@ describe("recognising this service behind Tailscale Serve", () => {
     expect(await forge("http://192.168.1.50:8787", 8787)).toBe(false);
     expect(await forge("https://other.example:8787/x", 8787)).toBe(false);
     expect(await forge("http://127.0.0.1:8787@evil.example:9", 8787)).toBe(false);
+  });
+});
+
+describe("GitHub links and the device flow's answers", () => {
+  it("never signs in through a link saved before ids were recorded, and keeps a login linked to one account", async () => {
+    const state = await store();
+    const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    const operator = state.createOwnerAccount({ username: "helper", passwordHash: "x", role: "operator", createdBy: owner.id });
+    const identity = createIdentityService({ store: state, now: () => 1000 });
+    // A link from before ids: GitHub may have given the name to someone else since.
+    state.setSetting("githubLinks", { oldname: { ownerId: owner.id, login: "OldName" } }, { updatedBy: owner.id });
+    expect(identity.githubAccountFor("OldName", 7)).toBeNull();
+    expect(identity.githubAccountFor("OldName", null)).toBeNull();
+    identity.linkGithub(owner.id, "Alex-GH", 7);
+    expect(() => identity.linkGithub(operator.id, "alex-gh", 8)).toThrow("already linked to another account");
+    expect(identity.githubAccountFor("ALEX-GH", 7)).toBe(owner.id);
+    expect(() => identity.linkGithub(owner.id, "-bad login-", 9)).toThrow("looks invalid");
+    state.close();
+  });
+
+  it("slows down when GitHub asks, and says expired, denied or failed without completing", async () => {
+    const state = await store();
+    const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    let answer = { error: "slow_down" };
+    let profile = { ok: true, body: { login: "alex-gh", id: 7 } };
+    const fetchImpl = vi.fn(async (url) => {
+      if (url === "https://github.com/login/device/code") return { ok: true, status: 200, json: async () => ({ device_code: "dev", user_code: "AAAA-BBBB", verification_uri: "https://github.com/login/device", expires_in: 900, interval: 5 }) };
+      if (url === "https://github.com/login/oauth/access_token") return { ok: true, status: 200, json: async () => answer };
+      return { ok: profile.ok, status: profile.ok ? 200 : 401, json: async () => profile.body };
+    });
+    let clock = 0;
+    const identity = createIdentityService({ store: state, fetchImpl, now: () => clock });
+    identity.setGithubClientId(owner.id, "Iv1.abcdef1234567890");
+    const start = () => identity.githubStart({ purpose: "signin", client: `c${clock}` });
+
+    const slow = await start();
+    expect(await identity.githubPoll(slow.flowId)).toMatchObject({ status: "pending" });
+    clock += 6_000; // the old interval has passed, but slow_down added five seconds to it
+    expect(await identity.githubPoll(slow.flowId)).toMatchObject({ status: "pending" });
+    expect(fetchImpl.mock.calls.filter(([url]) => url.endsWith("access_token"))).toHaveLength(1);
+
+    for (const [error, status] of [["expired_token", "expired"], ["access_denied", "denied"]]) {
+      clock += 60_000; answer = { error };
+      const flow = await start();
+      expect(await identity.githubPoll(flow.flowId)).toMatchObject({ status });
+      expect(await identity.githubPoll(flow.flowId)).toEqual({ status: "expired" });
+    }
+    clock += 60_000; answer = { error: "incorrect_client_credentials", error_description: "The client_id is not valid" };
+    expect(await identity.githubPoll((await start()).flowId)).toMatchObject({ status: "error", error: "The client_id is not valid" });
+    clock += 60_000; answer = { access_token: "gho_x" }; profile = { ok: false, body: { login: "alex-gh", id: 7, message: "Bad credentials" } };
+    expect(await identity.githubPoll((await start()).flowId)).toMatchObject({ status: "error", error: "Could not read the GitHub profile" });
+    state.close();
+  });
+
+  it("says why a flow could not start", async () => {
+    const state = await store();
+    const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    const identity = createIdentityService({ store: state, fetchImpl: async () => ({ ok: false, status: 404, json: async () => ({ error: "Not Found" }) }), now: () => 0 });
+    identity.setGithubClientId(owner.id, "Iv1.abcdef1234567890");
+    await expect(identity.githubStart({ purpose: "link", ownerId: owner.id })).rejects.toThrow("Not Found");
+    state.close();
   });
 });

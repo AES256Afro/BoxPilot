@@ -7,7 +7,7 @@ description: "Household ERP: groceries and stock with barcodes and best-before d
 website: https://grocy.info
 risk: low
 image:
-  reference: lscr.io/linuxserver/grocy:v4.6.0-ls336
+  reference: lscr.io/linuxserver/grocy:v4.6.0-ls336@sha256:0a59bdad2a45f5b7aef1549d80dca8e8296facb66b6fdb38868818ba5b93c20b
   version: "4.6.0"
 ports:
   - id: web

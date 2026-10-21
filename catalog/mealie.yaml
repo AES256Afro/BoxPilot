@@ -7,7 +7,7 @@ description: Recipe manager and meal planner with recipe import from any URL.
 website: https://mealie.io
 risk: low
 image:
-  reference: ghcr.io/mealie-recipes/mealie:v3.23.1
+  reference: ghcr.io/mealie-recipes/mealie:v3.23.1@sha256:5fc5cebedddb3952c1ee78f20faf42ab7e49986813fd314745aa97978a4a13eb
   version: v3.23.1
 ports:
   - id: web

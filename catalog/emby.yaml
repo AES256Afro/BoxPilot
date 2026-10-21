@@ -7,7 +7,7 @@ description: "Media server for films, series, music, and live TV with apps for e
 website: https://emby.media
 risk: low
 image:
-  reference: emby/embyserver:4.10.0.26
+  reference: emby/embyserver:4.10.0.26@sha256:317192dbd936a547fb50eb26d2bf18eaf67bdf3f2f3304f613382b15b71bb7f9
   version: "4.10.0.26"
 ports:
   - id: web

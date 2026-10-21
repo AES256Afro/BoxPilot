@@ -7,7 +7,7 @@ description: "Web panel to run and manage several game servers (Minecraft, Terra
 website: https://www.pufferpanel.com
 risk: low
 image:
-  reference: pufferpanel/pufferpanel:3.0.9
+  reference: pufferpanel/pufferpanel:3.0.9@sha256:3af92ddbc8281581d121bb74042c4182421e3440725403da2cfb158fd24c0b53
   version: "3.0.9"
 ports:
   - id: web

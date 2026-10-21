@@ -144,6 +144,13 @@ const operationOf = (job) => (typeof job?.type === "string" && job.type.startsWi
 const documentText = (model, chunk) => `${/^nomic-embed/i.test(model) ? "search_document: " : ""}${chunk.title}\n${chunk.text}`;
 const queryText = (model, text) => `${/^nomic-embed/i.test(model) ? "search_query: " : ""}${text}`;
 
+/**
+ * @param {{
+ *   state?: any, registry?: any, catalog?: any, helper?: any, inventory?: any, secretEnvNamesFor?: ((appId: string) => Promise<string[]> | string[]) | null,
+ *   ollama?: any, openai?: any, knowledge?: any, redactor?: any, loadRedaction?: typeof loadRedactionPolicy, generations?: any,
+ *   limits?: Partial<typeof defaultLimits>, now?: () => Date, recordAudit?: ((type: string, entry: object) => unknown) | null,
+ * }} [options]
+ */
 export function createAssistantService({
   state,
   registry,

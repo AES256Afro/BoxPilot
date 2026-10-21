@@ -9,7 +9,7 @@ import { SystemHousekeeping } from "./SystemHousekeeping";
 import { SystemPower, thresholdWords, watchdogWords } from "./SystemPower";
 import { SystemTime } from "./SystemTime";
 import { releaseState, SystemUpdates, updateLogFacts } from "./SystemUpdates";
-import { gib, nextRunWords, upsLabel, type DockerDisk, type Housekeeping, type PowerHardware, type PowerOverview, type ReleaseUpdate, type StartOperation, type SystemSettings, type UpdateStatus, type UpsDetection } from "./systemTypes";
+import { gib, nextRunWords, upsLabel, type DockerDisk, type Housekeeping, type PowerHardware, type PowerOverview, type ReleaseUpdate, type SpaceReport, type StartOperation, type SystemSettings, type UpdateStatus, type UpsDetection } from "./systemTypes";
 import { upsStateWords } from "../../powerEvents";
 import "./system.css";
 
@@ -40,6 +40,9 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
   const [dockerDisk, setDockerDisk] = useState<DockerDisk | null>(null);
   const [housekeeping, setHousekeeping] = useState<Housekeeping | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [space, setSpace] = useState<SpaceReport | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  const [spaceProblem, setSpaceProblem] = useState<string | null>(null);
   const [release, setRelease] = useState<ReleaseUpdate | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const [checkingRelease, setCheckingRelease] = useState(false);
@@ -106,6 +109,25 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
     finally { setScanning(false); }
   }, [operator]);
   useEffect(() => { void scan(); }, [scan]);
+
+  /**
+   * Where the disk space went (M30.8). Measuring walks the journal, the job logs and the backups as
+   * root for up to a few minutes, so it runs only when asked; the figures stay across tabs.
+   */
+  const measureSpace = useCallback(async () => {
+    if (!operator) return;
+    setMeasuring(true);
+    try {
+      const { result } = await inspectOperation<SpaceReport>("space.inspect");
+      if (!Array.isArray(result?.categories) || !Array.isArray(result.filesystems)) throw new Error("The measurement arrived in a shape this page cannot read");
+      setSpace(result);
+      setSpaceProblem(null);
+    } catch (requestError) {
+      setSpaceProblem(requestError instanceof Error ? requestError.message : "The disk could not be measured");
+    } finally {
+      setMeasuring(false);
+    }
+  }, [operator]);
 
   const lookForUps = useCallback(async () => {
     try {
@@ -180,14 +202,28 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
 
   const { start, dialog } = useOperation(csrfToken, (job) => {
     if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) { setUpdateOutcome(null); setUpdating(updateTarget.current); }
+    if (job.type === "op:system.update.signer.set" && job.state === "completed") inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => setUpdateStatus(result && Array.isArray(result.log) ? result : null)).catch(() => {});
     // A finished cleanup invalidates its own figures: leaving them up says gigabytes are still
     // waiting when they have just gone, and a snapshot removed by name is still offered for removal.
     if ((job.type === "op:housekeeping.reclaim" || job.type === "op:housekeeping.unreadable-snapshot.remove") && job.state === "completed") void scan();
+    // A cleanup that ran, even one that failed partway, changed the figures it was planned against;
+    // it is only offered once the disk has been measured.
+    if (job.type === "op:space.cleanup" && (job.state === "completed" || job.state === "failed")) void measureSpace();
     if (job.type === "op:ups.setup" || job.type === "op:apt.install") { void lookForUps(); void loadPower(); }
     if (job.type.startsWith("op:power.")) void readHardware();
     void refresh();
   });
   const begin: StartOperation = start;
+
+  const setSigner = (publicKey: string | null) => start({
+    operationId: "system.update.signer.set",
+    title: publicKey ? "Require signed BoxPilot releases" : "Stop checking release signatures",
+    parameters: publicKey ? { publicKey } : {},
+    confirmText: publicKey ? "require signed releases" : "stop checking signatures",
+    preview: publicKey
+      ? <span>From now on an update builds a release only when its tag is signed with this key. An unsigned release, or one signed with another key, stops before anything changes. Keep signing releases with it, or updates stop.</span>
+      : <span>Updates go back to building whatever commit the release tag points at, signed or not.</span>,
+  });
 
   const update = (target: NonNullable<ReleaseUpdate["latest"]>) => {
     updateTarget.current = target.version;
@@ -279,9 +315,10 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
             )}
           </>
         ) : current === "updates" ? (
-          <SystemUpdates release={release} releaseError={releaseError} checking={checkingRelease} onCheck={() => void loadRelease(true)} status={updateStatus} updating={updating} outcome={updateOutcome} role={role} onUpdate={update} />
+          <SystemUpdates release={release} releaseError={releaseError} checking={checkingRelease} onCheck={() => void loadRelease(true)} status={updateStatus} updating={updating} outcome={updateOutcome} role={role} onUpdate={update} onSigner={setSigner} />
         ) : current === "housekeeping" ? (
-          <SystemHousekeeping csrfToken={csrfToken} role={role} housekeeping={housekeeping} scanning={scanning} onRescan={() => void scan()} dockerDisk={dockerDisk} start={begin} />
+          <SystemHousekeeping csrfToken={csrfToken} role={role} housekeeping={housekeeping} scanning={scanning} onRescan={() => void scan()} dockerDisk={dockerDisk}
+            space={{ report: space, measuring, problem: spaceProblem, onMeasure: () => void measureSpace() }} start={begin} />
         ) : current === "time" ? (
           <SystemTime settings={settings} loading={loading} role={role} start={begin} />
         ) : current === "hardware" ? (

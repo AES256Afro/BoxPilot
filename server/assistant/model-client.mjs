@@ -18,13 +18,15 @@ export const modelProviders = Object.freeze(["openai", "ollama"]);
  * Ollama's API behind the same interface, for an assistant saved before M37. It has no tool calls
  * here: an agent always uses the OpenAI-compatible provider.
  */
+/** @typedef {{ signal?: AbortSignal, timeoutMs?: number }} CallOptions */
+
 export function createOllamaAdapter(options = {}) {
   const client = options.client ?? createOllamaClient(options);
   return {
     provider: "ollama",
-    models: (endpoint, { signal, timeoutMs } = {}) => client.tags(endpoint, { signal, timeoutMs }),
-    embed: (endpoint, model, inputs, { signal, timeoutMs } = {}) => client.embed(endpoint, model, inputs, { signal, timeoutMs }),
-    async chat(endpoint, { model, messages, temperature = 0.2, maxTokens = 1024, contextTokens = 8192 }, { signal, timeoutMs, onDelta = () => {} } = {}) {
+    models: (endpoint, /** @type {CallOptions} */ { signal, timeoutMs } = {}) => client.tags(endpoint, { signal, timeoutMs }),
+    embed: (endpoint, model, inputs, /** @type {CallOptions} */ { signal, timeoutMs } = {}) => client.embed(endpoint, model, inputs, { signal, timeoutMs }),
+    async chat(endpoint, { model, messages, temperature = 0.2, maxTokens = 1024, contextTokens = 8192 }, /** @type {CallOptions & { onDelta?: (text: string) => unknown }} */ { signal, timeoutMs, onDelta = () => {} } = {}) {
       let content = "";
       const result = await client.chat(endpoint, { model, messages, options: { temperature, num_predict: maxTokens, num_ctx: contextTokens } }, {
         signal, timeoutMs, onDelta: (piece) => { content += piece; return onDelta(piece); },

@@ -32,6 +32,7 @@ export function createVmRecoveryService({ store, helper }) {
   }
 
   /** Pin the drilled-backup evidence and target name for the registry operation. */
+  /** @param {{ backupId?: string, targetDomainName?: string }} [parameters] */
   async function prepareOperation({ backupId, targetDomainName: targetName } = {}) {
     const targetDomainName = validateTargetName(targetName);
     const { backup, artifact } = evidence(backupId);

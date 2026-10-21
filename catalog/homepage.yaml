@@ -7,7 +7,7 @@ description: A fast, static dashboard for everything running on this server, con
 website: https://gethomepage.dev
 risk: medium
 image:
-  reference: ghcr.io/gethomepage/homepage:v1.13.2
+  reference: ghcr.io/gethomepage/homepage:v1.13.2@sha256:a0b71c8e757298d02560186bab9fbe3fc2d375c523a62cc1019177b37e48aa28
   version: v1.13.2
 ports:
   - id: web

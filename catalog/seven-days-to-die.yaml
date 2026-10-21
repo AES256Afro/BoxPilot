@@ -7,7 +7,7 @@ description: "Dedicated 7 Days to Die server with a web control panel, player li
 website: https://7daystodie.com
 risk: low
 image:
-  reference: vinanrra/7dtd-server:v0.9.3
+  reference: vinanrra/7dtd-server:v0.9.3@sha256:75d1193fb2470687ee8748f27482524c170f6cbca110e15f48db8d8ff48f15ca
   version: "0.9.3"
 ports:
   - id: game

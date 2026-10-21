@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Text that looked like an instruction, as it crosses from one run to another (sweep 2, 2026-10).
  * A run that read such text is flagged: its notice is held back, its cards are marked, the owner is

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Boot-critical files survive a power cut mid-write (reliability audit, 2026-09-29): the old file
  * or the new one, never an empty or half-written one. What a crash does is simulated by a write

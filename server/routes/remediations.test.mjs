@@ -161,6 +161,18 @@ describe("Repair's memory: fixes tried and findings set aside (M35)", () => {
     return { call, close: async () => { server.closeAllConnections?.(); await new Promise((resolve) => server.close(resolve)); } };
   }
 
+  it("drops the held drive evidence when the Repair page asks for a fresh scan, and only then", async () => {
+    const forgotten = [];
+    helper.invalidate = (names) => forgotten.push(names);
+    const { call, close } = await serve(fakeState([]));
+    try {
+      await call("GET", "/remediations");
+      expect(forgotten).toEqual([]);
+      await call("GET", "/remediations?fresh=1");
+      expect(forgotten).toEqual([["storage.usb.events", "storage.unclean.events", "storage.volumes.state"]]);
+    } finally { delete helper.invalidate; await close(); }
+  });
+
   it("gives each fix its registry tier, and shows a failed try on the finding it was started from", async () => {
     const refused = { id: "job-7", type: "op:app.reinstall", title: "Rebuild an application's container", state: "failed", error: "compose up failed", parameters: { id: "homepage" }, createdBy: "owner-1", createdAt: "2026-09-29T10:00:00.000Z" };
     const state = fakeState([refused]);

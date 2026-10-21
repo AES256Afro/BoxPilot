@@ -5,8 +5,10 @@ import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mount
 import { mayServe } from "../../servedFolder";
 import type { MapApp, MapSambaShare } from "../../storageMap";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Sheet, Table, Tag, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
+import { DriveHealthPanel } from "./DriveHealthPanel";
 import { ReconnectSwitch, UsageMeter } from "./parts";
 import { checkableFs, gib, managedMounts, nameValid, percentUsed, permissionlessFs, slug, type DeviceRow, type MountRow, type StorageReport } from "./types";
+import { WeeklyWakePanel } from "./WeeklyWakePanel";
 
 /*
  * Drives (M33.9): the drives BoxPilot mounted, each with its check, its unmount and whether it
@@ -210,6 +212,8 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
         />
       </Panel>
 
+      <WeeklyWakePanel csrfToken={csrfToken} role={role} />
+
       <Panel
         title="Disks and partitions"
         count={report ? devices.filter((device) => device.type === "disk").length : undefined}
@@ -223,6 +227,8 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
           empty={!report ? (loading ? "Reading block devices…" : "The block devices could not be read.") : "No block devices were listed."}
         />
       </Panel>
+
+      <DriveHealthPanel />
 
       {form && (
         <Sheet

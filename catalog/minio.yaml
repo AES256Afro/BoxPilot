@@ -10,7 +10,7 @@ image:
   # MinIO stopped publishing community images: minio/minio (Docker Hub) and quay.io/minio/minio
   # both answer 401 now, for every tag. pgsty/minio is a maintained community build of the same
   # AGPL source (same entrypoint, command and data layout), so existing /srv/minio data keeps working.
-  reference: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+  reference: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
   version: "2026-08-04"
 command: ["server", "/data", "--console-address", ":9001"]
 ports:

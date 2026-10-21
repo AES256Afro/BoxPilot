@@ -13,15 +13,16 @@ export function buildMagicPacket(mac) {
   return Buffer.concat([Buffer.alloc(6, 0xff), ...Array.from({ length: 16 }, () => hardware)]);
 }
 
+/** @param {{ mac?: string, broadcast?: string, port?: number }} [parameters] */
 export async function networkWake({ mac, broadcast = "255.255.255.255", port = 9 } = {}, { log = null, createSocket = dgram.createSocket } = {}) {
   const packet = buildMagicPacket(mac);
   if (typeof broadcast !== "string" || !/^\d{1,3}(\.\d{1,3}){3}$/.test(broadcast)) throw new Error("Broadcast address must be IPv4");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Port must be 1-65535");
   const socket = createSocket("udp4");
   try {
-    await new Promise((resolve, reject) => socket.bind(0, () => { try { socket.setBroadcast(true); resolve(); } catch (error) { reject(error); } }));
+    await /** @type {Promise<void>} */ (new Promise((resolve, reject) => socket.bind(0, () => { try { socket.setBroadcast(true); resolve(); } catch (error) { reject(error); } })));
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await new Promise((resolve, reject) => socket.send(packet, port, broadcast, (error) => (error ? reject(error) : resolve())));
+      await /** @type {Promise<void>} */ (new Promise((resolve, reject) => socket.send(packet, port, broadcast, (error) => (error ? reject(error) : resolve()))));
     }
   } finally {
     socket.close();

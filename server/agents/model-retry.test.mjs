@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * One more try after the model server's 5xx (M48.9), through the whole runner: the fake model
  * answers one chat call with a 500 ("Failed to parse tool call", as llama-server does when the

@@ -7,9 +7,12 @@ import { strandedServes } from "../../strandedServes";
 import { AppIcon, Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, SearchField, Select, Sheet, StatusChip, Table, Tabs, Tag, Tile, Toolbar, appHue, mayStart, riskOf, useUrlParam, type Status, type TableColumn } from "../../ui";
 import { AppSheet, type SheetTab } from "./AppSheet";
 import { ConfigSheet } from "./ConfigSheet";
-import { appStatus, installTier, isRunning, runRead, tileDetail } from "./appState";
+import { appStatus, installTier, isRunning, runRead, shortImage, tileDetail } from "./appState";
 import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, Values } from "./types";
 import "./catalog.css";
+
+/** The most apps one app.update.many job takes (server/ops/apps.mjs). */
+const updateBatchLimit = 20;
 
 /*
  * The App catalog (M33.11), rebuilt in the console on the kit. Facts first: whether the installed
@@ -241,7 +244,10 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   const availableVisible = useMemo(() => visible.filter((entry) => !entry.live?.installed), [visible]);
   const installedAll = applications.filter((entry) => entry.live?.installed);
   const runningCount = installedVisible.filter((entry) => isRunning(entry.live)).length;
-  const updates = installedAll.filter((entry) => entry.live?.updateAvailable).length;
+  const updatable = installedAll.filter((entry) => entry.live?.updateAvailable);
+  // app.update.many takes at most this many ids; more wait for the next run.
+  const batch = updatable.slice(0, updateBatchLimit);
+  const updates = updatable.length;
   const unwell = installedAll.map((entry) => appStatus(entry.live)).filter((state) => state.status === "danger" || state.status === "warning");
   const worst: Status = unwell.some((state) => state.status === "danger") ? "danger" : "warning";
   const filtering = Boolean(search.trim() || category);
@@ -326,7 +332,18 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
         title="App catalog"
         status={verdict}
         meta={data ? <><b>{installedAll.length}</b> installed · <b>{installedAll.filter((entry) => isRunning(entry.live)).length}</b> running · <b>{updates}</b> {updates === 1 ? "update" : "updates"} · <b>{applications.length}</b> in the catalog · <b>{categories.length}</b> categories</> : undefined}
-        actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Read again</Button>}
+        actions={<>
+          {/* M36: every update ready in one approval, one app at a time. */}
+          {updatable.length >= 2 && mayStart(role, "app.update.many") && (
+            <Button risk={riskOf("app.update.many")} onClick={() => start({
+              operationId: "app.update.many",
+              title: `Update ${batch.length} apps`,
+              parameters: { ids: batch.map((entry) => entry.manifest.id) },
+              preview: <span>Updates {batch.map((entry) => entry.manifest.name).join(", ")}, one at a time. Each gets a data checkpoint first, then the catalog's current image; one that does not become healthy goes back to its previous image. One that fails does not stop the others.{updatable.length > batch.length ? ` The other ${updatable.length - batch.length} wait for the next run: one job updates at most ${updateBatchLimit}.` : ""}</span>,
+            })}>{updatable.length > batch.length ? `Update ${batch.length} of ${updatable.length}` : `Update all (${updatable.length})`}</Button>
+          )}
+          <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Read again</Button>
+        </>}
         about={<>
           <p>Install, update, configure and remove applications. Each one is a Compose project BoxPilot deploys from the catalog, and each opens a sheet with its state, who can reach it, its backups and restore drills, its logs and its configuration.</p>
           <p>Other stacks lists Compose projects started outside BoxPilot. Their compose files stay theirs; they are listed so this page tells the whole truth about this server.</p>
@@ -409,7 +426,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
                               <AppIcon id={manifest.id} name={manifest.name} icon={manifest.icon} />
                               <span className="catalog-card__title">
                                 <span className="catalog-card__name">{manifest.name}</span>
-                                <span className="catalog-card__meta">{manifest.category} · {manifest.image.version ?? manifest.image.reference}</span>
+                                <span className="catalog-card__meta">{manifest.category} · {manifest.image.version ?? shortImage(manifest.image.reference)}</span>
                               </span>
                             </button>
                             <p className="catalog-card__description">{manifest.description}</p>
@@ -441,7 +458,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
           onCancel={() => { const back = config.back; setConfig(null); if (back) setSheet(back); }}
           onSubmit={(values: Values, form: Values) => {
             const { entry: { manifest }, mode } = config;
-            act({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${manifest.image.reference}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> },
+            act({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${shortImage(manifest.image.reference)}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> },
               { config: { ...config, seed: form } });
           }}
         />

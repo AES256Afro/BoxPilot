@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Talking to agents in Zulip (M40.5), end to end with the real service, store and runner and a
  * stand-in for the helper: a direct message to the bot, or a mention of it, is asked as the BoxPilot

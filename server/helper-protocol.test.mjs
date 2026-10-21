@@ -160,24 +160,18 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ parameters: { command: "id" } }))).toBe("Check that BoxPilot can do root work accepts no parameters");
   });
 
-  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
-  it.skipIf(onWindows)("returns only the Docker server availability and version", async () => {
-    const result = await executeHelperOperation(request({ operation: "container.docker.inspect", parameters: {} }), {
-      hostInspect: { inspectDocker: async () => ({ available: true, version: "29.1.3" }) },
-    });
-    expect(result).toMatchObject({ ok: true, result: { available: true, version: "29.1.3" } });
+  it("no longer offers the Docker version or backup inspections nothing called", () => {
+    expect(validateHelperRequest(request({ operation: "container.docker.inspect", parameters: {} }))).toBe("Operation is not allowlisted");
+    expect(validateHelperRequest(request({ operation: "controller.database.backup.inspect", parameters: {} }))).toBe("Operation is not allowlisted");
   });
 
   // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
-  it.skipIf(onWindows)("keeps controller backup inspection read-only and routes creation through the registry", async () => {
-    expect(validateHelperRequest(request({ operation: "controller.database.backup.inspect", parameters: {} }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "controller.database.backup.inspect", parameters: { database: "/tmp/db" } }))).toContain("no parameters");
+  it.skipIf(onWindows)("routes controller backup creation through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "controller.database.backup.create", parameters: { backupId: randomUUID() } }))).toBe("Operation is not allowlisted");
     const controllerBackups = {
       inspect: async () => ({ healthy: true, boundary: { mutationPerformed: false } }),
       createBackup: async (parameters) => ({ ...parameters, applicationId: "boxpilot-controller", consistentSnapshot: true, restoreDrill: { passed: true } }),
     };
-    await expect(executeHelperOperation(request({ operation: "controller.database.backup.inspect", parameters: {} }), { controllerBackups })).resolves.toMatchObject({ ok: true, result: { healthy: true, boundary: { mutationPerformed: false } } });
     await expect(executeHelperOperation(request({ operation: "controller.backup.create", parameters: {} }), { controllerBackups })).resolves.toMatchObject({ ok: true, result: { applicationId: "boxpilot-controller", consistentSnapshot: true } });
   });
 
@@ -228,8 +222,9 @@ describe("restricted helper protocol", () => {
   // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
   it.skipIf(onWindows)("accepts only fixed read-only virtualization inventory scopes", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domains" } }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domain", name: "ubuntu-lab" } }))).toContain("fixed status, domains, or resources scope");
-    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "../../etc" } }))).toContain("fixed status, domains, or resources scope");
+    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domains-summary" } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domain", name: "ubuntu-lab" } }))).toContain('does not accept parameter "name"');
+    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "../../etc" } }))).toContain("must be one of status, domains, domains-summary, resources");
     const virtualization = { inventory: async ({ scope }) => ({ scope, connected: true }) };
     const result = await executeHelperOperation(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "resources" } }), { virtualization });
     expect(result).toMatchObject({ ok: true, result: { scope: "resources", connected: true } });
@@ -299,7 +294,8 @@ describe("restricted helper protocol", () => {
   // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
   it.skipIf(onWindows)("keeps the drill inspection typed and routes the drill run through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters({ network: "default" }) }))).toContain("only the fixed typed evidence fields");
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters({ network: "default" }) }))).toContain('does not accept parameter "network"');
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters({ snapshotId: "not-a-sha" }) }))).toContain("Snapshot id is invalid");
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters() }))).toBe("Operation is not allowlisted");
     const vmRestoreDrill = {
       inspect: async (parameters) => ({ ready: true, drillId: parameters.drillId, network: "none", transient: true }),
@@ -312,7 +308,8 @@ describe("restricted helper protocol", () => {
   // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
   it.skipIf(onWindows)("keeps the recovery inspection typed and routes the clone through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters({ path: "/tmp/restore" }) }))).toContain("only the fixed typed protected-backup fields");
+    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters({ path: "/tmp/restore" }) }))).toContain('does not accept parameter "path"');
+    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters({ targetDomainName: "boxpilot-drill-x" }) }))).toContain("reserved restore-drill namespace");
     expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters() }))).toBe("Operation is not allowlisted");
     const vmRecovery = {
       inspect: async (parameters) => ({ ready: true, targetDomainName: parameters.targetDomainName, network: "none", persistent: true, initialState: "stopped" }),

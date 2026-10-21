@@ -133,6 +133,10 @@ export async function replaceFileWithoutFollowing(file, data, { mode = 0o600, en
  * Read a regular file without following a link at its name: ENOENT when nothing is there, ELOOP for
  * a link, EINVAL for a folder, a pipe or a device. A link read through would hand root's reading of
  * any file on the server to whatever reads the result.
+ *
+ * @param {string} file
+ * @param {{ encoding?: BufferEncoding }} [options]
+ * @param {{ fs?: typeof defaultFs }} [dependencies]
  */
 export async function readFileWithoutFollowing(file, { encoding = "utf8" } = {}, { fs = defaultFs } = {}) {
   const info = await fs.lstat(file);   // O_NOFOLLOW is not there on Windows; this is
