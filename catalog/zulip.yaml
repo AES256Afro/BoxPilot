@@ -138,7 +138,7 @@ sidecars:
         container: /var/lib/postgresql/data
         path: postgres
   - id: memcached
-    image: memcached:1.6.45-alpine@sha256:9e4de012dc607573052061c0bcb38abc775e1dd59b24e7ac38d1892842094aaf
+    image: memcached:1.6.45-alpine@sha256:4deb497302f98c3cc516ed4c57a0bcf203e6fc5bd5496bf250cbc103b7a99224
     # As docker-zulip does it: SASL with Zulip's generated password, read from the environment.
     command:
       - sh
