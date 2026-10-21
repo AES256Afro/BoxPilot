@@ -1,9 +1,12 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AuthScreen, { SignInLoading, SignInUnavailable, signedOutWords } from "./SignInPage";
+import { resetSigninStyleForTests, setSigninStyle } from "./signinStyle";
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
+  resetSigninStyleForTests();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -241,5 +244,44 @@ describe("GitHub sign-in to its end", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Sign in with GitHub" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Too many GitHub sign-ins are waiting; try again in a minute");
     expect((screen.getByRole("button", { name: "Sign in with GitHub" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("which sign-in screen this browser shows", () => {
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+  const ways = { tailscale: { available: false, linked: false }, github: { configured: true }, passkey: { registered: false } };
+
+  it("shows the terminal unless this browser chose the classic card", () => {
+    const { container } = render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    expect(container.querySelector(".signin-page--terminal")).toBeTruthy();
+    cleanup();
+    act(() => setSigninStyle("classic"));
+    const classic = render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    expect(classic.container.querySelector(".signin-page--terminal")).toBeNull();
+    expect(classic.container.querySelector(".signin-card")).toBeTruthy();
+    expect(window.localStorage.getItem("boxpilot-signin-style")).toBe("classic");
+  });
+
+  it("presses a way in when its number is typed, but not while typing in a field", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith("/auth/github/start")
+      ? json({ flowId: "f1", userCode: "WXYZ-9876", verificationUri: "https://github.com/login/device", expiresIn: 900, intervalSeconds: 5 })
+      : json(ways));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    await screen.findByRole("button", { name: "Sign in with GitHub" });
+    fireEvent.keyDown(screen.getByLabelText("Username"), { key: "1" });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/github/start"))).toBe(false);
+    fireEvent.keyDown(document.body, { key: "1" });
+    await vi.waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/github/start"))).toBe(true));
+  });
+
+  it("ignores number keys on the classic card", async () => {
+    act(() => setSigninStyle("classic"));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => json(ways));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    await screen.findByRole("button", { name: "Sign in with GitHub" });
+    fireEvent.keyDown(document.body, { key: "1" });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/github/start"))).toBe(false);
   });
 });
