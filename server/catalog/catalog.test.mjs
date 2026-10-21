@@ -20,6 +20,18 @@ describe("manifest schema", () => {
     expect(rendered.envFile).toContain("private-fixture-value");
   });
 
+  it("lets a setting take its choices from the installed models, and keeps its value free text", () => {
+    const { manifest, errors } = validateManifest({ ...base, env: [{ name: "LOCAL_MODEL", optionsFrom: "ollama-models", default: "qwen3:8b" }] });
+    expect(errors).toEqual([]);
+    expect(manifest.env[0]).toMatchObject({ optionsFrom: "ollama-models", options: null });
+    // A model removed after install must not make the stored settings invalid on update or restore.
+    expect(resolveValues(manifest, { env: { LOCAL_MODEL: "a-model-no-longer-downloaded:7b" } }).errors).toEqual([]);
+    expect(validateManifest({ ...base, env: [{ name: "M", optionsFrom: "everything" }] }).errors).toContainEqual(expect.stringContaining("env[0].optionsFrom"));
+    expect(validateManifest({ ...base, env: [{ name: "M", optionsFrom: "ollama-models", options: ["a"] }] }).errors).toContainEqual(expect.stringContaining("not both"));
+    expect(validateManifest({ ...base, env: [{ name: "M", optionsFrom: "ollama-models", type: "number" }] }).errors).toContainEqual(expect.stringContaining("only string settings"));
+    expect(validateManifest({ ...base, env: [{ name: "M" }] }).manifest.env[0].optionsFrom).toBeNull();
+  });
+
   it("accepts a minimal manifest and fills defaults", () => {
     const { manifest, errors } = validateManifest(base);
     expect(errors).toEqual([]);
