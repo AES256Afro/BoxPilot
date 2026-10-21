@@ -9,8 +9,8 @@ risk: low
 # It holds meeting notes and API keys, so it starts on the tailnet only; the Reach tab can open it to the home network.
 defaultExposure: tailnet
 image:
-  reference: ghcr.io/aes256afro/openplaud:0.4.0
-  version: "0.4.0"
+  reference: ghcr.io/aes256afro/openplaud:0.5.0
+  version: "0.5.0"
 user: "1000:1000"
 ports:
   - id: web
@@ -77,20 +77,42 @@ env:
     default: summary
     options: ["summary", "actions", "followup"]
   - name: OPENPLAUD_SYNC_EVERY
-    label: Sync every (minutes)
+    label: Check Plaud every (minutes)
     type: number
-    description: How often new recordings are fetched and processed. 0 turns automatic sync off.
+    description: How often new recordings are fetched and get notes. 0 turns automatic checks off.
     default: "60"
   - name: OPENPLAUD_SYNC_DAYS
     label: Look back (days)
     type: number
-    description: How far back each sync looks for recordings that have no notes yet.
+    description: How far back each check looks for recordings that have no notes yet.
     default: "7"
   - name: OPENPLAUD_LOOK
     label: Look
     description: "How the page is laid out: inbox (folders, list and reader), timeline (a day-by-day feed), actions (action items from every note), command (a keyboard palette), board (columns from new to filed), reader (notes beside the transcript), library (folder tiles), calendar (a week view), phone (one column) or console (sync and status). Each browser can also pick its own from the page."
     default: inbox
     options: ["inbox", "timeline", "actions", "command", "board", "reader", "library", "calendar", "phone", "console"]
+  - name: OPENPLAUD_MONTHLY_CAP
+    label: Monthly spending cap (dollars)
+    type: number
+    description: "Most to spend on paid models in a calendar month; 0 means no cap. Once reached, paid runs wait for next month. Models without a known price are refused while a cap is set (see Model prices)."
+    default: "0"
+  - name: OPENPLAUD_PRICES
+    label: Model prices (optional)
+    description: "Prices for ChatGPT models, in dollars per million input/output tokens, e.g. gpt-5-mini=0.25/2. Claude prices are built in."
+    default: ""
+  - name: OPENPLAUD_LONG_MINUTES
+    label: Long recordings (minutes, optional)
+    type: number
+    description: Recordings longer than this use the long-recording model below. 0 turns the rule off.
+    default: "0"
+  - name: OPENPLAUD_LONG_MODEL
+    label: Long-recording model (optional)
+    description: "provider:model, e.g. claude:claude-sonnet-5-5 or local:qwen3:30b-a3b."
+    default: ""
+  - name: OPENPLAUD_ALLOWED_HOSTS
+    label: Extra host names (optional)
+    description: "Only needed if you open the page under your own domain name. Tailnet names, IP addresses and .local names always work."
+    default: ""
   - name: CLAUDE_ROUTINE_URL
     label: Claude fire URL (optional)
     description: "Send to Claude: the Fire URL of a Claude scheduled task's API trigger, from claude.ai/code/routines. Each new recording then opens as its own session in your Claude account (claude.ai/code and the Claude app), on your Claude subscription. The page's Claude button shows the prompt to give the task."
