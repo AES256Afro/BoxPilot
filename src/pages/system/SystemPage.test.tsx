@@ -389,6 +389,145 @@ describe("System page", () => {
   });
 });
 
+// M30.8: the journal, job logs, APT's cache and dangling images, measured when asked, previewed
+// with the chosen bounds, and cleaned with exactly the parameters the preview was made for.
+describe("logs and caches", () => {
+  const MiB = 1024 ** 2;
+  const spaceReport = {
+    generatedAt: "2026-10-18T09:00:00.000Z",
+    categories: [
+      { id: "journal", title: "System journal", path: "/var/log/journal", bytes: 1288 * MiB, inodes: 26, available: true, unavailable: null, humanBytes: "1.3 GiB", filesystem: "2049",
+        detail: { journaldReportedBytes: 1288 * MiB, folders: 1, activeFiles: 2, activeBytes: 96 * MiB, archivedFiles: 23, archivedBytes: 1192 * MiB } },
+      { id: "job-logs", title: "BoxPilot job logs", path: "/run/boxpilot/job-logs", bytes: 22_000, inodes: 6, available: true, unavailable: null, humanBytes: "21.5 KiB", filesystem: "25",
+        detail: { retentionDays: 14, active: { count: 2, bytes: 9000 }, "past-retention": { count: 1, bytes: 2000 }, completed: { count: 1, bytes: 4000 }, failed: { count: 1, bytes: 5000 }, unlisted: { count: 1, bytes: 2000 } } },
+      { id: "apt-cache", title: "APT download cache", path: "/var/cache/apt", bytes: 312 * MiB, inodes: 91, available: true, unavailable: null, humanBytes: "312.0 MiB", filesystem: "2049",
+        detail: { cleanableFiles: 84, cleanableBytes: 300 * MiB, packages: 82 } },
+      { id: "docker", title: "Docker", available: false, unavailable: "Docker did not answer", bytes: null, inodes: null, humanBytes: null, detail: null },
+      { id: "backups", title: "Local backups", path: "/var/lib/boxpilot-managed/backups/catalog", bytes: 5020, inodes: 12, available: true, unavailable: null, humanBytes: "4.9 KiB", filesystem: "2049",
+        detail: { roots: [
+          { id: "application", title: "Application backups", path: "/var/lib/boxpilot-managed/backups/catalog", bytes: 5020, inodes: 12, files: 10, retention: "Each backup keeps the newest copies of its own kind.", beyondNewest: { count: 2, bytes: 2001, keepsPerKind: 3 } },
+          { id: "machine-snapshots", title: "Machine snapshots", path: "/var/lib/boxpilot-managed/machine-snapshots", bytes: null, inodes: null, files: null, retention: "Each new snapshot keeps the newest 3.", unavailable: "Not created yet" },
+        ] } },
+    ],
+    filesystems: [
+      { key: "2049", path: "/var/log/journal", freeBytes: 3 * 1024 ** 3, totalBytes: 100 * 1024 ** 3, freeInodes: 6_000_000, totalInodes: 6_553_600, categories: ["journal", "apt-cache", "backups"] },
+      { key: "25", path: "/run/boxpilot/job-logs", freeBytes: 1600 * MiB, totalBytes: 1600 * MiB, freeInodes: 400_000, totalInodes: 400_100, categories: ["job-logs"] },
+    ],
+  };
+  const plan = (parameters: { categories: string[]; journalMaxBytes?: number; journalMaxAgeDays?: number; jobLogRetentionDays?: number }) => ({
+    generatedAt: "2026-10-18T09:01:00.000Z",
+    bounds: { journalMaxBytes: parameters.journalMaxBytes ?? null, journalMaxAgeDays: parameters.journalMaxAgeDays ?? null, jobLogRetentionDays: parameters.jobLogRetentionDays ?? 14 },
+    categories: [
+      { id: "journal", title: "System journal", available: true, unavailable: null, bound: "Archived journal files, oldest first, until no archived file starts more than 30 days ago (journalctl --vacuum-time=30d).", bytes: 256 * MiB, inodes: 2,
+        items: [{ what: "/var/log/journal/0123456789abcdef0123456789abcdef/system@aaaa-0001.journal", bytes: 128 * MiB, at: "2026-09-01T00:00:00.000Z" }, { what: "/var/log/journal/0123456789abcdef0123456789abcdef/system@aaaa-0002.journal", bytes: 128 * MiB, at: "2026-09-10T00:00:00.000Z" }],
+        more: 0, keeping: ["2 active journal files (96.0 MiB), which journald is writing and never deletes"], humanBytes: "256.0 MiB" },
+      { id: "job-logs", title: "BoxPilot job logs", available: true, unavailable: null, bound: "Logs of completed jobs last written more than 14 days ago.", bytes: 2000, inodes: 1,
+        items: [{ what: "job-0001.log", bytes: 2000, at: "2026-09-20T00:00:00.000Z", detail: "Activity keeps its output" }], more: 0, keeping: ["1 log of failed or cancelled jobs, the record of what went wrong (4.9 KiB)"], humanBytes: "2.0 KiB" },
+      ...(parameters.categories.includes("apt-cache") ? [{ id: "apt-cache", title: "APT download cache", available: true, unavailable: null, bound: "Downloaded package files and APT's rebuildable package cache (apt-get clean).", bytes: 300 * MiB, inodes: 84, items: [], more: 84, keeping: ["The package lists, so the next install only downloads its own packages"], humanBytes: "300.0 MiB" }] : []),
+    ].filter((category) => parameters.categories.includes(category.id)),
+    totalBytes: 556 * MiB + 2000, totalHumanBytes: "556.0 MiB", totalInodes: 87,
+  });
+
+  function serveSpace() {
+    const previews: unknown[] = [];
+    const staged = serve({
+      "/operations/space.inspect/inspect": () => json({ operation: "space.inspect", result: spaceReport }),
+      "/operations/space.cleanup.preview/run": (init) => {
+        const { parameters } = JSON.parse(String(init?.body));
+        previews.push(parameters);
+        return json({ operation: "space.cleanup.preview", result: plan(parameters) });
+      },
+    });
+    return { staged, previews };
+  }
+  const asked = () => (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => String(url));
+
+  it("measures only when asked, and shows a category it could not read as unavailable, never zero", async () => {
+    serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    expect(await screen.findByText("Not measured")).toBeTruthy();
+    expect(asked().filter((url) => url.includes("space."))).toEqual([]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Measure" })[0]);
+    const table = await screen.findByRole("table", { name: "Where the disk space went" });
+    const row = (name: string) => within(table).getByText(name).closest("tr")!;
+    expect(within(row("System journal")).getByText("1.3 GiB")).toBeTruthy();
+    expect(within(row("System journal")).getByText(/23 archived files/)).toBeTruthy();
+    expect(within(row("APT download cache")).getByText("91")).toBeTruthy();
+    expect(within(row("Docker")).getByText("Unavailable")).toBeTruthy();
+    expect(within(row("Docker")).getByText("Docker did not answer")).toBeTruthy();
+    expect(within(row("Docker")).queryByText(/^0/)).toBeNull();
+    expect(screen.getByText("3.0 GiB free of 100.0 GiB")).toBeTruthy();
+    expect(asked().filter((url) => url.includes("space.inspect"))).toHaveLength(1);
+  });
+
+  it("previews the chosen bounds, then stages the cleanup with exactly the parameters previewed", async () => {
+    const { staged, previews } = serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Measure" }))[0]);
+    await screen.findByRole("table", { name: "Where the disk space went" });
+    const free = () => screen.getByRole("button", { name: /^Free/ }) as HTMLButtonElement;
+    expect(free().disabled).toBe(true);
+    expect(free().getAttribute("data-risk")).toBe("medium");
+
+    // The defaults: journal 30 days, job logs 14 days, the APT cache.
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(previews).toEqual([{ categories: ["journal", "job-logs", "apt-cache"], journalMaxAgeDays: 30, jobLogRetentionDays: 14 }]));
+    expect(await screen.findByRole("list", { name: "What the cleanup removes" })).toBeTruthy();
+    expect(screen.getByText(/journalctl --vacuum-time=30d/)).toBeTruthy();
+
+    // A change makes the preview stale: nothing can be freed until it is made again.
+    fireEvent.click(screen.getByRole("checkbox", { name: "APT download cache" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Size" }));
+    fireEvent.change(screen.getByLabelText(/Journal: keep at most/), { target: { value: "2048" } });
+    fireEvent.change(screen.getByLabelText(/Job logs: keep the last/), { target: { value: "30" } });
+    expect(free().disabled).toBe(true);
+    expect(screen.getByText("The choices changed. Preview again.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const exact = { categories: ["journal", "job-logs"], journalMaxBytes: 2048 * MiB, jobLogRetentionDays: 30 };
+    await waitFor(() => expect(previews.at(-1)).toEqual(exact));
+    await waitFor(() => expect(free().disabled).toBe(false));
+    fireEvent.click(free());
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Medium risk")).toBeTruthy();
+    expect(within(dialog).getByText(/Removes what the preview listed/)).toBeTruthy();
+    expect(staged["space.cleanup"]).toEqual({ parameters: exact });
+  });
+
+  it("refuses a journal bound below the server's floor before asking", async () => {
+    const { previews } = serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Measure" }))[0]);
+    await screen.findByRole("table", { name: "Where the disk space went" });
+    fireEvent.click(screen.getByRole("radio", { name: "Size" }));
+    fireEvent.change(screen.getByLabelText(/Journal: keep at most/), { target: { value: "32" } });
+    expect(screen.getByText("64 to 1048576 MiB")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(previews).toEqual([]);
+  });
+
+  it("gives an operator the cleanup, and a viewer neither the measurement nor the cleanup", async () => {
+    serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" role="operator" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Measure" }))[0]);
+    await screen.findByRole("table", { name: "Where the disk space went" });
+    expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+    cleanup();
+
+    serveSpace();
+    render(<SystemPage csrfToken="csrf-token" role="viewer" />);
+    expect(await screen.findByText("Housekeeping is for an operator")).toBeTruthy();
+    expect(screen.queryByText("Logs and caches")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Measure" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Free/ })).toBeNull();
+    expect(asked().filter((url) => url.includes("space."))).toEqual([]);
+  });
+});
+
 // M36: the update copies the database first, and says so; a copy it could not make stops it.
 describe("what the update log says", () => {
   const line = (text: string) => `2026-09-29T10:15:00+0000 homebox boxpilot-upgrade[4242]: [boxpilot-upgrade] ${text}`;
