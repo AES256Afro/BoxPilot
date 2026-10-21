@@ -7,7 +7,7 @@ description: "Every PDF tool in one page: merge, split, rotate, compress, conver
 website: https://www.stirlingpdf.com
 risk: low
 image:
-  reference: stirlingtools/stirling-pdf:2.14.3
+  reference: stirlingtools/stirling-pdf:2.14.3@sha256:3b3670fce70b396ec56ba380a3cc7858e0abf83fe13f31c88f7737847763a396
   version: "2.14.3"
 ports:
   - id: web

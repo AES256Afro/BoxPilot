@@ -7,7 +7,7 @@ description: VS Code in the browser, running on this server. Edit projects here 
 website: https://github.com/coder/code-server
 risk: medium
 image:
-  reference: lscr.io/linuxserver/code-server:4.133.0
+  reference: lscr.io/linuxserver/code-server:4.133.0@sha256:48dab910e89899bcdca334e18c96d44b1e7798affd9325196087ef35aba4946e
   version: 4.133.0
 ports:
   - id: web

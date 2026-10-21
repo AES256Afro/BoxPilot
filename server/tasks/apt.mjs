@@ -29,6 +29,18 @@ const systemctl = "/usr/bin/systemctl";
  */
 const aptEnvironment = { NEEDRESTART_SUSPEND: "1", DEBIAN_FRONTEND: "noninteractive" };
 
+/**
+ * A package whose shipped configuration file changed asks, at configure time, whether to keep the
+ * operator's edited copy or take the maintainer's. DEBIAN_FRONTEND covers debconf, not that prompt,
+ * which dpkg puts on a terminal the runner has not got: the package was left unpacked and
+ * unconfigured (`iU`), apt refused every later change, and the System page could only say "Repair".
+ * systemd-resolved did exactly that on a host whose resolved.conf turns the stub listener off for
+ * Pi-hole. Keep the operator's file (confold) and take the maintainer's only where nothing was
+ * edited (confdef): the answers an operator at the terminal gives.
+ */
+const keepConffiles = ["--force-confdef", "--force-confold"];
+const aptKeepConffiles = keepConffiles.flatMap((option) => ["-o", `Dpkg::Options::=${option}`]);
+
 /** Restart what the upgrade left stale: everything now, and name BoxPilot's own units for the helper. */
 async function restartStaleServices(run, log = null) {
   const present = await run(needrestartBinary, ["--help"], { timeout: 15_000 }).then((result) => result.ok, () => false);
@@ -105,8 +117,8 @@ function summarizeAptOutput(stdout) {
 export async function repairPackageState({ run: baseRun = fixedRun, log = null, allowRemovals = true } = {}) {
   const run = withLog(baseRun, log);
   // Budget: the apt.upgrade task allows 180 min; these inner limits sum to less so a stuck step fails inside the job instead of outliving it.
-  const configure = await run("/usr/bin/dpkg", ["--configure", "-a"], { timeout: 20 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
-  const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes", ...(allowRemovals ? [] : ["--no-remove"])], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  const configure = await run("/usr/bin/dpkg", ["--configure", "-a", ...keepConffiles], { timeout: 20 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes", ...(allowRemovals ? [] : ["--no-remove"]), ...aptKeepConffiles], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   return {
     ok: configure.ok && fixBroken.ok,
     configured: configure.ok,
@@ -156,7 +168,7 @@ export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, 
   const before = packages ? await installedVersions(run, packages) : {};
   // --no-remove: a name ending in "-" is a removal to apt, and an upgrade removes nothing. `upgrade`
   // itself never removes a package; it holds one back instead.
-  const args = packages ? ["install", "--yes", "--no-remove", "--only-upgrade", ...packages] : ["upgrade", "--yes", "--with-new-pkgs"];
+  const args = packages ? ["install", "--yes", "--no-remove", "--only-upgrade", ...aptKeepConffiles, ...packages] : ["upgrade", "--yes", "--with-new-pkgs", ...aptKeepConffiles];
   const result = await run(aptGet, args, { timeout: 110 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get ${args[0]} failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = packages ? await installedVersions(run, packages) : {};
@@ -176,7 +188,7 @@ export async function aptInstall({ packages, refreshFirst = true } = {}, { run: 
   const before = await installedVersions(run, packages);
   // --no-remove: a package that Conflicts with an installed one makes apt remove that one, which is
   // apt.remove (or, for SSH and the firewall, a high job) by another door. apt refuses instead.
-  const result = await run(aptGet, ["install", "--yes", "--no-remove", "--no-install-recommends", ...packages], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  const result = await run(aptGet, ["install", "--yes", "--no-remove", "--no-install-recommends", ...aptKeepConffiles, ...packages], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok && /remove is disabled|Packages need to be removed/i.test(result.stderr)) throw new Error(`Installing ${packages.join(", ")} would remove a package that is installed now (one it replaces or conflicts with), so nothing was installed. Remove that package first, then install.`);
   if (!result.ok) throw new Error(`apt-get install failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = await installedVersions(run, packages);
@@ -246,7 +258,7 @@ export async function aptUnattendedSet({ enabled } = {}, { run: baseRun = fixedR
   let installedNow = false;
   if (enabled && !(await exists("/usr/bin/unattended-upgrade"))) {
     await repairPackageState({ run });
-    const install = await run(aptGet, ["install", "--yes", "--no-install-recommends", "unattended-upgrades"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 , env: aptEnvironment });
+    const install = await run(aptGet, ["install", "--yes", "--no-install-recommends", ...aptKeepConffiles, "unattended-upgrades"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 , env: aptEnvironment });
     if (!install.ok) throw new Error(`Could not install unattended-upgrades: ${install.stderr.split("\n").slice(-3).join(" ")}`);
     installedNow = true;
   }

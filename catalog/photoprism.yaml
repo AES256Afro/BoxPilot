@@ -7,7 +7,7 @@ description: "AI-powered photo library: browse by place, face, and subject, with
 website: https://docs.photoprism.app
 risk: medium
 image:
-  reference: photoprism/photoprism:260728
+  reference: photoprism/photoprism:260728@sha256:95864222022316a4372f2969151d18710a7533112b43a2b0da22f509f008fbac
   version: "260728"
 ports:
   - id: web
@@ -84,7 +84,7 @@ env:
     default: Etc/UTC
 sidecars:
   - id: database
-    image: mariadb:11.8.8
+    image: mariadb:11.8.8@sha256:24e76fcec8c003a0362d0dd53f4806e7e79458d7fdeaf47437760e19496f5a9c
     command: ["--innodb-buffer-pool-size=256M", "--transaction-isolation=READ-COMMITTED", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--max-connections=512", "--innodb-rollback-on-timeout=OFF", "--innodb-lock-wait-timeout=120"]
     env:
       MARIADB_AUTO_UPGRADE: "1"
