@@ -124,6 +124,22 @@ export function lastReadAwake(previous, device) {
   return typeof at === "string" && Number.isFinite(Date.parse(at)) ? at : null;
 }
 
+/** When the weekly read last tried to wake a disk, whether or not the drive answered; null when never. */
+export function lastWakeTry(previous, device) {
+  const at = (Array.isArray(previous?.disks) ? previous.disks : []).find((entry) => entry?.device === device)?.wakeTriedAt;
+  return typeof at === "string" && Number.isFinite(Date.parse(at)) ? at : null;
+}
+
+/**
+ * Whether a week has passed since `at`. A time ahead of the clock (written while it ran fast, then
+ * corrected) counts as passed: otherwise the read would stay off until the clock caught up.
+ */
+export function weekPassed(at, nowMs) {
+  if (at === null) return true;
+  const then = Date.parse(at);
+  return then > nowMs || nowMs - then >= wakeAfterMs;
+}
+
 /** smartctl skipped the disk because it was asleep (standby or sleep), which says nothing about its health. */
 export function diskAsleep(output) {
   return smartctlMessages(output).some((line) => /Device is in [A-Z_ ]*(?:STANDBY|SLEEP)[A-Z_ ]* mode/i.test(line));
@@ -243,14 +259,17 @@ export function createStorageScanner({
       const sat = needsSatRetry(transport, direct.stdout) ? await run(smartctlBinary, [...smartReadArgs, "-d", "sat", device], { timeout: 30000 }) : null;
       let reading = smartEvidenceFor(device, { transport, direct: direct.stdout, sat: sat ? sat.stdout : null });
       // Asleep at every check for a week, and the owner allows it: read once more, letting it spin up.
-      const last = lastReadAwake(previous, device);
-      if (wake && reading.reason === "asleep" && (last === null || now().getTime() - Date.parse(last) >= wakeAfterMs)) {
+      // A wake that did not get a reading (the drive took too long, or answered nothing usable) counts
+      // too, so a drive that never answers is tried once a week, not at every scan.
+      const nowMs = now().getTime();
+      if (wake && reading.reason === "asleep" && weekPassed(lastReadAwake(previous, device), nowMs) && weekPassed(lastWakeTry(previous, device), nowMs)) {
         const viaSat = reading.deviceType === "sat";
         const woken = await run(smartctlBinary, [...wakingReadArgs, ...(viaSat ? ["-d", "sat"] : []), device], { timeout: 60000 });
         const awake = viaSat
           ? { ...parseSmartctlEvidence(device, woken.stdout), transport: "usb", deviceType: "sat" }
           : smartEvidenceFor(device, { transport, direct: woken.stdout, sat: null });
-        if (awake.health !== "unavailable") reading = { ...awake, wokenForWeeklyRead: true };
+        reading = awake.health !== "unavailable" ? { ...awake, wokenForWeeklyRead: true } : reading;
+        reading = { ...reading, wakeTriedAt: now().toISOString() };
       }
       disks.push(reading.health === "unavailable" ? reading : { ...reading, readAt: now().toISOString() });
     }
@@ -271,8 +290,10 @@ export function createStorageScanner({
 export function carryLastReadings(evidence, previous) {
   const before = new Map((Array.isArray(previous?.disks) ? previous.disks : []).map((disk) => [disk?.device, disk]));
   const disks = (evidence.disks ?? []).map((disk) => {
-    if (disk.reason !== "asleep") return disk;
     const last = before.get(disk.device);
+    // When the weekly read last tried this disk stays until it tries again.
+    if (!disk.wakeTriedAt && typeof last?.wakeTriedAt === "string") disk = { ...disk, wakeTriedAt: last.wakeTriedAt };
+    if (disk.reason !== "asleep") return disk;
     if (!last) return disk;
     const health = last.reason === "asleep" ? last.lastHealth : last.health;
     const readAt = last.reason === "asleep" ? last.lastReadAt : last.readAt ?? previous.generatedAt;
