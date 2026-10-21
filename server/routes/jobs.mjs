@@ -3,7 +3,7 @@
  * Activity-drawer event stream, and operation schedules. Mounted at /api/v1 behind the session.
  */
 import { Router } from "express";
-import { createEventStream, createStreamBudget } from "../event-stream.mjs";
+import { createEventStream, createStreamBudget, endWhenSessionEnds } from "../event-stream.mjs";
 import { suggestFlows, suggestionFacts } from "../flow-suggestions.mjs";
 import { callerId, readsThroughHelper, seesEveryAccount } from "./access.mjs";
 import { registry } from "../ops/index.mjs";
@@ -32,6 +32,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     const stream = createEventStream(response);
     stream.onClose(release);
+    endWhenSessionEnds(stream, { session: request.boxpilotSession, lookup: (token) => state.getSession(token) });
     return stream;
   }
 
@@ -41,8 +42,20 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
   /** The owner is shown every job, so the owner may open every job; everyone else only their own. */
   const mayRead = (request, job) => request.boxpilotSession?.owner?.role === "owner" || job.createdBy === request.boxpilotSession.owner.id;
 
+  // Home, Ops and Today read up to 200 jobs for the backup matrix and the overnight summary. An
+  // inspect's result or a long run's step log can each be larger than the rest of the job, and the
+  // views show neither; what their state words read is kept (src/jobStatus.ts): the steps that mark
+  // a failure dismissed or run again, without their text, and a result's warnings ("Completed with
+  // notice"). ?view=summary, as /catalog's.
+  const markerSteps = new Set(["rerun", "dismissed"]);
+  const summarize = (job) => ({
+    ...job,
+    result: Array.isArray(job.result?.warnings) && job.result.warnings.length ? { warnings: job.result.warnings } : null,
+    steps: (job.steps ?? []).filter((step) => markerSteps.has(step?.name)).map((step) => ({ ...step, detail: "" })),
+  });
   router.get("/jobs", (request, response) => {
-    response.json({ jobs: state.listJobs(request.query.limit, scopeFor(request)) });
+    const jobs = state.listJobs(request.query.limit, scopeFor(request));
+    response.json({ jobs: request.query.view === "summary" ? jobs.map(summarize) : jobs });
   });
 
   // Server-sent events for the Activity drawer: recent jobs on connect, then a snapshot of each

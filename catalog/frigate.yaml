@@ -7,7 +7,7 @@ description: Records your cameras and watches the footage for people, cars and a
 website: https://frigate.video
 risk: medium
 image:
-  reference: ghcr.io/blakeblackshear/frigate:0.17.2
+  reference: ghcr.io/blakeblackshear/frigate:0.17.2@sha256:d4351369984d4a9e2a49ac59736f6490856a7ea11f7790040746d21496967010
   version: 0.17.2
 shmSize: 512m
 ports:

@@ -176,7 +176,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
         const scheduled = samba.autoClean[share.name];
         return (
           <span className="storage-actions">
-            {bin !== null && bin > 0 && may("samba.recycle.empty") && (
+            {bin !== null && bin > 0 && role === "owner" /* emptying everything is high (escalation.mjs) */ && (
               <Button risk={riskOf("samba.recycle.empty")} aria-label={`Empty the recycle bin of ${share.name}`} onClick={() => start({ operationId: "samba.recycle.empty", title: `Empty the recycle bin for ${share.name}`, parameters: { share: share.name }, preview: <span>Permanently deletes {formatBytes(bin)} of recycled files from <code>{liveShare?.path ?? share.path}/.recycle</code>. Files deleted over the share after this are recoverable again.</span> })}>Empty bin</Button>
             )}
             {bin !== null && (scheduled

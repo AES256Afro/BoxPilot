@@ -7,7 +7,7 @@ description: "Statistics and notifications for Plex: who watched what, when, and
 website: https://tautulli.com
 risk: low
 image:
-  reference: tautulli/tautulli:v2.17.2
+  reference: tautulli/tautulli:v2.17.2@sha256:864245fb24830ef6516b5f383bf4d8ba37939ae2f0574dc0217ca02fba4301ff
   version: "2.17.2"
 ports:
   - id: web

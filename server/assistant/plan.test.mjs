@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { createRegistry, defineOperation, operationModules } from "../ops/index.mjs";
 import { createCatalogService, installRiskLookup } from "../catalog/index.mjs";

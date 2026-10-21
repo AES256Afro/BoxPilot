@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { registry } from "../ops/index.mjs";

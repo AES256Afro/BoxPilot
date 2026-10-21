@@ -38,6 +38,9 @@ export const freshName = (bytes = randomBytes(6)) => `bp-rehearsal-${bytes.toStr
  * The rehearsal itself, with its hands passed in: `stop` and `start` take the DNS app away and bring
  * it back, `ask(server, name)` is one lookup. Kept apart from Docker so the same steps run against
  * real dnsmasq in CI (tests/ubuntu/dns-fallback.sh).
+ * @typedef {(server: string, name: string) => ReturnType<typeof askName>} Ask
+ * @param {{ router: string, lanAddress?: string, label?: string, names?: number }} target
+ * @param {{ stop?: () => Promise<void>, start?: () => Promise<void>, ask?: Ask, log?: (line: string, stream?: string) => void, now?: () => number, sleep?: (ms: number) => Promise<unknown>, backWithinMs?: number }} [hands]
  */
 export async function rehearseFallback({ router, lanAddress, label = "Pi-hole", names = 3 }, { stop, start, ask = (server, name) => askName(server, name, { timeoutMs: 4000, tries: 2 }), log = () => {}, now = () => Date.now(), sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), backWithinMs = 90_000 } = {}) {
   const before = await ask(router, controlDomain);
@@ -91,6 +94,8 @@ export async function rehearseFallback({ router, lanAddress, label = "Pi-hole", 
 
 /**
  * The task: validate, arm the dead man's switch, rehearse with the app's container, and disarm.
+ * @param {{ router?: string, app?: string, lanAddress?: string }} [parameters]
+ * @param {{ run?: typeof fixedRun, log?: (line: string, stream?: string) => void, ask?: Ask, now?: () => number, sleep?: (ms: number) => Promise<unknown> }} [options]
  */
 export async function dnsFallbackRehearse(parameters = {}, { run = fixedRun, log = () => {}, ask, now = () => Date.now(), sleep } = {}) {
   const { router, app, lanAddress } = parameters;

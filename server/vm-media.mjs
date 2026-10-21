@@ -14,6 +14,7 @@ function expectedUploadSize(request) {
   return parsed;
 }
 
+/** @param {{ helper?: any, inboxRoot?: string, filesystemStats?: typeof statfs }} [options] */
 export function createVmMediaService({
   helper,
   inboxRoot = process.env.BOXPILOT_VM_MEDIA_INBOX ?? "/var/lib/boxpilot-managed/vm-media-inbox",
@@ -82,6 +83,7 @@ export function createVmMediaService({
   }
 
   /** Pin the staged ISO identity for the registry operation. */
+  /** @param {{ filename?: string }} [parameters] */
   async function prepareOperation({ filename } = {}) {
     if (!safeIsoFilename(filename)) throw new Error("Select a staged ISO from the fixed upload area");
     const state = await inspect();

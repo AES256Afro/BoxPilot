@@ -274,6 +274,7 @@ export function evidenceFor(issues, outputs, { maxLines = 14 } = {}) {
 /** What the model is asked when a check fails: a short conversation of its own, the same system words every time. */
 export const correctionSystem = "You correct an answer written by an agent on a home server so that every fact in it matches the tool output it cites. Keep what is right and keep its [T] and [F] citations. Change only what the checks say is wrong, using the tool output's own facts. If the tool output does not say, write that you are not sure. Reply with the corrected answer only, as short as the original.";
 
+/** @returns {import("../messages.mjs").Message[]} */
 export function correctionMessages(answer, issues, outputs) {
   const evidence = evidenceFor(issues, outputs);
   return [

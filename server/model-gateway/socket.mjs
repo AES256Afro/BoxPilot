@@ -74,6 +74,10 @@ function failure(code, message, extra = {}) {
  * Claude's, or `gateway-down` when nothing answers on the socket).
  */
 export function createGatewayClient({ socketPath = process.env.BOXPILOT_MODEL_GATEWAY_SOCKET ?? defaultGatewaySocket, statusTimeoutMs = 5_000 } = {}) {
+  /**
+   * @param {object} message
+   * @param {{ signal?: AbortSignal, timeoutMs: number }} options
+   */
   function send(message, { signal, timeoutMs }) {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) { reject(signal.reason ?? failure("abandoned", "Stopped")); return; }
@@ -107,13 +111,13 @@ export function createGatewayClient({ socketPath = process.env.BOXPILOT_MODEL_GA
         else finish(failure(String(reply.code ?? "error"), String(reply.error ?? "The model gateway refused"), { ...(reply.status ? { status: reply.status } : {}), ...(reply.spentUsd !== undefined ? { spentUsd: reply.spentUsd, capUsd: reply.capUsd } : {}) }));
       });
       connection.on("end", () => finish(failure("gateway-down", "The model gateway closed without answering")));
-      connection.on("error", (error) => finish(failure("gateway-down", `The model gateway is not answering (${error.code ?? error.message})`)));
+      connection.on("error", (/** @type {NodeJS.ErrnoException} */ error) => finish(failure("gateway-down", `The model gateway is not answering (${error.code ?? error.message})`)));
     });
   }
 
   return {
     status: () => send({ op: "status" }, { timeoutMs: statusTimeoutMs }),
     check: () => send({ op: "check" }, { timeoutMs: 30_000 }),
-    chat: (request, { signal, timeoutMs = gatewayLimits.defaultTimeoutMs } = {}) => send({ op: "chat", request, timeoutMs }, { signal, timeoutMs: timeoutMs + 15_000 }),
+    chat: (request, /** @type {{ signal?: AbortSignal, timeoutMs?: number }} */ { signal, timeoutMs = gatewayLimits.defaultTimeoutMs } = {}) => send({ op: "chat", request, timeoutMs }, { signal, timeoutMs: timeoutMs + 15_000 }),
   };
 }

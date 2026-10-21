@@ -26,6 +26,7 @@ export function parseNvidiaSmi(output) {
     .map(([name, memory, driver]) => ({ name, memoryGiB: Number.isFinite(Number(memory)) ? Math.round(Number(memory) / 1024) : null, driverVersion: driver || null }));
 }
 
+/** @param {{ run?: any, listDirectory?: (directory: string) => Promise<string[]>, readText?: (file: string) => Promise<string>, dpkgQueryBinary?: string, now?: () => number }} [options] */
 export function createNvidiaInspector({
   run,
   listDirectory = (directory) => readdir(directory),

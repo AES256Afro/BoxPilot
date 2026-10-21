@@ -25,4 +25,12 @@ describe("evidence after operations", () => {
     expect(services.helper.invalidate.mock.calls[0][0]).toContain("prerequisite.docker.inspect");
     expect(services.helper.invalidate.mock.calls[0][0]).not.toContain("app.data.usage");
   });
+  it("drops the Repair scan's held drive evidence after a storage or share change, and only then", () => {
+    const mounted = deps();
+    invalidateOperationEvidence({ type: "op:storage.mount" }, mounted);
+    expect(mounted.helper.invalidate.mock.calls[0][0]).toEqual(expect.arrayContaining(["storage.usb.events", "storage.unclean.events", "storage.volumes.state"]));
+    const installed = deps();
+    invalidateOperationEvidence({ type: "op:app.install" }, installed);
+    expect(installed.helper.invalidate.mock.calls[0][0]).not.toContain("storage.usb.events");
+  });
 });

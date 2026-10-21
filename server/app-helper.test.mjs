@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { craftedTarGz } from "../test/crafted-tar.mjs";
 import { onWindows, testTar } from "../test/platform.mjs";
-import { createAppHelper, keepsBackupData } from "./app-helper.mjs";
+import { catalogImagePin, createAppHelper, isCatalogUpdate, keepsBackupData } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
@@ -15,7 +15,7 @@ import { composeSha256 } from "./catalog/compose-review.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, nvidiaReady = undefined, execTable = { vpn: "running", leaks: false, noCurl: false }, hostListeners = undefined, lanAddress = "192.168.1.10", dockerPs = [], machineSnapshotRoot = undefined, realpathOf = undefined } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, nvidiaReady = undefined, execTable = { vpn: "running", leaks: false, noCurl: false }, hostListeners = undefined, lanAddress = "192.168.1.10", dockerPs = [], machineSnapshotRoot = undefined, realpathOf = undefined, freeBytesOf = undefined } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -100,7 +100,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
   // Machine snapshots a backup's pruning must not take the archives of: none, unless a test makes some.
   const snapshots = machineSnapshotRoot ?? path.join(catalogDirectory, "no-machine-snapshots");
-  const apps = createAppHelper({ catalogRoot, backupRoot, machineSnapshotRoot: snapshots, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress, ...(hostListeners ? { hostListeners } : {}), ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(realpathOf ? { realpathOf } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}), ...(nvidiaReady ? { nvidiaReady } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, machineSnapshotRoot: snapshots, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress, ...(hostListeners ? { hostListeners } : {}), ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(realpathOf ? { realpathOf } : {}), ...(freeBytesOf ? { freeBytesOf } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}), ...(nvidiaReady ? { nvidiaReady } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance, runDocker };
 }
@@ -860,6 +860,20 @@ sidecars:
     await expect(apps.action({ id: "demo", action: "start" })).rejects.toThrow("its compose project is gone too; use Reinstall in Repair");
   });
 
+  it("rebuilds on the catalog's image when the saved one is from another repository", async () => {
+    const { apps, containers, catalogRoot } = await setup();
+    await apps.install({ id: "demo" });
+    containers.delete("bp-demo");
+    const statePath = path.join(catalogRoot, "demo", "boxpilot.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    await writeFile(statePath, JSON.stringify({ ...state, image: { ...state.image, reference: "attacker.example/nginx:1.26" } }));
+    await rm(path.join(catalogRoot, "demo", "compose.yaml"));
+    await expect(apps.reinstall({ id: "demo" })).resolves.toMatchObject({ reinstalled: true, projectRewritten: true });
+    const compose = await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8");
+    expect(compose).not.toContain("attacker.example");
+    expect(compose).toContain(`image: ${state.image.reference}`);
+  });
+
   it("writes the project again from the saved settings when it is gone too, on the image the app last ran (M35)", async () => {
     const { apps, containers, catalogRoot } = await setup();
     await apps.install({ id: "demo" });
@@ -1338,6 +1352,127 @@ sidecars:
     await expect(apps.rollbackApp({ id: "shed" })).rejects.toThrow("no recorded version that still matches");
   });
 
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("never goes back to an image from another repository, whatever the recorded history says", async () => {
+    // The history lives in boxpilot.json, which a restored backup brings with it.
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image) => [
+      "schemaVersion: 2", "id: pong", "name: Pong", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image) => {
+      await rm(path.join(catalogDirectory, "pong.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "pong.yaml"), manifest(image));
+    };
+    await publish("app:1.0"); await apps.install({ id: "pong" });
+    await publish("app:2.0.0"); await apps.update({ id: "pong" });
+    const statePath = path.join(catalogRoot, "pong", "boxpilot.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    state.updateHistory[0].from = { pong: "attacker.example/root:latest" };
+    await writeFile(statePath, JSON.stringify(state));
+    await expect(apps.rollbackApp({ id: "pong" })).rejects.toThrow("no recorded version that still matches");
+    expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).not.toContain("attacker.example");
+  });
+
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("goes back across a move to the repository the catalog names as the app's former one", async () => {
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image, former) => [
+      "schemaVersion: 2", "id: pong", "name: Pong", "category: T", "description: d",
+      `image:`, `  reference: ${image}`, ...(former ? ["  formerRepositories:", ...former.map((repository) => `    - ${repository}`)] : []),
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image, former) => {
+      await rm(path.join(catalogDirectory, "pong.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "pong.yaml"), manifest(image, former));
+    };
+    await publish("oldorg/pong:1.0"); await apps.install({ id: "pong" });
+    // The app moved: without the catalog saying so, the old image is another repository's.
+    await publish("neworg/pong:2.0"); await apps.update({ id: "pong" });
+    await expect(apps.rollbackApp({ id: "pong" })).rejects.toThrow("no recorded version that still matches");
+    await publish("neworg/pong:2.0", ["oldorg/pong"]);
+    await apps.rollbackApp({ id: "pong" });
+    expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).toContain("image: oldorg/pong:1.0");
+  });
+
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("goes back to the exact image that ran, by the digest recorded before the update", async () => {
+    // A tag can be re-pushed after the update; the digest names the bytes the app actually ran.
+    const { apps, catalogRoot, catalogDirectory, runDocker, calls, containers } = await setup();
+    const appDigest = `sha256:${"a".repeat(64)}`;
+    const dbDigest = `sha256:${"b".repeat(64)}`;
+    const base = runDocker.getMockImplementation();
+    runDocker.mockImplementation(async (binary, args) => {
+      if (args[0] === "image" && args[1] === "inspect") {
+        calls.push(args.join(" "));
+        // One image can carry digests from several repositories; only the service's own counts.
+        return { ok: true, stdout: JSON.stringify([`elsewhere.example/app@sha256:${"c".repeat(64)}`, `app@${appDigest}`, `docker.io/library/postgres@${dbDigest}`]), stderr: "" };
+      }
+      return base(binary, args);
+    });
+    const manifest = (image, sidecarImage) => [
+      "schemaVersion: 2", "id: pair", "name: Pair", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "sidecars:", "  - id: db", `    image: ${sidecarImage}`,
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image, sidecarImage) => {
+      await rm(path.join(catalogDirectory, "pair.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "pair.yaml"), manifest(image, sidecarImage));
+    };
+    await publish("app:1.0", "postgres:15"); await apps.install({ id: "pair" });
+    // The stub keeps one container per project; the sidecar's runs beside it under its own name.
+    containers.set("bp-pair-db", { running: true, status: "running", health: "none", restarts: 0, image: "sha256:db", startedAt: "x", exitCode: 0 });
+    await publish("app:2.0.1", "postgres:16.2"); await apps.update({ id: "pair" });
+
+    const statePath = path.join(catalogRoot, "pair", "boxpilot.json");
+    const stored = JSON.parse(await readFile(statePath, "utf8"));
+    expect(stored.updateHistory[0]).toMatchObject({ from: { pair: "app:1.0", db: "postgres:15" }, fromDigest: { pair: `app:1.0@${appDigest}`, db: `postgres:15@${dbDigest}` } });
+
+    const back = await apps.rollbackApp({ id: "pair" });
+    expect(back.restored).toEqual({ pair: `app:1.0@${appDigest}`, db: `postgres:15@${dbDigest}` });
+    const composeText = await readFile(path.join(catalogRoot, "pair", "compose.yaml"), "utf8");
+    expect(composeText).toContain(`app:1.0@${appDigest}`);
+    expect(composeText).toContain(`postgres:15@${dbDigest}`);
+    // The rollback records where it came from by digest too, so going forward again is exact.
+    const after = JSON.parse(await readFile(statePath, "utf8"));
+    expect(after.updateHistory[0]).toMatchObject({ rolledBack: true, fromDigest: { pair: `app:2.0.1@${appDigest}` } });
+  });
+
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("falls back to the tag when the recorded digest is missing, from another repository, beside another tag, or not a digest", async () => {
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image) => [
+      "schemaVersion: 2", "id: pong", "name: Pong", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image) => {
+      await rm(path.join(catalogDirectory, "pong.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "pong.yaml"), manifest(image));
+    };
+    await publish("app:1.0"); await apps.install({ id: "pong" });
+    await publish("app:2.0.0"); await apps.update({ id: "pong" });
+    const statePath = path.join(catalogRoot, "pong", "boxpilot.json");
+    const original = JSON.parse(await readFile(statePath, "utf8"));
+    // Docker gave no digest here (the stub has no `image inspect`): history written the old way.
+    expect(original.updateHistory[0].fromDigest).toBeUndefined();
+
+    for (const fromDigest of [undefined, { pong: `attacker.example/root:1.0@sha256:${"d".repeat(64)}` }, { pong: `app:0.9@sha256:${"e".repeat(64)}` }, { pong: "app:1.0@sha256:${SECRET_TOKEN}" }, { pong: `app:1.0@sha256:${"f".repeat(64)}x` }]) {
+      await writeFile(statePath, JSON.stringify({ ...original, updateHistory: [{ ...original.updateHistory[0], ...(fromDigest ? { fromDigest } : {}) }] }));
+      const back = await apps.rollbackApp({ id: "pong" }, { checkpoint: false });
+      expect(back.restored).toEqual({ pong: "app:1.0" });
+      const composeText = await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8");
+      expect(composeText).toContain("image: app:1.0\n");
+      expect(composeText).not.toContain("attacker.example");
+    }
+  });
+
   it("refuses to roll back an app that has never been updated", async () => {
     const { apps } = await setup();
     await apps.install({ id: "demo" });
@@ -1454,7 +1589,39 @@ describe.skipIf(onWindows)("folders an app is pointed at", () => {
 });
 
 // Linux only: needs /usr/bin/tar.
+describe("the catalog's image for a service", () => {
+  it("keeps an image from the catalog's repository or one the app moved from, at any tag or digest, and nothing else", () => {
+    expect(catalogImagePin("ghcr.io/neworg/app:1.2", "ghcr.io/neworg/app:2.0")).toBe("ghcr.io/neworg/app:1.2");
+    expect(catalogImagePin("oldorg/app:1.0", "ghcr.io/neworg/app:2.0")).toBeNull();
+    expect(catalogImagePin("oldorg/app:1.0", "ghcr.io/neworg/app:2.0", ["oldorg/app"])).toBe("oldorg/app:1.0");
+    // docker.io/oldorg/app and oldorg/app are the same repository, as Docker resolves them.
+    expect(catalogImagePin("docker.io/oldorg/app@sha256:" + "a".repeat(64), "ghcr.io/neworg/app:2.0", ["oldorg/app"])).toContain("docker.io/oldorg/app");
+    expect(catalogImagePin("attacker.example/app:1.0", "ghcr.io/neworg/app:2.0", ["oldorg/app"])).toBeNull();
+    expect(catalogImagePin("", "ghcr.io/neworg/app:2.0", ["oldorg/app"])).toBeNull();
+    expect(catalogImagePin("oldorg/app:1.0", "ghcr.io/neworg/app:2.0", null)).toBeNull();
+  });
+});
+
 describe.skipIf(onWindows)("restoring an application backup", () => {
+  it("writes the compose file on the catalog's image when the backup ran one from another repository", async () => {
+    // A backup from a drive or mirror someone else writes: its compose file names their image, its
+    // settings fit the catalog, so the project is written again from them, and never on that image.
+    const progress = [];
+    const { apps, catalogRoot } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const composePath = path.join(catalogRoot, "demo", "compose.yaml");
+    const original = await readFile(composePath, "utf8");
+    const catalogImage = /image: (\S+)/.exec(original)[1];
+    await writeFile(composePath, original.replace(`image: ${catalogImage}`, "image: attacker.example/root:latest"));
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    await writeFile(composePath, original);
+    await apps.restoreAppBackup({ id: "demo", backup: made.artifact }, { progress: (line) => progress.push(line) });
+    const restored = await readFile(composePath, "utf8");
+    expect(restored).not.toContain("attacker.example");
+    expect(restored).toContain(`image: ${catalogImage}`);
+    expect(progress.some((line) => line.includes("attacker.example/root:latest, which is not") && line.includes(`restored on ${catalogImage}`))).toBe(true);
+  });
+
   it("keeps the original after a healthy restore when its safety backup failed", async () => {
     let failBackup = false;
     const runCommand = (binary, args, options) => failBackup && args.includes("-czf") ? Promise.resolve({ ok: false, stdout: "", stderr: "fixture full backup disk" }) : fixedRun(binary, args, options);
@@ -1466,6 +1633,20 @@ describe.skipIf(onWindows)("restoring an application backup", () => {
     const result = await apps.restoreAppBackup({ id: "demo", backup: made.artifact });
     expect(result.retainedOriginal).toBe(true);
     expect(await readFile(path.join(catalogRoot, "demo.replaced", "latest-data"), "utf8")).toBe("original newer data");
+  });
+
+  // A data archive a machine snapshot copies in from a drive or a mirror is whatever was written
+  // there: one that inflates past the free space would fill the disk as root before anything checks it.
+  it("refuses a backup that unpacks to more than the disk can take, before anything stops", async () => {
+    let free = 64 * 1024 ** 3;
+    const { apps, catalogRoot, containers } = await setup({ freeBytesOf: async () => free });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    free = 1024 ** 3 + 16;
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow(/unpacks to .* more than this server can take while keeping 1\.0 GiB free.*Nothing was changed/);
+    await expect(apps.restoreAppBackupPath({ id: "demo", backup: made.artifact, path: "compose.yaml" })).rejects.toThrow(/compose\.yaml in .* unpacks to/);
+    expect(containers.get("demo")?.running ?? true).toBe(true);
+    await expect(stat(path.join(catalogRoot, "demo.restoring"))).rejects.toThrow();
   });
 
   it("leaves the app running when archive extraction fails before the data swap", async () => {
@@ -1579,6 +1760,25 @@ describe.skipIf(onWindows)("restoring an application backup", () => {
     // directory, a PUID 1000 app's files) stays theirs, and the helper's umask is not applied to it.
     expect(extractions.length).toBeGreaterThan(0);
     for (const args of extractions) expect(args).not.toEqual(expect.arrayContaining(["--no-same-owner"]));
+  });
+
+  // An archive can carry a "./" entry naming a mode for the folder it is unpacked into, and tar
+  // applies it: one whose top folder was 0777 made the restored app folder 0777. BoxPilot's own
+  // backups list their members and carry none, but a backup on a drive or a mirror is whatever
+  // was written there. Only that folder is kept as BoxPilot made it; what is inside keeps the
+  // archive's modes and owners, as above.
+  it("keeps the restored app folder 0700 whatever mode a backup gives its top folder", async () => {
+    const { apps, catalogRoot, backupRoot } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    const artifact = path.join(backupRoot, "demo", made.artifact);
+    const repack = await mkdtemp(path.join(os.tmpdir(), "boxpilot-repack-"));
+    expect((await fixedRun("/usr/bin/tar", ["-xzf", artifact, "-C", repack])).ok).toBe(true);
+    await chmod(repack, 0o777);
+    expect((await fixedRun("/usr/bin/tar", ["-czf", artifact, "-C", repack, "."])).ok).toBe(true);
+    await rm(artifact.replace(/\.tar\.gz$/, ".json"), { force: true });
+    await apps.restoreAppBackup({ id: "demo", backup: made.artifact });
+    expect((await stat(path.join(catalogRoot, "demo"))).mode & 0o777).toBe(0o700);
   });
 
   it("clears them from one file restored on its own too", async () => {
@@ -2404,6 +2604,7 @@ describe("saved settings from an older catalog", () => {
       await writeFile(path.join(staging, "apps", "tunnel", ".env"), "TUNNEL_TOKEN='eyJ-the-token'\n");
     };
     const run = vi.fn(async (_binary, args) => {
+      if (args[0] === "-tvzf") return { ok: true, stdout: "", stderr: "" };
       if (args[0] !== "-xzf" || !args.includes("-C")) return { ok: false, stdout: "", stderr: "unexpected" };
       await unpack(args[args.indexOf("-C") + 1]);
       return { ok: true, stdout: "", stderr: "" };
@@ -2787,6 +2988,7 @@ describe("devices for apps a machine snapshot restore installs", () => {
     await writeFile(path.join(snapshotRoot, artifact), "archive-bytes");
     await writeFile(path.join(snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ checksumSha256: createHash("sha256").update("archive-bytes").digest("hex") }));
     const run = vi.fn(async (_binary, args) => {
+      if (args[0] === "-tvzf") return { ok: true, stdout: "", stderr: "" };
       const staging = args[args.indexOf("-C") + 1];
       await writeFile(path.join(staging, "manifest.json"), JSON.stringify({ contents: { apps: [{ id: "stick", installed: true }, { id: "transcoder", installed: true }] }, files: [] }));
       for (const id of ["stick", "transcoder"]) {
@@ -3537,5 +3739,37 @@ describe("a folder a backup archives that has become a link", () => {
     expect(failure?.message).toMatch(/^Demo was not restored; nothing was changed\. In this backup data is a link/);
     expect(failure?.message).not.toMatch(/never holds/);
     expect(failure?.message).toMatch(/holds only that link and none of what it pointed at/);
+  });
+});
+
+describe("whether the catalog offers an update", () => {
+  const pinned = `sha256:${"a".repeat(64)}`;
+  it("offers a new tag or a new digest, and not the same tag pinned by digest", () => {
+    expect(isCatalogUpdate("nginx:1.27", "nginx:1.28")).toBe(true);
+    expect(isCatalogUpdate("nginx:1.27", `nginx:1.28@${pinned}`)).toBe(true);
+    expect(isCatalogUpdate(`nginx:1.27@sha256:${"b".repeat(64)}`, `nginx:1.27@${pinned}`)).toBe(true);
+    // The catalog pinned the digest of the release this app already runs: nothing to do.
+    expect(isCatalogUpdate("nginx:1.27", `nginx:1.27@${pinned}`)).toBe(false);
+    expect(isCatalogUpdate("nginx:1.2", `nginx:1.27@${pinned}`)).toBe(true);
+    expect(isCatalogUpdate("nginx:1.27", "nginx:1.27")).toBe(false);
+    expect(isCatalogUpdate(null, "nginx:1.27")).toBe(false);
+  });
+});
+
+describe("which image a backup or saved history may pin", () => {
+  const digest = `sha256:${"a".repeat(64)}`;
+  it("takes the catalog's repository at another tag or digest, and nothing shaped otherwise", () => {
+    expect(catalogImagePin("ghcr.io/acme/app:1.0", "ghcr.io/acme/app:2.0")).toBe("ghcr.io/acme/app:1.0");
+    expect(catalogImagePin(`ghcr.io/acme/app:1.0@${digest}`, "ghcr.io/acme/app:2.0")).toBe(`ghcr.io/acme/app:1.0@${digest}`);
+    expect(catalogImagePin(`ghcr.io/acme/app@${digest}`, "ghcr.io/acme/app:2.0")).toBe(`ghcr.io/acme/app@${digest}`);
+    expect(catalogImagePin("localhost:5000/app:1", "localhost:5000/app:2")).toBe("localhost:5000/app:1");
+    expect(catalogImagePin("evil.example/app:1.0", "ghcr.io/acme/app:2.0")).toBeNull();
+    // Compose expands ${...} from the app's .env: a pin carrying one would send a secret in the pull.
+    expect(catalogImagePin("ghcr.io/acme/app:1.0@sha256:${SECRET_TOKEN}", "ghcr.io/acme/app:2.0")).toBeNull();
+    expect(catalogImagePin("ghcr.io/acme/app:${TAG}", "ghcr.io/acme/app:2.0")).toBeNull();
+    // Only a sha256 digest may follow an @, never another reference.
+    expect(catalogImagePin("ghcr.io/acme/app:1.0@evil.example/x:1", "ghcr.io/acme/app:2.0")).toBeNull();
+    expect(catalogImagePin("ghcr.io/acme/app:1.0\nprivileged: true", "ghcr.io/acme/app:2.0")).toBeNull();
+    expect(catalogImagePin("", "ghcr.io/acme/app:2.0")).toBeNull();
   });
 });

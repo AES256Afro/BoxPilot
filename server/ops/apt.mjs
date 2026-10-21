@@ -147,7 +147,7 @@ export function aptOperations() {
       id: "apt.purge", title: "Purge packages", risk: "high", timeoutMs: minutes(40),
       description: "Removes the listed packages including their configuration files.",
       parameters: { fields: { packages: packagesField } },
-      run: (parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.remove", { packages: parameters.packages, purge: true, autoremove: true }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null })),
+      run: (parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.remove", { packages: parameters.packages, purge: true, autoremove: true, keepProtected: false }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({
       id: "apt.autoremove", title: "Remove unused packages", risk: "medium", timeoutMs: minutes(40),

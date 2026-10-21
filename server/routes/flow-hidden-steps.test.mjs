@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * A flow's owner-only steps, edited by someone else (sweep 1, S3-3).
  *

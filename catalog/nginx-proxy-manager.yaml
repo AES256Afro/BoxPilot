@@ -7,7 +7,7 @@ description: "Give every app a proper name and HTTPS on your LAN: jellyfin.home.
 website: https://nginxproxymanager.com
 risk: medium
 image:
-  reference: jc21/nginx-proxy-manager:2.15.1
+  reference: jc21/nginx-proxy-manager:2.15.1@sha256:52b2c59994f3d36acfcf70a1626f29734df0ed8c71bacc0269f78b6f939858bb
   version: "2.15.1"
 ports:
   - id: http

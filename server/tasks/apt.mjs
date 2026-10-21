@@ -151,6 +151,14 @@ export async function aptUpdate(_parameters = {}, { run: baseRun = fixedRun, log
   return { updated: true, rebootRequired: await rebootRequired() };
 }
 
+/**
+ * Packages whose removal cuts off SSH, Tailscale or the firewall, or takes sudo, systemd or Docker
+ * with it. apt-get reads a trailing "-" on an install as a removal and a trailing "+" on a removal as
+ * an install, so the name is compared without either.
+ */
+export const protectedPackages = Object.freeze(["openssh-server", "openssh-client", "openssh-sftp-server", "ssh", "ufw", "nftables", "iptables", "fail2ban", "tailscale", "sudo", "systemd", "systemd-sysv", "docker-ce", "docker.io", "containerd", "containerd.io", "netplan.io"]);
+export const packageBase = (name) => String(name ?? "").replace(/[-+]$/, "").replace(/:[a-z0-9-]+$/, "");
+
 /** Upgrade everything (`--with-new-pkgs upgrade`) or only the listed packages (`install --only-upgrade`). */
 export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
@@ -158,7 +166,9 @@ export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, 
   const repair = await repairPackageState({ run });
   if (refreshFirst) await aptUpdate({}, { run });
   const before = packages ? await installedVersions(run, packages) : {};
-  const args = packages ? ["install", "--yes", "--only-upgrade", ...aptKeepConffiles, ...packages] : ["upgrade", "--yes", "--with-new-pkgs", ...aptKeepConffiles];
+  // --no-remove: a name ending in "-" is a removal to apt, and an upgrade removes nothing. `upgrade`
+  // itself never removes a package; it holds one back instead.
+  const args = packages ? ["install", "--yes", "--no-remove", "--only-upgrade", ...aptKeepConffiles, ...packages] : ["upgrade", "--yes", "--with-new-pkgs", ...aptKeepConffiles];
   const result = await run(aptGet, args, { timeout: 110 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get ${args[0]} failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = packages ? await installedVersions(run, packages) : {};
@@ -166,14 +176,20 @@ export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, 
   return { upgraded: true, scope: packages ? "selected" : "all", packages: packages ?? [], before, after, summary: summarizeAptOutput(result.stdout), packageStateRepaired: repair.ok, rebootRequired: await rebootRequired(), ...staleness };
 }
 
-/** Install packages without recommends. */
+/**
+ * Install packages without recommends.
+ * @param {{ packages?: string[], refreshFirst?: boolean }} [parameters]
+ */
 export async function aptInstall({ packages, refreshFirst = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
   const problem = validPackageList(packages); if (problem) throw new Error(`packages ${problem}`);
   await repairPackageState({ run });
   if (refreshFirst) await aptUpdate({}, { run });
   const before = await installedVersions(run, packages);
-  const result = await run(aptGet, ["install", "--yes", "--no-install-recommends", ...aptKeepConffiles, ...packages], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  // --no-remove: a package that Conflicts with an installed one makes apt remove that one, which is
+  // apt.remove (or, for SSH and the firewall, a high job) by another door. apt refuses instead.
+  const result = await run(aptGet, ["install", "--yes", "--no-remove", "--no-install-recommends", ...aptKeepConffiles, ...packages], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  if (!result.ok && /remove is disabled|Packages need to be removed/i.test(result.stderr)) throw new Error(`Installing ${packages.join(", ")} would remove a package that is installed now (one it replaces or conflicts with), so nothing was installed. Remove that package first, then install.`);
   if (!result.ok) throw new Error(`apt-get install failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = await installedVersions(run, packages);
   const missing = packages.filter((name) => !after[name]);
@@ -182,13 +198,36 @@ export async function aptInstall({ packages, refreshFirst = true } = {}, { run: 
   return { installed: true, packages, before, after, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired(), ...staleness };
 }
 
-/** Remove (or purge) packages, then autoremove what they pulled in. */
-export async function aptRemove({ packages, purge = false, autoremove = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
+/**
+ * The protected packages apt's own plan (`apt-get -s`) would remove that the request did not name.
+ * Throws when apt cannot plan it, which is refused like any other failure: nothing has run.
+ */
+async function protectedInPlan(run, args, named) {
+  const plan = await run(aptGet, ["-s", ...args], { timeout: 5 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  if (!plan.ok) throw new Error(`apt-get could not plan it: ${plan.stderr.split("\n").slice(-3).join(" ")}`);
+  const asked = new Set(named.map(packageBase));
+  const taken = [...new Set(plan.stdout.split("\n").map((line) => /^(?:Remv|Purg) (\S+)/.exec(line)?.[1]).filter(Boolean).map(packageBase))];
+  return taken.filter((name) => protectedPackages.includes(name) && !asked.has(name));
+}
+
+/**
+ * Remove (or purge) packages, then autoremove what they pulled in.
+ * @param {{ packages?: string[], purge?: boolean, autoremove?: boolean, keepProtected?: boolean }} [parameters]
+ */
+export async function aptRemove({ packages, purge = false, autoremove = true, keepProtected = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
   const problem = validPackageList(packages); if (problem) throw new Error(`packages ${problem}`);
   await repairPackageState({ run });
+  const verb = purge ? "purge" : "remove";
+  // Removing a library takes everything that depends on it: libssl3 takes openssh-server. A protected
+  // package named in the request already made the job the owner's (escalation.mjs); one apt would
+  // take along without being named is refused, from apt's own plan, before anything is removed.
+  if (keepProtected) {
+    const alongside = await protectedInPlan(run, [verb, ...(autoremove ? ["--auto-remove"] : []), ...packages], packages);
+    if (alongside.length) throw new Error(`Removing ${packages.join(", ")} would also remove ${alongside.join(", ")}, which keeps SSH, Tailscale, the firewall, sudo, systemd or Docker working. Nothing was removed. Removing ${alongside.length === 1 ? "it" : "them"} is the owner's, by name.`);
+  }
   const before = await installedVersions(run, packages);
-  const result = await run(aptGet, [purge ? "purge" : "remove", "--yes", ...(autoremove ? ["--auto-remove"] : []), ...packages], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  const result = await run(aptGet, [verb, "--yes", ...(autoremove ? ["--auto-remove"] : []), ...packages], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get ${purge ? "purge" : "remove"} failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = await installedVersions(run, packages);
   const remaining = packages.filter((name) => after[name]);
@@ -199,6 +238,9 @@ export async function aptRemove({ packages, purge = false, autoremove = true } =
 /** `apt-get autoremove --purge`. */
 export async function aptAutoremove(_parameters = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
+  // A protected package marked automatic and no longer needed would go with the rest.
+  const alongside = await protectedInPlan(run, ["autoremove", "--purge"], []);
+  if (alongside.length) throw new Error(`Autoremove would remove ${alongside.join(", ")}, which keeps SSH, Tailscale, the firewall, sudo, systemd or Docker working. Nothing was removed. Mark ${alongside.length === 1 ? "it" : "them"} as installed by hand (apt-mark manual), or remove ${alongside.length === 1 ? "it" : "them"} by name as the owner.`);
   const result = await run(aptGet, ["autoremove", "--yes", "--purge"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get autoremove failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   return { autoremoved: true, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired() };
@@ -206,7 +248,10 @@ export async function aptAutoremove(_parameters = {}, { run: baseRun = fixedRun,
 
 const autoUpgradesPath = "/etc/apt/apt.conf.d/20auto-upgrades";
 
-/** Turn nightly unattended security upgrades on or off, installing the package when needed. */
+/**
+ * Turn nightly unattended security upgrades on or off, installing the package when needed.
+ * @param {{ enabled?: boolean }} [parameters]
+ */
 export async function aptUnattendedSet({ enabled } = {}, { run: baseRun = fixedRun, log = null, files = { writeFile }, exists = (target) => access(target).then(() => true, () => false) } = {}) {
   if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
   const run = withLog(baseRun, log);

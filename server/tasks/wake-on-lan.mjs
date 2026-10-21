@@ -124,6 +124,7 @@ export async function inspectWakeOnLan({ run = fixedRun, root = "/sys/class/net"
  * Turn Wake-on-LAN on or off for one port, now and after a restart. On: BoxPilot's .link file,
  * proof from udev that it is the one that applies, then ethtool's word that magic-packet wake is
  * on. Off: the file removed and wake-on cleared. Anything that does not check out is undone.
+ * @param {{ interface?: string, enabled?: boolean }} [parameters]
  */
 export async function wakeOnLanSet({ interface: name, enabled } = {}, { run = fixedRun, log = null, inspect = inspectWakeOnLan, files = { readText: read, writeFile, remove: rm } } = {}) {
   if (typeof name !== "string" || !interfacePattern.test(name)) throw new Error("interface must be a network port name");

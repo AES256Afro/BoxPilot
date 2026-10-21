@@ -7,7 +7,7 @@ description: "Films, series, and music to every TV, phone, and console with the 
 website: https://www.plex.tv
 risk: medium
 image:
-  reference: plexinc/pms-docker:1.43.3.10896-cb3ebc72d
+  reference: plexinc/pms-docker:1.43.3.10896-cb3ebc72d@sha256:83a425ae9e133b1cb2cc3b809556e01c61cd8ff65c582e41b4374bc2210bac9e
   version: "1.43.3"
 network: host
 ports:

@@ -136,7 +136,7 @@ export function summarizeAskers(rows, { router = null, lanCidr = null, selfAddre
  * What Pi-hole's askers say the router hands out, for a server with no lease: this server (several
  * LAN devices ask it directly), the router (only the router asks), or null with the reason.
  */
-export function inferFromAskers(askers, { gateway = null, lanAddress = null } = {}) {
+export function inferFromAskers(askers, { gateway = null, lanAddress = null, counts = true } = {}) {
   if (!askers?.available) return { handedOut: null, reason: askers?.reason ?? "Pi-hole's query log could not be read." };
   if (askers.lanClients >= directAskersThreshold && lanAddress) {
     return { handedOut: { source: "pihole-log", via: "Pi-hole's query log", servers: [lanAddress], dhcpServer: gateway }, reason: null };
@@ -147,7 +147,8 @@ export function inferFromAskers(askers, { gateway = null, lanAddress = null } = 
   const reason = askers.queries === 0 ? "Pi-hole has answered nothing in the last day, so its log cannot say who uses it."
     : askers.bridgeClients > 0 && askers.lanClients === 0 && !askers.routerAsks ? "Pi-hole sees every device as Docker's own address (it runs in bridge mode), so its log cannot say who asks it."
       : askers.unnamedQueries > 0 && askers.lanClients === 0 && !askers.routerAsks ? "Pi-hole's privacy level hides who asks it, so its log cannot say."
-        : `Pi-hole's log shows ${askers.lanClients} ${askers.lanClients === 1 ? "device" : "devices"} on your network asking it directly${askers.routerAsks ? " and the router asking it too" : ""} in the last ${askers.window}, which is not enough to tell what the router hands out.`;
+        : !counts ? "Pi-hole's log does not show enough to tell what the router hands out."
+          : `Pi-hole's log shows ${askers.lanClients} ${askers.lanClients === 1 ? "device" : "devices"} on your network asking it directly${askers.routerAsks ? " and the router asking it too" : ""} in the last ${askers.window}, which is not enough to tell what the router hands out.`;
   return { handedOut: null, reason };
 }
 
@@ -222,10 +223,12 @@ async function fixedCommand(command, args, { timeout = 5000 } = {}) {
  * What the router hands out, as this server sees it, and from where. `source` is "dhcp" (a lease:
  * the router's own answer), "configured" (this server's DNS is set by hand, which says nothing about
  * the devices), or "none". Every reader that fails hands over to the next.
+ *
+ * @param {{ interface?: string, resolverLinks?: any[], run?: (command: string, args: string[]) => Promise<{ ok: boolean, stdout?: string }>, readFile?: typeof fsReadFile }} [options]
  */
 export async function readHandedOut({ interface: link, resolverLinks = [], run = fixedCommand, readFile = fsReadFile } = {}) {
   if (typeof link !== "string" || !interfacePattern.test(link)) return { source: "none", via: null, servers: [], dhcpServer: null };
-  const networkctl = await run("networkctl", ["status", link, "--json=short", "--no-pager"]).catch(() => ({ ok: false }));
+  const networkctl = await run("networkctl", ["status", link, "--json=short", "--no-pager"]).catch(() => ({ ok: false, stdout: "" }));
   const networkd = networkctl.ok ? parseNetworkctlDns(networkctl.stdout) : null;
   if (networkd?.dhcp.length) return { source: "dhcp", via: "systemd-networkd", servers: networkd.dhcp, dhcpServer: networkd.dhcpServer };
 
@@ -235,7 +238,7 @@ export async function readHandedOut({ interface: link, resolverLinks = [], run =
     if (lease.dns.length) return { source: "dhcp", via: "systemd-networkd's lease", servers: lease.dns, dhcpServer: lease.server };
   }
 
-  const nmcli = await run("nmcli", ["-t", "-f", "DHCP4", "device", "show", link]).catch(() => ({ ok: false }));
+  const nmcli = await run("nmcli", ["-t", "-f", "DHCP4", "device", "show", link]).catch(() => ({ ok: false, stdout: "" }));
   const manager = nmcli.ok ? parseNmcliDhcp(nmcli.stdout) : null;
   if (manager?.dns.length) return { source: "dhcp", via: "NetworkManager", servers: manager.dns, dhcpServer: manager.server };
 
@@ -262,6 +265,9 @@ const roleWords = { "this-server": "this server", router: "your router", lan: "a
 /**
  * One server asked directly, as a device asks it: does anything answer, does it resolve a name that
  * exists, and does it refuse one every blocklist carries.
+ *
+ * @param {string} address
+ * @param {{ timeoutMs?: number, verify?: (options: { address: string, timeoutMs?: number, checkInterception?: boolean }) => Promise<any> }} [options]
  */
 export async function askServer(address, { timeoutMs = 3000, verify = dnsBlockerVerify } = {}) {
   const started = Date.now();
@@ -296,8 +302,11 @@ export async function askName(server, name, { timeoutMs = 3000, tries = 1, Resol
  * all), `unknown` (a router passing lookups here whose fallback nobody has rehearsed) or `skipped`
  * (Tailscale's own resolver). The house survives this server going down when one is independent.
  */
-export function judgeResilience(facts, { now = new Date(), hostname = "This server" } = {}) {
-  const { handedOut = { source: "none", servers: [] }, selfAddresses = [], gateway = null, servesDns = false, answers = {}, canary = null, rehearsal = null, askers = null, askersReason = null } = facts ?? {};
+export function judgeResilience(facts, { now = new Date(), hostname = "This server", counts = true } = {}) {
+  const { handedOut = { source: "none", servers: [] }, selfAddresses = [], gateway = null, servesDns = false, answers = {}, canary = null, rehearsal = null, askers = null } = facts ?? {};
+  // The counts come from an operator-only read of Pi-hole's log (ADR-003): a viewer gets the verdict
+  // they lead to, without how many devices ask it.
+  const askersReason = !counts && facts?.askersReason && askers ? inferFromAskers(askers, { gateway, counts: false }).reason : facts?.askersReason ?? null;
   const at = now instanceof Date ? now.getTime() : Number(now);
   const fresh = rehearsal && Number.isFinite(Date.parse(rehearsal.at)) && at - Date.parse(rehearsal.at) <= rehearsalFreshForMs ? rehearsal : null;
   const servers = handedOut.servers.map((address) => {
@@ -330,7 +339,7 @@ export function judgeResilience(facts, { now = new Date(), hostname = "This serv
   const router = counted.find((server) => server.role === "router")?.address ?? null;
   const list = (entries) => entries.map((server) => server.address).join(" and ");
   // Counts only, from Pi-hole's own log: never a device's address, name or domain.
-  const asked = askers?.available ? { window: askers.window, lanClients: askers.lanClients, routerAsks: askers.routerAsks } : null;
+  const asked = counts && askers?.available ? { window: askers.window, lanClients: askers.lanClients, routerAsks: askers.routerAsks } : null;
   const base = { source: handedOut.source, via: handedOut.via ?? null, dhcpServer: handedOut.dhcpServer ?? null, servers, router, skipsBlocking, rehearsal: fresh ?? rehearsal ?? null, rehearsalStale: Boolean(rehearsal && !fresh), servesDns: Boolean(servesDns), askers: asked };
   const fromLog = handedOut.source === "pihole-log";
   const devicesWords = asked ? `${asked.lanClients} ${asked.lanClients === 1 ? "device" : "devices"} on your network` : "devices on your network";
@@ -390,6 +399,8 @@ export function judgeResilience(facts, { now = new Date(), hostname = "This serv
  * The service the Network page and Repair's scan read. `network` is server/network.mjs's service (for
  * the addresses, the gateway, the port 53 listeners); `helper` asks the DNS app's own query log about
  * the canary; `store` holds the last rehearsal.
+ *
+ * @param {{ network?: any, helper?: any, store?: any, run?: typeof fixedCommand, readFile?: typeof fsReadFile, ask?: typeof askServer, askOne?: typeof askName, hostname?: () => string, now?: () => Date, cacheMs?: number, canaryDelayMs?: number, sleep?: (ms: number) => Promise<unknown> }} options
  */
 export function createDnsResilienceService({ network, helper = null, store = null, run = fixedCommand, readFile = fsReadFile, ask = askServer, askOne = askName, hostname = () => os.hostname().split(".")[0], now = () => new Date(), cacheMs = cacheForMs, canaryDelayMs = 400, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   let cached = null;
@@ -434,18 +445,21 @@ export function createDnsResilienceService({ network, helper = null, store = nul
     const canary = routerAddress && servesDns && answers[routerAddress]?.answering ? await routerCanary(routerAddress, lan?.address ?? null).catch(() => null) : null;
     const rehearsal = store?.getSetting?.(rehearsalSetting, null) ?? null;
     const facts = { handedOut, selfAddresses, gateway, servesDns, answers, canary, rehearsal, askers, askersReason };
-    const verdict = judgeResilience(facts, { now: now(), hostname: hostname() });
-    return { ...verdict, checkedAt: now().toISOString(), lanAddress: lan?.address ?? null, gateway, canary };
+    return { facts, at: now(), extras: { lanAddress: lan?.address ?? null, gateway, canary } };
   }
 
+  const judged = ({ facts, at, extras }, counts) => ({ ...judgeResilience(facts, { now: at, hostname: hostname(), counts }), checkedAt: at.toISOString(), ...extras });
+
   /** The answer, at most ten minutes old unless `fresh`; one read at a time however many ask. */
-  async function check({ fresh = false } = {}) {
-    if (!fresh && cached && now().getTime() - cached.at < cacheMs) return cached.result;
-    if (inflight) return inflight;
-    inflight = gather()
-      .then((result) => { cached = { at: now().getTime(), result }; return result; })
-      .finally(() => { inflight = null; });
-    return inflight;
+  // `counts: false` for a caller who may not run operator reads: the same answer without Pi-hole's counts.
+  async function check({ fresh = false, counts = true } = {}) {
+    if (!fresh && cached && now().getTime() - cached.at < cacheMs) return judged(cached.result, counts);
+    if (!inflight) {
+      inflight = gather()
+        .then((result) => { cached = { at: now().getTime(), result }; return result; })
+        .finally(() => { inflight = null; });
+    }
+    return judged(await inflight, counts);
   }
 
   /** A rehearsal or a router change makes the kept answer stale. */

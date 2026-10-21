@@ -231,3 +231,33 @@ export async function collectStorage({ run = fixedRun, readFile = readFileDefaul
 export function createStorageReader({ collect = collectStorage, ttlMs = 10_000, now = () => Date.now() } = {}) {
   return shared(() => collect(), { ttlMs, now });
 }
+
+/**
+ * What a disk is, apart from the name the kernel gave it this boot: its serial, WWN, size in bytes and
+ * model, as strings, or null where lsblk has none. A format records it when it is staged and refuses
+ * to run on a disk that no longer matches (tasks/storage.mjs sameDisk). Null when the disk is unknown.
+ */
+export async function diskIdentity(device, { run = fixedRun } = {}) {
+  // A prepare hook runs before the parameters are validated: only a device path reaches lsblk.
+  if (typeof device !== "string" || !/^\/dev\/[A-Za-z0-9][A-Za-z0-9/_.-]{0,40}$/.test(device)) return null;
+  // The web unit has PrivateDevices=true, so /dev/sdb is not there to name: list every device (lsblk
+  // reads /sys for that, as collectStorage does) and pick the row by its path.
+  const result = await run(lsblkBinary, ["-J", "-l", "-b", "-o", "PATH,SERIAL,WWN,SIZE,MODEL"], { timeout: 15_000 }).catch(() => null);
+  if (!result?.ok) return null;
+  try {
+    const disk = (JSON.parse(result.stdout).blockdevices ?? []).find((row) => row?.path === device);
+    if (!disk) return null;
+    const text = (value) => (value === null || value === undefined || value === "" ? null : String(value).trim().slice(0, 128));
+    return { serial: text(disk.serial), wwn: text(disk.wwn), size: text(disk.size), model: text(disk.model) };
+  } catch { return null; }
+}
+
+/**
+ * The storage.format prepare hook: the parameters with the disk's identity pinned. A format with no
+ * identity to pin could erase whatever disk takes the name before it is approved, so it is not staged.
+ */
+export async function pinDiskIdentity(parameters, { run = fixedRun } = {}) {
+  const identity = await diskIdentity(parameters?.device, { run });
+  if (!identity) throw new Error(`Could not read which disk ${String(parameters?.device ?? "")} is; nothing was staged. Check that it is still connected on the Storage page.`);
+  return { ...parameters, identity };
+}

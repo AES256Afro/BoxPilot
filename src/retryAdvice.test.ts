@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import appHelperSource from "../server/app-helper.mjs?raw";
+import appBackupsSource from "../server/app-backups.mjs?raw";
 import housekeepingSource from "../server/housekeeping.mjs?raw";
 import snapshotSource from "../server/machine-snapshot-helper.mjs?raw";
 import { adviseRetry, failureLine } from "./retryAdvice";
@@ -38,9 +38,9 @@ describe("whether running a failure again can work", () => {
   // time (sweep 5). Try again on a high-risk restore asked for the password, then refused again.
   // Each is the server's own sentence, and the server's source is checked to still say it.
   it.each([
-    ["an app backup with a link where BoxPilot writes", appHelperSource, "where BoxPilot writes ${manifest.name}'s own files as root:",
+    ["an app backup with a link where BoxPilot writes", appBackupsSource, "where BoxPilot writes ${manifest.name}'s own files as root:",
       "Uptime Kuma was not restored; nothing was changed. In this backup data is a link, or not a plain file, where BoxPilot writes Uptime Kuma's own files as root: restored, the next change to Uptime Kuma would have written through it to somewhere else on this server. If data was a link in Uptime Kuma's folder when this backup was taken (to another disk, say), the backup holds only that link and none of what it pointed at; backups now refuse such a folder instead of taking it."],
-    ["an app folder whose data folder has become a link", appHelperSource, "was not backed up; nothing was stopped. In its folder",
+    ["an app folder whose data folder has become a link", appBackupsSource, "was not backed up; nothing was stopped. In its folder",
       "Immich was not backed up; nothing was stopped. In its folder library is a link to /mnt/disk2/library: a backup would hold only the link, none of what it points at, and a restore refuses a link where BoxPilot writes Immich's files as root. Move the data back into /var/lib/boxpilot-managed/catalog/immich/library, or mount the other disk there itself rather than linking to it, then back up again."],
     ["a machine snapshot with links or special files", snapshotSource, "which a snapshot BoxPilot made never does",
       "The snapshot holds srv/data/link, links or special files, which a snapshot BoxPilot made never does. Nothing was changed."],
@@ -48,7 +48,7 @@ describe("whether running a failure again can work", () => {
       "boxpilot-machine-20260901-030000.tar.zst can be read now, so it was not removed."],
     ["an unreadable snapshot already gone", housekeepingSource, "is no longer there`",
       "boxpilot-machine-20260901-030000.tar.zst is no longer there"],
-    ["an app backup that failed its checksum", appHelperSource, "failed its checksum; it may be damaged. Nothing was changed.",
+    ["an app backup that failed its checksum", appBackupsSource, "failed its checksum; it may be damaged. Nothing was changed.",
       "Backup immich-20260901-030000.tar.gz failed its checksum; it may be damaged. Nothing was changed."],
     ["a machine snapshot that failed its checksum", snapshotSource, "The snapshot failed its checksum; it may be damaged. Nothing was changed.",
       "The snapshot failed its checksum; it may be damaged. Nothing was changed."],

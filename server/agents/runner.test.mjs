@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * How the runner talks to a model on a CPU (M37), shown with the real service, tools and runner and
  * the stand-in model: which tools each call carries, that each call's prompt is the last one grown

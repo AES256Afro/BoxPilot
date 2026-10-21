@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The example book (M46), end to end with the real service, runner and the stand-in model: an agent
  * made from a template starts with the template's examples, only those its tools allow; the planner

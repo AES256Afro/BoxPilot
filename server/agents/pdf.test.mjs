@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * A PDF from #agent-files, a watched folder or an upload is read on the web process's one thread.
  * These files are built to make that read expensive; each must end quickly, whatever it holds. The
@@ -67,6 +66,13 @@ describe("reading a PDF built to be expensive", () => {
     const outcome = await readWithin("extractPdfText", Buffer.from(`%PDF-1.4\n${"1".repeat(400_000)} ${"2".repeat(400_000)} x\n`));
     expect(outcome.timedOut).toBeUndefined();
     expect(outcome.error).toMatch(/No pages/);
+  });
+
+  it("stops at a bounded number of objects, however many tiny ones the file declares", async () => {
+    const objects = Array.from({ length: 150_000 }, (_, index) => `${index + 1} 0 obj<<>>endobj\n`).join("");
+    const outcome = await readWithin("extractPdfText", Buffer.from(`%PDF-1.4\n${objects}`));
+    expect(outcome.timedOut).toBeUndefined();
+    expect(outcome.error).toMatch(/more objects than BoxPilot reads/);
   });
 
   it("does not slow down on a stream dictionary that repeats DecodeParms", async () => {

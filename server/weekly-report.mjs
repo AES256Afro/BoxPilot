@@ -215,7 +215,8 @@ export function createWeeklyReport({ store, alerts, notifications, registry = de
   /** "Send now" from Settings: the person is looking, so a failure is theirs to see, not the ledger's. */
   async function sendNow({ actorId = null } = {}) {
     const report = await preview();
-    await notifications.send({ title: `BoxPilot: ${report.title}`, message: report.message, priority: "default" });
+    // Asked for just now, so not held for quiet hours.
+    await notifications.send({ title: `BoxPilot: ${report.title}`, message: report.message, priority: "default" }, { immediate: true });
     // The newest report reached the target; an older one still waiting has nothing left to say.
     await alerts.clear(reportKey, { quietly: true });
     write({ lastSentAt: now().toISOString(), lastResult: "sent" }, actorId);

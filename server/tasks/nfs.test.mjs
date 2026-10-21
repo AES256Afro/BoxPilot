@@ -39,6 +39,25 @@ describe("what an export may serve", () => {
     await expect(nfsApply({ exports: [{ path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/system location/);
     expect(files.writeFile).not.toHaveBeenCalled();
   });
+
+  it("refuses a folder that reaches a login account's home only through a link", async () => {
+    const files = { ...fakeFiles(), realpath: vi.fn(async () => "/home/admin/media") };
+    await expect(nfsApply({ exports: [{ path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/which reaches a login account's home/);
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+
+  // A service account with a shell keeps its home outside /home (postgres at /var/lib/postgresql), and
+  // a folder that holds a home serves it as surely as the home itself.
+  it("refuses a link to any login account's home, or to a folder that holds one", async () => {
+    const passwd = "root:x:0:0:root:/root:/bin/bash\npostgres:x:114:120::/var/lib/postgresql:/bin/bash\nalice:x:1001:1001::/mnt/data/alice:/bin/bash\n";
+    const base = fakeFiles();
+    const withPasswd = (real) => ({ ...base, readFile: vi.fn(async (path, ...rest) => (path === "/etc/passwd" ? passwd : base.readFile(path, ...rest))), realpath: vi.fn(async () => real) });
+    for (const real of ["/var/lib/postgresql", "/mnt/data"]) {
+      const files = withPasswd(real);
+      await expect(nfsApply({ exports: [{ path: "/srv/media" }] }, { run: fakeRun(), files }), real).rejects.toThrow(`/srv/media leads to ${real}, which reaches a login account's home`);
+      expect(files.writeFile).not.toHaveBeenCalled();
+    }
+  });
 });
 
 describe("nfs tasks", () => {

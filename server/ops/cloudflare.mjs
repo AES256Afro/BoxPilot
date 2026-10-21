@@ -23,7 +23,10 @@ const reachableBinds = new Set(["*", "0.0.0.0", "::", "127.0.0.1"]);
 const storeOf = (cloudflareState) => cloudflareState ?? createTunnelStateStore();
 const savedNames = async (credentials) => new Set((await credentials.listNames().catch(() => [])).map((entry) => entry.name));
 
-/** What the tab shows: from the record and the credential names alone, so it costs no network. */
+/**
+ * What the tab shows: from the record and the credential names alone, so it costs no network.
+ * @param {{ credentials?: ReturnType<typeof import("../credentials.mjs").createCredentialStore>, store?: ReturnType<typeof createTunnelStateStore>, hostname?: string }} [options]
+ */
 export async function inspectCloudflareTunnel({ credentials, store = createTunnelStateStore(), hostname = os.hostname() } = {}) {
   const names = await savedNames(credentials);
   let state = null;

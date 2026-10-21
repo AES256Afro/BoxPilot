@@ -10,6 +10,10 @@
  */
 const noticeKey = "release.available";
 
+/**
+ * @param {{ releaseUpdates?: any, notifications?: any, alerts?: any, store?: any, intervalMs?: number, initialDelayMs?: number, now?: () => Date,
+ *   setInterval?: typeof setInterval, setTimeout?: typeof setTimeout, clearInterval?: typeof clearInterval, clearTimeout?: typeof clearTimeout }} [options]
+ */
 export function createUpdateNotifier({ releaseUpdates, notifications, alerts, store, intervalMs = 6 * 60 * 60 * 1000, initialDelayMs = 2 * 60 * 1000, now = () => new Date(), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   async function check() {
     const release = await releaseUpdates.inspect({ refresh: true });

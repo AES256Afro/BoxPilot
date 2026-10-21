@@ -7,7 +7,7 @@ description: "Exposes this server's CPU, memory, disk, filesystem, and network m
 website: https://github.com/prometheus/node_exporter
 risk: medium
 image:
-  reference: prom/node-exporter:v1.12.1
+  reference: prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
   version: "1.12.1"
 network: host
 command: ["--path.procfs=/host/proc", "--path.sysfs=/host/sys", "--path.rootfs=/host/root", "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"]

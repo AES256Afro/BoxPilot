@@ -28,6 +28,8 @@ import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
 import { databaseCopyReport, databaseCopyRule, describeDatabaseCopy, humanBytes } from "../server/housekeeping.mjs";
+import { cleanupBounds, cleanupCategoryIds, cleanupParameters, journalVacuumArgs, planJournalFolder } from "../server/space-recovery.mjs";
+import { validateParameters } from "../server/ops/registry.mjs";
 import { keepsBackupData } from "../server/catalog/schema.mjs";
 import { registry as operationRegistry } from "../server/ops/index.mjs";
 import { createAgentsDemo } from "./demo-agents.mjs";
@@ -223,6 +225,96 @@ function demoDatabaseCopies(parameters = {}) {
   return databaseCopyReport(copies, { rule, now: Date.now(), directory: "/var/lib/boxpilot" });
 }
 
+/*
+ * Where the disk space went, and a cleanup preview that follows the bounds asked for (M30.8): a
+ * journal of 1.4 GiB in weekly archives, a month of job logs, APT's cache after an upgrade, and the
+ * images an update left dangling. The journal half is planned by the product's own vacuum model.
+ */
+const demoMachineId = "0123456789abcdef0123456789abcdef";
+const demoJournalFolder = `/var/log/journal/${demoMachineId}`;
+const demoJournalFiles = () => {
+  const hex = (value, width) => BigInt(Math.round(value)).toString(16).padStart(width, "0");
+  const archived = Array.from({ length: 12 }, (_, index) => {
+    const startedMs = Date.now() - (12 - index) * 7 * 86_400_000;
+    return { name: `system@${"a".repeat(32)}-${hex(index * 50_000 + 1, 16)}-${hex(startedMs * 1000, 16)}.journal`, bytes: 112 * 1024 ** 2 };
+  });
+  return [...archived, { name: "system.journal", bytes: 64 * 1024 ** 2 }, { name: "user-1000.journal", bytes: 8 * 1024 ** 2 }];
+};
+const demoJobLogs = [
+  ...Array.from({ length: 9 }, (_, index) => ({ id: `0b1c2d3e-0000-4000-8000-00000000000${index}`, days: 20 + index * 4, bytes: (120 + index * 30) * 1024, state: "completed" })),
+  ...Array.from({ length: 5 }, (_, index) => ({ id: `0b1c2d3e-0000-4000-8000-00000000001${index}`, days: 2 + index * 2, bytes: 90 * 1024, state: "completed" })),
+  { id: "0b1c2d3e-0000-4000-8000-000000000020", days: 16, bytes: 640 * 1024, state: "failed" },
+];
+const demoAptFiles = [["linux-image-6.8.0-45-generic_6.8.0-45.45_amd64.deb", 14.6], ["linux-modules-6.8.0-45-generic_6.8.0-45.45_amd64.deb", 38.2], ["docker-ce_5%3a28.0.0-1~ubuntu.24.04~noble_amd64.deb", 27.4], ["containerd.io_1.7.25-1_amd64.deb", 30.1], ["openssl_3.0.13-0ubuntu3.4_amd64.deb", 1.6]].map(([name, mebibytes]) => ({ what: `/var/cache/apt/archives/${name}`, bytes: Math.round(mebibytes * 1024 ** 2) }))
+  .concat([{ what: "/var/cache/apt/pkgcache.bin", bytes: 46 * 1024 ** 2 }, { what: "/var/cache/apt/srcpkgcache.bin", bytes: 45 * 1024 ** 2 }]);
+const demoDangling = [{ what: "sha256:5f1e0c2b9a7d", bytes: 412_000_000 }, { what: "sha256:9c3a71d40e28", bytes: 188_000_000 }];
+
+function demoSpaceInspect() {
+  const journal = demoJournalFiles();
+  const sum = (list) => list.reduce((total, entry) => total + entry.bytes, 0);
+  const active = journal.filter((file) => !file.name.includes("@"));
+  const logs = (filter) => { const list = demoJobLogs.filter(filter); return { count: list.length, bytes: sum(list) }; };
+  const measured = (entry) => ({ ...entry, available: true, unavailable: null, humanBytes: humanBytes(entry.bytes) });
+  return {
+    generatedAt: now().toISOString(),
+    categories: [
+      measured({ id: "journal", title: "System journal", path: "/var/log/journal", bytes: sum(journal), inodes: journal.length + 1, filesystem: "2049",
+        detail: { journaldReportedBytes: Math.round(sum(journal) / (0.1 * GiB)) * 0.1 * GiB, folders: 1, activeFiles: active.length, activeBytes: sum(active), archivedFiles: journal.length - active.length, archivedBytes: sum(journal) - sum(active) } }),
+      measured({ id: "job-logs", title: "BoxPilot job logs", path: "/run/boxpilot/job-logs", bytes: sum(demoJobLogs), inodes: demoJobLogs.length, filesystem: "26",
+        detail: { retentionDays: cleanupBounds.jobLogDefaultDays, active: logs(() => false), "past-retention": logs((log) => log.state === "completed" && log.days > 14), completed: logs((log) => log.state === "completed" && log.days <= 14), failed: logs((log) => log.state === "failed"), unlisted: logs(() => false) } }),
+      measured({ id: "apt-cache", title: "APT download cache", path: "/var/cache/apt", bytes: sum(demoAptFiles) + 4096 * 6, inodes: demoAptFiles.length + 6, filesystem: "2049",
+        detail: { cleanableFiles: demoAptFiles.length, cleanableBytes: sum(demoAptFiles), packages: demoAptFiles.filter((file) => file.what.endsWith(".deb")).length } }),
+      measured({ id: "docker", title: "Docker", path: "/var/lib/docker", bytes: 14_184_000_000, inodes: null, filesystem: "2049",
+        detail: { rows: [
+          { type: "Images", total: 22, active: 14, bytes: 10_100_000_000, reclaimableBytes: 1_180_000_000, reclaimablePercent: 11 },
+          { type: "Containers", total: 14, active: 13, bytes: 644_000_000, reclaimableBytes: 12_300_000, reclaimablePercent: 1 },
+          { type: "Local Volumes", total: 9, active: 9, bytes: 3_440_000_000, reclaimableBytes: 0, reclaimablePercent: 0 },
+          { type: "Build Cache", total: 0, active: 0, bytes: 0, reclaimableBytes: 0, reclaimablePercent: null },
+        ], danglingImages: { count: demoDangling.length, bytes: sum(demoDangling), usedByContainers: 0 } } }),
+      measured({ id: "backups", title: "Local backups", path: "/var/lib/boxpilot-managed/backups/catalog", bytes: 21.4 * GiB, inodes: 412, filesystem: "2049",
+        detail: { roots: [
+          { id: "application", title: "Application backups", path: "/var/lib/boxpilot-managed/backups/catalog", bytes: 19.8 * GiB, inodes: 380, files: 352, retention: "Each backup keeps the newest copies of its own kind. Reclaim disk space offers those beyond the newest 3 of each kind, keeping any a machine snapshot restores from.", beyondNewest: { count: 5, bytes: 780 * 1024 ** 2, keepsPerKind: 3 } },
+          { id: "database", title: "BoxPilot database backups", path: "/var/lib/boxpilot-managed/backups/boxpilot-controller", bytes: 1.6 * GiB, inodes: 32, files: 30, retention: "Each new backup keeps the newest 10 local copies." },
+          { id: "machine-snapshots", title: "Machine snapshots", path: "/var/lib/boxpilot-managed/machine-snapshots", bytes: null, inodes: null, files: null, retention: "Each new snapshot keeps the newest 3.", unavailable: "Not created yet" },
+        ] } }),
+    ],
+    filesystems: [
+      { key: "2049", path: "/var/log/journal", freeBytes: 411 * GiB, totalBytes: 492 * GiB, freeInodes: 30_412_000, totalInodes: 32_768_000, categories: ["journal", "apt-cache", "docker", "backups"] },
+      { key: "26", path: "/run/boxpilot/job-logs", freeBytes: 3.1 * GiB, totalBytes: 3.2 * GiB, freeInodes: 812_000, totalInodes: 813_000, categories: ["job-logs"] },
+    ],
+  };
+}
+
+/** The preview for the bounds asked for, as space.cleanup.preview answers; bounds it would refuse fall back to the defaults. */
+function demoSpacePlan(parameters = {}) {
+  const asked = validateParameters(cleanupParameters, parameters, "Disk-space cleanup") ? { categories: ["journal", "job-logs", "apt-cache"], journalMaxAgeDays: 30 } : parameters;
+  const bounds = { journalMaxBytes: asked.journalMaxBytes ?? null, journalMaxAgeDays: asked.journalMaxAgeDays ?? null, jobLogRetentionDays: asked.jobLogRetentionDays ?? cleanupBounds.jobLogDefaultDays };
+  const sum = (list) => list.reduce((total, entry) => total + entry.bytes, 0);
+  const plans = {
+    journal: () => {
+      const planned = planJournalFolder(demoJournalFiles(), { maxBytes: bounds.journalMaxBytes, maxAgeDays: bounds.journalMaxAgeDays, now: Date.now() });
+      const limits = [bounds.journalMaxBytes !== null ? `each journal folder is within ${humanBytes(bounds.journalMaxBytes)}` : null, bounds.journalMaxAgeDays !== null ? `no archived file starts more than ${bounds.journalMaxAgeDays} days ago` : null].filter(Boolean);
+      return { bound: `Archived journal files, oldest first, until ${limits.join(" and ")} (journalctl ${journalVacuumArgs({ maxBytes: bounds.journalMaxBytes, maxAgeDays: bounds.journalMaxAgeDays }).join(" ")}).`,
+        bytes: sum(planned.remove), inodes: planned.remove.length,
+        items: planned.remove.map((file) => ({ what: `${demoJournalFolder}/${file.name}`, bytes: file.bytes, at: new Date(file.realtimeUs / 1000).toISOString() })), more: 0,
+        keeping: [`${planned.activeFiles} active journal files (${humanBytes(planned.activeBytes)}), which journald is writing and never deletes`, ...(planned.kept.length ? [`${planned.kept.length} archived files within the bound (${humanBytes(sum(planned.kept))})`] : [])] };
+    },
+    "job-logs": () => {
+      const remove = demoJobLogs.filter((log) => log.state === "completed" && log.days > bounds.jobLogRetentionDays);
+      const newer = demoJobLogs.filter((log) => log.state === "completed" && log.days <= bounds.jobLogRetentionDays);
+      return { bound: `Logs of completed jobs last written more than ${bounds.jobLogRetentionDays} days ago.`, bytes: sum(remove), inodes: remove.length,
+        items: remove.map((log) => ({ what: `${log.id}.log`, bytes: log.bytes, at: ago(log.days * 24), detail: "Activity keeps the end of its output" })), more: 0,
+        keeping: ["1 log of failed or cancelled jobs, the record of what went wrong (640.0 KiB)", ...(newer.length ? [`${newer.length} completed jobs' logs newer than ${bounds.jobLogRetentionDays} days (${humanBytes(sum(newer))})`] : [])] };
+    },
+    "apt-cache": () => ({ bound: "Downloaded package files and APT's rebuildable package cache (apt-get clean).", bytes: sum(demoAptFiles), inodes: demoAptFiles.length, items: demoAptFiles, more: 0, keeping: ["The package lists, so the next install only downloads its own packages"] }),
+    "docker-dangling": () => ({ bound: "Dangling images no container uses (docker image prune, without --all).", bytes: sum(demoDangling), inodes: null, items: demoDangling, more: 0, keeping: ["Every tagged image, every container, every volume, and the build cache", "Sizes are Docker's; layers an image shares with a kept one are not freed"] }),
+  };
+  const titles = { journal: "System journal", "job-logs": "BoxPilot job logs", "apt-cache": "APT download cache", "docker-dangling": "Dangling Docker images" };
+  const categories = cleanupCategoryIds.filter((id) => asked.categories.includes(id)).map((id) => { const planned = plans[id](); return { id, title: titles[id], available: true, unavailable: null, ...planned, humanBytes: humanBytes(planned.bytes) }; });
+  const totalBytes = sum(categories);
+  return { generatedAt: now().toISOString(), bounds, categories, totalBytes, totalHumanBytes: humanBytes(totalBytes), totalInodes: categories.reduce((total, category) => total + (category.inodes ?? 0), 0) };
+}
+
 export const inspections = {
   // The watchdog and Wake-on-LAN (M39): an AMD board whose watchdog Ubuntu does not load by itself,
   // and one wired port that can wake. The address is from the documentation range (RFC 7042).
@@ -306,6 +398,8 @@ export const inspections = {
     { type: "Build Cache", total: 0, active: 0, size: "0B", reclaimable: "0B" },
   ], logging: { configured: true, logDriver: "json-file", maxSize: "10m", liveRestore: true } },
   "housekeeping.database-copies.inspect": demoDatabaseCopies(),
+  "space.inspect": demoSpaceInspect(),
+  "space.cleanup.preview": demoSpacePlan({ categories: ["journal", "job-logs", "apt-cache"], journalMaxAgeDays: 30, jobLogRetentionDays: 14 }),
   "housekeeping.inspect": (() => {
     const categories = [
       { id: "boxpilot-versions", title: "Previous BoxPilot releases", summary: "Copies of BoxPilot that past updates left in /opt. The most recent working version is kept, so you can still put it back by hand, and so is the last update that failed its health check.", items: 4, bytes: 1.4 * GiB, detail: ["boxpilot.prev.1750", "boxpilot.prev.1746", "boxpilot.rollback-1741", "boxpilot-prev-1738"], keeping: ["boxpilot.prev.1752"], safe: true },
@@ -636,9 +730,14 @@ api.get("/push", (_request, response) => json(response, {
   devices: [{ id: "demo-iphone", label: "iPhone", service: "Apple", createdAt: ago(72), lastSentAt: ago(2), lastError: null }],
   settings: { tiers: { low: false, medium: true, high: true }, quietHours: { enabled: true, start: "22:00", end: "07:00" }, ntfy: "fallback", openAt: `https://${host.tailnet}`, timeZone: "Europe/London" },
 }));
+api.get("/settings/quiet-hours", (_request, response) => json(response, { enabled: true, start: "22:30", end: "07:00", holdHigh: false, held: 0, quietNow: false }));
 api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
 api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { approvalMode: "tiered", modes: ["tiered", "always-password"], elevationTtlMs: 10 * 60_000 }));
+// The weekly read of a sleeping drive (M36): off until the owner turns it on, as on a real server.
+let demoStorageWake = false;
+api.get("/settings/storage-wake", (_request, response) => json(response, { enabled: demoStorageWake }));
+api.put("/settings/storage-wake", (request, response) => { demoStorageWake = request.body?.enabled === true; json(response, { enabled: demoStorageWake }); });
 api.get("/settings/vpn-profile", (_request, response) => json(response, {
   profile: { configured: true, provider: "mullvad", type: "wireguard", wireguardAddresses: "10.64.222.21/32", countries: "Sweden, Netherlands", portForwarding: "off", dot: "on", blockMalicious: "on", blockAds: "on", blockSurveillance: "off", dnsAddress: "", outboundSubnets: "192.168.0.0/16, 10.0.0.0/8", healthTargetAddress: "", hasWireguardKey: true, hasOpenvpnPassword: false, updatedAt: ago(48) },
   providers: ["mullvad", "protonvpn", "nordvpn", "surfshark", "private internet access", "airvpn", "windscribe", "ivpn", "custom"],
@@ -838,15 +937,26 @@ api.get("/firewall/overview", (_request, response) => json(response, {
 }));
 api.get("/firewall/plan", (request, response) => json(response, buildPlan({ profileId: request.query.profile ?? "home-server", serviceIds: typeof request.query.services === "string" && request.query.services ? request.query.services.split(",") : [], replace: request.query.replace === "true", sshRateLimit: request.query.sshRateLimit === "true", webPort: 8787, webHost: "127.0.0.1" })));
 api.get("/storage/overview", (_request, response) => json(response, storageOverview));
+// Thirty days of the SMART sampler (M31.2): the NVMe slowly wearing, the USB disk steady.
+api.get("/storage/smart-history", (_request, response) => {
+  const day = (offset) => new Date(now().getTime() - offset * 24 * 60 * 60 * 1000).toISOString();
+  const samples = (make) => Array.from({ length: 30 }, (_value, index) => ({ at: day(29 - index), ...make(index) }));
+  json(response, { disks: [
+    { device: "/dev/nvme0n1", days: 29, wearChange: 1, errorChange: 0, samples: samples((index) => ({ temperatureCelsius: Math.round(41 + 3 * Math.sin(index / 3)), percentageUsed: index < 15 ? 2 : 3, mediaErrors: 0 })) },
+    { device: "/dev/sda", days: 29, wearChange: null, errorChange: 0, samples: samples((index) => ({ temperatureCelsius: Math.round(35 + 1.5 * Math.sin(index / 4 + 1)), percentageUsed: null, mediaErrors: 0 })) },
+  ] });
+});
+// Thirty daily sizes ending at `gib`, growing about `perDay` GiB a day (M31.4).
+const dailySizes = (gib, perDay) => Array.from({ length: 30 }, (_value, index) => ({ at: new Date(now().getTime() - (29 - index) * 24 * 60 * 60 * 1000).toISOString(), bytes: Math.round((gib - perDay * (29 - index) + (index % 3) * perDay * 0.2) * 1024 ** 3) }));
 api.get("/storage/forecast", (_request, response) => json(response, { tracking: 2, forecasts: [
   { target: "/mnt/media", daysToFull: 11, availableBytes: 214 * 1024 ** 3, totalBytes: 4000 * 1024 ** 3, samples: 14 },
   { target: "/", daysToFull: 63, availableBytes: 41 * 1024 ** 3, totalBytes: 234 * 1024 ** 3, samples: 14 },
 // What each app's folders hold and how fast they are growing (M23.1). The download client is
 // running away with the drive while the library it feeds has barely moved.
 ], usage: [
-  { appId: "qbittorrent", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"] },
-  { appId: "sonarr", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"] },
-  { appId: "jellyfin", path: "/srv/media", mount: "/", bytes: 2180 * 1024 ** 3, grewBytes: 12 * 1024 ** 3, days: 7 },
+  { appId: "qbittorrent", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"], series: dailySizes(1340, 35) },
+  { appId: "sonarr", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"], series: dailySizes(1340, 35) },
+  { appId: "jellyfin", path: "/srv/media", mount: "/", bytes: 2180 * 1024 ** 3, grewBytes: 12 * 1024 ** 3, days: 7, series: dailySizes(2180, 1.7) },
   { appId: "nextcloud", path: "/srv/documents", mount: "/", bytes: 48 * 1024 ** 3, grewBytes: 0, days: 7 },
 ], lastMeasured: { at: ago(9), sampled: 4, unmeasured: 0, error: null } }));   // ago() is hours: last night's sweep
 api.get("/storage/shares/discover", (_request, response) => json(response, { devices: [{ address: "192.168.50.30", name: "nas.local", smb: true, nfs: true, mac: "02:00:00:aa:00:30", interface: "eno1" }], scanned: 253, interfaces: ["eno1 192.168.50.20/24"] }));
@@ -1089,6 +1199,8 @@ const troubleWords = {
   "canary.verify": { ok: false },
   "app.models.inspect": { id: "open-webui", available: false, reason: "Open WebUI + Ollama is paused. Resume it to see its models", models: [] },
   "housekeeping.inspect": { totalBytes: 41 * GiB },
+  // The disk the journal, APT and Docker share is nearly full: what Logs and caches is for.
+  "space.inspect": { filesystems: demoSpaceInspect().filesystems.map((filesystem) => (filesystem.key === "2049" ? { ...filesystem, freeBytes: 2.1 * GiB } : filesystem)) },
 };
 
 /** The same server, described by the routes that report what it can currently reach. */
@@ -1303,8 +1415,10 @@ api.get("/operations/:id/inspect", (request, response) => {
 // reads through /run (which is how it passes parameters) behaves here too.
 api.post("/operations/:id/run", (request, response) => {
   const fixture = fixturesFor(scenarioOf(request.get("referer")))[request.params.id];
-  // The one read whose answer depends on what it is asked: the database-copy rule (M36).
-  const result = request.params.id === "housekeeping.database-copies.inspect" && fixture?.copies?.length ? demoDatabaseCopies(request.body?.parameters ?? {}) : fixture ?? {};
+  // The reads whose answer depends on what they are asked: the database-copy rule (M36) and the
+  // disk-space cleanup's bounds (M30.8).
+  const result = request.params.id === "housekeeping.database-copies.inspect" && fixture?.copies?.length ? demoDatabaseCopies(request.body?.parameters ?? {})
+    : request.params.id === "space.cleanup.preview" && fixture?.categories?.length ? demoSpacePlan(request.body?.parameters ?? {}) : fixture ?? {};
   return json(response, { operation: request.params.id, result });
 });
 /**

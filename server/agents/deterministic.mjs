@@ -218,6 +218,7 @@ export function matchPattern({ pattern, text, flags = "" }, { timeoutMs = 500 } 
 }
 
 /** The exact tools by id, for the tool runner. */
+/** @type {Record<string, (input: any, context?: { now?: () => Date }) => string | Promise<string>>} */
 export const exactTools = {
   calc: ({ expression }) => `${expression} = ${shown(calculate(expression))}`,
   "time.calc": (input, context) => timeCalc(input, context),

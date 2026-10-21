@@ -247,3 +247,20 @@ describe("a compose file BoxPilot did not write", () => {
     expect(isSystemLocation("/srv/media")).toBe(false);
   });
 });
+
+describe("places a root container turns into root on the server", () => {
+  it("are refused as an app's folder and marked as system locations in a compose review", async () => {
+    const { isDeniedHostPath, rootReachableLocations } = await import("./schema.mjs");
+    const { isSystemLocation } = await import("./compose-review.mjs");
+    for (const location of rootReachableLocations) {
+      for (const candidate of [location, `${location}/crontabs/root`]) {
+        expect(isDeniedHostPath(candidate), candidate).toBe(true);
+        expect(isSystemLocation(candidate), candidate).toBe(true);
+      }
+    }
+    // A folder that holds one is refused too; an owner's own folders are not.
+    expect(isDeniedHostPath("/var")).toBe(true);
+    expect(isDeniedHostPath("/srv/media")).toBe(false);
+    expect(isDeniedHostPath("/home/alex/photos")).toBe(false);
+  });
+});

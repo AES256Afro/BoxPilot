@@ -7,7 +7,7 @@ description: Disk health dashboard. Reads every drive's SMART data on a schedule
 website: https://github.com/AnalogJ/scrutiny
 risk: medium
 image:
-  reference: ghcr.io/analogj/scrutiny:v0.8.3-omnibus
+  reference: ghcr.io/analogj/scrutiny:v0.8.3-omnibus@sha256:f7f153ad78241f32906da4f317a75fb2de6ed79bf3d9411cdee65d27d6b40745
   version: v0.8.3
 capabilities:
   - CAP_SYS_RAWIO

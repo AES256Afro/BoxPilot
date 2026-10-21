@@ -10,7 +10,7 @@ const hoursAgo = (hours: number) => new Date(now - hours * 3_600_000).toISOStrin
 
 const none: FactValues = {
   catalog: null, inventory: null, updates: null, unattended: null, services: null, watch: null, repairs: null, jobs: null,
-  schedules: null, protection: null, offBox: null, database: null, setup: null, checklist: null, vms: null, rebuild: null,
+  schedules: null, protection: null, offBox: null, database: null, setup: null, checklist: null, vms: null, databaseCopies: null, rebuild: null,
 };
 const facts = (overrides: Partial<FactValues>): FactValues => ({ ...none, ...overrides });
 
@@ -500,5 +500,21 @@ describe("the words", () => {
     expect(greeting(new Date(2026, 8, 28, 9).getTime())).toBe("Good morning");
     expect(greeting(new Date(2026, 8, 28, 14).getTime())).toBe("Good afternoon");
     expect(greeting(new Date(2026, 8, 28, 22).getTime())).toBe("Good evening");
+  });
+});
+
+describe("database copies from before the secret scrub (M36)", () => {
+  const need = (databaseCopies: { heldSecrets: number; removable: number; total: number }, role = "owner") => buildNeeds({ ...none, databaseCopies }, { now, role }).find((entry) => entry.id === "database-copies");
+
+  it("says so when removal can take any, and opens System's Housekeeping, where they are removed", () => {
+    expect(need({ heldSecrets: 0, removable: 0, total: 3 })).toBeUndefined();
+    expect(need({ heldSecrets: 1, removable: 1, total: 3 })).toMatchObject({ severity: "warning", title: "A database copy from before the secret scrub is still on disk", view: "system", action: { kind: "open", open: { view: "system", tab: "housekeeping" }, label: "Review copies" } });
+    expect(need({ heldSecrets: 3, removable: 2, total: 4 })?.title).toBe("2 database copies from before the secret scrub are still on disk");
+  });
+
+  it("stays quiet about copies the rule always keeps, and for anyone who cannot remove them", () => {
+    // The newest copy predates the scrub: removal never takes it, so Home would never clear.
+    expect(need({ heldSecrets: 1, removable: 0, total: 1 })).toBeUndefined();
+    expect(need({ heldSecrets: 2, removable: 2, total: 2 }, "operator")).toBeUndefined();
   });
 });
