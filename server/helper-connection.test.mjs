@@ -22,10 +22,12 @@ async function helper({ execute = async (request) => ({ version: 1, id: request.
     lanes: createLaneQueues(), reads: createConcurrencyGate(2), mutations: createAdmission(admission), waiting,
     isRestarting: restarting, maxRequestBytes, queuedHeartbeatMs: 60_000, holdRootTasks: (_hold, work) => work(),
   });
-  const server = net.createServer({ allowHalfOpen: true }, handle);
+  // Counts the hang-ups the server has seen, so a test can wait for one instead of sleeping.
+  const hangUps = { count: 0 };
+  const server = net.createServer({ allowHalfOpen: true }, (socket) => { socket.on("end", () => { hangUps.count += 1; }); handle(socket); });
   await new Promise((resolve) => server.listen(socketPath, () => resolve(undefined)));
   cleanup.push(() => new Promise((resolve) => server.close(() => resolve(undefined))));
-  return { socketPath, run, waiting };
+  return { socketPath, run, waiting, hangUps };
 }
 
 /** Send one request line; resolve with every frame the helper wrote, once it closes. `hangUp` sends FIN right after. */
@@ -80,10 +82,10 @@ describe.skipIf(onWindows)("a connection to the root helper", () => {
 
   it("never runs a mutation whose caller hung up while it waited", async () => {
     const first = deferred();
-    const { socketPath, run } = await helper({ execute: async (sent) => { if (sent.id === "m1") await first.promise; return { version: 1, id: sent.id, ok: true }; } });
+    const { socketPath, run, hangUps } = await helper({ execute: async (sent) => { if (sent.id === "m1") await first.promise; return { version: 1, id: sent.id, ok: true }; } });
     const one = ask(socketPath, request("m1"));
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
-    const gone = ask(socketPath, request("m2"), { onFrame: (frame, socket) => { if (frame.queued) { socket.end(); setTimeout(() => first.release(), 20); } } });
+    const gone = ask(socketPath, request("m2"), { onFrame: (frame, socket) => { if (frame.queued) { socket.end(); void vi.waitFor(() => expect(hangUps.count).toBe(1)).then(() => first.release()); } } });
     await one;
     const frames = await gone;
     expect(frames.at(-1)).toMatchObject({ id: "m2", ok: false, error: expect.stringContaining("abandoned") });
@@ -103,7 +105,9 @@ describe.skipIf(onWindows)("a connection to the root helper", () => {
     expect(await ask(socketPath, request("busy", "agents.runtime.cpu"))).toEqual([expect.objectContaining({ id: "busy", ok: false, error: expect.stringContaining("already running or waiting") })]);
     held.release();
     await slow;
-    expect(run).toHaveBeenCalledTimes(2);
+    // The slot comes back once the mutation is done.
+    expect(await ask(socketPath, request("after", "agents.runtime.cpu"))).toEqual([{ version: 1, id: "after", ok: true }]);
+    expect(run).toHaveBeenCalledTimes(3);
   });
 
   it("lets a stop of the helper answer a waiting mutation at once, with nothing done", async () => {
