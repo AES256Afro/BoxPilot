@@ -7,7 +7,7 @@ description: "Dedicated Necesse server with player limit and password. A small, 
 website: https://necessegame.com
 risk: low
 image:
-  reference: brammys/necesse-server:1-3-2
+  reference: brammys/necesse-server:1-3-2@sha256:9fb2eb0bab9208c2dc4fcba15c54c2abbdd82eab35bfce8e36cb42fe3e40b5ce
   version: "1.3.2"
 ports:
   - id: game

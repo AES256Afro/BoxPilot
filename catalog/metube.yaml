@@ -7,7 +7,7 @@ description: "Paste a YouTube (or any of 1,000 supported sites) link and downloa
 website: https://github.com/alexta69/metube
 risk: low
 image:
-  reference: ghcr.io/alexta69/metube:2026.08.21
+  reference: ghcr.io/alexta69/metube:2026.08.21@sha256:c2920f86f888b5398e5a964e135417fe11418823988399e6ec230293dcc0bb31
   version: "2026.08.21"
 ports:
   - id: web

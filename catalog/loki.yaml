@@ -7,7 +7,7 @@ description: "Log database for Grafana: ship container and system logs to it and
 website: https://grafana.com/oss/loki
 risk: low
 image:
-  reference: grafana/loki:3.7.6
+  reference: grafana/loki:3.7.6@sha256:efd47c67f9bac88ca29bcf8cb997d9ab29d1848bd0aff579282295542a745952
   version: "3.7.6"
 user: "10001:10001"
 ports:

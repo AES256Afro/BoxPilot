@@ -7,7 +7,7 @@ description: Self-hosted uptime monitoring with status pages and notifications f
 website: https://uptime.kuma.pet
 risk: low
 image:
-  reference: louislam/uptime-kuma:2.5.0
+  reference: louislam/uptime-kuma:2.5.0@sha256:a8610b3b4c38077922ba51b036691e06887d7cefd91fe620fd3d6d23d03dc240
   version: 2.5.0
 ports:
   - id: web

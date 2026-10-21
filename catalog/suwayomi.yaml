@@ -7,7 +7,7 @@ description: Manga server. Browse and download from the sources you add, then re
 website: https://github.com/Suwayomi/Suwayomi-Server
 risk: low
 image:
-  reference: ghcr.io/suwayomi/tachidesk:v2.3.2333
+  reference: ghcr.io/suwayomi/tachidesk:v2.3.2333@sha256:ddbe2ca6294a6f19fea094a2e372153adc6053ba34a361719fabcd1d10045bd8
   version: 2.3.2333
 ports:
   - id: web

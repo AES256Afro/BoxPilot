@@ -7,7 +7,7 @@ description: "Dedicated Project Zomboid server with player limit, join password,
 website: https://projectzomboid.com
 risk: low
 image:
-  reference: renegademaster/zomboid-dedicated-server:2.5.0
+  reference: renegademaster/zomboid-dedicated-server:2.5.0@sha256:5e3479ea2ef66a4f14686fd3abc3286cf31a82c0e37f737b4b5976ff37da9951
   version: "2.5.0"
 ports:
   - id: game

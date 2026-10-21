@@ -7,7 +7,7 @@ description: "Private translation between 30+ languages with an API and a simple
 website: https://libretranslate.com
 risk: low
 image:
-  reference: libretranslate/libretranslate:v1.9.6
+  reference: libretranslate/libretranslate:v1.9.6@sha256:1de2d7056bb8ad607a412f4563d9abe324ff632b43b5be9428bcc8e213aebb32
   version: "1.9.6"
 user: "1032:1032"
 ports:

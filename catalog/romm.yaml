@@ -7,7 +7,7 @@ description: "Retro game library manager: scans your ROM folders, fetches covers
 website: https://romm.app
 risk: low
 image:
-  reference: rommapp/romm:5.2.0
+  reference: rommapp/romm:5.2.0@sha256:3512f2ca455782f90247271bed23116e6bc675bc74e379be2c41696e607ab11e
   version: "5.2.0"
 ports:
   - id: web
@@ -63,7 +63,7 @@ env:
     type: password
 sidecars:
   - id: database
-    image: mariadb:11.8.8
+    image: mariadb:11.8.8@sha256:24e76fcec8c003a0362d0dd53f4806e7e79458d7fdeaf47437760e19496f5a9c
     env:
       MARIADB_DATABASE: romm
       MARIADB_USER: romm
