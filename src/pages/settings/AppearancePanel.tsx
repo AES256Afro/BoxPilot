@@ -5,6 +5,7 @@ import { useLook } from "../../looks/useLook";
 import { Button, Segmented, Switch } from "../../ui";
 import { handleRadioKeys } from "../../ui/radio";
 import { useTheme } from "../../useTheme";
+import { SIGNIN_STYLES, setSigninStyle, useSigninStyle } from "../signin/signinStyle";
 
 /*
  * Settings → Appearance (M41): which look the whole interface is drawn in, and its small choices,
@@ -65,6 +66,7 @@ export default function AppearancePanel() {
   // The look before the last one picked here, while the new one is on trial.
   const [previous, setPrevious] = useTrialFrom();
   const current = lookById(choice.look);
+  const signinStyle = useSigninStyle();
 
   const pick = (look: LookId) => {
     if (look === choice.look) return;
@@ -149,6 +151,11 @@ export default function AppearancePanel() {
           <b>Reduce transparency</b>
           <small>Solid panels instead of glass.</small>
           <Switch label="Reduce transparency" checked={choice.solid} onChange={(solid) => choice.update({ solid })} className="settings-appearance__switch" />
+        </div>
+        <div className="settings-appearance__row">
+          <b>Sign-in screen</b>
+          <small>What this browser shows before you sign in.</small>
+          <Segmented label="Sign-in screen" options={SIGNIN_STYLES.map((option) => ({ value: option.id, label: option.label }))} value={signinStyle} onChange={setSigninStyle} />
         </div>
       </div>
     </section>
