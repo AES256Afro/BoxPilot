@@ -7,7 +7,7 @@ description: "Simple, organised wiki: shelves, books, chapters, and pages with a
 website: https://www.bookstackapp.com
 risk: low
 image:
-  reference: lscr.io/linuxserver/bookstack:v26.05.3-ls280
+  reference: lscr.io/linuxserver/bookstack:v26.05.3-ls280@sha256:f1cf8be89e7480a5cb9ca9571e1a3d9815a7ee44c8ad94a2eed4faf1fe8122da
   version: "26.05.3"
 ports:
   - id: web
@@ -59,7 +59,7 @@ env:
     default: Etc/UTC
 sidecars:
   - id: database
-    image: mariadb:11.8.8
+    image: mariadb:11.8.8@sha256:24e76fcec8c003a0362d0dd53f4806e7e79458d7fdeaf47437760e19496f5a9c
     env:
       MARIADB_DATABASE: bookstack
       MARIADB_USER: bookstack

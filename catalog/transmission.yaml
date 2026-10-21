@@ -7,7 +7,7 @@ description: Light, plain torrent client with a web interface. A quieter alterna
 website: https://transmissionbt.com
 risk: medium
 image:
-  reference: lscr.io/linuxserver/transmission:version-4.1.3-r0
+  reference: lscr.io/linuxserver/transmission:version-4.1.3-r0@sha256:55aaeedf9fc354d34136387e15ee0ba4679096f20398dd2875867e5cd5cf8be5
   version: 4.1.3
 ports:
   - id: web

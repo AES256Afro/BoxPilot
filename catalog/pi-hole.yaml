@@ -8,7 +8,7 @@ website: https://pi-hole.net
 risk: high
 networkModes: [bridge, host]
 image:
-  reference: pihole/pihole:2026.07.2
+  reference: pihole/pihole:2026.07.2@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b
   version: 2026.07.2
 ports:
   - id: dns-tcp
@@ -68,7 +68,7 @@ signIn:
   note: Pi-hole has no username. Change the password here rather than inside Pi-hole. The container sets it from this value every time it starts, so a change made in Pi-hole's own settings is undone by the next restart.
 sidecars:
   - id: unbound
-    image: klutchell/unbound:v1.26.0
+    image: klutchell/unbound:v1.26.0@sha256:5020cfe1218aeda38777f88279220162e602c3a44efc684550dbf46137106a16
 health:
   kind: healthcheck
   stableSeconds: 10

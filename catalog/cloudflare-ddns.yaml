@@ -7,7 +7,7 @@ description: "Keeps a DNS name at Cloudflare pointing at your home's changing pu
 website: https://github.com/favonia/cloudflare-ddns
 risk: low
 image:
-  reference: favonia/cloudflare-ddns:1.17.0
+  reference: favonia/cloudflare-ddns:1.17.0@sha256:61013368c8f95981c0bb8bf56d962078d8b4e95724a554fa2dabb20d6e478097
   version: "1.17.0"
 user: "1000:1000"
 env:

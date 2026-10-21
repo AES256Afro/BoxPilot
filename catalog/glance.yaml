@@ -7,7 +7,7 @@ description: A fast dashboard that puts feeds, weather, server stats, and links 
 website: https://github.com/glanceapp/glance
 risk: medium
 image:
-  reference: glanceapp/glance:v0.8.5
+  reference: glanceapp/glance:v0.8.5@sha256:32ab73d80f2b8b5fb0735b0431deb36b93fbb6b2fb43592449b0178c8b83e350
   version: v0.8.5
 ports:
   - id: web

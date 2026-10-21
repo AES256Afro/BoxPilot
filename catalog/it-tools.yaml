@@ -7,7 +7,7 @@ description: "A page of handy developer utilities: token and UUID generators, ha
 website: https://it-tools.tech
 risk: low
 image:
-  reference: corentinth/it-tools:2024.10.22-7ca5933
+  reference: corentinth/it-tools:2024.10.22-7ca5933@sha256:8b8128748339583ca951af03dfe02a9a4d7363f61a216226fc28030731a5a61f
   version: "2024.10.22"
 ports:
   - id: web
