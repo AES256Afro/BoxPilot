@@ -10,6 +10,7 @@ import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
 import { watchEntryFor } from "./access.mjs";
 import { createNotificationHistory } from "../notification-history.mjs";
+import { quietHoursKey, quietHoursProblem } from "../quiet-hours.mjs";
 
 export function createSettingsRouter({ state, notifications, notificationHistory = createNotificationHistory({ store: state }), weeklyReport = null, auth }) {
   const router = Router();
@@ -154,10 +155,40 @@ export function createSettingsRouter({ state, notifications, notificationHistory
 
   router.post("/settings/notifications/test", auth.requireCsrf, rateLimited(sendLimit, "notification-test", { message: "Several test notifications went out just now; wait a minute" }), async (_request, response) => {
     try {
-      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, health alerts (disk space, SMART, UPS, failed services) and the weekly report arrive like this." }));
+      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, health alerts (disk space, SMART, UPS, failed services) and the weekly report arrive like this." }, { immediate: true }));
     } catch (error) {
       response.status(502).json({ error: error.message, code: "notification_test_failed" });
     }
+  });
+
+  // The weekly read of a drive that sleeps through every check (M36): the storage scan leaves a
+  // sleeping disk alone, so one that is always asleep could go months unread. With this on, a disk
+  // last read awake more than a week ago is read once even though that spins it up. Waking a drive
+  // is the owner's call; anyone may see whether it is on.
+  router.get("/settings/storage-wake", (_request, response) => {
+    response.json({ enabled: state.getSetting("storageWeeklyWake", null)?.enabled === true });
+  });
+
+  router.put("/settings/storage-wake", auth.requireCsrf, (request, response) => {
+    if (typeof request.body?.enabled !== "boolean") return response.status(400).json({ error: "enabled must be true or false", code: "invalid_setting" });
+    const owner = request.boxpilotSession.owner;
+    state.setSetting("storageWeeklyWake", { enabled: request.body.enabled }, { updatedBy: owner.id });
+    state.recordAudit?.("settings.storage-wake.changed", { actorId: owner.id, subjectId: owner.id, details: { enabled: request.body.enabled } });
+    return response.json({ enabled: request.body.enabled });
+  });
+
+  // Quiet hours for pushes (M36): when they wait, and how many are waiting for the summary.
+  router.get("/settings/quiet-hours", (_request, response) => {
+    response.json(notifications.quietHours());
+  });
+
+  router.put("/settings/quiet-hours", auth.requireCsrf, auth.requireRole("owner"), (request, response) => {
+    const problem = quietHoursProblem(request.body);
+    if (problem) return response.status(400).json({ error: problem, code: "invalid_setting" });
+    const { enabled, start, end, holdHigh = false } = request.body;
+    state.setSetting(quietHoursKey, { enabled, start, end, holdHigh }, { updatedBy: request.boxpilotSession.owner.id });
+    state.recordAudit("notifications.quiet-hours", { actorId: request.boxpilotSession.owner.id, details: { enabled, start, end, holdHigh } });
+    return response.json(notifications.quietHours());
   });
 
   router.get("/settings/approval-mode", (_request, response) => {
@@ -182,14 +213,23 @@ export function createSettingsRouter({ state, notifications, notificationHistory
     response.json({ profile: state.getSetting("vpnProfile", null), providers: vpnProviders, protocols: vpnProtocols });
   });
 
+  // Where the copies go names an account: an SSH user and host, or a cloud account, bucket and
+  // folder. An operator mirrors to it and the owner sets it; a viewer learns that one is set (Home's
+  // off-box verdict needs no more) and, for the cloud, which provider, but not where.
+  const seesDestinations = (request) => ["owner", "operator"].includes(request.boxpilotSession?.owner?.role);
+  const lastSyncFor = (request, lastSync) => (seesDestinations(request) || !lastSync || typeof lastSync !== "object" ? lastSync : { ...lastSync, destination: null });
+
   // Cloud (rclone) destination: the non-secret description saved by backup.cloud.setup, plus the last mirror.
-  router.get("/settings/cloud-destination", (_request, response) => {
-    response.json({ destination: state.getSetting("cloudDestination", null), lastSync: state.getSetting("cloudDestinationLastSync", null) });
+  router.get("/settings/cloud-destination", (request, response) => {
+    const destination = state.getSetting("cloudDestination", null);
+    const shown = destination && !seesDestinations(request) ? { provider: destination.provider ?? null } : destination;
+    response.json({ destination: shown, lastSync: lastSyncFor(request, state.getSetting("cloudDestinationLastSync", null)) });
   });
 
-  // Off-box SSH backup destination (M6.2). Not secret — the key stays root-only on the server.
-  router.get("/settings/backup-destination", (_request, response) => {
-    response.json({ destination: state.getSetting("backupDestination", null), lastSync: state.getSetting("backupDestinationLastSync", null) });
+  // Off-box SSH backup destination (M6.2). The key stays root-only on the server.
+  router.get("/settings/backup-destination", (request, response) => {
+    const destination = state.getSetting("backupDestination", null);
+    response.json({ destination: destination && !seesDestinations(request) ? { hidden: true } : destination, lastSync: lastSyncFor(request, state.getSetting("backupDestinationLastSync", null)) });
   });
 
   router.put("/settings/backup-destination", auth.requireCsrf, async (request, response) => {

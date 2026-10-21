@@ -9,7 +9,7 @@ risk: medium
 # Runs on an NVIDIA GPU when the server has one set up for Docker (Repair Center shows the state).
 gpu: optional
 image:
-  reference: ollama/ollama:0.32.15
+  reference: ollama/ollama:0.32.15@sha256:57d60e686821ea81a7748a3ec8141308c8b8f95b27105713954abf7a6529e700
   version: 0.32.15
 ports:
   - id: api

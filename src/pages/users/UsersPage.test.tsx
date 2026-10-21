@@ -97,7 +97,7 @@ describe("Users & SSH page", () => {
     fireEvent.change(within(await screen.findByRole("dialog", { name: "Add a user" })).getByLabelText(/Username/), { target: { value: "sam" } });
     fireEvent.click(screen.getByRole("button", { name: "Add user" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    expect(await screen.findByText(/already exists/, {}, { timeout: 4000 })).toBeTruthy();
+    expect(await screen.findByText(/already exists/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.click(screen.getByRole("button", { name: "Add a user…" }));
     expect((within(await screen.findByRole("dialog", { name: "Add a user" })).getByLabelText(/Username/) as HTMLInputElement).value).toBe("sam");

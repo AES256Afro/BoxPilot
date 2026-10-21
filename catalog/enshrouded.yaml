@@ -7,7 +7,7 @@ description: "Dedicated Enshrouded server with a join password and player limit.
 website: https://enshrouded.com
 risk: low
 image:
-  reference: mornedhels/enshrouded-server:1.7.2
+  reference: mornedhels/enshrouded-server:1.7.2@sha256:85978a10f88a85ab0a0aa92e9821d30424895d38bf81fe543532451219c42d0d
   version: "1.7.2"
 ports:
   - id: game

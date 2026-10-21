@@ -1,4 +1,5 @@
 import { buildStorageMap, type MapApp, type MapSambaShare, type StorageMapEntry } from "../../storageMap";
+import { SpaceOverTime } from "./SpaceOverTime";
 import { connectPaths } from "../../sharePaths";
 import { EmptyState, Panel, StatusChip, Table, Tag, type TableColumn } from "../../ui";
 import { CopyLines, UsageMeter } from "./parts";
@@ -126,6 +127,8 @@ export default function MountsTab({ report, loading, forecasts, usage, lastMeasu
           </ul>
         </Panel>
       )}
+
+      <SpaceOverTime usage={usage} appName={appName} />
 
       {map.length > 0 && (
         <Panel title="Where data lives" count={map.length} meta={measured(lastMeasured) ?? undefined} label="Where data lives: each place, what uses it and how it is shared">

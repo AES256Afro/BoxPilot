@@ -7,7 +7,7 @@ description: "Private npm registry and proxy cache for your own packages."
 website: https://verdaccio.org
 risk: low
 image:
-  reference: verdaccio/verdaccio:6.10.0
+  reference: verdaccio/verdaccio:6.10.0@sha256:fcd45478bff37ec37100eb328fcb4d034cff3e904868d4f30e10a3db14a80ab9
   version: "6.10.0"
 user: "10001:65533"
 ports:

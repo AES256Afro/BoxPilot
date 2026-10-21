@@ -54,7 +54,7 @@ export function rerunRefusal(job, { registry = defaultRegistry, approvalMode = d
  * `interrupted` is what recoverInterruptedJobs returned; `scheduled` the ids the scheduler claimed.
  * `announce(job)` is today's "was interrupted" notice, used for a rerun that could not start.
  */
-export function planInterruptedReruns(interrupted, { store, jobs, registry = defaultRegistry, scheduled = new Set(), announce = () => {} }) {
+export function planInterruptedReruns(interrupted, { store, jobs, registry = defaultRegistry, scheduled = new Set(), announce = (_job) => {} }) {
   // An automation's run keeps the ids of its step jobs, finished or not.
   let flowJobIds = new Set();
   try { flowJobIds = new Set((store.listFlows?.() ?? []).flatMap((flow) => flow.lastJobIds ?? []).filter(Boolean)); } catch { /* unsure means not run again */ flowJobIds = null; }

@@ -14,7 +14,7 @@ import { readChatResult } from "../provider.mjs";
 import { createSpeed, paceDefaults, promptChars } from "./pace.mjs";
 
 /**
- * @typedef {{ tools: object[] | null, messages: object[], last: { chars: number, promptTokens: number, completionTokens: number } | null }} Conversation
+ * @typedef {{ tools: import("../messages.mjs").ToolSpec[] | null, messages: import("../messages.mjs").Message[], last: { chars: number, promptTokens: number, completionTokens: number } | null }} Conversation
  * @typedef {{ degraded: string | null, limitReached: boolean }} RunState
  */
 
@@ -27,7 +27,7 @@ import { createSpeed, paceDefaults, promptChars } from "./pace.mjs";
  *   now?: () => number,
  *   pace?: typeof paceDefaults,
  *   note?: (name: string, detail: string, state?: string) => Promise<unknown>,
- *   providerOf?: (model: object) => import("../provider.mjs").Provider,
+ *   providerOf?: (model: { provider?: import("../provider.mjs").Provider }) => import("../provider.mjs").Provider,
  *   fieldsFor?: (model: object) => { fields?: object, cancelId?: string | null },
  *   called?: (model: object) => void,
  *   recover?: (error: Error) => Promise<boolean>,
@@ -42,6 +42,7 @@ export function createModelSession({
   let model = null;
   let settings = {};
   let speed = createSpeed(pace);
+  /** @type {number} */
   let charsPerToken = pace.charsPerToken;
 
   /**

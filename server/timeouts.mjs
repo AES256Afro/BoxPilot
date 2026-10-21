@@ -38,7 +38,11 @@ export function timeoutOf(error) {
   };
 }
 
-/** An error that says it ran out of time. */
+/**
+ * An error that says it ran out of time.
+ * @param {string} message
+ * @param {{ budgetMs?: number, step?: string | null, scope?: string, phase?: string | null, stillRunning?: boolean }} [options]
+ */
 export function timedOut(message, { budgetMs, step = null, scope = "step", phase = null, stillRunning = false } = {}) {
   return Object.assign(new Error(message), { code: "timeout", timeout: { scope, budgetMs, ...(step ? { step } : {}), ...(phase ? { phase } : {}), ...(stillRunning ? { stillRunning: true } : {}) } });
 }
@@ -98,6 +102,8 @@ export function lastOutputLine(log) {
  *   lastOutput  the last line of its log: how far it got
  *   moreTimeMs  the budget "Try again with more time" would give it, or null when it is not offered
  *   stillRunning  present (true) when a step that ran out was left running
+ * @param {{ scope: string, budgetMs: number, phase?: string, step?: string, stillRunning?: boolean }} timeout
+ * @param {{ elapsedMs?: number, log?: string, moreTimeMs?: number | null }} [options]
  */
 export function jobTimeoutRecord(timeout, { elapsedMs, log = "", moreTimeMs = null } = {}) {
   return {

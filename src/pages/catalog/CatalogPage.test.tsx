@@ -2,7 +2,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CatalogPage from "./CatalogPage";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); window.history.replaceState(null, "", "/"); });
+// The page's own address, put back after a test that serves it from another name. vitest exposes
+// the jsdom instance; reconfiguring it moves window.location, which cannot be redefined or spied on
+// when each file runs in its own VM context (pool: "vmThreads").
+const pageUrl = window.location.href;
+const jsdom = (globalThis as unknown as { jsdom: { reconfigure: (options: { url: string }) => void } }).jsdom;
+
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); jsdom.reconfigure({ url: pageUrl }); window.history.replaceState(null, "", "/"); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const stagedJob = (type: string, tier = "medium", passwordRequired = false) => json({ job: { id: `job-${type}`, type: `op:${type}`, title: type, state: "awaiting_approval", risk: tier, error: null, result: null, steps: [], approvals: [] }, approval: { tier, passwordRequired, elevated: false, mode: "tiered", reason: tier } }, 201);
 
@@ -239,6 +245,50 @@ describe("App catalog: installing", () => {
     await waitFor(() => expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { id: "pi-hole", values: { ports: {}, env: {}, volumes: {}, setup: ["oisd-big", "hagezi-tif"] } } }));
   });
 
+  // M36: every update ready in one approval rather than one app card at a time.
+  it("offers every update ready in one job once there are two, and stages them by id", async () => {
+    let stagedBody: string | undefined;
+    const plexManifest = { ...manifest, id: "plex", name: "Plex" };
+    const immichManifest = { ...manifest, id: "immich", name: "Immich" };
+    serve(catalogOf([
+      { manifest, live: running("jellyfin", 8096, { updateAvailable: true }) },
+      { manifest: plexManifest, live: running("plex", 32400, { updateAvailable: true }) },
+      { manifest: immichManifest, live: running("immich", 2283) },
+    ]), (url, init) => {
+      if (url.endsWith("/operations/app.update.many/jobs")) { stagedBody = init?.body as string; return stagedJob("app.update.many"); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: /Update all \(2\)/ }));
+    expect(await screen.findByText(/Updates Jellyfin, Plex, one at a time/)).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { ids: ["jellyfin", "plex"] } }));
+  });
+
+  it("stages at most twenty in one job and says how many wait", async () => {
+    let stagedBody: string | undefined;
+    const many = Array.from({ length: 22 }, (_, index) => ({ manifest: { ...manifest, id: `app-${index}`, name: `App ${index}` }, live: running(`app-${index}`, 9000 + index, { updateAvailable: true }) }));
+    serve(catalogOf(many), (url, init) => {
+      if (url.endsWith("/operations/app.update.many/jobs")) { stagedBody = init?.body as string; return stagedJob("app.update.many"); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Update 20 of 22" }));
+    expect(await screen.findByText(/The other 2 wait for the next run/)).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(stagedBody ?? "{}").parameters.ids).toHaveLength(20));
+  });
+
+  it("has no Update all for one update, or for a viewer", async () => {
+    serve(catalogOf([{ manifest, live: running("jellyfin", 8096, { updateAvailable: true }) }]));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    await screen.findByRole("button", { name: /^Jellyfin, / });
+    expect(screen.queryByRole("button", { name: /Update all/ })).toBeNull();
+    cleanup();
+    serve(catalogOf([{ manifest, live: running("jellyfin", 8096, { updateAvailable: true }) }, { manifest: { ...manifest, id: "plex", name: "Plex" }, live: running("plex", 32400, { updateAvailable: true }) }]));
+    render(<CatalogPage csrfToken="csrf-token" role="viewer" />);
+    await screen.findByRole("button", { name: /^Jellyfin, / });
+    expect(screen.queryByRole("button", { name: /Update all/ })).toBeNull();
+  });
+
   it("collects install settings in a sheet and stages app.install through the approval dialog", async () => {
     let stagedBody: string | undefined;
     serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url, init) => {
@@ -287,7 +337,7 @@ describe("App catalog: installing", () => {
     const sheet = await openInstall("Jellyfin");
     fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
     expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
     expect(new URLSearchParams(window.location.search).get("tab")).not.toBe("browse");
     expect(screen.getByRole("tab", { name: /Installed|On this server/ }).getAttribute("aria-selected")).toBe("true");
@@ -450,14 +500,14 @@ describe("App catalog: installing", () => {
     fireEvent.change(within(form).getByLabelText("Web UI port"), { target: { value: "5002" } });
     fireEvent.click(within(form).getByRole("button", { name: "Apply settings" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
     form = await screen.findByRole("dialog", { name: "Dockge" });
     expect(within(form).getByText("Settings", { selector: ".ui-sheet__kicker" })).toBeTruthy();
     expect((within(form).getByLabelText("Web UI port") as HTMLInputElement).value).toBe("5002");
     outcome = "completed";
     fireEvent.click(within(form).getByRole("button", { name: "Apply settings" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
     const back = await screen.findByRole("dialog", { name: "Dockge" });
     expect(within(back).getByRole("tab", { name: "Overview" })).toBeTruthy();
   });
@@ -802,8 +852,8 @@ describe("App catalog: reach", () => {
 describe("App catalog: where the Open button sends you", () => {
   const catalogBody = catalogOf([{ manifest, live: running("jellyfin") }], { lanAddress: "192.168.1.10", tailscaleDnsName: "box.tail1234.ts.net" });
   const mount = (hostname: string, serves: Array<{ dnsName: string; port: number; target: string | null }> = []) => {
-    // jsdom serves from localhost; the page reads window.location.hostname, so stub that.
-    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, hostname } as Location);
+    // jsdom serves from localhost; the page reads window.location.hostname, so serve it from `hostname`.
+    jsdom.reconfigure({ url: `http://${hostname}/` });
     serve(catalogBody, (url) => (url.includes("app.serve.inspect") ? json({ result: { available: true, serves } }) : undefined));
     render(<CatalogPage csrfToken="csrf-token" />);
   };
@@ -876,7 +926,7 @@ describe("App catalog: backups", () => {
     expect(await within(sheet).findByText("config/system.xml")).toBeTruthy();
     expect(within(sheet).getByText(/120,000 files/)).toBeTruthy();
     fireEvent.change(within(sheet).getByRole("searchbox", { name: "Filter files" }), { target: { value: "users" } });
-    expect(await within(sheet).findByText("config/deep/users.db", undefined, { timeout: 3000 })).toBeTruthy();
+    expect(await within(sheet).findByText("config/deep/users.db")).toBeTruthy();
     expect(asked.at(-1)).toEqual({ id: "jellyfin", backup: backup.artifact, filter: "users" });
   });
 

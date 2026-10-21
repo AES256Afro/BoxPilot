@@ -11,7 +11,7 @@ import { hostBackupOperations } from "./ops/host-backup.mjs";
 const directories = [];
 const snapshotId = "11111111-1111-4111-8111-111111111111";
 
-async function fixture({ mounted = true } = {}) {
+async function fixture({ mounted = true, ...options } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-machine-snapshot-"));
   directories.push(root);
   const paths = {
@@ -91,6 +91,7 @@ async function fixture({ mounted = true } = {}) {
     requireIndependentDevice: false,
     keep: 2,
     now: () => new Date("2026-08-21T02:00:00.000Z"),
+    ...options,
   });
   return { helper, paths, controllerBackups, run };
 }
@@ -272,6 +273,7 @@ describe("restoring from a machine snapshot", () => {
     // What the crafted archive unpacks to: a manifest whose app id climbs out of the catalog, which
     // the restore would otherwise create and write into as root.
     const run = vi.fn(async (_binary, args) => {
+      if (args[0] === "-tvzf") return { ok: true, stdout: "", stderr: "" };
       if (args[0] !== "-xzf" || !args.includes("-C")) return { ok: false, stdout: "", stderr: "unexpected" };
       await writeFile(path.join(args[args.indexOf("-C") + 1], "manifest.json"), JSON.stringify({ contents: { apps: [{ id: "../escaped", installed: true }] }, files: [] }));
       return { ok: true, stdout: "", stderr: "" };
@@ -297,6 +299,7 @@ describe("restoring from a machine snapshot", () => {
     await writeFile(path.join(paths.snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ checksumSha256: createHash("sha256").update("crafted").digest("hex") }));
     // What GNU tar leaves once it has finished: the links the archive names, made last.
     const run = vi.fn(async (_binary, args) => {
+      if (args[0] === "-tvzf") return { ok: true, stdout: "", stderr: "" };
       if (args[0] !== "-xzf" || !args.includes("-C")) return { ok: false, stdout: "", stderr: "unexpected" };
       const into = args[args.indexOf("-C") + 1];
       await writeFile(path.join(into, "manifest.json"), JSON.stringify({ contents: { apps: [{ id: "uptime-kuma", installed: true }] }, files: [] }));
@@ -311,6 +314,22 @@ describe("restoring from a machine snapshot", () => {
     expect(apps.install).not.toHaveBeenCalled();
     await expect(stat(path.join(paths.snapshotRoot, "restored"))).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(path.join(paths.catalogRoot, "uptime-kuma", ".env"), "utf8")).toBe("ADMIN_TOKEN=do-not-lose\n");
+  });
+
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("refuses a snapshot that would unpack to more than the free space, before unpacking it", async () => {
+    // Its checksum sits beside it on the same drive, so a crafted archive always passes it: what it
+    // inflates to is what protects the filesystem the live database is on.
+    const { helper, paths } = await fixture({ freeBytesOf: async () => 1024 ** 3 + 1024, restoreReserveBytes: 1024 ** 3 });
+    const created = await helper.create({ snapshotId });
+    const apps = deployer(paths);
+    await expect(helper.restore({ source: "local", artifact: created.artifact }, { apps })).rejects.toThrow(/unpacks to .* more than this server can take while keeping 1\.0 GiB free/);
+    expect(apps.calls).toEqual({ install: 0, restoreData: 0 });
+    expect((await readdir(paths.snapshotRoot)).filter((name) => name.startsWith(".restore-"))).toEqual([]);
+    // With room to spare, the same snapshot restores.
+    const roomy = await fixture({ freeBytesOf: async () => 64 * 1024 ** 3 });
+    const made = await roomy.helper.create({ snapshotId });
+    await expect(roomy.helper.restore({ source: "local", artifact: made.artifact }, { apps: deployer(roomy.paths) })).resolves.toMatchObject({ artifact: made.artifact });
   });
 
   // Linux only: needs /usr/bin/tar.
@@ -575,6 +594,27 @@ describe("finding snapshots on a drive that was just plugged in", () => {
     expect(found.mount).toMatchObject({ source: "//nas/backups", filesystem: "cifs" });
     // Enough to choose between two snapshots without opening either.
     expect(found.snapshots[0]).toMatchObject({ artifact: "machine-snapshot-20260820T020000Z-abcdef12.tar.gz", apps: 2, sizeBytes: 13 });
+  });
+
+  // Linux only: creates symlinks. Everything discovery reads, it reads as root; a link on the drive
+  // could name a device or a huge file elsewhere on the server and hang the checksum, or make
+  // another folder of this server look like the drive's.
+  it.skipIf(onWindows)("does not follow a link on the drive to a folder or a snapshot elsewhere", async () => {
+    const { helper, paths } = await fixture();
+    const elsewhere = await mkdtemp(path.join(os.tmpdir(), "boxpilot-elsewhere-"));
+    await plant(elsewhere, "machine-snapshot-20260820T020000Z-abcdef12.tar.gz");
+    await mkdir(paths.rescueRoot, { recursive: true });
+    await symlink(elsewhere, path.join(paths.rescueRoot, "machine-snapshots"));
+    const mirror = path.join(paths.rescueRoot, "boxpilot-local-mirror", "machine-snapshots");
+    await mkdir(mirror, { recursive: true });
+    await symlink(path.join(elsewhere, "machine-snapshot-20260820T020000Z-abcdef12.tar.gz"), path.join(mirror, "machine-snapshot-20260821T020000Z-abcdef12.tar.gz"));
+    await plant(mirror, "machine-snapshot-20260822T020000Z-abcdef12.tar.gz");
+    await symlink("/dev/zero", path.join(mirror, "machine-snapshot-20260822T020000Z-abcdef12.tar.gz.meta.json.tmp"));
+    const { locations } = await helper.discover();
+    const onDrive = locations.filter((location) => location.root.startsWith(path.resolve(paths.rescueRoot)));
+    expect(onDrive.map((location) => location.root)).toEqual([path.resolve(mirror)]);
+    expect(onDrive[0].snapshots.map((snapshot) => snapshot.artifact)).toEqual(["machine-snapshot-20260822T020000Z-abcdef12.tar.gz"]);
+    await rm(elsewhere, { recursive: true, force: true });
   });
 
   it("says nothing about a drive that has none", async () => {

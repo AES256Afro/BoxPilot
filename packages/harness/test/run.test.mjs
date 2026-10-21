@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { act, checkInput, createFakeProvider, createModelSession, createToolbox, defineTool, paceDefaults, runTask } from "../src/index.mjs";
 

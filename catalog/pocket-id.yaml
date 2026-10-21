@@ -7,7 +7,7 @@ description: One sign-in for everything you host, using passkeys only, no passwo
 website: https://pocket-id.org
 risk: medium
 image:
-  reference: ghcr.io/pocket-id/pocket-id:v2.14.0
+  reference: ghcr.io/pocket-id/pocket-id:v2.14.0@sha256:01540977dcf4c7b41b1159f34d68e4632f2658d62790e460ca65a42722b13c4a
   version: 2.14.0
 ports:
   - id: web

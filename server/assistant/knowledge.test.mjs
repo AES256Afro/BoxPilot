@@ -1,4 +1,3 @@
-// @vitest-environment node
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createCatalogService } from "../catalog/index.mjs";
@@ -210,7 +209,7 @@ describe("the index of this repository", () => {
     const { manifests } = await catalog.all();
     expect(stats.unreadable).toEqual([]);
     expect(stats.documents).toBeGreaterThanOrEqual(10);
-    expect(stats.operations).toBe(realRegistry.list().length);
+    expect(stats.operations).toBe(realRegistry.list().filter((operation) => !operation.internal).length);
     expect(stats.apps).toBe(manifests.length);
     expect(knowledge.chunks().every((chunk) => chunk.text.length <= 1200 || chunk.kind !== "doc")).toBe(true);
     expect(knowledge.search("What is ADR-003 about reads?").map((hit) => hit.chunk.ref.path)).toContain("docs/DECISIONS.md");

@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import { onWindows } from "../test/platform.mjs";
 import { initializeApprovedLibvirtFoundation, libvirtFoundationScriptInternals } from "./boxpilot-libvirt-foundation.mjs";

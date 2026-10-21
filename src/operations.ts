@@ -187,8 +187,55 @@ function readableJob(value: unknown): value is Job {
   return Boolean(value && typeof value === "object" && "id" in value && typeof value.id === "string" && "title" in value && typeof value.title === "string" && "state" in value && typeof value.state === "string" && "steps" in value && Array.isArray(value.steps));
 }
 
-export function followJobs({ onSnapshot, onJob, onStatus = () => {}, pollAfterMs = 2500, pollEveryMs = 5000 }:
-  { onSnapshot: (jobs: Job[]) => void; onJob: (job: Job) => void; onStatus?: (status: JobFeedStatus) => void; pollAfterMs?: number; pollEveryMs?: number }): () => void {
+interface JobFeedListener { onSnapshot: (jobs: Job[]) => void; onJob: (job: Job) => void; onStatus?: (status: JobFeedStatus) => void; pollAfterMs?: number; pollEveryMs?: number }
+
+/*
+ * One feed per tab (M50.2 left this for later): Activity follows jobs for the whole session and
+ * Home's facts follow them while Home or Ops is open, and each opened its own /api/v1/events stream,
+ * two of an account's eight. The first follower opens the feed; a later one is handed the last
+ * snapshot, with every job event since folded in, and the status, at once; the last to leave closes it.
+ */
+const feed: { listeners: Set<JobFeedListener>; stop: (() => void) | null; jobs: Job[] | null; status: JobFeedStatus } = { listeners: new Set(), stop: null, jobs: null, status: "loading" };
+
+const newestFirst = (jobs: Job[]) => [...jobs].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, 50);
+
+export function followJobs(listener: JobFeedListener): () => void {
+  feed.listeners.add(listener);
+  // A follower joining a feed that has given up starts it again: Activity's "Try refreshing" is a
+  // stop and a follow, and with Home following too a stop alone no longer ends the feed.
+  if (feed.stop && feed.status === "unavailable") { const stale = feed.stop; feed.stop = null; stale(); }
+  if (!feed.stop) {
+    feed.jobs = null;
+    feed.status = "loading";
+    const each = (call: (entry: JobFeedListener) => void) => { for (const entry of [...feed.listeners]) call(entry); };
+    feed.stop = openJobFeed({
+      onSnapshot: (jobs) => { feed.jobs = jobs; each((entry) => entry.onSnapshot(jobs)); },
+      onJob: (job) => {
+        if (feed.jobs) feed.jobs = newestFirst(feed.jobs.some((entry) => entry.id === job.id) ? feed.jobs.map((entry) => (entry.id === job.id ? job : entry)) : [job, ...feed.jobs]);
+        each((entry) => entry.onJob(job));
+      },
+      onStatus: (status) => { feed.status = status; each((entry) => entry.onStatus?.(status)); },
+      // The first follower's timings drive the shared feed; a later one's are not used.
+      pollAfterMs: listener.pollAfterMs, pollEveryMs: listener.pollEveryMs,
+    });
+  } else {
+    if (feed.jobs) listener.onSnapshot(feed.jobs);
+    listener.onStatus?.(feed.status);
+  }
+  let left = false;
+  return () => {
+    if (left) return;
+    left = true;
+    feed.listeners.delete(listener);
+    if (feed.listeners.size > 0) return;
+    const stop = feed.stop;
+    feed.stop = null;
+    feed.jobs = null;
+    stop?.();
+  };
+}
+
+function openJobFeed({ onSnapshot, onJob, onStatus = () => {}, pollAfterMs = 2500, pollEveryMs = 5000 }: JobFeedListener): () => void {
   let stopped = false;
   let polling = false;
   let source: EventSource | null = null;

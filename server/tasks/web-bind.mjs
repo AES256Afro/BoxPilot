@@ -31,6 +31,7 @@ const allInterfaces = "0.0.0.0";
 // literally opened a port the service was not on, and rewrote a BOXPILOT_HOST line a later one overrode.
 export { setEnvValue };
 
+/** @param {{ scope?: string }} [parameters] */
 export async function webBindSet({ scope } = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
   if (!["lan", "loopback"].includes(scope)) throw new Error("scope must be lan or loopback");
   const before = await files.readFile(envPath, "utf8").catch(() => "");

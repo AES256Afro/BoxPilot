@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The model server's life (M37): started as the runner's child when a run needs it, its per-start
  * key read from its output and never kept anywhere else, stopped when idle, and a failure to start

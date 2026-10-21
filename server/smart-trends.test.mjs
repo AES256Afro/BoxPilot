@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { appendSmartSample, createSmartSampler, evaluateSmartTrends, smartEntriesFromInventory } from "./smart-trends.mjs";
+import { appendSmartSample, createSmartSampler, evaluateSmartTrends, smartEntriesFromInventory, smartTrendsByDisk } from "./smart-trends.mjs";
 
 const day0 = Date.parse("2026-08-01T00:00:00.000Z");
 const at = (dayOffset) => new Date(day0 + dayOffset * 86_400_000).toISOString();
@@ -79,5 +79,45 @@ describe("a disk that came back under another name", () => {
     const old = { "/dev/sdb": [{ at: "2026-07-01T03:00:00.000Z", reallocated: 1 }] };
     const next = appendSmartSample(old, { at: "2026-09-01T03:00:00.000Z", entries: [{ device: "/dev/sda", reallocated: 1 }] }, { maxDays: 30 });
     expect(Object.keys(next)).toEqual(["/dev/sda"]);
+  });
+});
+
+describe("each disk's SMART history as the Storage page charts it (M31.2)", () => {
+  const now = Date.parse("2026-10-18T06:00:00Z");
+  const day = (offset) => new Date(now - offset * 24 * 60 * 60 * 1000).toISOString();
+
+  it("lists each disk's samples oldest first, with how far wear and errors moved across them", () => {
+    const history = {
+      "/dev/sdb": [
+        { at: day(1), mediaErrors: 3, percentageUsed: null, temperatureCelsius: 41 },
+        { at: day(30), mediaErrors: 0, percentageUsed: null, temperatureCelsius: 38 },
+        { at: day(60), mediaErrors: 0, percentageUsed: null, temperatureCelsius: 35 },
+      ],
+      "/dev/nvme0n1": [
+        { at: day(20), mediaErrors: 0, percentageUsed: 11, temperatureCelsius: 44 },
+        { at: day(0), mediaErrors: 0, percentageUsed: 14, temperatureCelsius: 47 },
+      ],
+      "/dev/sdc": [{ at: day(90), mediaErrors: 0, percentageUsed: 1, temperatureCelsius: 30 }],
+    };
+    expect(smartTrendsByDisk(history, { now })).toEqual([
+      { device: "/dev/nvme0n1", days: 20, wearChange: 3, errorChange: 0, samples: [
+        { at: day(20), temperatureCelsius: 44, percentageUsed: 11, mediaErrors: 0 },
+        { at: day(0), temperatureCelsius: 47, percentageUsed: 14, mediaErrors: 0 },
+      ] },
+      // The 60-day-old reading is outside the window; a drive with no wear figure has no wear change.
+      { device: "/dev/sdb", days: 29, wearChange: null, errorChange: 3, samples: [
+        { at: day(30), temperatureCelsius: 38, percentageUsed: null, mediaErrors: 0 },
+        { at: day(1), temperatureCelsius: 41, percentageUsed: null, mediaErrors: 3 },
+      ] },
+    ]);
+  });
+
+  it("is empty for no history or one that is not a history", () => {
+    expect(smartTrendsByDisk({}, { now })).toEqual([]);
+    expect(smartTrendsByDisk(null, { now })).toEqual([]);
+    expect(smartTrendsByDisk({ "/dev/sda": "garbage" }, { now })).toEqual([]);
+    expect(smartTrendsByDisk({ "/dev/sda": [{ at: day(0), temperatureCelsius: 40 }] }, { now })).toEqual([
+      { device: "/dev/sda", days: 0, wearChange: null, errorChange: null, samples: [{ at: day(0), temperatureCelsius: 40, percentageUsed: null, mediaErrors: null }] },
+    ]);
   });
 });

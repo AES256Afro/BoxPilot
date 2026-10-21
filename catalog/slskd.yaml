@@ -7,7 +7,7 @@ description: A Soulseek client with a web interface. Search the network for musi
 website: https://github.com/slskd/slskd
 risk: medium
 image:
-  reference: slskd/slskd:0.26.0
+  reference: slskd/slskd:0.26.0@sha256:ecd4026d4f8fb504e2cc55323efa2c1f5b56d20d3686b018249cc36b48ea17a6
   version: 0.26.0
 ports:
   - id: web

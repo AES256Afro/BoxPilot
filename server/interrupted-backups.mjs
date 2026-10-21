@@ -9,6 +9,9 @@
  * docker.service from Services, a package repair or installing Docker queued behind that wait for
  * ten minutes, and up to two hours. Now Docker is waited for here, outside any lane, and the app's
  * lane is held only for the start itself, so nothing else reaches the app at that moment.
+ *
+ * @param {any[]} entries
+ * @param {{ apps: any, lanes: any, log?: (line: string, level?: string) => void }} options
  */
 export function resumeInterruptedBackups(entries, { apps, lanes, log = (line, level) => (level === "error" ? console.error(line) : console.log(line)) }) {
   return Promise.all((entries ?? []).map(async (entry) => {

@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { createRedactor } from "../redaction.mjs";
 import { finalRedaction } from "../assistant/prompt.mjs";

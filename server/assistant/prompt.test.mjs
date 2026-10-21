@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createRedactor } from "../redaction.mjs";

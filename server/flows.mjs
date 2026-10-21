@@ -47,7 +47,11 @@ export function flowRisk(steps, registry = defaultRegistry) {
   return highest;
 }
 
-/** Why a flow definition is not acceptable, or null. Steps must be real, parameterised, and never high. */
+/**
+ * Why a flow definition is not acceptable, or null. Steps must be real, parameterised, and never high.
+ * @param {{ name?: string, steps?: any[] }} [flow]
+ * @param {typeof defaultRegistry} [registry]
+ */
 export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
   if (typeof name !== "string" || !name.trim() || name.trim().length > nameLimit) return `name must be 1 to ${nameLimit} characters`;
   if (!Array.isArray(steps) || steps.length < 1 || steps.length > stepLimit) return `steps must list 1 to ${stepLimit} operations`;
@@ -429,13 +433,13 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
    * stays as the fallback for a store that does not tell, and for the queue ceiling's own clock.
    */
   function nextChangeOf(jobId) {
-    return new Promise((resolve) => {
+    return /** @type {Promise<void>} */ (new Promise((resolve) => {
       let unsubscribe = () => {};
       const timer = setTimeout(() => { unsubscribe(); resolve(); }, pollMs);
       if (typeof store.subscribeJobs === "function") {
         unsubscribe = store.subscribeJobs((job) => { if (job?.id === jobId) { clearTimeout(timer); unsubscribe(); resolve(); } });
       }
-    });
+    }));
   }
 
   /**

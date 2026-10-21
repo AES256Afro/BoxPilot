@@ -47,6 +47,9 @@ export function grantProblem(operation, level) {
  * The grant as it stands for one job: what the agent was granted, lowered by the tier the job was
  * staged at (what it acts on can raise it: installing an app whose manifest calls it high risk), by
  * a typed confirmation this job asks for, and by the approval mode.
+ *
+ * @param {string} level
+ * @param {{ risk?: string, mode?: string, confirms?: boolean }} [job]
  */
 export function grantNow(level, { risk, mode = "tiered", confirms = false } = {}) {
   let now = grantLevels.includes(level) ? level : "propose";

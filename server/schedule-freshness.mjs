@@ -29,6 +29,8 @@ export function describeOverdue(ms) {
  * Alerts for enabled schedules that have slipped more than a full interval past their due time.
  * `titleFor(schedule)` turns a schedule into a human label (defaults to its operation id).
  * Returns the same alert shape health checks use: { key, priority, title, message }.
+ * @param {Array<Record<string, any>>} schedules
+ * @param {{ now?: Date | number, titleFor?: (schedule: Record<string, any>) => string }} [options]
  */
 export function evaluateScheduleFreshness(schedules, { now, titleFor = (schedule) => schedule.operationId } = {}) {
   const at = now instanceof Date ? now.getTime() : Number(now);
@@ -50,7 +52,11 @@ export function evaluateScheduleFreshness(schedules, { now, titleFor = (schedule
   return alerts;
 }
 
-/** The subset of schedules that are behind right now (for the UI to badge). */
+/**
+ * The subset of schedules that are behind right now (for the UI to badge).
+ * @param {Array<Record<string, any>>} schedules
+ * @param {{ now?: Date | number }} [options]
+ */
 export function overdueScheduleIds(schedules, { now } = {}) {
   const at = now instanceof Date ? now.getTime() : Number(now ?? Date.now());
   const behind = new Set();

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Field, KeyValue, Notice, Panel, SecretInput, Select, StatusChip, TextInput } from "../../ui";
+import { Button, Checkbox, Field, KeyValue, Notice, Panel, SecretInput, Select, StatusChip, Switch, TextInput } from "../../ui";
 import HeartbeatPanel from "./HeartbeatPanel";
 import { openView } from "../../activityEvents";
 import { watchView } from "../../home/needs";
@@ -7,6 +7,7 @@ import { watchView } from "../../home/needs";
 interface NotificationState { configured: boolean; kind: "ntfy" | "gotify" | "webhook" | null; url: string | null; topic: string | null; hasToken: boolean }
 interface WatchCondition { key: string; label: string; active: boolean; details: Array<{ title: string; since: string | null }> }
 interface WatchStatus { targetConfigured: boolean; activeCount: number; conditions: WatchCondition[] }
+interface QuietHoursState { enabled: boolean; start: string; end: string; holdHigh: boolean; held: number; quietNow: boolean }
 interface WeeklyReportStatus { enabled: boolean; cadence: string; nextDueAt: string | null; lastSentAt: string | null; lastResult: "sent" | "not-announced" | "missed" | null; targetConfigured: boolean }
 
 const services = [{ value: "ntfy", label: "ntfy" }, { value: "gotify", label: "Gotify" }, { value: "webhook", label: "Webhook" }];
@@ -84,6 +85,64 @@ function WeeklyReport({ csrfToken, targetConfigured }: { csrfToken: string; targ
           {preview.message.split("\n").map((line, index) => <span key={index}>{line}</span>)}
         </div>
       )}
+      {message && <Notice tone="success" live>{message}</Notice>}
+      {error && <Notice tone="danger" live>{error}</Notice>}
+    </Panel>
+  );
+}
+
+/**
+ * Quiet hours (M36): between two times, pushes wait and go as one summary when the quiet ends.
+ * Urgent ones still go unless held too. Anyone signed in sees it; only the owner changes it.
+ */
+function QuietHours({ csrfToken }: { csrfToken: string }) {
+  const [state, setState] = useState<QuietHoursState | null>(null);
+  const [draft, setDraft] = useState<Pick<QuietHoursState, "enabled" | "start" | "end" | "holdHigh"> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let gone = false;
+    fetch("/api/v1/settings/quiet-hours")
+      .then(async (response) => { if (!response.ok) throw new Error(`The server answered ${response.status}`); return response.json() as Promise<QuietHoursState>; })
+      .then((body) => { if (!gone) { setState(body); setDraft({ enabled: body.enabled, start: body.start, end: body.end, holdHigh: body.holdHigh }); } })
+      .catch((requestError: unknown) => { if (!gone) setError(requestError instanceof Error ? requestError.message : "Could not read quiet hours"); });
+    return () => { gone = true; };
+  }, []);
+  if (!state || !draft) return error ? <Panel title="Quiet hours" padded className="settings-panel"><Notice tone="danger" live>{error}</Notice></Panel> : null;
+  const changed = draft.enabled !== state.enabled || draft.start !== state.start || draft.end !== state.end || draft.holdHigh !== state.holdHigh;
+  const save = async () => {
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      const response = await fetch("/api/v1/settings/quiet-hours", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify(draft) });
+      const body = await response.json().catch(() => ({})) as QuietHoursState & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not save quiet hours");
+      setState(body);
+      setMessage(body.enabled ? `Pushes wait from ${body.start} to ${body.end}, server time.` : "Quiet hours are off.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save quiet hours");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Panel
+      title="Quiet hours"
+      count={{ status: state.enabled ? "good" : "neutral", label: state.enabled ? `${state.start} to ${state.end}` : "off" }}
+      meta={state.held ? <><b>{state.held}</b> waiting for the summary</> : state.quietNow ? "quiet now" : undefined}
+      padded
+      className="settings-panel"
+    >
+      <Switch checked={draft.enabled} onChange={(enabled) => setDraft({ ...draft, enabled })} label="Hold pushes overnight" description="They go as one summary when the quiet ends. The notification centre has each one as it happens." />
+      <div className="settings-actions">
+        <Field label="From"><TextInput type="time" value={draft.start} onValueChange={(start) => setDraft({ ...draft, start })} disabled={!draft.enabled} /></Field>
+        <Field label="Until"><TextInput type="time" value={draft.end} onValueChange={(end) => setDraft({ ...draft, end })} disabled={!draft.enabled} /></Field>
+      </div>
+      <Checkbox checked={draft.holdHigh} onChange={(holdHigh) => setDraft({ ...draft, holdHigh })} disabled={!draft.enabled} label="Hold urgent ones too" description="A failing disk, a drive gone, the UPS running low, a failed job. Left off, these still wake you." />
+      <p className="settings-quiet">Server time. The test button and "Send the report now" always go at once.</p>
+      <div className="settings-actions">
+        <Button variant="primary" disabled={busy || !changed} onClick={() => void save()}>Save quiet hours</Button>
+      </div>
       {message && <Notice tone="success" live>{message}</Notice>}
       {error && <Notice tone="danger" live>{error}</Notice>}
     </Panel>
@@ -249,6 +308,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
           {error && <Notice tone="danger" live>{error}</Notice>}
         </Panel>
         <WeeklyReport csrfToken={csrfToken} targetConfigured={configured} />
+        <QuietHours csrfToken={csrfToken} />
       </div>
 
       <div className="settings-column">

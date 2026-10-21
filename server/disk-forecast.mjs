@@ -42,6 +42,9 @@ function dropStaleKeys(history, cutoff) {
 /**
  * Days until free space reaches zero at the recent fill rate, or null when it is not filling (or
  * there is not enough spread of data to say). A least-squares line through free-space over time.
+ *
+ * @param {{ at: string, availableBytes: number }[]} samples
+ * @param {{ now?: Date | number, minSamples?: number, minSpanDays?: number, windowDays?: number }} [options]
  */
 export function projectDaysToFull(samples, { now, minSamples = 3, minSpanDays = 2, windowDays = 21 } = {}) {
   const at = now instanceof Date ? now.getTime() : Number(now);
@@ -71,7 +74,12 @@ export function projectDaysToFull(samples, { now, minSamples = 3, minSpanDays = 
   return availableNow / -slopePerDay;
 }
 
-/** Alerts for mounts projected to fill within `warnWithinDays`. Same shape as the health checks. */
+/**
+ * Alerts for mounts projected to fill within `warnWithinDays`. Same shape as the health checks.
+ *
+ * @param {Record<string, any[]>} history
+ * @param {{ now?: Date | number, warnWithinDays?: number }} [options]
+ */
 export function evaluateDiskForecast(history, { now, warnWithinDays = 14 } = {}) {
   const alerts = [];
   for (const [target, samples] of Object.entries(history ?? {})) {
@@ -104,7 +112,11 @@ export function forecastEntriesFromInventory(inventory) {
   return entries;
 }
 
-/** Background sampler: once a day, record free space per mount so the forecast has something to fit. */
+/**
+ * Background sampler: once a day, record free space per mount so the forecast has something to fit.
+ *
+ * @param {{ inventory?: any, store?: any, now?: () => Date, intervalMs?: number, initialDelayMs?: number, maxDays?: number, setInterval?: typeof globalThis.setInterval, setTimeout?: typeof globalThis.setTimeout, clearInterval?: typeof globalThis.clearInterval, clearTimeout?: typeof globalThis.clearTimeout }} options
+ */
 export function createDiskSampler({ inventory, store, now = () => new Date(), intervalMs = 6 * 60 * 60 * 1000, initialDelayMs = 4 * 60 * 1000, maxDays = 30, setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   async function sample() {
     const snapshot = await inventory.inspect();

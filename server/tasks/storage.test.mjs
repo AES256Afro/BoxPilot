@@ -73,7 +73,7 @@ describe("root storage tasks", () => {
     const run = fakeRun();
     const result = await storageMount({ uuid: "abcd-1234", name: "media", fstype: "ext4" }, { run, files });
     expect(result).toMatchObject({ mounted: true, mountpoint: "/mnt/media", persistent: true });
-    expect(files.state.fstab).toContain(`# boxpilot:media\nUUID=abcd-1234 /mnt/media ext4 defaults,nofail,${ORDER} 0 2`);
+    expect(files.state.fstab).toContain(`# boxpilot:media\nUUID=abcd-1234 /mnt/media ext4 defaults,nofail,nosuid,nodev,${ORDER} 0 2`);
     expect(run).toHaveBeenCalledWith(expect.stringContaining("findmnt"), ["--verify"], expect.anything());
     expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["daemon-reload"], expect.anything());
     // In PID 1's mount namespace: the runner's own (PrivateTmp=) never reaches the host.
@@ -112,18 +112,18 @@ describe("root storage tasks", () => {
   it("gives a removable exFAT filesystem passno 0, and pins an auto-detected type into the entry", async () => {
     const exfatFiles = fakeFiles();
     await storageMount({ uuid: "0023-7927", name: "dump", fstype: "exfat" }, { run: fakeRun(), files: exfatFiles });
-    expect(exfatFiles.state.fstab).toContain(`# boxpilot:dump\nUUID=0023-7927 /mnt/dump exfat defaults,nofail,${ORDER} 0 0`);
+    expect(exfatFiles.state.fstab).toContain(`# boxpilot:dump\nUUID=0023-7927 /mnt/dump exfat defaults,nofail,nosuid,nodev,${ORDER} 0 0`);
 
     const autoFiles = fakeFiles();
     await storageMount({ uuid: "aaaa-bbbb", name: "photos" }, { run: fakeRun({ detectedType: "exfat" }), files: autoFiles });
-    expect(autoFiles.state.fstab).toContain(`UUID=aaaa-bbbb /mnt/photos exfat defaults,nofail,${ORDER} 0 0`);
+    expect(autoFiles.state.fstab).toContain(`UUID=aaaa-bbbb /mnt/photos exfat defaults,nofail,nosuid,nodev,${ORDER} 0 0`);
   });
 
   it("hands a permission-less drive to the apps user via uid/gid mount options", async () => {
     const files = fakeFiles();
     const run = fakeRun();
     const result = await storageMount({ uuid: "0023-7927", name: "dump", fstype: "exfat", appWritable: true }, { run, files });
-    expect(files.state.fstab).toContain(`UUID=0023-7927 /mnt/dump exfat rw,nofail,uid=1000,gid=1000,${ORDER} 0 0`);
+    expect(files.state.fstab).toContain(`UUID=0023-7927 /mnt/dump exfat rw,nofail,nosuid,nodev,uid=1000,gid=1000,${ORDER} 0 0`);
     expect(result.owner).toBe("1000:1000");
     // exFAT ownership is a mount option, so no chown is issued.
     expect(run).not.toHaveBeenCalledWith(expect.stringContaining("chown"), expect.anything(), expect.anything());
@@ -133,14 +133,14 @@ describe("root storage tasks", () => {
     const files = fakeFiles();
     const run = fakeRun();
     await storageMount({ uuid: "abcd-1234", name: "data", fstype: "ext4", appWritable: true }, { run, files });
-    expect(files.state.fstab).toContain(`UUID=abcd-1234 /mnt/data ext4 defaults,nofail,${ORDER} 0 2`);
+    expect(files.state.fstab).toContain(`UUID=abcd-1234 /mnt/data ext4 defaults,nofail,nosuid,nodev,${ORDER} 0 2`);
     expect(run).toHaveBeenCalledWith(expect.stringContaining("chown"), ["1000:1000", "/mnt/data"], expect.anything());
   });
 
   it("ignores appWritable when the mount is read-only", async () => {
     const files = fakeFiles();
     await storageMount({ uuid: "0023-7927", name: "dump", fstype: "exfat", appWritable: true, readOnly: true }, { run: fakeRun(), files });
-    expect(files.state.fstab).toContain(`UUID=0023-7927 /mnt/dump exfat ro,nofail,${ORDER} 0 0`);
+    expect(files.state.fstab).toContain(`UUID=0023-7927 /mnt/dump exfat ro,nofail,nosuid,nodev,${ORDER} 0 0`);
   });
 
   it("unmounts only BoxPilot-managed entries", async () => {
@@ -163,6 +163,38 @@ describe("root storage tasks", () => {
     expect(clean).toHaveBeenCalledWith(expect.stringContaining("wipefs"), ["-a", "/dev/sdb"], expect.anything());
     expect(clean).toHaveBeenCalledWith(expect.stringContaining("mkfs.ext4"), ["-F", "-L", "data", "/dev/sdb"], expect.anything());
     await expect(storageFormat({ device: "/dev/sdb; rm -rf /" }, { run: clean })).rejects.toThrow("Device path");
+  });
+
+  it("never formats a disk the server mounts at boot, mounted or not just now", async () => {
+    // A managed drive whose nofail mount did not come up, or one Reconnect detached, is still someone's data.
+    const drive = [{ path: "/dev/sdb", type: "disk", ro: false, mountpoints: [null], children: [{ path: "/dev/sdb1", type: "part", ro: false, mountpoints: [null], uuid: "aaaa-1111", partuuid: "p-2222" }] }];
+    for (const line of ["UUID=aaaa-1111 /mnt/backup ext4 defaults,nofail 0 2", "PARTUUID=p-2222 /mnt/backup ext4 defaults 0 2", "/dev/disk/by-uuid/aaaa-1111 /mnt/b ext4 defaults 0 2", "/dev/sdb1 /mnt/b ext4 defaults 0 2"]) {
+      const run = fakeRun({ lsblkNodes: drive });
+      await expect(storageFormat({ device: "/dev/sdb" }, { run, files: { readFile: async () => `${BASE_FSTAB}${line}\n` } }), line).rejects.toThrow(/listed in \/etc\/fstab.*Nothing was erased/);
+      expect(run).not.toHaveBeenCalledWith(expect.stringContaining("wipefs"), expect.anything(), expect.anything());
+    }
+    // Any other name blkid or the kernel would answer to: a label, quoted or other-case identifiers, a link.
+    const labelled = [{ ...drive[0], children: [{ ...drive[0].children[0], uuid: "AAAA-1111", label: "media", partlabel: "Data Part" }] }];
+    const links = new Map([["/dev/disk/by-id/usb-Stick-part1", "/dev/sdb1"], ["/dev/sdb1", "/dev/sdb1"]]);
+    const realpath = async (name) => { if (links.has(name)) return links.get(name); throw new Error("ENOENT"); };
+    for (const line of ["LABEL=media /mnt/m ext4 defaults 0 2", "PARTLABEL=\"Data\\040Part\" /mnt/m ext4 defaults 0 2", "UUID=\"aaaa-1111\" /mnt/m ext4 defaults 0 2", "uuid=aaaa-1111 /mnt/m ext4 defaults 0 2", "/dev/disk/by-label/media /mnt/m ext4 defaults 0 2", "/dev/disk/by-id/usb-Stick-part1 /mnt/m ext4 defaults 0 2"]) {
+      const run = fakeRun({ lsblkNodes: labelled });
+      await expect(storageFormat({ device: "/dev/sdb" }, { run, files: { readFile: async () => `${BASE_FSTAB}${line}\n`, realpath } }), line).rejects.toThrow(/listed in \/etc\/fstab.*Nothing was erased/);
+    }
+    const otherLabel = fakeRun({ lsblkNodes: labelled });
+    await expect(storageFormat({ device: "/dev/sdb" }, { run: otherLabel, files: { readFile: async () => `${BASE_FSTAB}LABEL=Media /mnt/m ext4 defaults 0 2\n`, realpath } })).resolves.toMatchObject({ formatted: true });
+    const commented = fakeRun({ lsblkNodes: drive });
+    await expect(storageFormat({ device: "/dev/sdb" }, { run: commented, files: { readFile: async () => `${BASE_FSTAB}# UUID=aaaa-1111 /mnt/old ext4 defaults 0 2\n` } })).resolves.toMatchObject({ formatted: true });
+  });
+
+  it("never formats a different disk that has taken the approved one's name", async () => {
+    const disk = (serial) => [{ path: "/dev/sdb", type: "disk", ro: false, mountpoints: [null], serial, wwn: null, size: 64_000_000_000 }];
+    const files = { readFile: async () => BASE_FSTAB };
+    const approved = { serial: "USB-STICK-01", wwn: null, size: "64000000000", model: "Stick" };
+    const swapped = fakeRun({ lsblkNodes: disk("BACKUP-DRIVE-77") });
+    await expect(storageFormat({ device: "/dev/sdb", identity: approved }, { run: swapped, files })).rejects.toThrow(/not the disk this was approved for.*Stick, USB-STICK-01/);
+    expect(swapped).not.toHaveBeenCalledWith(expect.stringContaining("wipefs"), expect.anything(), expect.anything());
+    await expect(storageFormat({ device: "/dev/sdb", identity: approved }, { run: fakeRun({ lsblkNodes: disk("USB-STICK-01") }), files })).resolves.toMatchObject({ formatted: true });
   });
 
   it("never formats or mounts the system disk or an LVM physical volume", async () => {

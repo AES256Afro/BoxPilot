@@ -1,5 +1,5 @@
 import express from "express";
-import { createRateLimit as createCallLimit } from "./rate-limit.mjs";
+import { createSourceLimit } from "./rate-limit.mjs";
 import { randomUUID } from "node:crypto";
 import { createReadStream, readFileSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
@@ -11,6 +11,7 @@ import { productVersion } from "./version.mjs";
 import { webHostOf, webPortOf } from "./env-file.mjs";
 import { createCatalogService, installRiskLookup, secretEnvNamesLookup } from "./catalog/index.mjs";
 import { archivedComposeRisk } from "./ops/apps.mjs";
+import { escalationRiskHooks, higherOf, serveWithdrawRisk } from "./ops/escalation.mjs";
 import { createJobLogReader } from "./job-log.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
@@ -50,7 +51,7 @@ import { createRateLimit } from "./agents/budget.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
-import { collectStorage, createStorageReader } from "./storage-inventory.mjs";
+import { collectStorage, createStorageReader, pinDiskIdentity } from "./storage-inventory.mjs";
 import { listListeners } from "./ports.mjs";
 import { scanRemediations } from "./remediations-scan.mjs";
 import { createJobService, recordFailed } from "./jobs.mjs";
@@ -96,6 +97,7 @@ import { foldVerdict, verdictFrom } from "./backup-verdicts.mjs";
 import { appStopClearingOperations, foldAppStop, seedAppStops } from "./app-stops.mjs";
 import { jsonGzip, precompressedAssets } from "./compress.mjs";
 import { rootFileHeaders, securityHeaders } from "./security-headers.mjs";
+import { serveSocketPath, startServeSocketListener } from "./serve-socket.mjs";
 
 const app = express();
 // As every reader of the env file takes them (server/env-file.mjs): the port with parseInt, since
@@ -119,7 +121,7 @@ const auth = createAuthService(state, { resolveClientAddress: (request) => ident
 const helper = createHelperClient({ timeoutMs: 180000 });
 const maintenance = createMaintenanceService();
 const libvirt = createHelperLibvirtService({ helper });
-const libvirtFoundation = createLibvirtFoundationService({ store: state, helper });
+const libvirtFoundation = createLibvirtFoundationService({ helper });
 const prerequisites = createPrerequisiteService({
   stateDirectory: process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath),
   helper,
@@ -135,8 +137,8 @@ const inventory = createInventoryService({ helper, maintenance });
 // lsblk, findmnt and fstab for the Overview's drive checks, the weekly report and the runbook: one
 // shared read held like the inventory, and dropped with it when an operation settles.
 const storageRead = createStorageReader();
-const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
-const vmMedia = createVmMediaService({ store: state, helper });
+const vmCreation = createVmCreationService({ planner: vmPlanner, libvirt });
+const vmMedia = createVmMediaService({ helper });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
 const vmProtection = createVmProtectionService({ store: state, helper });
 const vmRecoveries = createVmRecoveryService({ store: state, helper });
@@ -174,7 +176,8 @@ const secretEnvNamesFor = secretEnvNamesLookup(catalogService);
 // assistant proposes says the tier the job will be staged at (sweep 3).
 // A restore that allows a backup's own compose file to start as archived is high, owner only, typed
 // out (sweep 4): both already are, and stay so whatever their own tier becomes.
-const operationRiskHooks = { "app.install": installRiskLookup(catalogService), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk };
+// identity is made further down; the hook reads it only when a job is staged.
+const operationRiskHooks = { ...escalationRiskHooks, "app.serve.withdraw": serveWithdrawRisk(() => identity.servedOrigins()), "app.install": higherOf(escalationRiskHooks["app.install"], installRiskLookup(catalogService)), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk };
 registry.useRiskHooks(operationRiskHooks);
 // Where alerts go, and the one ledger of what was announced and what could not be (M27.2). A failed
 // scheduled run, an automation's step, or a result that could not be saved is announced through the
@@ -191,6 +194,8 @@ const jobs = createJobService(state, helper, {
   jobLog: jobLogReader,
   // Registry ops whose results become durable evidence rows.
   operationRecordHooks: {
+    // Serve now forwards to the socket: stop believing the loopback port now, not when the cache ages out.
+    "tailscale.serve.socket": () => identity.forgetServeState(),
     "controller.backup.create": (job, result) => {
       state.recordBackup({ id: result.backupId, applicationId: "boxpilot-controller", destination: result.destination ?? "local-managed", artifactPath: result.artifactPath, checksumSha256: result.checksumSha256, sizeBytes: result.sizeBytes, downtimeMs: result.downtimeMs ?? 0, restoreDrill: result.restoreDrill ?? {}, createdBy: job.createdBy });
     },
@@ -267,7 +272,15 @@ const jobs = createJobService(state, helper, {
     ...Object.fromEntries(deviceResolvingOperations.map((id) => [id, (parameters) => withResolvedDevices(parameters)])),
     // A snapshot restore installs apps too: each one that wants a device gets the ones found here.
     "host.snapshot.restore": (parameters) => withSnapshotDevices(parameters),
+    // The same devices each app's own update would be given, found here for every app named.
+    "app.update.many": async (parameters) => {
+      const { apps: _named, ...found } = await withSnapshotDevices({ ...parameters, apps: Array.isArray(parameters?.ids) ? parameters.ids : [] });
+      return found;
+    },
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
+    // Which disk the path is now; the format refuses a different one behind the same name later.
+    // Last, so a browser cannot name the identity itself.
+    "storage.format": (parameters) => pinDiskIdentity(parameters),
     "system.update": (parameters) => releaseUpdates.prepareOperation(parameters),
     // Dashboard links need the address the browser uses; fall back to the LAN address for scheduled runs.
     "homepage.sync": async (parameters) => ({ host: parameters.host ?? (await inventory.inspect().catch(() => null))?.network?.addresses?.find((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address))?.address ?? "127.0.0.1" }),
@@ -478,15 +491,15 @@ const oidc = createOidcService({ store: state });
 // nothing from the request reaches any step.
 // Sixty calls a minute per source before any token is compared (M50): the per-flow and per-agent
 // limits count only after a match, so wrong guesses were free.
-const webhookGuesses = createCallLimit({ count: 60, perMs: 60_000 });
-const webhookSourceAllowed = (request, response) => {
-  if (webhookGuesses.take(`hook:${request.ip ?? "unknown"}`)) return true;
+const webhookGuesses = createSourceLimit({ count: 60, perMs: 60_000, prefix: "hook", clientAddress: (request) => identity.clientAddress(request) });
+const webhookSourceAllowed = async (request, response) => {
+  if (await webhookGuesses(request)) return true;
   response.setHeader("Retry-After", "60");
   response.status(429).json({ error: "Too many webhook calls from this address; wait a minute" });
   return false;
 };
-app.post("/api/v1/hooks/flows/:id/:token", (request, response) => {
-  if (!webhookSourceAllowed(request, response)) return undefined;
+app.post("/api/v1/hooks/flows/:id/:token", async (request, response) => {
+  if (!await webhookSourceAllowed(request, response)) return undefined;
   const outcome = flows.fireWebhook(request.params.id, request.params.token, { source: request.ip });
   if (outcome === "accepted") return response.status(202).json({ accepted: true });
   if (outcome === "rate-limited") return response.status(429).json({ error: "This flow's webhook is being fired too often; wait a minute" });
@@ -495,8 +508,8 @@ app.post("/api/v1/hooks/flows/:id/:token", (request, response) => {
 // Start an agent by webhook (M37), the same door as a flow's: the token is the auth, only its digest
 // is kept, a wrong one looks like a missing agent, and nothing from the request reaches the run -
 // the caller chooses only when the agent does its job, never what it does.
-app.post("/api/v1/hooks/agents/:id/:token", (request, response) => {
-  if (!webhookSourceAllowed(request, response)) return undefined;
+app.post("/api/v1/hooks/agents/:id/:token", async (request, response) => {
+  if (!await webhookSourceAllowed(request, response)) return undefined;
   const outcome = agents.fireAgentWebhook(request.params.id, request.params.token, { source: request.get("user-agent") ?? null });
   if (outcome === "accepted") return response.status(202).json({ accepted: true });
   if (outcome === "rate-limited") return response.status(429).json({ error: "This agent's webhook is being fired too often; wait a minute" });
@@ -620,3 +633,5 @@ app.listen(port, host, () => {
 // The encrypted LAN listener (M18.2), if a certificate has been provisioned. Never fatal: the HTTP
 // listener and the Tailscale Serve path above keep working regardless.
 startTlsListener(app, { host });
+// The socket Tailscale Serve can proxy to (serve-socket.mjs), when the unit provides its directory.
+startServeSocketListener(app).then((server) => { if (server) console.log(`Listening for Tailscale Serve on ${serveSocketPath()}`); }, (error) => console.warn(`Serve socket listener failed: ${error.message}`));

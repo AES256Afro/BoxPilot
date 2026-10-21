@@ -446,6 +446,12 @@ describe("catalog freshness", () => {
 
       clock += 61_000;                                                        // past the max age
       expect((await catalog.all()).manifests[0].ports[0].host).toBe(9090);    // reloaded
+
+      // A file replaced (removed and written again) moves the directory: with a ttl of 0 that is seen
+      // at once, even in the same millisecond as the last look.
+      await rm(path.join(directory, "solo.yaml"));
+      await writeFile(path.join(directory, "solo.yaml"), manifest(7070));
+      expect((await catalog.all()).manifests[0].ports[0].host).toBe(7070);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -508,5 +514,16 @@ describe("the tier of installing an app", () => {
     expect(await lookup({ id: "actual" })).toBe("low");
     expect(await lookup({ id: "no-such-app" })).toBeNull();
     expect(await lookup({})).toBeNull();
+  });
+});
+
+describe("an app's former image repositories", () => {
+  const base = { schemaVersion: 2, id: "moved", name: "Moved", category: "T", description: "d" };
+  it("are repositories alone, at most eight, and default to none", () => {
+    expect(validateManifest({ ...base, image: { reference: "ghcr.io/neworg/app:2.0" } }).manifest.image.formerRepositories).toEqual([]);
+    expect(validateManifest({ ...base, image: { reference: "ghcr.io/neworg/app:2.0", formerRepositories: ["oldorg/app", "registry.example:5000/team/app"] } })).toMatchObject({ errors: [], manifest: { image: { formerRepositories: ["oldorg/app", "registry.example:5000/team/app"] } } });
+    for (const formerRepositories of [["oldorg/app:1.0"], ["oldorg/app@sha256:" + "a".repeat(64)], ["Oldorg/App"], "oldorg/app", Array.from({ length: 9 }, (_, index) => `org${index}/app`), [""]]) {
+      expect(validateManifest({ ...base, image: { reference: "ghcr.io/neworg/app:2.0", formerRepositories } }).errors.join(" ")).toContain("manifest.image.formerRepositories");
+    }
   });
 });

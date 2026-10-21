@@ -50,9 +50,14 @@ const redirectStatuses = new Set([301, 302, 303, 307, 308]);
  * fetch with the link-local check on the first address and on every redirect. With
  * `followRedirects` false (a credential rides along) a 3xx is returned as it is, never chased. A
  * 303, or a 301/302 answering a POST, is followed as a GET without the body, as browsers do.
+ *
+ * @param {string | URL} url
+ * @param {RequestInit} [options]
+ * @param {{ fetcher?: typeof fetch, lookup?: typeof dnsLookup, followRedirects?: boolean, maxRedirects?: number }} [deps]
  */
 export async function fetchGuarded(url, options = {}, { fetcher = fetch, lookup = dnsLookup, followRedirects = true, maxRedirects = 5 } = {}) {
   let current = new URL(String(url));
+  /** @type {RequestInit} */
   let request = { ...options, redirect: "manual" };
   for (let hop = 0; ; hop += 1) {
     const problem = await linkLocalProblem(current, { lookup });

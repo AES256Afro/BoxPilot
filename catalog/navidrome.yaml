@@ -7,7 +7,7 @@ description: Lightweight music server and streamer compatible with Subsonic apps
 website: https://www.navidrome.org
 risk: medium
 image:
-  reference: deluan/navidrome:0.63.2
+  reference: deluan/navidrome:0.63.2@sha256:9012939114fbb1bb641b81cf96dec5ded15f0aafefe8d47a511d7cb919658e40
   version: 0.63.2
 ports:
   - id: web

@@ -167,7 +167,7 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   // bounded so a resolver that does not answer cannot hold Home up. Not having it is not a finding.
   if (dnsResilience) {
     facts.dnsResilience = await Promise.race([
-      dnsResilience.check().catch(() => null),
+      dnsResilience.check({ counts: operatorReads }).catch(() => null),
       new Promise((resolve) => { const timer = setTimeout(() => resolve(null), 8_000); timer.unref?.(); }),
     ]);
   }

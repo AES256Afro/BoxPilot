@@ -7,7 +7,7 @@ description: The controller for Ubiquiti UniFi access points, switches and gatew
 website: https://ui.com
 risk: medium
 image:
-  reference: linuxserver/unifi-network-application:10.5.67-ls141
+  reference: linuxserver/unifi-network-application:10.5.67-ls141@sha256:cb452744be875e091bad374999e90b08f34813d5bee03de814188de3d6eb5e99
   version: 10.5.67-ls141
 ports:
   - id: web
@@ -76,7 +76,7 @@ env:
     default: "1024"
 sidecars:
   - id: mongo
-    image: mongo:7.0.14
+    image: mongo:7.0.14@sha256:0032d2ca20db5fa34926f196c8a43b74e34ed239a7f2453ff1505b6f12ba8ea6
     env:
       MONGO_INITDB_ROOT_USERNAME: unifi
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS}

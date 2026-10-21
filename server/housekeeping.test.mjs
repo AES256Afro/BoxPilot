@@ -437,7 +437,7 @@ describe("the database copies updates take", () => {
     await writeFile(path.join(state, "boxpilot-rollback-by-hand.sqlite3"), "z".repeat(200));
     const handMade = new Date(now - 60 * 86_400_000);
     await utimes(path.join(state, "boxpilot-rollback-by-hand.sqlite3"), handMade, handMade);
-    const service = createHousekeepingService({ run: vi.fn(), liveDatabase: path.join(state, "boxpilot.sqlite3"), now: () => new Date(now) });
+    const service = createHousekeepingService({ run: vi.fn(), liveDatabase: path.join(state, "boxpilot.sqlite3"), now: () => new Date(now), restoreResultFile: path.join(state, "no-restore-yet.json") });
     return { state, names, service };
   }
 
@@ -457,6 +457,7 @@ describe("the database copies updates take", () => {
     expect(report.copies.find((copy) => copy.name === names[0]).bytes).toBe(1500);
     expect(report.copies.some((copy) => copy.name.startsWith("boxpilot.sqlite3"))).toBe(false);
     expect(report.goesBytes).toBe(1000 + 1500 + 200);
+    expect(report.lastRestore).toBeNull();
   });
 
   it("marks the copies taken before the secret scrub, which may still hold passwords", async () => {

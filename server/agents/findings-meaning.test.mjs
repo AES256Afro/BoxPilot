@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Findings by meaning (M47.3, M44's "Next"): a finding whose words share nothing with the request
  * is still offered once the runner has embedded the request and the memory index has embedded the

@@ -7,7 +7,7 @@ description: Continuous peer-to-peer file synchronisation between this server an
 website: https://syncthing.net
 risk: low
 image:
-  reference: syncthing/syncthing:2.1.3
+  reference: syncthing/syncthing:2.1.3@sha256:8c8ff37ab6aa8be23b700648a90fa9412e214852e9fd6ea8477c8334792daec0
   version: 2.1.3
 ports:
   - id: web

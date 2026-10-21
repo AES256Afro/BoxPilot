@@ -7,7 +7,7 @@ description: Stremio's streaming server, routed entirely through a VPN tunnel (G
 website: https://www.stremio.com
 risk: medium
 image:
-  reference: stremio/server:v4.20.8
+  reference: stremio/server:v4.20.8@sha256:68bf24548327897f9b63f24ccd9a653dfe9d5428f62aaedbc9ca43c0b253728f
   version: 4.20.8
 networkVia: vpn
 usesVpnProfile: true
@@ -92,7 +92,7 @@ env:
     fromVpnProfile: true
 sidecars:
   - id: vpn
-    image: qmcgaw/gluetun:v3.41.3
+    image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
     capabilities:
       - CAP_NET_ADMIN
     devices:

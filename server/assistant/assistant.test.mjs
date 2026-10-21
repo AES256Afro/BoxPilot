@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The assistant as a whole (M34.1, M34.2): a real state store with three accounts' work on record,
  * the real operation registry, a stub helper, and a stand-in model server on a loopback port. Each
@@ -438,7 +437,7 @@ describe("settings and status", () => {
     expect(viewer).not.toHaveProperty("settings");
     const owner = await assistant.status(caller("owner"));
     expect(owner).toMatchObject({ endpoint: fake.url, settings: { endpoint: fake.url } });
-    expect(owner.index.operations).toBe(registry.list().length);
+    expect(owner.index.operations).toBe(registry.list().filter((operation) => !operation.internal).length);
     expect(owner.index.documents).toBe(3);
   });
 });

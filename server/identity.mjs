@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { fixedRun } from "./exec.mjs";
 import { productVersion } from "./version.mjs";
 import { webPortOf } from "./env-file.mjs";
+import { isServeSocketTarget, serveSocketPath, viaServeSocket } from "./serve-socket.mjs";
 
 const tailnetV4 = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/;
 // Anchored at both ends: the old prefix-only test accepted the marker followed by anything at all,
@@ -50,6 +51,24 @@ export function tailnetClientAddress(request, { trustForwarded = false } = {}) {
   return null;
 }
 
+/**
+ * The caller a sign-in flow is counted against. An IPv6 address outside the tailnet counts by its
+ * /64: one host is handed a whole /64 (and privacy addresses change within it), so counting single
+ * addresses let one caller hold every slot. IPv4-mapped addresses count as their IPv4 address.
+ */
+export function signinClientKey(address) {
+  const value = normalizeAddress(typeof address === "string" ? address : "");
+  if (!value || !value.includes(":") || isTailnetAddress(value)) return value;
+  const [head, tail] = value.includes("::") ? value.split("::") : [value, null];
+  const front = head ? head.split(":") : [];
+  const back = tail ? tail.split(":") : [];
+  const groups = tail === null ? front : [...front, ...Array(Math.max(0, 8 - front.length - back.length)).fill("0"), ...back];
+  return `${groups.slice(0, 4).map((group) => (Number.parseInt(group || "0", 16) || 0).toString(16)).join(":")}::/64`;
+}
+
+/**
+ * @param {{ store?: any, run?: typeof fixedRun, tailscaleBinary?: string, fetchImpl?: typeof fetch, now?: () => number, whoisTtlMs?: number, webPort?: number, serveTtlMs?: number, serveSocket?: string }} [options]
+ */
 export function createIdentityService({
   store,
   run = fixedRun,
@@ -59,10 +78,11 @@ export function createIdentityService({
   whoisTtlMs = 30_000,
   webPort = webPortOf(process.env.BOXPILOT_PORT),
   serveTtlMs = 60_000,
+  serveSocket = serveSocketPath(),
 } = {}) {
   const whoisCache = new Map();
   const githubFlows = new Map();
-  let serveState = null; // { at, proxying, origins }
+  let serveState = null; // { at, proxying, viaSocket, origins }
 
   /**
    * Is Tailscale Serve proxying this port? That is what makes a loopback request carrying
@@ -78,6 +98,7 @@ export function createIdentityService({
    * is the scheme's default, which is what a BoxPilot on 80 or 443 looks like.
    */
   function proxiesThisService(target) {
+    if (typeof target === "string" && target.startsWith("unix:")) return proxiesOurSocket(target);
     if (typeof target !== "string" || !Number.isInteger(webPort)) return false;
     try {
       const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(target) ? target : `http://${target}`);
@@ -88,6 +109,8 @@ export function createIdentityService({
     } catch { return false; }
   }
 
+  const proxiesOurSocket = (target) => isServeSocketTarget(target, serveSocket);
+
   async function serveProxiesUs() {
     return (await serveFacts()).proxying;
   }
@@ -95,6 +118,7 @@ export function createIdentityService({
   async function serveFacts() {
     if (serveState && now() - serveState.at < serveTtlMs) return serveState;
     let proxying = false;
+    let viaSocket = false;
     let origins = [];
     const result = await run(tailscaleBinary, ["serve", "status", "--json"], { timeout: 5_000 }).catch(() => ({ ok: false }));
     if (result.ok) {
@@ -104,12 +128,13 @@ export function createIdentityService({
         // port, or a handler on some unrelated path, and either would have granted blanket trust.
         const ours = Object.entries(web).filter(([, entry]) => Object.values(entry?.Handlers ?? {}).some((handler) => proxiesThisService(handler?.Proxy)));
         proxying = ours.length > 0;
+        viaSocket = ours.some(([, entry]) => Object.values(entry?.Handlers ?? {}).some((handler) => proxiesOurSocket(handler?.Proxy)));
         // Each key is the name and port Serve answers on ("box.tail1234.ts.net:443"): over HTTPS,
         // that is an address a browser reaches BoxPilot at.
         origins = ours.flatMap(([hostPort]) => { try { return [new URL(`https://${hostPort}`).origin]; } catch { return []; } });
-      } catch { proxying = false; origins = []; }
+      } catch { proxying = false; viaSocket = false; origins = []; }
     }
-    serveState = { at: now(), proxying, origins };
+    serveState = { at: now(), proxying, viaSocket, origins };
     return serveState;
   }
 
@@ -135,7 +160,25 @@ export function createIdentityService({
     const direct = tailnetClientAddress(request);
     if (direct) return direct;
     if (!proxyClaimedLogin(request)) return null;
-    return tailnetClientAddress(request, { trustForwarded: await serveProxiesUs() });
+    // Once Serve proxies to the socket, only the socket is believed: the loopback port is open to
+    // every process on this machine, host-networked containers included, and they can write these
+    // headers as well as Serve can. Serve over the loopback port is believed while it is the only
+    // way Serve reaches BoxPilot, so an install that has not moved keeps its Tailscale sign-in.
+    // The socket is believed whatever the cached Serve facts say: only tailscaled (root) and this
+    // service's own user can open it. Waiting for the cache to see a move signed every tailnet
+    // session out, and bound a password sign-in in that minute to loopback, which is replayable.
+    if (viaServeSocket(request)) return tailnetClientAddress(request, { trustForwarded: true });
+    const { proxying, viaSocket } = await serveFacts();
+    return tailnetClientAddress(request, { trustForwarded: proxying && !viaSocket });
+  }
+
+  /** Read Serve's settings again on the next request: they just changed (tailscale.serve.socket). */
+  function forgetServeState() { serveState = null; }
+
+  /** Whether Serve reaches BoxPilot over the loopback port only, where a local process can pose as it. */
+  async function serveOverLoopbackOnly() {
+    const { proxying, viaSocket } = await serveFacts();
+    return proxying && !viaSocket;
   }
 
   function setting(key, fallback) { return store.getSetting(key, fallback); }
@@ -229,6 +272,28 @@ export function createIdentityService({
   }
 
   const abandonedFlowMs = 3 * 60_000;
+  const signinFlowLimit = 10;
+  const signinFlowsPerClient = 2;
+
+  /**
+   * Drop the oldest sign-in flow of a caller holding more than one, and say whether one went. A caller
+   * with a single flow is never pushed out: otherwise nine addresses restarting their one flow each
+   * cancelled the owner's sign-in while the owner was still typing the code at GitHub.
+   */
+  function evictSigninFlow() {
+    const held = new Map();
+    for (const [id, flow] of githubFlows) {
+      if (flow.purpose !== "signin") continue;
+      const key = flow.client ?? `flow:${id}`;
+      held.set(key, [...(held.get(key) ?? []), [id, flow]]);
+    }
+    const most = Math.max(0, ...[...held.values()].map((entries) => entries.length));
+    if (most < 2) return false;
+    const candidates = [...held.values()].filter((entries) => entries.length === most).flat();
+    const [oldestId] = candidates.reduce((oldest, entry) => (!oldest || entry[1].startedAt < oldest[1].startedAt ? entry : oldest), null) ?? [];
+    if (oldestId) githubFlows.delete(oldestId);
+    return Boolean(oldestId);
+  }
   function pruneFlows() {
     for (const [id, flow] of githubFlows) {
       // A flow the browser stopped polling is abandoned, and holding it for its full fifteen
@@ -238,21 +303,28 @@ export function createIdentityService({
     }
   }
 
-  async function githubStart({ purpose = "signin", ownerId = null, client = null } = {}) {
+  async function githubStart({ purpose = "signin", ownerId = null, client: address = null } = {}) {
     pruneFlows();
+    const client = purpose === "signin" ? signinClientKey(address) : address;
     if (!githubConfigured()) throw new Error("GitHub sign-in is not configured: add an OAuth App client ID in Settings");
     // Anonymous sign-in flows are capped separately (and per client) so nobody can fill the table
     // and lock the owner out of linking or signing in.
     const flows = [...githubFlows.values()];
     if (purpose === "signin") {
-      if (flows.filter((flow) => flow.purpose === "signin").length >= 5) throw new Error("Too many GitHub sign-in attempts in progress; try again in a minute");
-      if (client && flows.filter((flow) => flow.purpose === "signin" && flow.client === client).length >= 2) throw new Error("Too many GitHub sign-in attempts from this device; try again in a minute");
+      if (client && flows.filter((flow) => flow.purpose === "signin" && flow.client === client).length >= signinFlowsPerClient) throw new Error("Too many GitHub sign-in attempts from this device; try again in a minute");
+      // A full table used to refuse everyone, so a few addresses that kept their flows polled held
+      // every slot and nobody else could sign in with GitHub. Now the newcomer takes the oldest
+      // flow of a caller holding two; only a table of ten callers with one flow each refuses it, and
+      // nobody's flow in progress is cancelled to make room.
+      if (flows.filter((flow) => flow.purpose === "signin").length >= signinFlowLimit && !evictSigninFlow()) {
+        throw new Error("Every GitHub sign-in slot is in use; try again in a few minutes");
+      }
     } else if (flows.filter((flow) => flow.purpose === "link").length >= 5) {
       throw new Error("Too many GitHub link attempts in progress; try again in a minute");
     }
     const clientId = setting("githubClientId", "");
     const response = await fetchImpl("https://github.com/login/device/code", { redirect: "error", method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": `BoxPilot/${productVersion}` }, body: JSON.stringify({ client_id: clientId, scope: "read:user" }), signal: AbortSignal.timeout(10_000) });
-    const body = await response.json().catch(() => ({}));
+    const body = /** @type {any} */ (await response.json().catch(() => ({}))); // GitHub's JSON
     if (!response.ok || !body.device_code) throw new Error(body.error_description ?? body.error ?? `GitHub returned ${response.status}`);
     const flowId = randomUUID();
     githubFlows.set(flowId, { deviceCode: body.device_code, clientId, purpose, ownerId, client, startedAt: now(), lastPolledAt: now(), intervalMs: Math.max(5, Number(body.interval) || 5) * 1000, nextPollAt: 0, expiresAt: now() + Math.min(Number(body.expires_in) || 900, 900) * 1000, status: "pending" });
@@ -270,14 +342,14 @@ export function createIdentityService({
     if (now() < flow.nextPollAt) return { status: "pending", purpose: flow.purpose };
     flow.nextPollAt = now() + flow.intervalMs;
     const response = await fetchImpl("https://github.com/login/oauth/access_token", { redirect: "error", method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": `BoxPilot/${productVersion}` }, body: JSON.stringify({ client_id: flow.clientId, device_code: flow.deviceCode, grant_type: "urn:ietf:params:oauth:grant-type:device_code" }), signal: AbortSignal.timeout(10_000) });
-    const body = await response.json().catch(() => ({}));
+    const body = /** @type {any} */ (await response.json().catch(() => ({}))); // GitHub's JSON
     if (body.error === "authorization_pending") return { status: "pending", purpose: flow.purpose };
     if (body.error === "slow_down") { flow.intervalMs += 5000; flow.nextPollAt = now() + flow.intervalMs; return { status: "pending", purpose: flow.purpose }; }
     if (body.error === "expired_token") { githubFlows.delete(flowId); return { status: "expired", purpose: flow.purpose }; }
     if (body.error === "access_denied") { githubFlows.delete(flowId); return { status: "denied", purpose: flow.purpose }; }
     if (!body.access_token) { githubFlows.delete(flowId); return { status: "error", error: body.error_description ?? body.error ?? "GitHub did not return a token", purpose: flow.purpose }; }
     const user = await fetchImpl("https://api.github.com/user", { redirect: "error", headers: { Authorization: `Bearer ${body.access_token}`, Accept: "application/vnd.github+json", "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(10_000) });
-    const profile = await user.json().catch(() => ({}));
+    const profile = /** @type {any} */ (await user.json().catch(() => ({}))); // GitHub's JSON
     githubFlows.delete(flowId);
     if (!user.ok || typeof profile.login !== "string") return { status: "error", error: "Could not read the GitHub profile", purpose: flow.purpose };
     return { status: "complete", login: profile.login, githubId: profile.id ?? null, purpose: flow.purpose, ownerId: flow.ownerId };
@@ -362,5 +434,5 @@ export function createIdentityService({
     };
   }
 
-  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, githubOwnerFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, servePublishesControlPlane: serveProxiesUs, servedOrigins, internals: { whois, flows: githubFlows } };
+  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, githubOwnerFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, servePublishesControlPlane: serveProxiesUs, serveOverLoopbackOnly, forgetServeState, servedOrigins, internals: { whois, flows: githubFlows } };
 }

@@ -6,9 +6,11 @@ import { appFactsFrom } from "../home/facts";
 import { readJson } from "../http";
 import { Button, Notice, RiskTag, type RiskTier } from "../ui";
 import { useDialogFocus } from "../useDialogFocus";
-import { AreaIcon, ExternalIcon, PlusIcon, RunIcon, SearchIcon, SparkIcon } from "./areaIcons";
+import { AreaIcon, BellIcon, ExternalIcon, PlusIcon, RunIcon, SearchIcon, SparkIcon } from "./areaIcons";
 import "./command.css";
-import { actionCommands, buildCommands, searchCommands, type AppActionFacts, type CatalogEntry, type Command, type CommandGroup } from "./commandIndex";
+import { actionCommands, buildCommands, searchCommands, suggestedCommands, type AppActionFacts, type CatalogEntry, type Command, type CommandGroup } from "./commandIndex";
+import { useApprovalsWaiting, useLatestFailure } from "./approvalsWaiting";
+import { openActivity } from "../activityEvents";
 
 /*
  * The command bar (M33.2): Ctrl K or Cmd K anywhere, or the search box in the top bar. Typing
@@ -70,6 +72,7 @@ export function CommandBar({ csrfToken, onNavigate, onStart, role = null }: Comm
 const groupIcon = (command: Command): ReactNode => {
   if (command.action) return <RunIcon />;
   if (command.href) return <ExternalIcon />;
+  if (command.job) return <BellIcon />;
   if (command.label.startsWith("Install ")) return <PlusIcon />;
   return command.view ? <AreaIcon view={command.view} /> : null;
 };
@@ -124,13 +127,20 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
   }, [onClose]);
 
   const ready = assistant !== null && assistant !== "failed" && assistant.ready;
-  const commands = useMemo(() => buildCommands(catalog, actionCommands(appActions, role)), [catalog, appActions, role]);
+  const actions = useMemo(() => actionCommands(appActions, role), [appActions, role]);
+  const commands = useMemo(() => buildCommands(catalog, actions), [catalog, actions]);
+  const waiting = useApprovalsWaiting();
+  const failure = useLatestFailure();
   const typed = query.trim();
   const options: Option[] = useMemo(() => [
+    ...(typed ? [] : suggestedCommands({ waiting, failure, actions })).map((command) => ({ kind: "command" as const, command })),
     ...searchCommands(commands, query).map((command) => ({ kind: "command" as const, command })),
     ...(ready && typed ? [{ kind: "ask" as const, question: typed }] : []),
-  ], [commands, query, ready, typed]);
-  useEffect(() => setActive(0), [query]);
+  ], [commands, query, ready, typed, waiting, failure, actions]);
+  // Back to the top when the list underneath changes too: an approval staged or a failure landing
+  // while the empty bar is open shifts the Suggested rows, and Enter would choose whatever slid in.
+  const firstOption = options[0]?.kind === "command" ? options[0].command.id : options[0]?.kind ?? null;
+  useEffect(() => setActive(0), [query, options.length, firstOption]);
 
   const ask = useCallback(async (question: string) => {
     asking.current?.abort();
@@ -157,6 +167,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
     onClose();
     // An action goes through the ordinary approval dialog, at its own tier; nothing runs from here.
     if (command.action) { onStart({ operationId: command.action.operationId, title: command.action.title, parameters: command.action.parameters, preview: <span>{command.action.preview}</span> }); return; }
+    if (command.job) { openActivity(command.job); return; }
     if (command.href) window.open(command.href, "_blank", "noopener,noreferrer");
     else if (command.view) onNavigate(command.view, command.app || command.tab ? { app: command.app, tab: command.tab } : undefined);
   };

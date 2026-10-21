@@ -1,7 +1,7 @@
 import { fixedRun } from "./exec.mjs";
 
 /**
- * Read-only host inspection (helper side): Docker engine state and container inventory.
+ * Read-only host inspection (helper side): the Docker inventory.
  * Journal reads moved to the logs.* registry operations.
  */
 
@@ -14,11 +14,6 @@ export function createHostInspectHelper({
   run = fixedRun,
 } = {}) {
   const docker = (args, options = {}) => run(dockerBinary, args, { maxBuffer: 4 * 1024 * 1024, ...options });
-
-  async function inspectDocker() {
-    const result = await docker(["version", "--format", "{{.Server.Version}}"], { timeout: 5000 });
-    return { available: true, version: result.stdout || "available" };
-  }
 
   async function inventoryDocker() {
     const [containerResult, imageResult, networkResult, volumeResult, projectResult] = await Promise.all([
@@ -55,5 +50,5 @@ export function createHostInspectHelper({
     return { available: true, containers, images, networks, volumes, projects };
   }
 
-  return { inspectDocker, inventoryDocker };
+  return { inventoryDocker };
 }

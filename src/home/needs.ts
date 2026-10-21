@@ -196,6 +196,19 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     needs.push({ id: "services", kind: "alert", severity: "danger", title: `${countOf(failed, "system service")} failed`, detail: "Services lists them with their journal", view: "services", action: null });
   }
 
+  // M36: copies of the database the update took before the secret scrub still hold those secrets.
+  // Only the ones removal can take: the newest copies always stay, and a need nobody can clear
+  // would sit on Home until the next update. Removing them is the owner's.
+  const heldSecrets = facts.databaseCopies?.removable ?? 0;
+  if (heldSecrets > 0 && mayStart(role, "housekeeping.database-copies.remove")) {
+    needs.push({
+      id: "database-copies", kind: "alert", severity: "warning", view: "system",
+      title: `${heldSecrets === 1 ? "A database copy" : `${heldSecrets} database copies`} from before the secret scrub ${heldSecrets === 1 ? "is" : "are"} still on disk`,
+      detail: "Updates keep a copy of the database to go back to; these were taken before BoxPilot moved its secrets out of it, so they still hold them",
+      action: { kind: "open", open: { view: "system", tab: "housekeeping" }, operationId: "", label: "Review copies", title: "Review copies", parameters: {}, preview: "", risk: "low" },
+    });
+  }
+
   // ── Repair's findings, each with its fixes, run as Repair runs them (M35). Apps with no
   //    container are said once above; each one's Reinstall and Uninstall are on Repair. ──
   for (const finding of repairFindings) {

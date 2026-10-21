@@ -28,6 +28,8 @@ export const appAllowed = (spec, appId) => !spec?.allow || spec.allow.apps === "
  * owner's switch for every agent (`sources`, the Knowledge tab's). The owner's documents only for
  * the owner or an operator, as the library's own page: a viewer asking the House Guide read all
  * of them (2026-10 sweep).
+ *
+ * @param {{ spec?: any, sources?: any, readRole?: string }} [options]
  */
 export function readableSources({ spec, sources = null, readRole } = {}) {
   const own = spec?.knowledge ?? {};

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The runner's hard caps (M37) are in its unit file, where the kernel enforces them, and the Usage
  * panel shows them from caps.mjs. This keeps the two the same, and the unit's sandbox and network

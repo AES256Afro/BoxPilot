@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Every limit an agent lives under (M37), each shown to hold: steps, tool calls, tokens, model time
  * and runs a day; one run at a time for the whole server and one question at a time per person; a
