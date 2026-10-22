@@ -41,6 +41,17 @@ The installed unit was byte-identical to the shipped one, with no drop-ins, so t
 repository, not on the host. Transient units on the host proved it both ways: the same node binary
 under `-p MemoryDenyWriteExecute=true` ended in `core-dump`, `status=5/TRAP`; without it, success.
 
+## The second blocker
+
+With the unit able to run, the job would still have failed at its first step. `virsh net-start default` on the
+host ends in `dnsmasq: failed to create listening socket for 192.168.122.1: Address already in use`:
+the Pi-hole app, installed through BoxPilot in host network mode, holds port 53 on every address, and
+`catalog/pi-hole.yaml` fixes its listening mode to `all`, so it cannot be narrowed from the app page. The
+host and the tailnet do not resolve through it; the LAN does. The network was started by keeping its
+DHCP and switching its own DNS off (`<dns enable='no'/>` with a `dhcp-option=6,<LAN resolver>` through
+the `dnsmasq:options` namespace), which leaves the subnet, bridge and range the foundation check
+expects. The previous definition is kept beside the new one in the operator's home directory.
+
 ## Triage path for a unit that fails
 
 Each step answers one question. Stop as soon as the answer names the cause.
@@ -84,6 +95,7 @@ Each step answers one question. Stop as soon as the answer names the cause.
 | The host looks down when the operator's Tailscale is off | "I can't reach it" | Step 0 | Check your own node before the server; keep the LAN address at hand | Runbook | Documented |
 | Hardening copied between units without the reason for each omission | One unit alone carries a directive nobody can explain | The node-unit sweep; a review that compares the directive set with the other node units | The units say in a comment why a directive is absent (`User=`, `RestrictSUIDSGID=`, now `MemoryDenyWriteExecute=`) | `deploy/*.service`, review | Convention exists; sweep done |
 | The host runs a release several minors behind the repository | Fixes land in `main` and never reach the box | The System page and `GET /api/v1/health` report the version | The one-command upgrade in `docs/VIRTUALIZATION.md`, run after a fix merges | `docs/VIRTUALIZATION.md` | Exists |
+| A DNS server in host network mode holds port 53 on every address, so libvirt's dnsmasq cannot bind the VM gateway | `net-start default` fails with "failed to create listening socket … Address already in use" | The foundation preflight should look for a wildcard listener on port 53 (`/proc/net/udp` and `tcp`, local address `00000000:0035`) and name the conflict before offering a plan | Durable: let `catalog/pi-hole.yaml` offer the bind-to-interface listening mode it now fixes to `all`; on this host: the default network keeps DHCP, has its own DNS off and hands guests the LAN resolver | `server/libvirt-foundation-helper.mjs`, `catalog/pi-hole.yaml`, the host | Host done; preflight and catalog open |
 
 ## Remediation checklist for this incident
 
@@ -100,11 +112,15 @@ Each step answers one question. Stop as soon as the answer names the cause.
   ```
 
   Remove the drop-in after the upgrade so the shipped unit is the only word.
-- [ ] Re-run **Default VM foundation** from Virtual Machines. Expect `Verified fixed libvirt foundation
-      <uuid>` in the unit's journal, and the `default` network and pool reported ready.
+- [x] Start the `default` network and enable its autostart. Done at the console with the DNS-off definition
+      above, after the pool was found already running with autostart.
+- [ ] Open Virtual Machines: **Default VM foundation** should report both resources ready. If it offers a
+      plan instead, approve it; the unit now runs under the drop-in and should end with `Verified fixed
+      libvirt foundation <uuid>` in its journal.
 - [ ] Decide on `systemd-coredump` for the host.
-- [ ] Open the two follow-ups above: the Ubuntu CI smoke for node units, and the helper's wording when
-      the process dies before the script runs.
+- [ ] Open the follow-ups above: the Ubuntu CI smoke for node units, the helper's wording when the
+      process dies before the script runs, the port-53 preflight check, and the Pi-hole listening mode
+      in the catalog.
 
 The lesson in one line: a directive that is right for a C daemon can be fatal for a JIT runtime, so
 every node unit carries the same answer to it, the units say why a directive is absent, and the tests
