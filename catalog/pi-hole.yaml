@@ -54,8 +54,14 @@ env:
       - 94.140.14.14;94.140.15.15
       - unbound#53
   - name: FTLCONF_dns_listeningMode
+    label: Listening mode
+    description: Which addresses Pi-hole answers DNS on. all answers on every address for anyone who asks. local answers on every address, but only devices on this machine's own subnets. single answers only what arrives on the main network interface, yet still holds port 53 on every address. bind holds port 53 on the main interface alone and leaves the other addresses free. Pick bind when another DNS server runs on this machine, such as libvirt's default VM network, whose gateway address needs port 53 of its own. The main interface is the one with the default route, so Pi-hole keeps answering your network and the admin page is unaffected. In Bridge network mode leave it on all, as Pi-hole's own Docker image recommends.
     default: all
-    fixed: true
+    options:
+      - all
+      - local
+      - single
+      - bind
   - name: FTLCONF_webserver_port
     default: "80o"
     fixed: true
@@ -121,4 +127,4 @@ setup:
       description: Blocks phone-home and ad domains used by Samsung, LG, Roku, and other TVs.
       website: https://github.com/Perflyst/PiHoleBlocklist
       exec: [pihole-FTL, sqlite3, /etc/pihole/gravity.db, "INSERT INTO adlist (address, enabled, comment) SELECT 'https://raw.githubusercontent.com/Perflyst/PiHoleBlocklist/master/SmartTV.txt', 1, 'BoxPilot: Smart TV telemetry' WHERE NOT EXISTS (SELECT 1 FROM adlist WHERE address = 'https://raw.githubusercontent.com/Perflyst/PiHoleBlocklist/master/SmartTV.txt')"]
-notes: "Network mode (in Settings): **Bridge** keeps Pi-hole isolated behind Docker, but every device on your network reaches it through one address, so the client list shows a single client. Fine for blocking, not for per-device rules. **Host** puts Pi-hole directly on your network so it sees each computer by address and name (turn on Conditional Forwarding to your router for names); its admin UI then answers on port 80 rather than 8084. Runs with Docker's default capabilities (its start script needs to set file capabilities on pihole-FTL). To use Pi-hole as your DHCP server too, add CAP_NET_ADMIN via Config. Finish the setup in two steps: (1) on the Firewall page tick the DNS server service so other devices can reach port 53; (2) in your router's DHCP settings set the DNS server to this machine's LAN address. On Ubuntu Server systemd-resolved holds port 53 by default: set DNSStubListener=no in /etc/systemd/resolved.conf and restart systemd-resolved before installing, or port 53 will already be in use."
+notes: "Network mode (in Settings): **Bridge** keeps Pi-hole isolated behind Docker, but every device on your network reaches it through one address, so the client list shows a single client. Fine for blocking, not for per-device rules. **Host** puts Pi-hole directly on your network so it sees each computer by address and name (turn on Conditional Forwarding to your router for names); its admin UI then answers on port 80 rather than 8084. Runs with Docker's default capabilities (its start script needs to set file capabilities on pihole-FTL). To use Pi-hole as your DHCP server too, add CAP_NET_ADMIN via Config. Finish the setup in two steps: (1) on the Firewall page tick the DNS server service so other devices can reach port 53; (2) in your router's DHCP settings set the DNS server to this machine's LAN address. On Ubuntu Server systemd-resolved holds port 53 by default: set DNSStubListener=no in /etc/systemd/resolved.conf and restart systemd-resolved before installing, or port 53 will already be in use. In Host mode the Listening mode setting decides which addresses Pi-hole holds port 53 on: pick bind if another DNS server on this machine, such as libvirt's default VM network, needs port 53 on an address of its own."
