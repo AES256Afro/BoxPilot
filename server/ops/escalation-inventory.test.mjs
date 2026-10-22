@@ -36,6 +36,8 @@ const reviewed = {
   "app.model.pull": "model-name pattern, passed as one argument to the app's own runtime",
   "app.model.remove": "model-name pattern; a model can be pulled again",
   "app.action": "fixed actions on the app's own containers",
+  "app.financialauthority.restorepoint.make": "its one field is an enum of the app's own id; the app copies its database beside its other copies",
+  "app.financialauthority.backups.check": "its one field is an enum of the app's own id; SQLite reads that database and its newest copies",
   "firewall.rule.add": "SSH, Tailscale and BoxPilot's own ports are refused in the task",
   "firewall.rule.delete": "the same protected ports are refused",
   "storage.fs-snapshot.create": "creates a snapshot; nothing is removed",
