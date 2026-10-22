@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The Agents routes over HTTP (M37): the real runner talking to the web service the way
  * runner-main does - its key, loopback, long poll, tools, finish - while a page follows the run's

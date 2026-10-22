@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appStatus, compactValues, installTier, offlineFor } from "./appState";
+import { appStatus, compactValues, installTier, offlineFor, shortImage } from "./appState";
 import type { LiveState, Manifest, ManifestEnv } from "./types";
 
 /**
@@ -96,5 +96,13 @@ describe("what a settings change sends", () => {
 
   it("sends nothing empty on install, where there is nothing stored to clear", () => {
     expect(compactValues(manifest, { ports: {}, env: { SERVER_URL: "", TZ: "", ADMIN_TOKEN: "" }, volumes: {} }).env).toEqual({});
+  });
+});
+
+describe("an image reference for reading", () => {
+  it("cuts a pinned digest to its first 12 characters and leaves a tag alone", () => {
+    expect(shortImage(`nginx:1.27@sha256:${"0123456789ab".padEnd(64, "f")}`)).toBe("nginx:1.27@sha256:0123456789ab…");
+    expect(shortImage("nginx:1.27")).toBe("nginx:1.27");
+    expect(shortImage(null)).toBe("");
   });
 });

@@ -255,7 +255,8 @@ export function vmOperations() {
       },
     }),
     defineOperation({
-      id: "vm.snapshot.delete", title: "Delete a VM snapshot", risk: "medium", timeoutMs: 10 * 60_000,
+      // Owner only, like the storage snapshot deletes: a snapshot is a restore point someone kept.
+      id: "vm.snapshot.delete", title: "Delete a VM snapshot", risk: "medium", minimumRole: "owner", timeoutMs: 10 * 60_000,
       description: "Deletes the named snapshot and merges its state into the disk. The VM itself is unchanged.",
       parameters: { fields: { name: nameField, snapshotName: snapshotField } },
       run: async (parameters, { run, progress }) => {

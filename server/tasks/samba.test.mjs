@@ -46,6 +46,12 @@ describe("what a share may serve, and who may sign in", () => {
     expect(files.writeFile).not.toHaveBeenCalled();
   });
 
+  it("refuses a folder that reaches a login account's home only through a link", async () => {
+    const files = { ...fakeFiles({ existing: "# Managed by BoxPilot\n[global]\n" }), realpath: vi.fn(async () => "/home/admin") };
+    await expect(sambaApply({ shares: [{ name: "Media", path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/leads to \/home\/admin, which reaches a login account's home/);
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+
   // Needs Linux: a real symbolic link to /etc, resolved by the real realpath the task uses.
   it.skipIf(onWindows)("refuses a real link into /etc, resolved as the root task resolves it", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-share-"));

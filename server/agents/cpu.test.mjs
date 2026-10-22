@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Faster while someone waits (M40, ADR-009): a person's run gets the owner's "while you wait"
  * processors (eight on the owner's server) and a thread for each; everything else stays at the

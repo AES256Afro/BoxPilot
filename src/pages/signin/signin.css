@@ -5,7 +5,9 @@
  * tokens, as Home's do. Tokens only; every selector starts with .signin- (docs/UI-PAGES.md).
  */
 
-.signin-page {
+/* The classic screen draws the kit's controls in the Launcher's ink and glass; the terminal keeps
+   the app's own tokens (below). */
+.signin-page:not(.signin-page--terminal) {
   --text: var(--lx-ink);
   --text-strong: var(--lx-ink);
   --text-muted: var(--lx-ink-muted);
@@ -26,6 +28,9 @@
   --status-danger-text: var(--lx-danger-text);
   --status-danger-bg: var(--lx-danger-bg);
   --status-danger-border: transparent;
+}
+
+.signin-page {
   position: relative;
   isolation: isolate;
   display: grid;
@@ -39,7 +44,7 @@
 }
 
 /* The wallpaper: fixed behind the page, the same as Home's. */
-.signin-page::before {
+.signin-page:not(.signin-page--terminal)::before {
   position: fixed;
   z-index: -1;
   inset: 0;
@@ -145,6 +150,95 @@
 
 @media (prefers-reduced-transparency: reduce) {
   .signin-card { background: var(--lx-glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/*
+ * The terminal (the default sign-in screen): a console window on the app's canvas, in the app's
+ * own tokens so light and dark both work. The shared pieces above read --lx-*, so the terminal
+ * points those at the app's tokens; its ways in are numbered rows, and the number key presses one.
+ */
+.signin-page--terminal {
+  --term-accent: var(--success);
+  --lx-ink: var(--text-strong);
+  --lx-ink-muted: var(--text-muted);
+  --lx-hairline: var(--border);
+  --lx-glass: var(--surface);
+  --lx-glass-raised: var(--surface-muted);
+  --lx-glass-border: var(--border);
+  --lx-pill: var(--accent);
+  --lx-pill-ink: var(--accent-text-on);
+  --lx-focus: var(--accent);
+  --lx-warning: var(--status-warning);
+  --lx-danger-text: var(--status-danger-text);
+  --lx-danger-bg: var(--status-danger-bg);
+  color: var(--text);
+  background: var(--canvas);
+  font-family: var(--font-mono);
+}
+
+.signin-term {
+  width: min(40rem, 100%);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+.signin-term__bar { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+.signin-term__dots { display: flex; gap: 6px; }
+.signin-term__dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--border-strong); }
+.signin-term__version { margin-left: auto; }
+.signin-term__body { display: grid; gap: 16px; padding: 26px 30px 28px; font-size: 14px; line-height: 1.6; }
+
+.signin-page--terminal .signin-kicker { color: var(--text-muted); font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: lowercase; }
+.signin-page--terminal .signin-kicker::before { color: var(--term-accent); content: "$ "; }
+.signin-page--terminal .signin-title { margin: -6px 0 0; font-size: clamp(20px, 5vw, 24px); font-weight: 700; letter-spacing: 0; }
+.signin-page--terminal .signin-lead,
+.signin-page--terminal .signin-hint { font-size: 13px; }
+.signin-page--terminal .signin-notice { border-radius: 6px; font-size: 13px; }
+.signin-page--terminal .signin-error { border-radius: 6px; font-size: 13px; }
+
+/* Every control in the window: square-ish, monospace, the app's colours. The page, the window and
+   its body in each selector outrank the looks' own button and field rules
+   (:root[data-look][data-shell] .ui-button), which would draw them as the look's pills. */
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-button {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-strong);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
+}
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-button:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-muted); }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-button--primary { border-color: var(--accent); color: var(--accent-text-on); background: var(--accent); font-weight: 700; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-button--primary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent); filter: brightness(1.08); }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-button--ghost { width: auto; min-height: 32px; padding: 0 4px; border-color: transparent; color: var(--link); background: transparent; font-size: 13px; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-button--ghost:hover:not(:disabled) { border-color: transparent; background: transparent; text-decoration: underline; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .signin-row .ui-button { flex: 1 1 auto; width: auto; }
+
+/* The ways in as numbered rows: [1] the best one, outlined in the accent, then the rest. */
+.signin-page.signin-page--terminal .signin-term .signin-term__body .signin-ways { counter-reset: signin-way; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .signin-ways > .ui-button { justify-content: flex-start; counter-increment: signin-way; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .signin-ways > .ui-button::before { margin-right: 14px; color: var(--text-muted); content: "[" counter(signin-way) "]"; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .signin-ways > .ui-button--primary { border-color: var(--term-accent); color: var(--text-strong); background: var(--surface-muted); }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .signin-ways > .ui-button--primary::before { color: var(--term-accent); }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .signin-ways > .ui-button--primary:hover:not(:disabled) { border-color: var(--term-accent); background: var(--surface-muted); filter: none; }
+
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-field__label { color: var(--text-muted); font-size: 12px; font-weight: 500; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-input { min-height: 40px; border-color: var(--border); border-radius: 6px; color: var(--text-strong); background: var(--canvas); font-family: var(--font-mono); font-size: 14px; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-input:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 0; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-secret .ui-input { border-radius: 6px 0 0 6px; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-secret__toggle { border-color: var(--border); border-radius: 0 6px 6px 0; color: var(--text-strong); background: var(--surface-muted); font-family: var(--font-mono); }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .ui-code { border-color: var(--border); border-radius: 6px; }
+.signin-page.signin-page--terminal .signin-term .signin-term__body .signin-device { border-radius: 8px; }
+
+@media (max-width: 480px) {
+  .signin-term__body { padding: 20px 16px 22px; }
 }
 
 @media (max-width: 480px) {

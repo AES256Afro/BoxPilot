@@ -7,7 +7,7 @@ description: Request manager for Jellyfin. Family members ask for movies and sho
 website: https://github.com/fallenbagel/jellyseerr
 risk: medium
 image:
-  reference: fallenbagel/jellyseerr:2.7.3
+  reference: fallenbagel/jellyseerr:2.7.3@sha256:4538137bc5af902dece165f2bf73776d9cf4eafb6dd714670724af8f3eb77764
   version: 2.7.3
 ports:
   - id: web

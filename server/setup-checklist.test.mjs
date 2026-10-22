@@ -31,7 +31,9 @@ describe("setup checklist", () => {
     // Neither is a share nothing is serving.
     expect(partial.items.find((item) => item.id === "shares")).toMatchObject({ done: false, detail: expect.stringContaining("not running") });
     const mirrored = buildChecklist({ backupDestination: { host: "nas", lastSync: "2026-08-20T02:00:00Z" } });
-    expect(mirrored.items.find((item) => item.id === "backups")).toMatchObject({ done: true, detail: expect.stringContaining("nas") });
+    // Every role reads the checklist, so it says that a copy was made, not the account it went to.
+    expect(mirrored.items.find((item) => item.id === "backups")).toMatchObject({ done: true, detail: expect.stringContaining("over SSH") });
+    expect(mirrored.items.find((item) => item.id === "backups").detail).not.toContain("nas");
   });
 
   it("gathers evidence from the helper and settings, tolerating failures", async () => {

@@ -7,7 +7,7 @@ description: "Play your retro game collection in a browser, no console, no insta
 website: https://emulatorjs.com
 risk: medium
 image:
-  reference: lscr.io/linuxserver/emulatorjs:1.9.2-ls173
+  reference: lscr.io/linuxserver/emulatorjs:1.9.2-ls173@sha256:b7003f7d4f383dd32d210ba08f24c840276fdf92c211bd18a798d47647311290
   version: 1.9.2-ls173
 ports:
   - id: web

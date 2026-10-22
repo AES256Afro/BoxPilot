@@ -7,7 +7,7 @@ description: Request manager for Plex. The household browses, asks for a film or
 website: https://overseerr.dev
 risk: medium
 image:
-  reference: sctx/overseerr:1.35.0
+  reference: sctx/overseerr:1.35.0@sha256:6197516c9d7b58ccf113455e32aafb94df5d91995fe50e8c2cae6ba6c7c7b7de
   version: 1.35.0
 ports:
   - id: web

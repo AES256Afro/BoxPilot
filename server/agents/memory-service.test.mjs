@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Memory and outside data, end to end (M37): facts shared between agents only as far as each run
  * may read; an index run embeds what is new, in quiet hours, with the model server's embedder; a

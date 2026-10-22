@@ -7,7 +7,7 @@ description: "Latency and packet-loss graphs over time to your router, your ISP,
 website: https://oss.oetiker.ch/smokeping
 risk: low
 image:
-  reference: lscr.io/linuxserver/smokeping:2.9.0-r0-ls180
+  reference: lscr.io/linuxserver/smokeping:2.9.0-r0-ls180@sha256:a0d1e57744a2217a0fe83b7828cffe2cbce16f44e59c858bead8ff41e7b63581
   version: "2.9.0"
 ports:
   - id: web

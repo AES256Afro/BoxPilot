@@ -72,6 +72,7 @@ describe("restricted VM helper", () => {
     const helper = createVmHelper({ run });
     await expect(helper.inventory({ scope: "domains" })).resolves.toEqual({ connected: true, domains: [], error: null });
     expect(run).toHaveBeenCalledWith("/usr/bin/virsh", ["--connect", "qemu:///system", "list", "--all", "--name"], { timeout: 8000 });
+    await expect(helper.inventory({ scope: "domains-summary" })).resolves.toEqual({ connected: true, domains: [], error: null, summary: true });
     await expect(helper.inventory({ scope: "shell" })).rejects.toThrow("Unsupported virtualization inventory scope");
   });
 

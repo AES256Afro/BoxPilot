@@ -7,7 +7,7 @@ description: "Dedicated Terraria server (vanilla) for friends and family."
 website: https://terraria.org
 risk: low
 image:
-  reference: ryshe/terraria:vanilla-1.4.5.7
+  reference: ryshe/terraria:vanilla-1.4.5.7@sha256:00358c39e6df934dc90cb55191ad5253f3af033197cee932356ef1af9b3cb416
   version: "1.4.5.7"
 command: ["-world", "/root/.local/share/Terraria/Worlds/world.wld", "-autocreate", "2"]
 ports:

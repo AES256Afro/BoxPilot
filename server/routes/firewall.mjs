@@ -47,7 +47,7 @@ export function createFirewallRouter({ state, helper, catalogService, webPort, w
   router.get("/firewall/plan", (request, response) => {
     try {
       const chosen = typeof request.query.services === "string" && request.query.services ? request.query.services.split(",") : [];
-      const plan = buildPlan({ profileId: request.query.profile, serviceIds: chosen, replace: request.query.replace === "true", sshRateLimit: request.query.sshRateLimit === "true", webPort, webHost });
+      const plan = buildPlan({ profileId: typeof request.query.profile === "string" ? request.query.profile : undefined, serviceIds: chosen, replace: request.query.replace === "true", sshRateLimit: request.query.sshRateLimit === "true", webPort, webHost });
       response.json(plan);
     } catch (error) {
       response.status(400).json({ error: error.message, code: "invalid_plan" });

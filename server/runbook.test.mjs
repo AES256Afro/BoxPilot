@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The runbook generator (M34.4) against a rich set of facts. Every host detail here is a placeholder
  * (documentation addresses, example names); none of it describes a real server.

@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { onWindows } from "../test/platform.mjs";
@@ -329,6 +329,9 @@ describe("native systemd network boundaries", () => {
     expect(service).toContain("PrivateNetwork=true");
     expect(service).toContain("CapabilityBoundingSet=\n");
     expect(service).toContain("ReadWritePaths=/var/lib/libvirt");
+    // MemoryDenyWriteExecute= refuses the mprotect(PROT_EXEC) that node's V8 needs for the JIT code it
+    // writes at start-up: with it, node aborted before the script ran and the unit failed as core-dump.
+    expect(service).not.toMatch(/^MemoryDenyWriteExecute=/m);
     expect(service).not.toContain("%i");
     expect(service).not.toContain("[Install]");
     expect(helperUnit).toContain("PrivateNetwork=true");
@@ -341,10 +344,25 @@ describe("native systemd network boundaries", () => {
     expect(initializer).toContain('["pool-undefine", libvirtFoundationSpec.poolName]');
     expect(initializer).not.toContain("process.argv[2]");
     expect(initializer).not.toContain("virt-install");
-    expect(protocol).toContain("virtualization.foundation.inspect");
+    expect(helperOperations.has("virtualization.foundation.inspect")).toBe(true);
     expect(helperOperations.has("vm.foundation.initialize")).toBe(true);
     expect(helperOperations.has("virtualization.foundation.initialize")).toBe(false);
     expect(protocol).not.toContain("virtualization.resource.execute");
+  });
+
+  it("leaves write-execute memory to every unit that runs node", async () => {
+    // V8 writes JIT code at start-up and then makes it executable with mprotect(PROT_EXEC), which
+    // MemoryDenyWriteExecute= rejects: node aborts and systemd reports the unit as core-dump. The
+    // libvirt foundation unit carried it alone, and its script never ran (October 2026).
+    const units = (await readdir("deploy")).filter((name) => name.endsWith(".service")).sort();
+    const nodeUnits = [];
+    for (const name of units) {
+      const unit = await readFile(path.join("deploy", name), "utf8");
+      if (!/^ExecStart=\/usr\/local\/bin\/node /m.test(unit)) continue;
+      nodeUnits.push(name);
+      expect(unit, name).not.toMatch(/^MemoryDenyWriteExecute=/m);
+    }
+    expect(nodeUnits).toContain("boxpilot-libvirt-foundation.service");
   });
 
   it("ships a static metadata-only APT refresh without browser package or command arguments", async () => {

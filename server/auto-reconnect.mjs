@@ -54,6 +54,8 @@ export function attemptsIn(record, now, limits = autoReconnectLimits) {
  * and the running jobs are handed in, and `now` is a number. `tell` is whether the owner hears of
  * it: a cooldown or a check in progress passes by itself, a hold was told when it began, and a cap
  * or a check that found errors waits for a person, who is told once.
+ *
+ * @param {{ name: string, now: number, record?: { attempts?: { at: string }[], heldSince?: string, heldBecause?: string }, lastCheck?: any, activeJobs?: any[], limits?: typeof autoReconnectLimits }} options
  */
 export function reconnectRefusal({ name, now, record = {}, lastCheck = null, activeJobs = [], limits = autoReconnectLimits }) {
   const busy = activeJobs.find((job) => driveJobs.includes(job?.type) && job.parameters?.name === name);

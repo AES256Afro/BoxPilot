@@ -7,7 +7,7 @@ description: Send files and text between any two devices on your network from a 
 website: https://github.com/schlagmichdoch/PairDrop
 risk: low
 image:
-  reference: lscr.io/linuxserver/pairdrop:1.11.2
+  reference: lscr.io/linuxserver/pairdrop:1.11.2@sha256:2e673eebd640beea33f131f4426b90548354e620ae593336a73be9374bb70bc2
   version: 1.11.2
 ports:
   - id: web

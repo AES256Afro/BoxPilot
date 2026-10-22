@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * docs.search answers questions about the owner's server from the owner's documents, and leaves
  * BoxPilot's own roadmap and decision records out unless the question is about building BoxPilot:

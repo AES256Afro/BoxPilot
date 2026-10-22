@@ -55,6 +55,9 @@ export function readVector(value, { maxDims = 4_096 } = {}) {
  * Hybrid retrieval: BM25 over the words and cosine over the vectors, fused by reciprocal rank
  * (1 / (60 + rank)) so neither scale swamps the other. `items` are { key, title, text, vector? }
  * with vectors already decoded; `queryVector` may be null (words only).
+ *
+ * @param {Array<{ key: string, title?: string, text: string, vector?: number[] | Float32Array | null, weight?: number }>} items
+ * @param {{ query?: string, queryVector?: number[] | Float32Array | null, limit?: number, minCosine?: number }} [options]
  */
 export function hybridSearch(items, { query, queryVector = null, limit = 5, minCosine = 0.35 } = {}) {
   if (!items.length) return [];

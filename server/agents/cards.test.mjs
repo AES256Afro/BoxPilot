@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * A card's steps and the jobs that came of them (2026-10 sweep 3). Which step was staged as which
  * job is kept on the server, so a card drawn again - another tab, the page left and come back to,

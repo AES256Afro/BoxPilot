@@ -47,7 +47,7 @@ export const answers: Record<string, unknown> = {
   "/api/v1/setup/checklist": { done: 5, total: 5, items: [] },
   "/api/v1/virtualization/domains?view=summary": { domains: [] },
   "/api/v1/jobs?limit=50": { jobs: [] },
-  "/api/v1/jobs?limit=200": { jobs: [] },
+  "/api/v1/jobs?limit=200&view=summary": { jobs: [] },
 };
 
 /** The same server, busier: what Ops has more to show about. */
@@ -69,7 +69,7 @@ export const busier: Record<string, unknown> = {
     job("wait1", "op:storage.remount", "awaiting_approval", 0.3, { parameters: { name: "media" }, title: "Reconnect a drive" }),
     job("done1", "op:apt.refresh", "completed", 2, { risk: "low" }),
   ] },
-  "/api/v1/jobs?limit=200": { jobs: [
+  "/api/v1/jobs?limit=200&view=summary": { jobs: [
     job("b3", "op:app.backup", "completed", 11, { parameters: { id: "jellyfin" } }),
     job("b2", "op:app.backup", "completed", 35, { parameters: { id: "jellyfin" } }),
     job("b1", "op:app.backup", "completed", 59, { parameters: { id: "jellyfin" } }),

@@ -5,7 +5,7 @@ export interface ManifestPort { id: string; label: string; container: number; ho
 export interface ManifestVolume { id: string; label: string; container: string; path: string | null; hostPath: string | null; readOnly: boolean; backup: boolean; configurable: boolean; description: string | null }
 export interface SetupChoice { id: string; label: string; description: string | null; website: string | null; recommended: boolean; exec: string[] }
 export interface ManifestSetup { title: string; note: string | null; finalize: string[] | null; finalizeLabel: string | null; choices: SetupChoice[] }
-export interface ManifestEnv { name: string; label: string; description: string | null; type: "string" | "password" | "number" | "boolean" | "timezone" | "path"; default: string | number | boolean | null; required: boolean; secret: boolean; generate: boolean; options: string[] | null; fixed: boolean; fromVpnProfile?: boolean }
+export interface ManifestEnv { name: string; label: string; description: string | null; type: "string" | "password" | "number" | "boolean" | "timezone" | "path"; default: string | number | boolean | null; required: boolean; secret: boolean; generate: boolean; options: string[] | null; optionsFrom?: "ollama-models" | null; fixed: boolean; fromVpnProfile?: boolean }
 export interface Manifest {
   id: string; name: string; category: string; description: string; website: string | null; icon: string | null; risk: "low" | "medium" | "high"; notes: string | null;
   connections?: Array<{ app: string; role: string; where: string; note: string | null }>;

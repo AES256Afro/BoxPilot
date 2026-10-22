@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { registry } from "../ops/index.mjs";
 import { actToolIds, actToolLimit, describeTools, lesserRole, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolIdOf } from "./tool-catalog.mjs";

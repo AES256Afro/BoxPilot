@@ -35,6 +35,50 @@ describe("run-unit client", () => {
     await expect(failing.runTask("apt.update", {})).rejects.toThrow("apt-get update failed");
   });
 
+  // systemctl as an upgrade of systemd leaves it: `start` comes back at once with the D-Bus error
+  // and nothing written yet; `is-active` answers from the states given, writing the result with the last.
+  async function managerLost({ states, result = { ok: true, task: "apt.upgrade", result: { upgraded: true, scope: "all" } }, tick = 1_000 }) {
+    const runDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-run-unit-")); directories.push(runDirectory);
+    let unit = null;
+    const run = vi.fn(async (_binary, args) => {
+      if (args[0] === "is-active") {
+        const state = states.length > 1 ? states.shift() : states[0];
+        if (!["active", "activating", "deactivating", "reloading", "refreshing"].includes(state) && result) {
+          const id = unit.replace(/^boxpilot-run@/, "").replace(/\.service$/, "");
+          await writeFile(path.join(runDirectory, `${id}.result.json`), JSON.stringify(result));
+        }
+        return { ok: state === "active", code: state === "active" ? 0 : 3, stdout: `${state}\n`, stderr: "" };
+      }
+      unit = args[1];
+      return { ok: false, stdout: "", stderr: "Failed to start boxpilot-run@x.service: Connection reset by peer\nD-Bus connection terminated\n" };
+    });
+    const sleep = vi.fn(async () => {});
+    const log = vi.fn();
+    let clock = 0;
+    const client = createRunUnitClient({ run, runDirectory, systemctlBinary: "/bin/systemctl", sleep, log, clock: () => (clock += tick) });
+    return { client, run, sleep, log, runDirectory, asked: () => run.mock.calls.filter(([, args]) => args[0] === "is-active").length };
+  }
+
+  it("waits on the unit itself when systemctl loses the manager under it, then returns the result it wrote", async () => {
+    const { client, sleep, log, asked, runDirectory } = await managerLost({ states: ["activating", "activating", "inactive"] });
+    await expect(client.runTask("apt.upgrade", {}, { timeoutMs: 10_800_000 })).resolves.toEqual({ upgraded: true, scope: "all" });
+    expect(asked()).toBe(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/^Root task apt\.upgrade \(boxpilot-run@[a-f0-9-]{36}\.service\): systemctl lost the manager while waiting \(Failed to start boxpilot-run@x\.service: Connection reset by peer\); waiting on the unit itself$/));
+    expect(await readdir(runDirectory)).toEqual([]);
+  });
+
+  it("still reports a unit that stopped without a result after the manager was lost, and stops asking when the budget is spent", async () => {
+    const failed = await managerLost({ states: ["failed"], result: null });
+    await expect(failed.client.runTask("apt.upgrade", {})).rejects.toThrow("Root task apt.upgrade produced no result (unit failed: Failed to start boxpilot-run@x.service: Connection reset by peer");
+    expect(failed.sleep).not.toHaveBeenCalled();
+    // A unit that never stops: the wait ends with the task's budget plus the margin, as systemctl's own would have.
+    const stuck = await managerLost({ states: ["activating"], result: null, tick: 60_000 });
+    await expect(stuck.client.runTask("apt.upgrade", {}, { timeoutMs: 60_000 })).rejects.toThrow("produced no result");
+    expect(stuck.asked()).toBe(2);
+    expect(stuck.sleep).toHaveBeenCalledTimes(1);
+  });
+
   it("reports a task that ran past its own budget as a timeout (M30.3)", async () => {
     const runDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-run-unit-")); directories.push(runDirectory);
     const client = createRunUnitClient({ runDirectory, run: vi.fn(async (_binary, args) => {

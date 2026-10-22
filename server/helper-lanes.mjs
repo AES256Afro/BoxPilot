@@ -39,7 +39,7 @@ export const cloudflareLane = "cloudflare:tunnel";
  * read deletes from the snapshot folder the mirrors copy too, so both hold it.
  */
 export const backupTreeLane = "backup-tree";
-const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.restore-path", "app.backup.delete", "app.backup.verify", "app.update", "app.rollback", "app.reconfigure", "app.compose.edit", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "housekeeping.reclaim", "housekeeping.unreadable-snapshot.remove"]);
+const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.restore-path", "app.backup.delete", "app.backup.verify", "app.update", "app.update.many", "app.rollback", "app.reconfigure", "app.compose.edit", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "housekeeping.reclaim", "housekeeping.unreadable-snapshot.remove"]);
 /** Those that held the host lane before the tree had a lane of its own still hold it as well. */
 const hostBackupOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "housekeeping.reclaim", "housekeeping.unreadable-snapshot.remove"]);
 
@@ -189,6 +189,7 @@ export function createConcurrencyGate(limit, { maxWaiting = limit * 4 } = {}) {
     const entry = waiting.shift();
     if (entry) { entry.cleanup(); running += 1; entry.resolve(); }
   };
+  /** @param {() => Promise<any>} task @param {{ signal?: AbortSignal }} [options] */
   async function run(task, { signal } = {}) {
     if (signal?.aborted) throw abandoned();
     if (running >= limit) {
@@ -211,4 +212,23 @@ export function createConcurrencyGate(limit, { maxWaiting = limit * 4 } = {}) {
     } finally { running -= 1; next(); }
   }
   return { run, active: () => running, waiting: () => waiting.length };
+}
+
+/**
+ * How many mutations the helper holds at once, running or waiting in a lane. Each keeps its
+ * connection open the whole time (up to the 24-hour queue ceiling), and the helper serves at most
+ * maxConnections: without this, sixty-odd jobs queued behind one long apt upgrade filled every
+ * connection and every read after them was dropped, so the pages went blank and nothing new could
+ * start. The one past the limit is answered at once, with nothing done.
+ */
+export function createAdmission(limit) {
+  if (!Number.isInteger(limit) || limit < 1) throw new Error("Invalid helper admission limit");
+  let held = 0;
+  function enter() {
+    if (held >= limit) throw Object.assign(new Error(`${limit} operations are already running or waiting for the helper. Nothing was changed; run this again once some of them finish.`), { code: "HELPER_BUSY" });
+    held += 1;
+    let left = false;
+    return () => { if (!left) { left = true; held -= 1; } };
+  }
+  return { enter, held: () => held, limit };
 }

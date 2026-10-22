@@ -50,6 +50,7 @@ export function letterVector(text) {
   return vector.map((value) => value + 0.01);
 }
 
+/** @type {Array<[RegExp, string[]]>} */
 const topics = [
   // M47.6: the three reads the templates once said they could not make, and package updates, before
   // the broader words (memory, backup, space) that would point at the whole-machine tools.
@@ -296,6 +297,10 @@ export async function burn({ threads = 1, ms = 1000 } = {}) {
   await Promise.all(workers.map((worker) => new Promise((resolve) => { worker.once("exit", resolve); worker.once("error", resolve); })));
 }
 
+/**
+ * The rest of `options` is copied over the fake's `state` (chat, script, vision, speed, ...).
+ * @param {{ port?: number, host?: string, apiKey?: string | null, model?: string, busyThreads?: number, busyMs?: number, [state: string]: any }} [options]
+ */
 export async function startFakeModel({
   port = 0,
   host = "127.0.0.1",
@@ -455,7 +460,7 @@ export async function startFakeModel({
   });
   server.listen(port, host);
   await new Promise((resolve, reject) => { server.once("listening", resolve); server.once("error", reject); });
-  const address = server.address();
+  const address = /** @type {import("node:net").AddressInfo} */ (server.address());
   return {
     url: `http://${host}:${address.port}`,
     port: address.port,

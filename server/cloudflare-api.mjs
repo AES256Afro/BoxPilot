@@ -33,6 +33,8 @@ const segment = (value) => encodeURIComponent(String(value ?? ""));
 /**
  * A client for one token. `fetcher` is injectable so tests never touch the network. Each call is
  * bounded by `timeoutMs`; `what` names the step for the error ("listing your domains").
+ *
+ * @param {{ token?: string, fetcher?: typeof fetch, timeoutMs?: number, base?: string }} options
  */
 export function createCloudflareApi({ token, fetcher = fetch, timeoutMs = 20_000, base = cloudflareApiBase } = {}) {
   if (typeof token !== "string" || !token) throw new Error("No Cloudflare API token is saved; connect Cloudflare first");

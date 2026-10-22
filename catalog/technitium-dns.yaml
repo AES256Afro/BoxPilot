@@ -7,7 +7,7 @@ description: "Full-featured DNS server with ad blocking, DHCP, DNS-over-HTTPS/TL
 website: https://technitium.com/dns
 risk: high
 image:
-  reference: technitium/dns-server:15.4.0
+  reference: technitium/dns-server:15.4.0@sha256:df7d90ef0f7b6fff6916d291a7022cd902290cc31c3141d4158b6c375a641b41
   version: "15.4.0"
 ports:
   - id: dns-tcp

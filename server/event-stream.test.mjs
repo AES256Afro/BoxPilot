@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { createEventStream, createStreamBudget } from "./event-stream.mjs";
+import { createEventStream, createStreamBudget, endWhenSessionEnds } from "./event-stream.mjs";
 function response() {
   const value = new EventEmitter();
   Object.assign(value, { writableLength: 0, destroyed: false, writableEnded: false,
@@ -53,5 +53,54 @@ describe("bounded live streams", () => {
     const chunks = res.write.mock.calls.map(([frame]) => JSON.parse(frame.split("data: ")[1].trim()).text);
     expect(chunks.join("")).toBe(text); expect(chunks.length).toBeGreaterThan(2);
     res.emit("close"); expect(await stream.output("after close")).toBe(false);
+  });
+});
+
+describe("a stream that outlives its session", () => {
+  function watch(session, lookup, { now = () => Date.parse("2026-10-18T05:00:00Z") } = {}) {
+    let tick = null;
+    const closers = [];
+    const stream = { ended: false, end() { this.ended = true; }, onClose: (fn) => closers.push(fn) };
+    endWhenSessionEnds(stream, { session, lookup, now, setInterval: (fn) => { tick = fn; return 1; }, clearInterval: () => { tick = null; } });
+    return { stream, tick: () => tick?.(), close: () => closers.forEach((fn) => fn()), watching: () => tick !== null };
+  }
+  const session = { token: "t".repeat(32), owner: { id: "o1", role: "owner" } };
+  const live = (role = "owner", expiresAt = "2026-10-19T00:00:00Z") => ({ owner: { id: "o1", role }, expiresAt });
+
+  it("stays open while the session is there with the role it opened with", () => {
+    const { stream, tick } = watch(session, () => live());
+    tick(); tick();
+    expect(stream.ended).toBe(false);
+  });
+
+  it("ends when the session is gone: signed out, revoked, a password change, a disabled account", () => {
+    const { stream, tick } = watch(session, () => null);
+    tick();
+    expect(stream.ended).toBe(true);
+  });
+
+  it("ends when the account's role changed, so a demoted owner stops seeing every account's jobs", () => {
+    const { stream, tick } = watch(session, () => live("operator"));
+    tick();
+    expect(stream.ended).toBe(true);
+  });
+
+  it("ends, rather than throwing from its timer, when the session cannot be looked up", () => {
+    const { stream, tick } = watch(session, () => { throw new Error("database is locked"); });
+    expect(() => tick()).not.toThrow();
+    expect(stream.ended).toBe(true);
+  });
+
+  it("ends when the session has expired", () => {
+    const { stream, tick } = watch(session, () => live("owner", "2026-10-18T04:59:59Z"));
+    tick();
+    expect(stream.ended).toBe(true);
+  });
+
+  it("stops looking once the stream closes, and does nothing for a request without a session", () => {
+    const watched = watch(session, () => live());
+    watched.close();
+    expect(watched.watching()).toBe(false);
+    expect(watch(null, () => null).watching()).toBe(false);
   });
 });

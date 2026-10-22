@@ -1,4 +1,3 @@
-// @vitest-environment node
 import http from "node:http";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { startFakeModel } from "../agents/fake-model.mjs";

@@ -81,10 +81,10 @@ const sameWords = (a, b) => {
  * Pick up to `limit` examples for `query` from `candidates`.
  *
  * @param {{
- *   query: string, queryVector?: number[] | Float32Array | null,
- *   candidates: Array<{ key: string, text: string, label?: string | null, vector?: number[] | Float32Array | null }>,
+ *   query?: string, queryVector?: number[] | Float32Array | null,
+ *   candidates?: Array<{ key: string, text: string, label?: string | null, vector?: number[] | Float32Array | null }>,
  *   limit?: number, lambda?: number, dedupeAbove?: number, minRelevance?: number, contrastShare?: number,
- * }} input
+ * }} [input]
  * @returns {Array<object & { relevance: number, why: "nearest" | "contrast" | "diverse" }>} the picks,
  *   each the candidate with its relevance (0 to 1, rounded) and why it is in: the nearest, the one
  *   from the other side of a decision, or one that spreads the set.

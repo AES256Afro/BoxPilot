@@ -140,6 +140,9 @@ export function neutralizeLinks(text) {
  * whose it is (unposed) - for words a model, a tool or a person wrote. BoxPilot's own lines, each
  * starting with its own label ("**Server Keeper** kept a note: ..."), are passed with it off (2026-10
  * sweep 5: "The agent wrote:" went on BoxPilot's own lines once a bold one could pose).
+ *
+ * @param {unknown} text
+ * @param {{ redact?: (value: string) => string, maxChars?: number, unpose?: boolean }} [options]
  */
 export function chatText(text, { redact = (value) => value, maxChars = chatLimits.messageChars, unpose = true } = {}) {
   const clean = sanitizeUntrusted(text, { maxChars, redact }).text;

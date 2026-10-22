@@ -37,7 +37,7 @@ describe("storage operations", () => {
     await expect(operations["storage.mount"].run({ uuid: "abcd-1234", name: "media" }, { runUnit, jobLog: null }))
       .resolves.toEqual({ task: "storage.mount", parameters: { uuid: "abcd-1234", name: "media", fstype: "auto", readOnly: false, appWritable: false } });
     await expect(operations["storage.format"].run({ device: "/dev/sdb" }, { runUnit, jobLog: null }))
-      .resolves.toEqual({ task: "storage.format", parameters: { device: "/dev/sdb", label: null } });
+      .resolves.toEqual({ task: "storage.format", parameters: { device: "/dev/sdb", label: null, identity: null } });
     await expect(operations["storage.swapfile.set"].run({ sizeGiB: 4 }, { runUnit, jobLog: null }))
       .resolves.toEqual({ task: "storage.swapfile", parameters: { sizeGiB: 4, remove: false } });
     expect(validateParameters(operations["storage.mount"].parameters, { uuid: "abcd-1234", name: "media" }, "t")).toBeNull();

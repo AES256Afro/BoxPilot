@@ -37,6 +37,7 @@ import { dnsResilienceOperations } from "./dns-resilience.mjs";
 import { heartbeatOperations } from "./heartbeat.mjs";
 import { cloudflareOperations } from "./cloudflare.mjs";
 import { agentsCloudOperations } from "./agents-cloud.mjs";
+import { internalReadOperations } from "./internal-reads.mjs";
 
 /** The default registry used by the helper and the web service. Add new operation modules here. */
 export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations, powerOperations, fail2banOperations, backupCloudOperations, tailscaleOperations, housekeepingOperations, spaceOperations, performanceOperations, localDnsOperations, routerOperations, connectorOperations, vpnOperations, notificationOperations, agentsOperations, zulipOperations,
@@ -46,6 +47,8 @@ export const operationModules = [prerequisiteOperations, aptOperations, systemOp
   cloudflareOperations,
   // M45.3: Claude for the agents, through the model gateway.
   agentsCloudOperations,
+  // Reads the web side's own services make: once a hand-written allowlist in the helper protocol.
+  internalReadOperations,
   // FinancialAuthority's own restore points, from its sheet.
   financialAuthorityOperations];
 export const registry = createRegistry(operationModules);

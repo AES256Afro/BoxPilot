@@ -7,7 +7,7 @@ description: "Instant REST and GraphQL API plus an admin app on top of a databas
 website: https://directus.io
 risk: low
 image:
-  reference: directus/directus:12.3.0
+  reference: directus/directus:12.3.0@sha256:568861dc03396477d0829897936731d861a3aa8ca68516a1422d68b4d3752621
   version: "12.3.0"
 user: "1000:1000"
 ports:

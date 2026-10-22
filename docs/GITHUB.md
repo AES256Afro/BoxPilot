@@ -49,3 +49,23 @@ A later curated adapter must still:
 7. Preserve the previous version and prove application health before reporting success.
 
 Private repositories and repository write capabilities require a separate encrypted credential design and are not implied by this foundation.
+
+## Signed releases
+
+The catalog, and all of BoxPilot, reaches a server inside a release. By default an update builds
+whatever commit the release tag points at, so the GitHub account is the whole trust boundary. To
+move it to a key only you hold:
+
+1. Sign tags with an SSH key: `git config gpg.format ssh` and
+   `git config user.signingkey ~/.ssh/id_ed25519.pub` (a hardware-backed `sk-ssh-ed25519` key works).
+2. Cut releases with `git tag -s vX.Y.Z -m vX.Y.Z` instead of `git tag vX.Y.Z`, then push the tag.
+3. On each server: System → BoxPilot update → **Release key…**, paste the public key line, and
+   approve (high risk: password and the words typed out).
+
+From then on the upgrade script fetches the tag with git and runs `git verify-tag` against that key
+(`/var/lib/boxpilot-managed/release-signers`, git's allowed-signers format). An unsigned tag, a lightweight
+tag, one signed with another key, a PGP signature, an old signed tag published again under a newer
+name, a tree whose version is not the tag's, or one that no longer points at the commit you reviewed
+stops the update before anything changes, and the update log says which. The key file must be
+root's and writable by nobody else. An update run by hand
+(`sudo sh scripts/boxpilot-upgrade.sh v1.2.3`) checks the same way; it has to name a tag.

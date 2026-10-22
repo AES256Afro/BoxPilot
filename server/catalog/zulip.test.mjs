@@ -27,7 +27,7 @@ describe("the Zulip manifest", () => {
     const manifest = await zulip();
     expect(manifest).toBeTruthy();
     expect(manifest.defaultExposure).toBe("tailnet");
-    expect(manifest.image.reference).toBe("ghcr.io/zulip/zulip-server:12.3-0");
+    expect(manifest.image.reference).toMatch(/^ghcr\.io\/zulip\/zulip-server:12\.3-0@sha256:[a-f0-9]{64}$/);
     // No floating tag anywhere: zulip-postgresql is only published as "14", so it is pinned by digest.
     for (const image of [manifest.image.reference, ...manifest.sidecars.map((sidecar) => sidecar.image)]) {
       expect(image).not.toMatch(/:(latest|alpine|14)$/);

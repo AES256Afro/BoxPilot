@@ -7,7 +7,7 @@ description: "Hub for Z-Wave devices with a USB stick (Zooz, Aeotec, Zwave.me): 
 website: https://zwave-js.github.io/zwave-js-ui
 risk: low
 image:
-  reference: zwavejs/zwave-js-ui:11.22.3
+  reference: zwavejs/zwave-js-ui:11.22.3@sha256:14d018bb689eecce4029229764d2191d9b8d8f211106fcabaef421e7b0f8cf9c
   version: "11.22.3"
 ports:
   - id: web
