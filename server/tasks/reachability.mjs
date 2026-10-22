@@ -26,13 +26,14 @@ function probeOne(url, timeoutMs, sourceAddress = null) {
     // container firewalls quietly whitelist. The difference between those two vantages is
     // exactly how a tunnel's inbound firewall hid from every on-host check.
     const request = transport.request(target, { method: "GET", timeout: timeoutMs, rejectUnauthorized: false, ...(sourceAddress ? { localAddress: sourceAddress } : {}) }, (response) => {
-      const socket = response.socket;
+      // Only read for https, where the socket is a TLS one.
+      const socket = /** @type {import("node:tls").TLSSocket} */ (response.socket);
       const tls = target.protocol === "https:" ? (socket.authorized ? "verified" : "unverified") : null;
       response.resume();
       resolve({ outcome: "answered", status: response.statusCode, ms: Date.now() - started, ...(tls ? { tls } : {}) });
     });
     request.on("timeout", () => { request.destroy(new Error("timeout")); });
-    request.on("error", (error) => {
+    request.on("error", (/** @type {NodeJS.ErrnoException} */ error) => {
       if (error.message === "timeout") return resolve({ outcome: "timeout", ms: Date.now() - started });
       if (error.code === "ECONNREFUSED") return resolve({ outcome: "refused", ms: Date.now() - started });
       resolve({ outcome: "error", error: error.code ?? error.message, ms: Date.now() - started });
@@ -41,6 +42,7 @@ function probeOne(url, timeoutMs, sourceAddress = null) {
   });
 }
 
+/** @param {{ probes?: Array<{ id: string, url: string, sourceAddress?: string }> }} [parameters] */
 export async function probeAddresses({ probes } = {}, { timeoutMs = 4000 } = {}) {
   if (!Array.isArray(probes) || probes.length === 0) return { results: [] };
   if (probes.length > probeLimit) throw new Error(`At most ${probeLimit} addresses are probed at once`);

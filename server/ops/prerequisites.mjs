@@ -51,7 +51,7 @@ export function prerequisiteOperations() {
     defineOperation({
       // M26.3. The same fixed installer as smartmontools alone, with the exFAT checker added to its set.
       id: "prerequisite.drive-tools.install", title: "Install the drive check tools", risk: "medium", timeoutMs: minutes(17),
-      description: "Installs whichever of smartmontools (smartctl, which reads a disk's SMART health) and exfatprogs (fsck.exfat, which checks an exFAT drive) is missing, at the exact version shown, then confirms each tool answers and reads every disk's SMART health again. Nothing else is installed and no drive is touched.",
+      description: "Installs whichever of smartmontools (smartctl, which reads a disk's SMART health) and exfatprogs (fsck.exfat, which checks an exFAT drive) is missing, at the exact version shown, then confirms each tool answers and reads every disk's SMART health again, leaving a sleeping drive asleep unless the weekly read of sleeping drives is on and due. Nothing else is installed.",
       parameters: { fields: { expectedPackages: { type: "object", validate: driveToolPackagesProblem } } },
       run: (parameters, { prerequisites }) => prerequisites.installDriveTools(parameters),
     }),

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * scripts/sync-version.mjs, run the way `npm version` runs it, against a scratch copy of the two
  * files it keeps in step. A README whose install line changed shape (`--ref=v1.2.3`, a quoted ref)

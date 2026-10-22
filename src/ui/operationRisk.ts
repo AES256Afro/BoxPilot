@@ -43,6 +43,7 @@ export const operationRisk = {
   "app.serve.withdraw": "medium",
   "app.uninstall": "medium",
   "app.update": "medium",
+  "app.update.many": "medium",
   "app.vpn.killswitch.drill": "medium",
   "app.zulip.organization.link": "medium",
   "apt.autoremove": "medium",
@@ -85,6 +86,7 @@ export const operationRisk = {
   "host.snapshot.restore": "high",
   "host.snapshot.restores.discard": "medium",
   "housekeeping.database-copies.remove": "medium",
+  "housekeeping.database-copies.restore": "high",
   "housekeeping.reclaim": "medium",
   "housekeeping.unreadable-snapshot.remove": "medium",
   "network.wake": "low",
@@ -110,6 +112,7 @@ export const operationRisk = {
   "share.mount": "medium",
   "share.reconnect": "medium",
   "share.unmount": "medium",
+  "space.cleanup": "medium",
   "ssh.password-auth.set": "high",
   "storage.backup.relocate": "medium",
   "storage.check": "medium",
@@ -135,8 +138,10 @@ export const operationRisk = {
   "system.swappiness.set": "medium",
   "system.timezone.set": "medium",
   "system.update": "high",
+  "system.update.signer.set": "high",
   "system.web.lan.set": "medium",
   "system.web.tls.provision": "medium",
+  "tailscale.serve.socket": "medium",
   "tailscale.set": "medium",
   "ups.setup": "medium",
   "users.add": "medium",
@@ -168,7 +173,7 @@ export type KnownOperation = keyof typeof operationRisk;
  * Operations whose registry entry says `minimumRole: "owner"`: an operator may not stage them
  * whatever their tier. The same test holds this list to the registry.
  */
-export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["agents.cloud.cap", "agents.cloud.connect", "agents.cloud.disconnect", "agents.connector.sync", "agents.model.download", "agents.model.remove", "agents.model.switch", "agents.runtime.cpu", "agents.runtime.enable", "agents.runtime.install", "agents.zulip.connect", "agents.zulip.disconnect", "app.zulip.organization.link", "backup.cloud.setup", "backup.cloud.sync", "backup.cloud.test", "cloudflare.connect", "cloudflare.disconnect", "cloudflare.publish", "cloudflare.unpublish", "credentials.remove", "credentials.set", "heartbeat.set", "heartbeat.test", "housekeeping.database-copies.remove", "housekeeping.unreadable-snapshot.remove", "notifications.ntfy.connect", "router.connect", "system.web.lan.set", "system.web.tls.provision", "vm.backup.snapshot.forget", "vpn.profile.clear", "vpn.profile.set"]);
+export const ownerOnlyOperations: ReadonlySet<string> = new Set<KnownOperation>(["agents.cloud.cap", "agents.cloud.connect", "agents.cloud.disconnect", "agents.connector.sync", "agents.model.download", "agents.model.remove", "agents.model.switch", "agents.runtime.cpu", "agents.runtime.enable", "agents.runtime.install", "agents.zulip.connect", "agents.zulip.disconnect", "app.backup.delete", "app.zulip.organization.link", "backup.cloud.setup", "backup.cloud.sync", "backup.cloud.test", "cloudflare.connect", "cloudflare.disconnect", "cloudflare.publish", "cloudflare.unpublish", "credentials.remove", "credentials.set", "heartbeat.set", "heartbeat.test", "housekeeping.database-copies.remove", "housekeeping.database-copies.restore", "housekeeping.unreadable-snapshot.remove", "notifications.ntfy.connect", "router.connect", "storage.fs-snapshot.delete", "storage.lvm.snapshot.delete", "system.update.signer.set", "system.web.lan.set", "system.web.tls.provision", "tailscale.serve.socket", "vm.backup.snapshot.forget", "vm.snapshot.delete", "vpn.profile.clear", "vpn.profile.set"]);
 
 /** The tier for an operation. An id missing from the table is high, as it is on the server. */
 export function riskOf(operationId: string): RiskTier {

@@ -316,14 +316,33 @@ esac
 
 # 8. Publish
 #
+# Serve proxies to the web service's socket where this Tailscale can (unix: targets), and to the
+# loopback port otherwise. Anything on this machine can open the loopback port and claim to be
+# Serve, host-networked apps included; only BoxPilot's user and root can open the socket, and once
+# Serve uses it BoxPilot stops believing the loopback port (server/serve-socket.mjs).
+SERVE_SOCKET=/run/boxpilot-web/serve.sock
+publish_serve() {
+  # The web service was just restarted; give it time to create the socket (a slow first start runs
+  # migrations), so a socket setup is not quietly moved back to the port.
+  # systemd creates its directory as the unit starts; without one this BoxPilot has no socket to wait for.
+  waited=0
+  while [ -d "$(dirname "$SERVE_SOCKET")" ] && [ ! -S "$SERVE_SOCKET" ] && [ "$waited" -lt 60 ]; do sleep 1; waited=$((waited + 1)); done
+  if [ -S "$SERVE_SOCKET" ] && tailscale serve --bg --yes "unix:${SERVE_SOCKET}" >/dev/null 2>&1; then
+    log "Tailscale Serve forwards to ${SERVE_SOCKET}"
+    return 0
+  fi
+  log "Tailscale Serve forwards to port ${PORT}: this Tailscale cannot forward to a socket, or BoxPilot did not create one (Network page can move it later)"
+  tailscale serve --bg --yes "http://127.0.0.1:${PORT}" >/dev/null 2>&1
+}
+#
 # A Tailscale install stays published through Serve after its owner turns on the LAN in Settings
 # (its cookies stay https-only, which only the Tailscale access sets), but a re-run reads it as "lan".
 # Serve was re-pointed only for "tailscale", so a new --port left the tailnet address forwarding to
 # the old port, where nothing answers any more.
 if [ "$ACCESS" != tailscale ] && [ "$PORT" != "$LIVE_PORT" ] && [ "$(env_value BOXPILOT_COOKIE_SECURE)" = true ] &&
   command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
-  if tailscale serve --bg "http://127.0.0.1:${PORT}" >/dev/null 2>&1; then
-    log "Tailscale Serve now forwards to port ${PORT}"
+  if publish_serve; then
+    log "Tailscale Serve now forwards to BoxPilot on port ${PORT}"
   else
     log "tailscale serve failed; the tailnet address forwards to port ${LIVE_PORT} until it is moved (sudo tailscale serve --bg http://127.0.0.1:${PORT})"
   fi
@@ -331,7 +350,7 @@ fi
 URL=""
 case "$ACCESS" in
   tailscale)
-    if tailscale serve --bg "http://127.0.0.1:${PORT}" >/dev/null 2>&1; then
+    if publish_serve; then
       HOST_DNS="$(tailscale status --json 2>/dev/null | sed -n 's/.*"DNSName": *"\([^"]*\)\.".*/\1/p' | head -n 1)"
       URL="https://${HOST_DNS:-<this-host>.<tailnet>.ts.net}"
     else

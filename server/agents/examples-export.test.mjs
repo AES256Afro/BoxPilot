@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The example book as training data (M46.3): one chat-shaped record an example, the planner's own
  * system message and request wording, the model's understanding as the answer; the house's names

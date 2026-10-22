@@ -39,6 +39,7 @@ function expectedDigest(sumsText, fileName) {
 /**
  * Ensure the base image for `image` is present and verified. Returns `{ path, digest, downloaded }`.
  * Cached by digest: <root>/<id>-<digest12>.img plus a stable symlink-free pointer file <root>/<id>.current.
+ * @param {{ image?: string }} [parameters]
  */
 export async function ensureCloudImage({ image } = {}, { run = fixedRun, log = null, fetchImpl = globalThis.fetch, root = cloudImageRoot } = {}) {
   const spec = cloudImages[image];

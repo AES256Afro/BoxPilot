@@ -66,7 +66,8 @@ export function createCatalogService({ directory = defaultCatalogDirectory, ttlM
   }
 
   async function all() {
-    if (cache && now() - checkedAt <= ttlMs) return cache;
+    // Strictly less: a ttl of 0 means look every time, even twice in the same millisecond.
+    if (cache && now() - checkedAt < ttlMs) return cache;
     if (inFlight) return inFlight;
     inFlight = (async () => {
       const current = await directorySignature();

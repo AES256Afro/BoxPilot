@@ -6,12 +6,12 @@ id: baselinewatch
 name: BaselineWatch
 category: Monitoring
 icon: "🛡️"
-description: "Security news, CVEs, vendor and CISA advisories and package advisories for the packages you watch, in one timeline; plus a change register for the standards themselves: when NIST SP 800-53 or 800-171, FedRAMP's rules, a DISA STIG or a Microsoft baseline changes, see each control before and after, what changed, and the publisher's reason. Read-only JSON API and MCP server for your agents."
+description: "Security news, CVEs and advisories in one timeline; a change register for NIST SP 800-53 and 800-171, FedRAMP's rules, DISA STIGs and Microsoft baselines, each control before and after with the publisher's reason; and STIG pages per platform with every rule's check, fix, SP 800-53 controls and CISA's advice. Read-only JSON API and MCP server for your agents."
 website: https://github.com/AES256Afro/BaselineWatch
 risk: low
 image:
-  reference: ghcr.io/aes256afro/baselinewatch:0.17.0
-  version: "0.17.0"
+  reference: ghcr.io/aes256afro/baselinewatch:0.49.0@sha256:07a5d3407c35f9a5ed5bf2325ee79b52a7afdf7267c7793fbf3e430d891e59b0
+  version: "0.49.0"
 ports:
   - id: web
     label: Web UI
@@ -58,7 +58,9 @@ env:
     default: ""
   - name: BW_NOTIFY_URL
     label: Notification URL (optional)
-    description: "ntfy://<this server>:8093/baselinewatch, gotify://<this server>:8080/<token>, or an https:// webhook. Receives KEV additions, changes to CVEs in your watchlist, standard releases and the digest."
+    type: password
+    secret: true
+    description: "ntfy://<this server>:8093/baselinewatch, gotify://<this server>:8080/<token>, or an https:// webhook. Receives KEV additions, changes to CVEs in your watchlist, standard releases and the digest. Kept secret: a webhook URL or an ntfy topic is the credential."
     default: ""
   - name: BW_DIGEST
     label: Digest
@@ -88,6 +90,10 @@ env:
     description: Light, dark, or whatever each device says. Each browser can pick its own from the masthead.
     default: system
     options: ["system", "light", "dark"]
+  - name: BW_PROBE_ORIGIN
+    label: Scan probe origin (optional)
+    description: "A second origin that serves the Scan page's probe images, such as another BaselineWatch instance or this one on a different hostname (https://probe.example.net, an origin only). Lets the ad-request check test a cross-site load beside the same-site one. Unset tests same-site only."
+    default: ""
 signIn:
   path: /login
   port: web

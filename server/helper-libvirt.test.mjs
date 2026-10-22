@@ -17,6 +17,16 @@ describe("helper-backed libvirt client", () => {
     expect(helper.request).toHaveBeenCalledWith("virtualization.inventory.inspect", { scope: "domains" });
   });
 
+  // M50 added Home's summary to libvirt.mjs and the route, and this client dropped it on the way.
+  it("asks the helper for the summary when Home asks for one", async () => {
+    const helper = { request: vi.fn(async () => ({ connected: true, domains: [], error: null, summary: true })) };
+    const libvirt = createHelperLibvirtService({ helper });
+    await expect(libvirt.listDomains({ summary: true })).resolves.toMatchObject({ summary: true });
+    expect(helper.request).toHaveBeenLastCalledWith("virtualization.inventory.inspect", { scope: "domains-summary" });
+    await libvirt.listDomains();
+    expect(helper.request).toHaveBeenLastCalledWith("virtualization.inventory.inspect", { scope: "domains" });
+  });
+
   it("degrades discovery safely when the helper is unavailable", async () => {
     const helper = { request: vi.fn(async () => { throw new Error("socket down"); }) };
     const libvirt = createHelperLibvirtService({ helper });

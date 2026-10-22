@@ -6,6 +6,8 @@
 
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const imagePattern = /^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_.-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/;
+/** An image repository alone (a registry may carry a port): no tag, no digest. */
+const repositoryPattern = /^[a-z0-9][a-z0-9._-]*(?::[0-9]{1,5})?(?:\/[a-z0-9][a-z0-9._-]*)*$/;
 // Upstream images pick their own names and not all of them shout: Tdarr reads `serverIP` and
 // `internalNode`. The rule is only that a name is a plausible identifier, not that it is upper
 // case, so that a manifest never has to lie about what the image actually looks for.
@@ -64,6 +66,13 @@ export const networkModeChoices = Object.freeze(["bridge", "host"]);
 export const portTailnetModes = Object.freeze(["serve", "address", "unchanged"]);
 export const healthKinds = Object.freeze(["running", "healthcheck"]);
 export const envTypes = Object.freeze(["string", "password", "number", "boolean", "timezone", "path"]);
+/**
+ * Where a setting's choices come from when they are not fixed in the manifest. "ollama-models":
+ * the models downloaded in this server's installed model runners (apps with `modelRunner`), read
+ * when the form opens. The value stays free text on the server, because a model removed later must
+ * not make the app's stored settings invalid on update, restore or rollback.
+ */
+export const envOptionSources = Object.freeze(["ollama-models"]);
 export const riskTiers = Object.freeze(["low", "medium", "high"]);
 
 function fail(errors, path, message) { errors.push(`${path}: ${message}`); }
@@ -157,9 +166,12 @@ export function validateManifest(raw) {
   // image
   if (!isObject(raw.image)) fail(errors, "manifest.image", "must be a mapping");
   else {
-    checkKeys(errors, "manifest.image", raw.image, ["reference", "version"], ["reference"]);
+    checkKeys(errors, "manifest.image", raw.image, ["reference", "version", "formerRepositories"], ["reference"]);
     if (typeof raw.image.reference !== "string" || !imagePattern.test(raw.image.reference)) fail(errors, "manifest.image.reference", "must be a valid image reference (repo[:tag][@sha256:digest])");
     if (raw.image.version !== undefined && typeof raw.image.version !== "string") fail(errors, "manifest.image.version", "must be a string");
+    // Where the app's image used to come from: a backup or rollback taken before it moved names the
+    // old repository, and still counts as the catalog's image. Repositories only, no tag or digest.
+    if (raw.image.formerRepositories !== undefined && !(Array.isArray(raw.image.formerRepositories) && raw.image.formerRepositories.length <= 8 && raw.image.formerRepositories.every((entry) => typeof entry === "string" && repositoryPattern.test(entry)))) fail(errors, "manifest.image.formerRepositories", "must be a list of up to 8 image repositories, without a tag or digest");
   }
 
   // ports
@@ -229,7 +241,12 @@ export function validateManifest(raw) {
   env.forEach((entry, index) => {
     const path = `manifest.env[${index}]`;
     if (!isObject(entry)) return fail(errors, path, "must be a mapping");
-    checkKeys(errors, path, entry, ["name", "label", "description", "type", "default", "required", "secret", "generate", "options", "fixed", "fromVpnProfile"], ["name"]);
+    checkKeys(errors, path, entry, ["name", "label", "description", "type", "default", "required", "secret", "generate", "options", "optionsFrom", "fixed", "fromVpnProfile"], ["name"]);
+    if (entry.optionsFrom !== undefined) {
+      if (!envOptionSources.includes(entry.optionsFrom)) fail(errors, `${path}.optionsFrom`, `must be one of ${envOptionSources.join(", ")}`);
+      if (entry.options !== undefined) fail(errors, `${path}.optionsFrom`, "give fixed options or optionsFrom, not both");
+      if (entry.type !== undefined && entry.type !== "string") fail(errors, `${path}.optionsFrom`, "only string settings can take their choices from elsewhere");
+    }
     if (entry.fromVpnProfile !== undefined && typeof entry.fromVpnProfile !== "boolean") fail(errors, `${path}.fromVpnProfile`, "must be boolean");
     if (typeof entry.name !== "string" || !envNamePattern.test(entry.name) || envNames.has(entry.name)) fail(errors, `${path}.name`, "must be a unique environment variable name"); else envNames.add(entry.name);
     if (entry.type !== undefined && !envTypes.includes(entry.type)) fail(errors, `${path}.type`, `must be one of ${envTypes.join(", ")}`);
@@ -431,13 +448,13 @@ export function validateManifest(raw) {
     defaultExposure: raw.defaultExposure ?? "lan",
     actions: (Array.isArray(raw.actions) ? raw.actions : []).map((action) => ({ id: action.id, label: action.label.trim(), description: action.description ?? null, operation: action.operation })),
     connections: (Array.isArray(raw.connections) ? raw.connections : []).map((connection) => ({ app: connection.app, role: connection.role, where: connection.where, note: connection.note ?? null })),
-    image: { reference: raw.image.reference, version: raw.image.version ?? null, digestPinned: raw.image.reference.includes("@sha256:") },
+    image: { reference: raw.image.reference, version: raw.image.version ?? null, digestPinned: raw.image.reference.includes("@sha256:"), formerRepositories: raw.image.formerRepositories ?? [] },
     // A TCP port is assumed to be the app's web interface unless the manifest says otherwise; a
     // UDP one never can be, so it keeps its LAN binding rather than vanishing.
     ports: ports.map((port) => ({ id: port.id, label: port.label ?? port.id, container: port.container, host: port.host ?? port.container, protocol: port.protocol ?? "tcp", exposure: port.exposure ?? "lan", fixed: port.fixed ?? false, tailnet: port.tailnet ?? ((port.protocol ?? "tcp") === "udp" ? "unchanged" : "serve"), containerFollowsHost: port.containerFollowsHost ?? false })),
     volumes: volumes.map((volume) => ({ id: volume.id, label: volume.label ?? volume.id, container: volume.container, path: volume.path ?? null, hostPath: volume.hostPath ?? null, readOnly: volume.readOnly ?? false, backup: volume.backup ?? (volume.path !== undefined), configurable: volume.configurable ?? false, description: volume.description ?? null, subdirectories: volume.subdirectories ?? [] })),
     files: files.map((file) => ({ path: file.path, container: file.container, content: file.content, readOnly: file.readOnly ?? true })),
-    env: env.map((entry) => ({ name: entry.name, label: entry.label ?? entry.name, description: entry.description ?? null, type: entry.type ?? "string", default: entry.default ?? null, required: entry.required ?? false, secret: entry.type === "password" || entry.secret === true, generate: entry.generate ?? false, options: entry.options ?? null, fixed: entry.fixed ?? false, fromVpnProfile: entry.fromVpnProfile ?? false })),
+    env: env.map((entry) => ({ name: entry.name, label: entry.label ?? entry.name, description: entry.description ?? null, type: entry.type ?? "string", default: entry.default ?? null, required: entry.required ?? false, secret: entry.type === "password" || entry.secret === true, generate: entry.generate ?? false, options: entry.options ?? null, optionsFrom: entry.optionsFrom ?? null, fixed: entry.fixed ?? false, fromVpnProfile: entry.fromVpnProfile ?? false })),
     health: { kind: raw.health?.kind ?? "running", stableSeconds: raw.health?.stableSeconds ?? 10, timeoutSeconds: raw.health?.timeoutSeconds ?? 180 },
     capabilities: raw.capabilities ?? [],
     devices: raw.devices ?? [],
@@ -476,7 +493,10 @@ export function validateManifest(raw) {
   return { manifest, errors: [] };
 }
 
-const hostPathDenyPrefixes = ["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/docker", "/var/lib/libvirt", "/opt/boxpilot", "/snap", "/var/lib/snapd"];
+// Each is a place a container writing as root turns into root on the server: cron's spool, dpkg's
+// maintainer scripts, cloud-init's per-boot scripts, polkit's rules, containerd's own state.
+export const rootReachableLocations = Object.freeze(["/var/lib/containerd", "/var/spool", "/var/lib/dpkg", "/var/lib/cloud", "/var/lib/polkit-1"]);
+const hostPathDenyPrefixes = ["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/docker", "/var/lib/libvirt", "/opt/boxpilot", "/snap", "/var/lib/snapd", ...rootReachableLocations];
 
 /**
  * True when a (resolved) host path is one the deployer must never bind-mount: a protected location,

@@ -7,7 +7,7 @@ description: Tracks what your subscriptions actually cost. Every streaming servi
 website: https://wallosapp.com
 risk: low
 image:
-  reference: ghcr.io/ellite/wallos:5.4.4
+  reference: ghcr.io/ellite/wallos:5.4.4@sha256:a6911eda064e3ebc4426a579cf60d4cf95d9d578bda523daaf032915b08504b2
   version: 5.4.4
 ports:
   - id: web

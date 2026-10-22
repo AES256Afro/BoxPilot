@@ -7,7 +7,7 @@ description: "The message bus for smart-home gear: Zigbee2MQTT, Z-Wave JS UI, Ta
 website: https://mosquitto.org
 risk: low
 image:
-  reference: eclipse-mosquitto:2.0.22
+  reference: eclipse-mosquitto:2.0.22@sha256:199ea8ef2e35ec2b1b37e59cfd1dbae538ed4dfa4a2251a121a52215a6248a21
   version: "2.0.22"
 command: ["mosquitto", "-c", "/mosquitto-no-auth.conf"]
 user: "1883:1883"

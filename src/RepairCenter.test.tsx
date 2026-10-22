@@ -38,7 +38,7 @@ describe("Repair Center", () => {
   it.each(["failed", "partial"])("does not report a healthy server when the problem scan is %s", async (mode) => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
-      if (url.endsWith("/remediations")) return mode === "failed"
+      if (url.endsWith("/remediations?fresh=1")) return mode === "failed"
         ? new Response(JSON.stringify({ error: "helper unavailable" }), { status: 503 })
         : new Response(JSON.stringify({ findings: [], counts: { critical: 0, warning: 0, info: 0 }, sourceStatus: "partial", unavailableChecks: ["Drives and mounts"] }));
       if (url.includes("prerequisites")) return new Response(JSON.stringify({ checks: [] }));
@@ -348,7 +348,7 @@ describe("Repair that fixes (M35)", () => {
       requests.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : null });
       if (url.includes("prerequisites")) return json({ checks: [] });
       if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
-      if (url === "/api/v1/remediations") { const answer = scans[Math.min(scanned, scans.length - 1)]; scanned += 1; return json(answer); }
+      if (url === "/api/v1/remediations?fresh=1") { const answer = scans[Math.min(scanned, scans.length - 1)]; scanned += 1; return json(answer); }
       if (url === "/api/v1/remediations/attempts") return json({ recorded: true }, 201);
       if (url === "/api/v1/remediations/dismissals") return json({ dismissed: true }, 201);
       const stage = url.match(/^\/api\/v1\/operations\/([^/]+)\/jobs$/);
@@ -377,7 +377,7 @@ describe("Repair that fixes (M35)", () => {
     // The job was recorded against the finding it fixes, approved without a password, and the scan read again.
     expect(requests.find((entry) => entry.url === "/api/v1/remediations/attempts")?.body).toEqual({ findingId: "permissionless-mount:the-dump", jobId: "job-1" });
     expect(requests.find((entry) => entry.url.endsWith("/approve"))?.body).toEqual({});
-    expect(requests.filter((entry) => entry.url === "/api/v1/remediations")).toHaveLength(2);
+    expect(requests.filter((entry) => entry.url === "/api/v1/remediations?fresh=1")).toHaveLength(2);
   });
 
   it("says Still there, with the job's own error and the next step, when the fix fails", async () => {
@@ -485,7 +485,7 @@ describe("Repair that fixes (M35)", () => {
     expect(dialog.textContent).toContain("Restart jellyfin");
     expect(dialog.textContent).not.toContain("Let apps write to the drive");
     fireEvent.click(screen.getByRole("button", { name: "Run all 2" }));
-    await waitFor(() => expect(requests.filter((entry) => entry.url === "/api/v1/remediations")).toHaveLength(2));
+    await waitFor(() => expect(requests.filter((entry) => entry.url === "/api/v1/remediations?fresh=1")).toHaveLength(2));
     const staging = requests.filter((entry) => entry.method === "POST" && /\/operations\/[^/]+\/jobs$/.test(entry.url));
     expect(staging.map((entry) => [entry.url, entry.body])).toEqual([
       ["/api/v1/operations/app.action/jobs", { parameters: { id: "plex", action: "restart" } }],

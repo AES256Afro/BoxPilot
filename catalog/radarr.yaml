@@ -7,7 +7,7 @@ description: Automates movies. Add a film once and it finds a release through yo
 website: https://radarr.video
 risk: medium
 image:
-  reference: lscr.io/linuxserver/radarr:6.3.0.10514-ls314
+  reference: lscr.io/linuxserver/radarr:6.3.0.10514-ls314@sha256:119aaa4a4f7349bcd2a136c5373a0d7925b5479915c7dfe0c0ad352db2a6d438
   version: 6.3.0
 ports:
   - id: web

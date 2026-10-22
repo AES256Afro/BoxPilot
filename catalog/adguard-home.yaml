@@ -7,7 +7,7 @@ description: Network-wide ad and tracker blocking DNS server with a clean web UI
 website: https://adguard.com/adguard-home/overview.html
 risk: high
 image:
-  reference: adguard/adguardhome:v0.107.79
+  reference: adguard/adguardhome:v0.107.79@sha256:aba9e3bf0613be3ba3755e1fc311b126e2c24bec25e18b6483894a88283074f0
   version: v0.107.79
 ports:
   - id: dns-tcp
@@ -43,7 +43,7 @@ volumes:
     path: conf
 sidecars:
   - id: unbound
-    image: klutchell/unbound:v1.26.0
+    image: klutchell/unbound:v1.26.0@sha256:5020cfe1218aeda38777f88279220162e602c3a44efc684550dbf46137106a16
 health:
   kind: running
   stableSeconds: 10

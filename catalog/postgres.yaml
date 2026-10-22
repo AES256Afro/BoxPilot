@@ -7,7 +7,7 @@ description: "The database server most modern apps prefer; for your own projects
 website: https://www.postgresql.org
 risk: low
 image:
-  reference: postgres:16.15-alpine
+  reference: postgres:16.15-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815
   version: "16.15"
 ports:
   - id: sql

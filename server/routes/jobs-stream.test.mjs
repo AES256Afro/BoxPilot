@@ -58,3 +58,37 @@ describe("the last of a job's output, after the live log is gone", () => {
     expect(outputTailFrom("first line\n", 0)).toBe("first line\n");
   });
 });
+
+describe("the job list's summary view", () => {
+  it("leaves out results and step logs, keeps what the state words read, and scopes the list as the full view does", async () => {
+    const full = { id: "j1", state: "completed", createdBy: "owner-1", parameters: { id: "jellyfin" }, error: null, result: { big: "x".repeat(1000) }, steps: [{ name: "pull", state: "completed", detail: "y".repeat(1000), createdAt: "2026-10-18T00:00:00Z" }], approvals: [] };
+    // A failure dismissed and one run again after a restart are told by their steps; a finished job's
+    // notice by its result's warnings (src/jobStatus.ts). Those stay.
+    const dismissed = { ...full, id: "j2", state: "failed", steps: [...full.steps, { name: "dismissed", state: "completed", detail: "Let go by the owner", createdAt: "2026-10-18T01:00:00Z" }] };
+    const rerun = { ...full, id: "j3", state: "failed", steps: [{ name: "rerun", state: "started", detail: "Ran again as job j4", createdAt: "2026-10-18T02:00:00Z" }] };
+    const noticed = { ...full, id: "j5", result: { warnings: ["Local retention needs attention."], big: "x".repeat(1000) } };
+    const asked = [];
+    const state = { listJobs: (limit, scope) => { asked.push([limit, scope]); return [full, dismissed, rerun, noticed]; } };
+    const app = express();
+    app.use((request, _response, next) => { request.boxpilotSession = { owner: { id: "op-1", role: "operator" } }; next(); });
+    app.use("/api/v1", createJobsRouter({ state, jobs: {}, scheduler: {}, jobLogReader: { read: async () => ({ text: "", exists: false }) }, auth: { requireCsrf: (_request, _response, next) => next() }, streamBudget: createStreamBudget({ perAccount: 8, total: 32 }) }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    try {
+      const base = `http://127.0.0.1:${server.address().port}/api/v1/jobs?limit=200`;
+      const summary = await (await fetch(`${base}&view=summary`)).json();
+      expect(summary.jobs).toEqual([
+        { ...full, result: null, steps: [] },
+        { ...dismissed, result: null, steps: [{ name: "dismissed", state: "completed", detail: "", createdAt: "2026-10-18T01:00:00Z" }] },
+        { ...rerun, result: null, steps: [{ name: "rerun", state: "started", detail: "", createdAt: "2026-10-18T02:00:00Z" }] },
+        { ...noticed, result: { warnings: ["Local retention needs attention."] }, steps: [] },
+      ]);
+      const whole = await (await fetch(base)).json();
+      expect(whole.jobs).toEqual([full, dismissed, rerun, noticed]);
+      expect(asked).toEqual([["200", { createdBy: "op-1" }], ["200", { createdBy: "op-1" }]]);
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});

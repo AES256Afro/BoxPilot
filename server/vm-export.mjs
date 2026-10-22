@@ -37,6 +37,7 @@ export function createVmExportService({ store, libvirt, helper }) {
   }
 
   /** Pin the exact stopped-domain topology for the registry operation. */
+  /** @param {{ name?: string }} [parameters] */
   async function prepareOperation({ name } = {}) {
     const inspected = await inspect(name);
     if (inspected.helperInspection.destinationFreeBytes < inspected.helperInspection.requiredBytes) throw new Error("The local managed export destination does not report enough free space");

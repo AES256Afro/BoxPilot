@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The two reads M48.5 left for later (M48.8): a list of thirty runs read two hundred for everyone,
  * and a run that wanted the pinned documents read every document's text to find them.

@@ -87,6 +87,7 @@ export function plannerSystem(agent = {}, tools = []) {
  * are the tools the request's own words point at (toolsForQuestion), as { fn, title }: said after
  * the request, so the system message above stays the same bytes for every run.
  */
+/** @returns {import("../../packages/harness/src/messages.mjs").Message[]} */
 export function plannerMessages(agent, tools, task, { hints = [], examples = [] } = {}) {
   const hint = hints.length ? `\n\nTools made for requests worded like this: ${hints.map((tool) => `${tool.fn} (${tool.title})`).join(", ")}.` : "";
   const shown = demonstrationLines(examples, tools);

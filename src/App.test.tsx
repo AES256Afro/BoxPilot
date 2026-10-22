@@ -94,7 +94,7 @@ describe("BoxPilot console", () => {
     const sections = await screen.findByRole("navigation", { name: "Settings sections" });
     fireEvent.click(within(sections).getByRole("button", { name: "Appearance" }));
     // Settings is its own chunk, fetched the first time it opens.
-    expect(await screen.findByRole("heading", { level: 1, name: "Appearance" }, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Appearance" })).toBeTruthy();
     expect(window.location.search).toContain("tab=appearance");
     expect(screen.queryByRole("tab", { name: "Appearance" })).toBeNull();
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Look" })).getByRole("radio", { name: /^Phosphor/ }));
@@ -117,7 +117,7 @@ describe("BoxPilot console", () => {
     const menu = () => screen.getAllByRole("button", { name: "Account: operator" })[0];
     fireEvent.click(menu());
     fireEvent.click(screen.getByRole("menuitem", { name: "Appearance" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Appearance" }, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Appearance" })).toBeTruthy();
     fireEvent.click(menu());
     fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
     expect(window.location.search).not.toContain("tab=");

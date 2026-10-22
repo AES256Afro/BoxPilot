@@ -50,7 +50,7 @@ env:
     generate: true
 sidecars:
   - id: database
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815
     env:
       POSTGRES_DB: hedgedoc
       POSTGRES_USER: hedgedoc

@@ -148,6 +148,11 @@ export interface ScheduleFact {
 export interface OffBoxFacts { verdict: OffBoxVerdict; inputs: OffBoxInputs }
 export interface ChecklistItem { id: string; title: string; detail: string; done: boolean; known?: boolean; optional: boolean; view: ViewName }
 export interface ChecklistFacts { items: ChecklistItem[]; done: number; total: number }
+/**
+ * The update's database copies that predate the secret scrub (M36): still on disk, still holding
+ * secrets. `removable` counts those the default rule lets go of; the newest copies always stay.
+ */
+export interface DatabaseCopyFacts { heldSecrets: number; removable: number; total: number }
 export interface VmFacts { domains: Array<{ name: string; state: string; vcpus: number | null; memoryBytes: number | null }> }
 
 export interface Facts {
@@ -166,6 +171,7 @@ export interface Facts {
   setup: Source<{ firstRun: boolean }>;
   checklist: Source<ChecklistFacts>;
   vms: Source<VmFacts>;
+  databaseCopies: Source<DatabaseCopyFacts>;
   rebuild: Source<{ count: number; source: string } | null>;
 }
 
@@ -179,7 +185,7 @@ const idle = { state: "idle", value: null, error: null } as const;
 
 export const emptyFacts: Facts = {
   catalog: idle, inventory: idle, updates: idle, unattended: idle, services: idle, watch: idle, repairs: idle, jobs: idle,
-  schedules: idle, protection: idle, offBox: idle, database: idle, setup: idle, checklist: idle, vms: idle, rebuild: idle,
+  schedules: idle, protection: idle, offBox: idle, database: idle, setup: idle, checklist: idle, vms: idle, databaseCopies: idle, rebuild: idle,
 };
 
 const getJson = async <T,>(url: string): Promise<T> => readJson<T>(await fetch(url));
@@ -402,6 +408,21 @@ export async function loadRepairs(): Promise<RepairScan> {
   return scanFrom(await getJson<unknown>("/api/v1/remediations"));
 }
 
+/**
+ * Copies of the database the update took before the secret scrub (M36). The list is an operator's
+ * read (ADR-003: file names and sizes in BoxPilot's state folder); anyone else is told of none.
+ */
+async function loadDatabaseCopies(): Promise<DatabaseCopyFacts> {
+  try {
+    const { result } = await inspectOperation<{ copies?: Array<{ heldSecrets?: boolean; goes?: boolean }> }>("housekeeping.database-copies.inspect");
+    const copies = Array.isArray(result?.copies) ? result.copies : [];
+    const held = copies.filter((copy) => copy?.heldSecrets === true);
+    return { heldSecrets: held.length, removable: held.filter((copy) => copy?.goes === true).length, total: copies.length };
+  } catch {
+    return { heldSecrets: 0, removable: 0, total: 0 };
+  }
+}
+
 type RawSchedule = { id: string; operationId: string; title?: string; parameters?: ScheduleFact["parameters"]; enabled?: boolean; overdue?: boolean; cadence?: string; lastRunAt?: string | null; lastOutcome?: string | null; lastReason?: string | null };
 async function loadSchedules(): Promise<ScheduleFact[]> {
   const body = await getJson<{ schedules?: RawSchedule[] }>("/api/v1/schedules");
@@ -495,6 +516,7 @@ const loaders = {
   setup: loadSetup,
   checklist: loadChecklist,
   vms: loadVms,
+  databaseCopies: loadDatabaseCopies,
 } satisfies { [K in Exclude<keyof Facts, "jobs" | "rebuild">]: () => Promise<NonNullable<Facts[K]["value"]>> };
 
 type LoadedKey = keyof typeof loaders;

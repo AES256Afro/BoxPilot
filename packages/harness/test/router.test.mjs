@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { fallsBack, moveAfterPlan, secondOpinion, startRoute } from "../src/index.mjs";
 

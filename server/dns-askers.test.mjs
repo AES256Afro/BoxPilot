@@ -134,6 +134,22 @@ describe("the service on a server with a hand-set address", () => {
     expect(verdict).toMatchObject({ state: "single-point", source: "pihole-log", askers: { lanClients: 8 } });
   });
 
+  it("gives a caller without operator reads the same verdict without the counts, from the one read", async () => {
+    let reads = 0;
+    const counts = (lanClients) => ({ available: true, reason: null, window: "hour", queries: 60, lanClients, routerQueries: 0, routerAsks: false, selfQueries: 4, tailnetClients: 0, bridgeClients: 0, otherClients: 0, unnamedQueries: 0 });
+    for (const lanClients of [8, 1]) {
+      const helper = { request: async () => { reads += 1; return counts(lanClients); } };
+      const service = createDnsResilienceService({ network: { inspect: async () => topology }, helper, run: staticLink, readFile: noFile, ask: async () => ({ answering: true, resolving: true, blocking: true }), hostname: () => "homebox", now: () => now });
+      const full = await service.check();
+      const plain = await service.check({ counts: false });
+      expect(plain.state).toBe(full.state);
+      expect(plain.askers).toBeNull();
+      expect(JSON.stringify(plain)).not.toMatch(new RegExp(`\\b${lanClients} devices?\\b`));
+      expect(JSON.stringify(full)).toMatch(new RegExp(`\\b${lanClients} devices?\\b`));
+    }
+    expect(reads).toBe(2);
+  });
+
   it("stays not known when the log cannot be read", async () => {
     const helper = { request: async () => ({ available: false, reason: "Pi-hole's query log could not be read." }) };
     const verdict = await createDnsResilienceService({ network: { inspect: async () => topology }, helper, run: staticLink, readFile: noFile, ask: async () => ({ answering: true, resolving: true, blocking: true }), hostname: () => "homebox", now: () => now }).check();

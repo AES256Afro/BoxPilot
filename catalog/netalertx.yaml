@@ -7,7 +7,7 @@ description: Watches your network and tells you when a device appears that was n
 website: https://github.com/jokob-sk/NetAlertX
 risk: medium
 image:
-  reference: ghcr.io/jokob-sk/netalertx:26.8.5
+  reference: ghcr.io/jokob-sk/netalertx:26.8.5@sha256:e8d800176d35a2fcc856ddc68c354a6b472e535c6ed42c52d040b715ca9bb127
   version: 26.8.5
 network: host
 capabilities:

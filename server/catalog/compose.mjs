@@ -201,6 +201,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   if (manifest.shmSize) service.shm_size = manifest.shmSize;
   if (gpu && manifest.gpu) service.deploy = nvidiaGpuReservation();
   service.security_opt = securityOptFor(manifest, hostNetwork);
+  /** @type {{ name: string, services: Record<string, object> }} */
   const compose = { name: projectNameFor(manifest.id), services: { [manifest.id]: service } };
   // Sidecars: helper services on the project network, reachable from the app at their id.
   // No published ports; their env may reference ${NAME}, interpolated from the shared .env.

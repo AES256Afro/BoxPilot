@@ -150,7 +150,10 @@ export function renderShutdownScript({ shutdownAtLowBattery = true, eventsPath =
   ].join("\n");
 }
 
-/** Render every NUT file and both scripts. Pure. */
+/**
+ * Render every NUT file and both scripts. Pure.
+ * @param {{ name?: string, driver?: string, port?: string | null, vendorId?: string | null, productId?: string | null, description?: string, monitorPassword?: string, shutdownAtLowBattery?: boolean, lowBatteryPercent?: number | null, lowRuntimeSeconds?: number | null, host?: typeof defaultHost }} [config]
+ */
 export function renderNutConfig({ name = "ups", driver = "usbhid-ups", port = null, vendorId = null, productId = null, description = "UPS", monitorPassword, shutdownAtLowBattery = true, lowBatteryPercent = null, lowRuntimeSeconds = null, host = defaultHost } = {}) {
   const thresholds = lowBatteryPercent !== null || lowRuntimeSeconds !== null;
   const upsConf = [

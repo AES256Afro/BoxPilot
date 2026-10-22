@@ -79,6 +79,9 @@ const approvalFor = (tier, operation, parameters) => (tier === "high" && !confir
  * A step's tier is the one the job layer will stage it at (sweep 3), which what it acts on can
  * raise: installing Pi-hole is medium by the operation and high by the app. `effectiveRisk` is the
  * job layer's own answer when the caller has it; otherwise the registry's, from the same hooks.
+ *
+ * @param {unknown} rawSteps
+ * @param {{ registry?: any, role?: string, secretEnvNamesFor?: ((appId: string) => Promise<string[]> | string[]) | null, effectiveRisk?: ((id: string, parameters: object) => unknown) | null }} [options]
  */
 export async function validatePlan(rawSteps, { registry, role, secretEnvNamesFor = null, effectiveRisk = null } = {}) {
   const steps = [];

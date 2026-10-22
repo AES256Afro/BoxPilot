@@ -106,6 +106,35 @@ describe("Storage page", () => {
   });
 
   describe("Drives", () => {
+    it("lets the owner have a sleeping drive read once a week, and tells others whether it is on", async () => {
+      let saved: unknown = null;
+      const inventory = { storage: { smart: { disks: [{ device: "/dev/sda", reason: "asleep" }, { device: "/dev/sdb", reason: "ok", wokenForWeeklyRead: true }, { device: "/dev/nvme0n1", reason: "ok" }] } } };
+      const extra = (url: string, init?: RequestInit) => {
+        if (url === "/api/v1/inventory") return json(inventory);
+        if (url === "/api/v1/settings/storage-wake" && init?.method === "PUT") { saved = { body: JSON.parse(String(init.body)), csrf: new Headers(init.headers).get("X-BoxPilot-CSRF") }; return json({ enabled: true }); }
+        if (url === "/api/v1/settings/storage-wake") return json({ enabled: false });
+        return null;
+      };
+      mockFetch({ extra });
+      render(<StoragePage csrfToken="csrf-token" />);
+      openTab(/^Drives/);
+      const panel = await screen.findByRole("region", { name: "Sleeping drives" });
+      expect(await within(panel).findByText(/asleep at the last check/)).toBeTruthy();
+      expect(panel.textContent).toContain("1 asleep at the last check");
+      expect(panel.textContent).toContain("1 read by waking");
+      const toggle = within(panel).getByRole("switch", { name: /Read a sleeping drive's health once a week/ });
+      await waitFor(() => expect(toggle.matches(":disabled")).toBe(false));
+      fireEvent.click(toggle);
+      await waitFor(() => expect(saved).toEqual({ body: { enabled: true }, csrf: "csrf-token" }));
+      await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
+      cleanup();
+      mockFetch({ extra });
+      render(<StoragePage csrfToken="csrf-token" role="viewer" />);
+      openTab(/^Drives/);
+      const viewerPanel = await screen.findByRole("region", { name: "Sleeping drives" });
+      expect(within(viewerPanel).getByRole("switch").matches(":disabled")).toBe(true);
+    });
+
     it("mounts a drive from a sheet and stages it with the fstab preview", async () => {
       const { staged } = mockFetch();
       render(<StoragePage csrfToken="csrf-token" />);
@@ -209,7 +238,7 @@ describe("Storage page", () => {
       expect(screen.getByText("Reconnects automatically.")).toBeTruthy();
       expect(screen.getAllByText(/at most 3 times a day and 30 minutes apart/)).toHaveLength(1);
       // One switch on the drive's row (a look may draw the same control above the tabs, M41).
-      expect(within(screen.getByRole("tabpanel")).getAllByRole("switch")).toHaveLength(1);
+      expect(within(screen.getByRole("tabpanel")).getAllByRole("switch", { name: /Reconnect if it drops/ })).toHaveLength(1);
     });
 
     it("says where to reconnect a held drive by hand, since its row has no Reconnect button", async () => {

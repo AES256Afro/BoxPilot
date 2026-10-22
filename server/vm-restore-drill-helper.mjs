@@ -391,7 +391,16 @@ export function createVmRestoreDrillHelper({
     for (let index = 0; index < manifest.disks.length; index += 1) {
       const disk = manifest.disks[index];
       const diskPath = path.join(restoredExport, disk.file);
-      const check = await run(qemuImgBinary, ["check", "--output=json", diskPath], { timeout: 30 * 60 * 1000 });
+      // -f qcow2 so qemu-img never guesses the format from the contents. A backing file named in the
+      // header would be opened by libvirt for the guest, and the export side never writes one.
+      const info = JSON.parse((await run(qemuImgBinary, ["info", "--output=json", "-f", "qcow2", diskPath], { timeout: 30000 })).stdout || "{}");
+      if (info.format !== "qcow2") throw new Error(`Restored disk ${disk.target} is ${info.format ?? "of an unknown format"}, not qcow2`);
+      const backing = info["full-backing-filename"] ?? info["backing-filename"];
+      if (backing) throw new Error(`Restored disk ${disk.target} names a backing file (${backing}); it was not written by a BoxPilot export`);
+      // An external data file is the same kind of reach: the guest's data read from, and written to, a path the header names.
+      const dataFile = info["format-specific"]?.data?.["data-file"];
+      if (dataFile) throw new Error(`Restored disk ${disk.target} keeps its data in another file (${dataFile}); it was not written by a BoxPilot export`);
+      const check = await run(qemuImgBinary, ["check", "--output=json", "-f", "qcow2", diskPath], { timeout: 30 * 60 * 1000 });
       const result = JSON.parse(check.stdout || "{}");
       if (Number(result.corruptions ?? 0) !== 0 || Number(result["check-errors"] ?? 0) !== 0) throw new Error(`Restored disk ${disk.target} failed qemu-img verification`);
       disks.push({ target: disk.target, path: diskPath, bus: buses[index] });

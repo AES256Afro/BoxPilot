@@ -7,7 +7,7 @@ description: "Minimalist, fast RSS reader with keyboard shortcuts and a clean re
 website: https://miniflux.app
 risk: low
 image:
-  reference: miniflux/miniflux:2.3.3
+  reference: miniflux/miniflux:2.3.3@sha256:49d7b60987616387c306a8023087b31f2c9b7b21288b523026cb04058e8b6dbb
   version: "2.3.3"
 ports:
   - id: web
@@ -40,7 +40,7 @@ env:
     generate: true
 sidecars:
   - id: database
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815
     env:
       POSTGRES_DB: miniflux
       POSTGRES_USER: miniflux

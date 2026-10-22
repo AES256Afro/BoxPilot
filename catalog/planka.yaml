@@ -7,7 +7,7 @@ description: "Kanban boards with drag-and-drop cards, labels, due dates, attachm
 website: https://planka.app
 risk: low
 image:
-  reference: ghcr.io/plankanban/planka:2.2.1
+  reference: ghcr.io/plankanban/planka:2.2.1@sha256:125f45330853210c678fed1132bedc0912b4a11a27779b79802fbca108e069e2
   version: "2.2.1"
 ports:
   - id: web
@@ -65,7 +65,7 @@ env:
     generate: true
 sidecars:
   - id: database
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815
     env:
       POSTGRES_DB: planka
       POSTGRES_USER: planka

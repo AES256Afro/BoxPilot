@@ -16,6 +16,7 @@ const cents = (value) => Math.round(Number(value) * 1_000_000) / 1_000_000;
 
 export function createLedger({ file, now = () => Date.now(), read = (target) => readFileWithoutFollowing(target), write = (target, text) => replaceFileWithoutFollowing(target, text, { mode: 0o600 }) }) {
   let state = null;
+  /** @type {Promise<unknown>} */
   let queue = Promise.resolve();
   const monthOf = () => new Date(now()).toISOString().slice(0, 7);
 
@@ -33,7 +34,12 @@ export function createLedger({ file, now = () => Date.now(), read = (target) => 
 
   const save = () => write(file, `${JSON.stringify(state)}\n`);
 
-  /** One change at a time, so two calls never both read the same total. */
+  /**
+   * One change at a time, so two calls never both read the same total.
+   * @template T
+   * @param {() => Promise<T>} work
+   * @returns {Promise<T>}
+   */
   const serially = (work) => {
     const next = queue.then(work, work);
     queue = next.catch(() => {});
