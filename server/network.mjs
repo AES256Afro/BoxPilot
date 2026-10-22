@@ -375,6 +375,7 @@ export function parseTailnetPeers(stdout) {
   return { connected: parsed.BackendState === "Running", self, peers };
 }
 
+/** @param {{ store?: any, runCommand?: typeof fixedCommand, getNetworkInterfaces?: typeof os.networkInterfaces }} [options] */
 export function createNetworkService({ store, runCommand = fixedCommand, getNetworkInterfaces = os.networkInterfaces } = {}) {
   /** The whole tailnet as this server sees it (read-only; runs unprivileged). */
   async function tailnet() {

@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
 import { createAnthropicProvider } from "../../packages/harness/src/providers/anthropic.mjs";
 import { fakeClaude, fixture } from "../../packages/harness/test/anthropic-wire.mjs";

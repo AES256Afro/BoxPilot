@@ -52,6 +52,15 @@ one carries:
 | `confirm(parameters)` | text the approver must type. The disk path, the app id, the VM name |
 | `parameters` | field types, patterns, limits; `secret: true` fields, and the manifest's password entries inside a `secretEnvOf` field (an app's `values.env`), never reach the database |
 
+An operator approves low- and medium-risk work alone, so the tier follows what an operation acts
+on, not only what it is ([ADR-015](DECISIONS.md)): risk hooks in
+[`server/ops/escalation.mjs`](../server/ops/escalation.mjs) raise a medium operation to high for the
+targets a high one guards. A share inside a login account's home, a protected package, the backup
+destination, BoxPilot's own tailnet address, an app data folder outside `/mnt`, `/media` and `/srv`.
+Jobs, schedules, flows and the agents' plans all take the tier from them, and a hook can only raise
+it. `server/ops/escalation-inventory.test.mjs` fails until every operation an operator may approve
+alone that takes free-form input has a hook or a written reason it needs none.
+
 A change becomes a **job**: staged with its parameters pinned, approved, then run. The job records
 its steps, its output, and an audit entry; the Activity drawer follows it live. Approval is the
 single gate, the same checks apply whether the request came from the UI, a schedule, or the API.

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The agents runtime's root tasks (M37). Root does only what needs root: everything that touches
  * the runner's own files - installing Unsloth, downloading or removing a model - runs as the runner's

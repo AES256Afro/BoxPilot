@@ -25,14 +25,22 @@ const FLAG_ED = 0x80; // extension data included
  * explicitly. Ed25519 hashes internally, so its node hash is null.
  */
 const algorithms = new Map([
-  [-7, { name: "ES256", hash: "sha256", dsaEncoding: "der" }],
-  [-35, { name: "ES384", hash: "sha384", dsaEncoding: "der" }],
-  [-36, { name: "ES512", hash: "sha512", dsaEncoding: "der" }],
-  [-257, { name: "RS256", hash: "sha256" }],
-  [-258, { name: "RS384", hash: "sha384" }],
-  [-259, { name: "RS512", hash: "sha512" }],
-  [-8, { name: "Ed25519", hash: null }],
+  [-7, { name: "ES256", hash: "sha256", dsaEncoding: "der", keyType: "ec", curve: "prime256v1" }],
+  [-35, { name: "ES384", hash: "sha384", dsaEncoding: "der", keyType: "ec", curve: "secp384r1" }],
+  [-36, { name: "ES512", hash: "sha512", dsaEncoding: "der", keyType: "ec", curve: "secp521r1" }],
+  [-257, { name: "RS256", hash: "sha256", keyType: "rsa" }],
+  [-258, { name: "RS384", hash: "sha384", keyType: "rsa" }],
+  [-259, { name: "RS512", hash: "sha512", keyType: "rsa" }],
+  [-8, { name: "Ed25519", hash: null, keyType: "ed25519" }],
 ]);
+
+/** The smallest RSA key a passkey may use (NIST SP 800-131A). */
+const minimumRsaBits = 2048;
+
+/** Whether a key is of the type (and, for EC, the curve) an algorithm names. */
+function keyMatches(key, spec) {
+  return key.asymmetricKeyType === spec.keyType && (!spec.curve || key.asymmetricKeyDetails?.namedCurve === spec.curve);
+}
 
 export function isSupportedAlgorithm(alg) {
   return algorithms.has(Number(alg));
@@ -103,7 +111,8 @@ export function isSecureOrigin(origin) {
   try {
     const url = new URL(origin);
     if (url.protocol === "https:") return true;
-    return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1");
+    // URL keeps an IPv6 host in its brackets.
+    return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
   } catch {
     return false;
   }
@@ -149,11 +158,16 @@ export function verifyRegistration({ clientDataJSON, authenticatorData, publicKe
   verifyCommon({ clientDataJSON, authenticatorData, expected, expectedType: "webauthn.create" });
   if (!isSupportedAlgorithm(algorithm)) throw new Error(`unsupported key algorithm ${algorithm}`);
   // A key node cannot import is worthless later; fail now, at registration, not at the first sign-in.
+  let key;
   try {
-    createPublicKey({ key: Buffer.from(publicKeyDer), format: "der", type: "spki" });
+    key = createPublicKey({ key: Buffer.from(publicKeyDer), format: "der", type: "spki" });
   } catch {
     throw new Error("the credential public key could not be read");
   }
+  // The algorithm is the client's claim about the key; it must describe the key it came with.
+  const spec = algorithms.get(Number(algorithm));
+  if (!keyMatches(key, spec)) throw new Error(`the credential public key is not a ${spec.name} key`);
+  if (spec.keyType === "rsa" && !(key.asymmetricKeyDetails?.modulusLength >= minimumRsaBits)) throw new Error(`an RSA passkey needs a key of at least ${minimumRsaBits} bits`);
   return { ok: true };
 }
 
@@ -170,6 +184,8 @@ export function verifySignature({ algorithm, publicKeyDer, authenticatorData, cl
   } catch {
     return false;
   }
+  // node verifies by the key it is handed, whatever algorithm was named: hold the two together.
+  if (!keyMatches(key, spec)) return false;
   const signedData = Buffer.concat([Buffer.from(authenticatorData), sha256(clientDataJSON)]);
   try {
     const keyInput = spec.dsaEncoding ? { key, dsaEncoding: spec.dsaEncoding } : key;
@@ -182,7 +198,9 @@ export function verifySignature({ algorithm, publicKeyDer, authenticatorData, cl
 /**
  * Verify an authentication ceremony and decide the new signature counter. A counter that goes
  * backwards (and is not simply always zero, as many platform authenticators report) is the signal
- * for a possibly-cloned credential; it is surfaced, not swallowed.
+ * for a possibly-cloned credential; it is surfaced, not swallowed. That includes a counter that
+ * drops to zero after counting (WebAuthn §7.2 step 22), and the stored counter is not lowered, so
+ * every later use of the copy is surfaced too.
  */
 export function verifyAssertion({ clientDataJSON, authenticatorData, signature, credential, expected }) {
   const auth = verifyCommon({ clientDataJSON, authenticatorData, expected, expectedType: "webauthn.get" });
@@ -195,6 +213,6 @@ export function verifyAssertion({ clientDataJSON, authenticatorData, signature, 
   });
   if (!good) throw new Error("the passkey signature did not verify");
   const previous = Number(credential.signCount) || 0;
-  const cloned = auth.signCount !== 0 && previous !== 0 && auth.signCount <= previous;
-  return { ok: true, newSignCount: auth.signCount, cloned, userVerified: auth.flags.userVerified };
+  const cloned = (auth.signCount !== 0 || previous !== 0) && auth.signCount <= previous;
+  return { ok: true, newSignCount: cloned ? previous : auth.signCount, cloned, userVerified: auth.flags.userVerified };
 }

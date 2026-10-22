@@ -49,6 +49,8 @@ function optionalSecret(value, field) {
  * Validate and normalise the profile a request supplies into the shape stored on disk. Secrets that
  * the request leaves blank keep whatever the previous profile held, so a settings save that only
  * changes the country list does not wipe the key.
+ * @param {Record<string, any>} [input]
+ * @param {Record<string, any> | null} [previous]
  */
 export function normalizeVpnProfile(input = {}, previous = null) {
   if (typeof input !== "object" || input === null) throw new Error("A VPN profile is an object");

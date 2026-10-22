@@ -13,7 +13,8 @@ export function useJobHistory(limit = 200): { jobs: Job[]; reload: () => void } 
   const [round, setRound] = useState(0);
   useEffect(() => {
     let live = true;
-    fetch(`/api/v1/jobs?limit=${limit}`).then((response) => readJson<{ jobs?: Job[] }>(response))
+    // The summary view: no results or step logs, which none of these views read.
+    fetch(`/api/v1/jobs?limit=${limit}&view=summary`).then((response) => readJson<{ jobs?: Job[] }>(response))
       .then((body) => { if (live && Array.isArray(body?.jobs)) setJobs(body.jobs); })
       .catch(() => undefined);
     return () => { live = false; };

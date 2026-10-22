@@ -42,6 +42,7 @@ import { dnsFallbackRehearse } from "./dns-rehearsal.mjs";
 import { heartbeatConfigure, heartbeatPing } from "./heartbeat.mjs";
 import { cloudflareCheck, cloudflareConnect, cloudflarePublish, cloudflareUnpublish } from "./cloudflare.mjs";
 import { modelGatewayCap, modelGatewayConnect, modelGatewayDisconnect } from "./model-gateway.mjs";
+import { databaseCopyRestore } from "./database-restore.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -118,6 +119,7 @@ export const tasks = Object.freeze({
   "tailscale.set": tailscaleSet,
   "vm.cloud-image.ensure": ensureCloudImage,
   "system.update": systemUpdate,
+  "database.copy.restore": databaseCopyRestore,
   "backup.remote.keygen": backupRemoteKeygen,
   "backup.remote.test": backupRemoteTest,
   "backup.remote.sync": backupRemoteSync,

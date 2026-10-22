@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * What the notification centre and the watch list tell someone who is not the owner (sweep 3).
  *

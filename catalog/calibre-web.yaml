@@ -7,7 +7,7 @@ description: "Browse, read, and send ebooks from an existing Calibre library in 
 website: https://github.com/janeczku/calibre-web
 risk: low
 image:
-  reference: lscr.io/linuxserver/calibre-web:0.6.27-ls397
+  reference: lscr.io/linuxserver/calibre-web:0.6.27-ls397@sha256:70f7dcade3e4d07f7e7cb10c6ee3290a4b5496b7cd0c6a27cde97c4c2bb4e2bf
   version: "0.6.27"
 ports:
   - id: web

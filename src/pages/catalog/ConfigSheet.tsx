@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { describePortConflict, type PortConflict } from "../../portConflict";
 import { Button, Checkbox, Field, Notice, SecretInput, Select, Sheet, Tag, TextInput, riskOf } from "../../ui";
-import { compactValues, initialValues, installTier } from "./appState";
+import { compactValues, initialValues, installTier, runRead } from "./appState";
 import type { LiveState, Manifest, Values } from "./types";
 
 /*
@@ -22,6 +22,8 @@ export interface ConfigSheetProps {
   seed?: Values;
   /** An installed app's name by id, to say who holds a port that is taken. */
   appNameFor?: (id: string) => string | null;
+  /** The ids of installed apps that run models (Ollama), for a setting whose choices are their models. */
+  modelRunnerApps?: string[];
 }
 
 function Section({ title, children, hint }: { title: string; children: ReactNode; hint?: ReactNode }) {
@@ -34,7 +36,7 @@ function Section({ title, children, hint }: { title: string; children: ReactNode
   );
 }
 
-export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCancel, seed, appNameFor = () => null }: ConfigSheetProps) {
+export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCancel, seed, appNameFor = () => null, modelRunnerApps = [] }: ConfigSheetProps) {
   const formId = useId();
   const foldersId = useId();
   const [values, setValues] = useState<Values>(() => seed ?? initialValues(manifest, live));
@@ -71,6 +73,23 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
     }).catch(() => {});
     return () => { active = false; };
   }, [hasConfigurableVolumes, csrfToken]);
+
+  // The models downloaded in this server's model runners, for a setting that picks one. Embedding
+  // models are left out: they turn text into numbers and cannot write an answer. null while asking.
+  const [installedModels, setInstalledModels] = useState<string[] | null>(null);
+  const wantsModels = manifest.env.some((entry) => entry.optionsFrom === "ollama-models");
+  const runnerKey = modelRunnerApps.join(",");
+  useEffect(() => {
+    if (!wantsModels) return undefined;
+    let active = true;
+    const runners = runnerKey ? runnerKey.split(",") : [];
+    void Promise.all(runners.map((id) => runRead<{ models?: Array<{ name: string }> }>(csrfToken, "app.models.inspect", { id })
+      .then(({ response, body }) => (response.ok ? (body.result?.models ?? []).map((model) => model.name) : []))
+      .catch(() => [] as string[]))).then((lists) => {
+      if (active) setInstalledModels([...new Set(lists.flat())].filter((name) => !/embed/i.test(name)).sort());
+    });
+    return () => { active = false; };
+  }, [wantsModels, runnerKey, csrfToken]);
 
   const submit = async () => {
     const compact = compactValues(manifest, values, mode === "reconfigure" ? live?.state?.values : undefined);
@@ -171,17 +190,26 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
         {shownEnv.length > 0 && (
           <Section title="Settings">
             {shownEnv.map((entry) => {
-              const hint = <>{entry.description}{entry.name === "USE_VPN_PROFILE" && usingVpnProfile ? <>{entry.description ? " " : ""}The VPN provider and key come from your VPN profile (set it up on the Network page). If none is saved, the install will ask you to save one first.</> : null}</>;
-              const hasHint = Boolean(entry.description) || (entry.name === "USE_VPN_PROFILE" && usingVpnProfile);
+              const pickModel = entry.optionsFrom === "ollama-models";
+              const modelChoices = pickModel && installedModels?.length
+                ? [...new Set([...installedModels, values.env[entry.name] ?? ""].filter(Boolean))]
+                : null;
+              const modelHint = pickModel && installedModels !== null && !installedModels.length
+                ? "No downloaded models were found in this server's Ollama apps. Type a model name, or download one from Ollama's Models tab."
+                : null;
+              const hint = <>{entry.description}{modelHint ? <>{entry.description ? " " : ""}{modelHint}</> : null}{entry.name === "USE_VPN_PROFILE" && usingVpnProfile ? <>{entry.description ? " " : ""}The VPN provider and key come from your VPN profile (set it up on the Network page). If none is saved, the install will ask you to save one first.</> : null}</>;
+              const hasHint = Boolean(entry.description) || Boolean(modelHint) || (entry.name === "USE_VPN_PROFILE" && usingVpnProfile);
               return (
                 <Field key={entry.name} label={entry.label} required={entry.required} hint={hasHint ? hint : undefined}>
-                  {entry.options
+                  {modelChoices
+                    ? <Select value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} options={modelChoices.map((model) => ({ value: model, label: installedModels?.includes(model) ? model : `${model} (not downloaded)` }))} />
+                    : entry.options
                     ? <Select value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} options={entry.options.map((option) => ({ value: option, label: option }))} />
                     : entry.type === "boolean"
                       ? <Select value={values.env[entry.name] || "false"} onValueChange={(value) => setEnv(entry.name, value)} options={[{ value: "true", label: "Yes" }, { value: "false", label: "No" }]} />
                       : entry.type === "password"
                         ? <SecretInput value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} autoComplete="new-password" />
-                        : <TextInput type={entry.type === "number" ? "number" : "text"} mono={entry.type === "path" || entry.type === "timezone"} value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} />}
+                        : <TextInput type={entry.type === "number" ? "number" : "text"} mono={pickModel || entry.type === "path" || entry.type === "timezone"} value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} />}
                 </Field>
               );
             })}

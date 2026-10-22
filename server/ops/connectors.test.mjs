@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The credentials BoxPilot keeps for itself (sweep 1, S1-3): the Cloudflare API and tunnel tokens,
  * the heartbeat address and the agents' Zulip bot key are saved by their own operations, at their

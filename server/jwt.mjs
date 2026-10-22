@@ -24,7 +24,7 @@ export function signJwt(claims, { privateKey, kid, now, expiresInSeconds = 300 }
 
 /**
  * Verify an ES256 JWT against a public key and check its expiry. Returns the payload or throws.
- * Used in tests here; real clients verify against the published JWKS.
+ * The userinfo endpoint verifies access tokens with it; apps verify against the published JWKS.
  */
 export function verifyJwt(token, { publicKey, now, clockToleranceSeconds = 60 }) {
   const parts = String(token).split(".");
@@ -33,11 +33,15 @@ export function verifyJwt(token, { publicKey, now, clockToleranceSeconds = 60 })
   let header;
   try { header = JSON.parse(Buffer.from(encodedHeader, "base64url").toString("utf8")); } catch { throw new Error("bad JWT header"); }
   if (header.alg !== "ES256") throw new Error(`unexpected alg ${header.alg}`);
+  // RFC 7515 §4.1.11: an extension the verifier does not understand must be refused. None is.
+  if (header.crit !== undefined) throw new Error("unsupported critical header");
   const ok = cryptoVerify("sha256", Buffer.from(`${encodedHeader}.${encodedPayload}`), { key: publicKey, dsaEncoding: "ieee-p1363" }, Buffer.from(encodedSignature, "base64url"));
   if (!ok) throw new Error("signature does not verify");
   let payload;
   try { payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")); } catch { throw new Error("bad JWT payload"); }
-  if (typeof payload.exp === "number" && now > payload.exp + clockToleranceSeconds) throw new Error("token expired");
+  // Every token BoxPilot signs expires; one that does not was never ours to accept.
+  if (!Number.isFinite(payload?.exp)) throw new Error("token has no expiry");
+  if (now > payload.exp + clockToleranceSeconds) throw new Error("token expired");
   return payload;
 }
 

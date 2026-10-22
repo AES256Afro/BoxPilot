@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { SpecError, diffSpecs, lineDiff, normalizeSpec, scopeWarnings, specText } from "./spec.mjs";
 import { agentTemplates, templateById, templateQuestions } from "./templates.mjs";

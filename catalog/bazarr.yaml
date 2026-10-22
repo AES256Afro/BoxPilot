@@ -7,7 +7,7 @@ description: "Subtitles for everything Sonarr and Radarr download, in the langua
 website: https://www.bazarr.media
 risk: low
 image:
-  reference: lscr.io/linuxserver/bazarr:v1.6.0-ls360
+  reference: lscr.io/linuxserver/bazarr:v1.6.0-ls360@sha256:ac284d3fda9ee7da8b15197dc51f0d7a2a1da98549bee99a3d924d3e94a5e7ed
   version: v1.6.0
 ports:
   - id: web

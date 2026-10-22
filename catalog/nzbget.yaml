@@ -7,7 +7,7 @@ description: Usenet downloader written for small machines. It uses a fraction of
 website: https://nzbget.com
 risk: low
 image:
-  reference: lscr.io/linuxserver/nzbget:version-v26.2
+  reference: lscr.io/linuxserver/nzbget:version-v26.2@sha256:1dca6a4407e08313919d2780bf2a6bc17e21b947a6e8e34624b9e115795fcf8c
   version: "26.2"
 ports:
   - id: web

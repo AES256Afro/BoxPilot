@@ -149,6 +149,8 @@ export function createVmHelper({
   async function inventory({ scope }) {
     if (scope === "status") return inventoryService.getStatus();
     if (scope === "domains") return inventoryService.listDomains();
+    // Home's list (M50): dominfo alone per VM, not its addresses, disks and snapshots.
+    if (scope === "domains-summary") return inventoryService.listDomains({ summary: true });
     if (scope === "resources") return inventoryService.listResources();
     throw new Error("Unsupported virtualization inventory scope");
   }

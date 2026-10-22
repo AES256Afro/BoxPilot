@@ -13,7 +13,7 @@ export async function readScanPressure({ read = (file) => readFile(file, "utf8")
 
 /** Conservative scheduling policy, not a diagnosis of hardware health. */
 export function scanDeferral(pressure) {
-  for (const [resource, kind, threshold] of [["memory", "full", 1], ["io", "full", 10], ["cpu", "some", 80]]) {
+  for (const [resource, kind, threshold] of /** @type {const} */ ([["memory", "full", 1], ["io", "full", 10], ["cpu", "some", 80]])) {
     const average = pressure?.[resource]?.[kind]?.avg60;
     if (Number.isFinite(average) && average >= threshold) return `${resource.toUpperCase()} pressure (${average.toFixed(1)}% ${kind} stall over 60 seconds)`;
   }

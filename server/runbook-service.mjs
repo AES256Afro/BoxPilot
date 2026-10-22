@@ -44,6 +44,11 @@ const backupOperations = new Set(["app.backup", "app.backup.verify", "controller
 const plumbing = /^\/(?:dev|proc|sys|run|var\/run|etc)(?:\/|$)|\.sock$/;
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+/**
+ * @template T
+ * @param {() => T | Promise<T>} read
+ * @returns {Promise<{ ok: boolean, value?: T, error?: any }>}
+ */
 const attempt = (read) => Promise.resolve().then(read).then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
 const subjectOf = (parameters) => (typeof parameters?.id === "string" ? parameters.id : typeof parameters?.name === "string" ? parameters.name : null);
 const keepOf = (parameters) => (Number.isInteger(parameters?.keep) ? parameters.keep : null);
@@ -104,6 +109,11 @@ function flowTrigger(flow, flows) {
   return triggers.length ? triggers.join(", or ") : "run by hand";
 }
 
+/**
+ * @param {{ store?: any, helper?: any, catalogService?: any, inventory?: any, network?: any, notifications?: any, autoReconnect?: any, identity?: any,
+ *   registry?: typeof defaultRegistry, secretEnvNamesFor?: ((id: string) => Promise<string[]>) | null, collect?: typeof collectStorage, readTls?: typeof readTlsStatus,
+ *   webHost?: string, webPort?: number, tlsDir?: string, now?: () => Date, version?: string }} [options]
+ */
 export function createRunbookService({
   store, helper, catalogService, inventory = null, network = null, notifications = null, autoReconnect = null, identity = null,
   registry = defaultRegistry, secretEnvNamesFor = null, collect = collectStorage, readTls = readTlsStatus,

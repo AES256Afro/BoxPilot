@@ -7,7 +7,7 @@ description: "Minimal bookmark manager with tags, search, and browser extensions
 website: https://github.com/sissbruecker/linkding
 risk: low
 image:
-  reference: sissbruecker/linkding:1.46.2
+  reference: sissbruecker/linkding:1.46.2@sha256:0c0a9a04c7ebd644293c37f98710872fe7cdff0ea1ff7fd9be4d235e4c4678d2
   version: "1.46.2"
 ports:
   - id: web

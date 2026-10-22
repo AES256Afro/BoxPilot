@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Agents end to end (M37): the service, a real database, the real registry, the real runner loop
  * and a stand-in model. What the model was sent, what the helper was asked and what was kept are

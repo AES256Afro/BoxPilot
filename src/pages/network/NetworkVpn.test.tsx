@@ -67,7 +67,7 @@ describe("the Network page's VPN tab", () => {
     // Approved, and the job fails: the same again.
     fireEvent.click(within(sheet).getByRole("button", { name: "Save profile" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
     sheet = await screen.findByRole("dialog", { name: "Set up a VPN profile" });
     expect((within(sheet).getByLabelText(/WireGuard private key/) as HTMLInputElement).value).toBe("placeholder-key");
     expect((within(sheet).getByLabelText(/Preferred countries/) as HTMLInputElement).value).toBe("Netherlands");

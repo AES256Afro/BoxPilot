@@ -7,7 +7,7 @@ description: Scan, index, and archive paper documents. OCR makes every letter an
 website: https://docs.paperless-ngx.com
 risk: medium
 image:
-  reference: ghcr.io/paperless-ngx/paperless-ngx:3.0.5
+  reference: ghcr.io/paperless-ngx/paperless-ngx:3.0.5@sha256:65a4cabf0169ea7fbd90ab7bb28ba3f8b5909613635acda1a03ad606f34b456b
   version: 3.0.5
 ports:
   - id: web
@@ -62,7 +62,7 @@ env:
     description: Tesseract language code, for example eng or deu. Combine with a plus sign, deu+eng.
 sidecars:
   - id: broker
-    image: redis:8.8.2-alpine
+    image: redis:8.8.2-alpine@sha256:f4ded511357f7c60551133fbceb0d07874a2240bfe3d1baaa49769a70ff83465
     volumes:
       - id: redisdata
         container: /data

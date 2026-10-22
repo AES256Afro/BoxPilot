@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Budgets that follow the work (M48.6): a scheduled run that ran out of tokens, steps or time as the
  * one before it did raises that field to its template's, once, with a version note; the Usage tab is

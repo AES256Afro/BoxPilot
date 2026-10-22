@@ -66,9 +66,10 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
     }
   }, []);
   useEffect(() => { void read(); }, [read, refreshKey]);
-  // The live numbers every ten seconds while the tab is open: the runner reports them itself.
+  // The live numbers every ten seconds while the tab is open: the runner reports them itself. Not
+  // while it is hidden: a request renews the session, and a tab left open would keep it alive.
   useEffect(() => {
-    const timer = setInterval(() => { void agentsApi.usage().then(setUsage, () => undefined); }, 10_000);
+    const timer = setInterval(() => { if (document.visibilityState !== "hidden") void agentsApi.usage().then(setUsage, () => undefined); }, 10_000);
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {

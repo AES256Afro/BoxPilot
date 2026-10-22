@@ -14,6 +14,7 @@ import { fetchAuthStatus, forgetAccount, forgetSession, rememberSession, remembe
 import { useSessionEnded } from "./sessionEnd";
 import { connected, useConnection } from "./pwa/connection";
 import { OfflineBanner } from "./shell/OfflineBanner";
+import { SessionEndingBanner } from "./shell/SessionEndingBanner";
 import { DeepLinkApproval, approvalFromUrl, openMessageType, takeApprovalFromLocation } from "./shell/DeepLinkApproval";
 import { RefreshButton } from "./shell/RefreshButton";
 import { connectionLabel } from "./appLinks";
@@ -274,6 +275,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
         <main id="content" tabIndex={-1}>
           <div className={shell === "console" ? "content content--console" : "content content--wide"} data-density={shell === "console" ? lookChoice.density : undefined}>
             <OfflineBanner />
+            {!authStatus.offline && <SessionEndingBanner expiresAt={authStatus.expiresAt} />}
             {showGallery ? <Suspense fallback={<PageLoading name="the design system" />}><Gallery /></Suspense> : <>
               {!ownHeader.has(view) && <PageHeader title={copy.title} about={copy.description} />}
               {/* Keyed by the page, so the page left behind unmounts at once rather than waiting, hidden,

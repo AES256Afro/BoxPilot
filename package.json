@@ -1,6 +1,6 @@
 {
   "name": "boxpilot",
-  "version": "1.186.0",
+  "version": "1.214.0",
   "private": true,
   "description": "Point-and-click setup and management for an Ubuntu home server.",
   "type": "module",
@@ -20,7 +20,8 @@
     "check:shell": "node scripts/check-sources.mjs shell",
     "check:retention": "node --expose-gc --max-old-space-size=128 scripts/check-runtime-retention.mjs",
     "lint": "eslint server scripts packages eslint.config.mjs",
-    "check": "npm run build && npm run test && npm run check:syntax && npm run lint && npm run check:shell",
+    "check": "npm run build && npm run check:types && npm run test && npm run check:syntax && npm run lint && npm run check:shell",
+    "check:types": "tsc -p tsconfig.server.json",
     "check:syntax": "node scripts/check-sources.mjs syntax",
     "demo": "node scripts/boxpilot-demo.mjs",
     "demo:screenshots": "node scripts/demo-screenshots.mjs",

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * What an agent may read and say (sweep 1, 2026-10). docs.search and document.read read sources
  * the owner had switched off for every agent; a viewer asking the House Guide or the IT Support
