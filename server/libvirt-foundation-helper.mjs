@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstat, readFile, unlink, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
+import { unitFailureMessage } from "./unit-failure.mjs";
 
 const execFile = promisify(execFileCallback);
 const connectionUri = "qemu:///system";
@@ -14,6 +15,7 @@ const poolName = "default";
 const poolTarget = "/var/lib/libvirt/images";
 const defaultApprovalPath = "/run/boxpilot/libvirt-foundation-approval.json";
 const defaultSystemctlBinary = "/usr/bin/systemctl";
+const foundationUnit = "boxpilot-libvirt-foundation.service";
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const revisionPattern = /^[a-f0-9]{64}$/;
 
@@ -71,6 +73,22 @@ function canonicalPoolXml(xml) {
   return xmlAttribute(xml, "pool", "type") === "dir" && xmlText(xml, "path") === poolTarget;
 }
 
+/**
+ * Whether a `/proc/net/{udp,udp6,tcp,tcp6}` table has a socket bound to port 53 on every address: a
+ * local address of `00000000:0035` in the IPv4 tables, thirty-two zeros and `:0035` in the IPv6 ones.
+ * The state column tells a listener from a client: an unconnected UDP socket shows 07 (TCP_CLOSE), a
+ * TCP listener 0A (LISTEN).
+ */
+const wildcardDnsAddress = /^(?:0{8}|0{32}):0035$/i;
+const listeningState = Object.freeze({ udp: "07", tcp: "0A" });
+
+function hasWildcardDnsListener(table, state) {
+  return String(table ?? "").split("\n").some((line) => {
+    const columns = line.trim().split(/\s+/);
+    return wildcardDnsAddress.test(columns[1] ?? "") && (columns[3] ?? "").toUpperCase() === state;
+  });
+}
+
 function revisionOf(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -96,8 +114,13 @@ async function clearFile(filePath) {
 export function createLibvirtFoundationHelper({
   run = fixedRun,
   statFile = lstat,
+  // PID 1's tables: the helper runs under PrivateNetwork, so its own /proc/net shows an empty namespace.
   loadRoutes = () => readFile("/proc/1/net/route", "utf8"),
   loadDevices = () => readFile("/proc/1/net/dev", "utf8"),
+  loadUdpSockets = () => readFile("/proc/1/net/udp", "utf8"),
+  loadUdp6Sockets = () => readFile("/proc/1/net/udp6", "utf8"),
+  loadTcpSockets = () => readFile("/proc/1/net/tcp", "utf8"),
+  loadTcp6Sockets = () => readFile("/proc/1/net/tcp6", "utf8"),
   now = () => new Date(),
   approvalPath = defaultApprovalPath,
   systemctlBinary = defaultSystemctlBinary,
@@ -109,7 +132,7 @@ export function createLibvirtFoundationHelper({
   }
 
   async function inspect() {
-    const [uri, networkInfoResult, networkXmlResult, poolInfoResult, poolXmlResult, devices, routes, target] = await Promise.all([
+    const [uri, networkInfoResult, networkXmlResult, poolInfoResult, poolXmlResult, devices, routes, udp, udp6, tcp, tcp6, target] = await Promise.all([
       virsh(["uri"]),
       virsh(["net-info", networkName]),
       virsh(["net-dumpxml", "--inactive", networkName]),
@@ -117,6 +140,10 @@ export function createLibvirtFoundationHelper({
       virsh(["pool-dumpxml", "--inactive", poolName]),
       loadDevices().catch(() => ""),
       loadRoutes().catch(() => ""),
+      loadUdpSockets().catch(() => ""),
+      loadUdp6Sockets().catch(() => ""),
+      loadTcpSockets().catch(() => ""),
+      loadTcp6Sockets().catch(() => ""),
       safePathState(statFile, poolTarget),
     ]);
     const connectionReady = uri.ok && uri.stdout === connectionUri;
@@ -134,7 +161,11 @@ export function createLibvirtFoundationHelper({
       address: networkXmlResult.ok ? xmlAttribute(networkXmlResult.stdout, "ip", "address") : null,
       rangeStart: networkXmlResult.ok ? xmlAttribute(networkXmlResult.stdout, "range", "start") : null,
       rangeEnd: networkXmlResult.ok ? xmlAttribute(networkXmlResult.stdout, "range", "end") : null,
+      // libvirt's dnsmasq binds the gateway address on port 53 unless the definition says <dns enable='no'/>.
+      dnsEnabled: networkXmlResult.ok ? xmlAttribute(networkXmlResult.stdout, "dns", "enable") !== "no" : null,
     };
+    const dnsListenerOnEveryAddress = hasWildcardDnsListener(udp, listeningState.udp) || hasWildcardDnsListener(udp6, listeningState.udp)
+      || hasWildcardDnsListener(tcp, listeningState.tcp) || hasWildcardDnsListener(tcp6, listeningState.tcp);
     const pool = {
       name: poolName,
       exists: poolInfoResult.ok,
@@ -152,6 +183,11 @@ export function createLibvirtFoundationHelper({
     if (network.exists && !network.compatible) conflicts.push("A noncanonical libvirt resource already uses the default network name");
     if (!network.exists && String(devices).split("\n").some((line) => line.split(":", 1)[0].trim() === networkBridge)) conflicts.push("The virbr0 interface exists without the canonical default libvirt network");
     if (!network.exists && String(routes).split("\n").some((line) => line.trim().split(/\s+/)[1] === "007AA8C0")) conflicts.push("The fixed 192.168.122.0/24 subnet already has a host route");
+    // A DNS server in host network mode (Pi-hole with its listening mode "all") holds 0.0.0.0:53 and
+    // [::]:53, so `net-start default` fails with "failed to create listening socket for 192.168.122.1:
+    // Address already in use" after the plan was offered. An active network has already bound the port
+    // or done without it, and a definition with DNS off never needs it; otherwise the start would fail.
+    if (dnsListenerOnEveryAddress && !network.active && network.dnsEnabled !== false) conflicts.push("Another DNS server listens on every address on port 53, so the default network's dnsmasq cannot start; bind that server to one interface first");
     if (pool.exists && !pool.compatible) conflicts.push("A noncanonical libvirt resource already uses the default pool name");
     if (!pool.exists && target.exists && (!target.directory || target.symbolicLink || target.unreadable)) conflicts.push("The fixed libvirt image target is not a safe existing directory");
     const ready = connectionReady
@@ -171,6 +207,7 @@ export function createLibvirtFoundationHelper({
       network,
       pool,
       conflicts,
+      dnsListenerOnEveryAddress,
       planAvailable: connectionReady && !ready && conflicts.length === 0,
       changes: ready ? [] : [
         !network.exists ? "Define the fixed default NAT network" : null,
@@ -205,11 +242,20 @@ export function createLibvirtFoundationHelper({
     await writeApproval({ approvedAt: now().toISOString(), expectedRevision, foundationId });
     let start;
     try {
-      start = await run(systemctlBinary, ["start", "boxpilot-libvirt-foundation.service"], { timeout: 5 * 60 * 1000 });
+      start = await run(systemctlBinary, ["start", foundationUnit], { timeout: 5 * 60 * 1000 });
     } finally {
       await clearApproval();
     }
-    if (!start.ok) throw new Error("The fixed libvirt foundation service failed and requested automatic rollback");
+    if (!start.ok) {
+      // A non-zero start means the unit failed, not that the script failed: node dumping core in V8's
+      // setup under a sandbox directive, or a timeout, leaves no rollback to speak of.
+      throw new Error(await unitFailureMessage({
+        run, systemctlBinary, unit: foundationUnit,
+        subject: "The fixed libvirt foundation service",
+        fallback: "The fixed libvirt foundation service failed and requested automatic rollback",
+        unchanged: "no libvirt resource was changed",
+      }));
+    }
     const after = await inspect();
     if (!after.ready) throw new Error("The fixed libvirt foundation did not pass final readiness verification");
     return {
