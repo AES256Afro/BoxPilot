@@ -594,6 +594,8 @@ const freshRest = {
   "/backups": () => ({ backups: [] }),
   "/schedules": () => ({ schedules: [] }),
   "/network/plans": (body) => body,
+  // No tunnel and no public names yet (M42.2): the empty state, with nothing to point an alert at.
+  "/hosted-domains": (body) => ({ ...body, domains: [], manual: [], tunnel: { installed: false, running: false, status: null, since: null, connections: null, lastProblem: null, cloudflare: { connected: false, tunnelName: null } }, alertsTarget: false }),
   "/flows": (body) => ({ ...body, flows: [] }),
   "/people": (body) => ({ people: body.people.slice(0, 1) }),
   "/settings/backup-destination": () => ({ destination: null, lastSync: null }),
@@ -687,6 +689,40 @@ api.get("/network/tailnet", (_request, response) => json(response, { available: 
     { name: "pixel", dnsName: "pixel.tail0a1b.ts.net", address: "100.64.0.9", os: "android", online: false, lastSeen: ago(30), exitNode: false, subnetRoutes: [], direct: false, relay: "sfo", isSelf: false },
   ] }));
 api.get("/network/plans", (_request, response) => json(response, { plans: [] }));
+/**
+ * Hosted domains (M42.2): the public names this server answers for, each with its checks. Pingvin
+ * Share published through BoxPilot's tunnel and up; a space-news site routed by a hand-made
+ * cloudflared config and added by hand, up; BookStack found through its own address setting, with
+ * a certificate in its last fortnight. The trouble world stops the tunnel app, which takes the
+ * first two down; the fresh world has no tunnel and no names.
+ */
+const hostedDomain = (hostname, overrides = {}) => ({
+  hostname, url: `https://${hostname}`, sources: ["tunnel"], appId: "pingvin-share", appName: "Pingvin Share", service: "http://127.0.0.1:3022", label: null, manual: false, wildcard: false, expect: "cloudflare", expectedAddress: null,
+  state: "up", headline: "Up", advice: null, problems: [],
+  dns: { resolved: true, addresses: ["104.16.132.229", "104.16.133.229"], viaCloudflare: true, private: false, error: null },
+  certificate: { validTo: ago(-24 * 71), daysLeft: 71, issuer: "Google Trust Services", authorized: true, authorizationError: null },
+  outside: { outcome: "answered", status: 200, ms: 184, server: "cloudflare", error: null, skipped: null },
+  inside: { outcome: "answered", status: 200, ms: 6, error: null },
+  app: { installed: true, running: true },
+  backup: { state: "ok", newestAt: ago(27), scheduled: true, backups: 6 },
+  uptime: { day: 100, week: 99.9, checks: 672 },
+  checkedAt: ago(0.05),
+  ...overrides,
+});
+const hostedDomains = () => ({
+  domains: [
+    hostedDomain("share.example.com"),
+    hostedDomain("news.example.com", { sources: ["cloudflared-config", "manual"], appId: null, appName: null, service: "http://127.0.0.1:4321", label: "Space news site", manual: true, app: null, backup: null, outside: { outcome: "answered", status: 200, ms: 141, server: "cloudflare", error: null, skipped: null }, inside: { outcome: "answered", status: 200, ms: 3, error: null }, uptime: { day: 100, week: 100, checks: 190 } }),
+    hostedDomain("wiki.example.com", { sources: ["catalog"], appId: "bookstack", appName: "BookStack", service: "http://127.0.0.1:8120", state: "degraded", headline: "Certificate expires in 9 days", problems: ["certificate expires in 9 days"],
+      advice: `The certificate wiki.example.com shows ends on ${new Date(Date.now() + 9.5 * 86_400_000).toLocaleDateString("en-GB", { year: "numeric", month: "short", day: "numeric" })}. Cloudflare renews the one it serves on its own, usually inside the last two weeks; if the days keep falling, check the name is still proxied (orange cloud) in Cloudflare's DNS.`,
+      certificate: { validTo: ago(-24 * 9.5), daysLeft: 9, issuer: "Let's Encrypt", authorized: true, authorizationError: null }, backup: { state: "stale", newestAt: ago(24 * 20), scheduled: false, backups: 2 }, uptime: { day: 100, week: 99.4, checks: 672 } }),
+  ],
+  tunnel: { installed: true, running: true, status: "running", since: ago(31), connections: 4, lastProblem: null, cloudflare: { connected: true, tunnelName: `boxpilot-${host.hostname}` } },
+  checkedAt: ago(0.05), checking: false, nextCheckAt: ago(-0.2), intervalMinutes: 15, intervals: [5, 15, 30, 60],
+  manual: [{ hostname: "news.example.com", service: "http://127.0.0.1:4321", appId: null, label: "Space news site", expectedAddress: null, addedAt: ago(48) }],
+  alertsTarget: true, problem: null,
+});
+api.get("/hosted-domains", (_request, response) => json(response, hostedDomains()));
 api.get("/jobs", (_request, response) => json(response, { jobs }));
 api.post("/flows/:id/webhook", (request, response) => json(response, { token: "demo-token-shown-once", path: `/api/v1/hooks/flows/${request.params.id}/demo-token-shown-once` }));
 api.delete("/flows/:id/webhook", (_request, response) => response.status(204).end());
@@ -1226,6 +1262,17 @@ const troubleJobs = [
   refusedRemount,
 ];
 const troubleRest = {
+  // The Cloudflare Tunnel app is stopped (M42.2): Cloudflare answers 530 for the two names behind it,
+  // and the page says what to start; BookStack's certificate trouble is the same as in the default world.
+  "/hosted-domains": (body) => ({
+    ...body,
+    tunnel: { ...body.tunnel, running: false, status: "exited", since: null, connections: null, lastProblem: null },
+    domains: body.domains.map((domain) => (domain.state !== "up" ? domain : {
+      ...domain, state: "down", headline: "Cloudflare cannot reach this server (HTTP 530)", problems: ["Cloudflare cannot reach this server (HTTP 530)", "the tunnel app is not running"],
+      advice: `Cloudflare answered for ${domain.hostname} with HTTP 530, which means it could not get an answer from this server. The Cloudflare Tunnel app is not running on this server, so Cloudflare has nowhere to send visitors. Start it from its Overview tab in the App catalog.`,
+      outside: { outcome: "answered", status: 530, ms: 88, server: "cloudflare", error: null, skipped: null }, uptime: { day: 91.7, week: 98.8, checks: domain.uptime.checks },
+    })),
+  }),
   "/jobs": (body) => ({ jobs: [...troubleJobs, ...body.jobs.map((job, index) => (index === 0
     ? { ...job, state: "failed", error: "rsync: connection unexpectedly closed by nas.local" }
     : index === 1 ? backupNotice(job) : job))] }),

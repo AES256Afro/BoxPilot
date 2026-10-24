@@ -45,6 +45,7 @@ const Ops = lazy(() => import("./home/Ops"));
 const TodayPage = lazy(() => import("./pages/today/TodayPage"));
 const SetupPage = lazy(() => import("./pages/setup/SetupPage"));
 const NetworkPage = lazy(() => import("./pages/network/NetworkPage"));
+const HostedPage = lazy(() => import("./pages/hosted/HostedPage"));
 const RepairCenter = lazy(() => import("./RepairCenter"));
 const LogsPage = lazy(() => import("./pages/logs/LogsPage"));
 const UpdatesPage = lazy(() => import("./pages/updates/UpdatesPage"));
@@ -69,7 +70,7 @@ const Settings = lazy(() => import("./pages/settings/SettingsPage"));
  * page its verdict and facts; since M33.14 that is all of them. A page not listed would get a
  * plain one from the shell, its name in the bar and what it is for behind the info toggle.
  */
-const ownHeader = new Set<ViewName>(["home", "ops", "today", "services", "logs", "repairs", "network", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance", "agents"]);
+const ownHeader = new Set<ViewName>(["home", "ops", "today", "services", "logs", "repairs", "network", "hosted", "firewall", "users", "github", "settings", "virtualization", "system", "setup", "storage", "backups", "updates", "catalog", "automations", "performance", "agents"]);
 
 /**
  * Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup
@@ -226,6 +227,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "firewall") return <FirewallPage csrfToken={csrfToken} role={role} />;
     if (view === "storage") return <StoragePage csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "network") return <NetworkPage csrfToken={csrfToken} role={role} />;
+    if (view === "hosted") return <HostedPage csrfToken={csrfToken} role={role} />;
     if (view === "repairs") return <RepairCenter csrfToken={csrfToken} role={role} onNavigate={setView} />;
     if (view === "virtualization") return <VmsPage csrfToken={csrfToken} role={role} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupsPage csrfToken={csrfToken} role={role} onNavigate={setView} />;

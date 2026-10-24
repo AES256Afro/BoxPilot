@@ -43,6 +43,9 @@ volumes:
     configurable: true
     backup: false
     description: Drop folder for bank CSV exports and paystub PDFs (a paystubs subfolder). Share it over SMB from Storage and a file copied in is imported; what is imported is kept in the data folder, which is backed up, so this folder isn't.
+# The setting that holds the app's public address, so Hosted domains watches it once it is set.
+publicHostname:
+  env: FA_PUBLIC_URL
 env:
   - name: FA_USERNAME
     label: Owner username

@@ -20,6 +20,9 @@ volumes:
     label: Configuration and uploads
     container: /config
     path: config
+# The setting that holds the app's public address, so Hosted domains watches it once it is set.
+publicHostname:
+  env: APP_URL
 env:
   - name: PUID
     default: "1000"

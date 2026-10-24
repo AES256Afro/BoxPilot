@@ -18,7 +18,7 @@ import "./sidebar.css";
 
 const groups: Array<{ title: string; areas: Array<{ id: ViewName; short?: string }> }> = [
   { title: "Overview", areas: [{ id: "home" }, { id: "ops" }, { id: "today" }] },
-  { title: "Manage", areas: [{ id: "catalog", short: "Apps" }, { id: "storage" }, { id: "network" }, { id: "firewall" }, { id: "backups" }, { id: "virtualization", short: "VMs" }] },
+  { title: "Manage", areas: [{ id: "catalog", short: "Apps" }, { id: "storage" }, { id: "network" }, { id: "hosted", short: "Domains" }, { id: "firewall" }, { id: "backups" }, { id: "virtualization", short: "VMs" }] },
   { title: "Keep it running", areas: [{ id: "updates", short: "Updates" }, { id: "repairs", short: "Repair" }, { id: "logs" }, { id: "services" }, { id: "system" }, { id: "performance", short: "Metrics" }] },
   { title: "More", areas: [{ id: "automations", short: "Automations" }, { id: "agents" }, { id: "users", short: "Users & SSH" }, { id: "github" }] },
 ];
