@@ -21,7 +21,7 @@ describe("cloud destination model", () => {
     expect(b2).toEqual({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox" });
     expect(cloudTarget(b2)).toBe("boxpilot:home-backups/homebox");
     expect(cloudTarget(normalizeCloudDestination({ provider: "drive" }))).toBe("boxpilot:boxpilot");
-    expect(renderRcloneConfig(b2, { key: "K" })).toBe("# Managed by BoxPilot\n[boxpilot]\ntype = b2\naccount = 0012abc\nkey = K\n");
+    expect(renderRcloneConfig(b2, { key: "K" })).toBe("# Managed by BoxPilot\n[boxpilot]\ntype = b2\naccount = 0012abc\nkey = K\nno_check_bucket = true\n");
     expect(renderRcloneConfig(normalizeCloudDestination({ provider: "s3", bucket: "bkt", endpoint: "https://s3.wasabisys.com", accessKeyId: "AK" }), { secretAccessKey: "SK" })).toContain("provider = Other\naccess_key_id = AK\nsecret_access_key = SK\nendpoint = https://s3.wasabisys.com");
     expect(renderRcloneConfig(normalizeCloudDestination({ provider: "dropbox", path: "backups" }), { token: "{\"access_token\":\"x\"}" })).toContain("type = dropbox\ntoken = {\"access_token\":\"x\"}");
     expect(parseRcloneStats("Transferred:   \t  12.345 MiB / 12.345 MiB, 100%, 1.2 MiB/s, ETA 0s\nErrors:                 0\nChecks:                 3 / 3, 100%\nTransferred:            2 / 2, 100%\n")).toEqual({ filesTransferred: 2, filesTotal: 2, bytesTransferred: "12.345 MiB", errors: 0 });
@@ -44,6 +44,23 @@ describe("cloud backup tasks", () => {
     await backupCloudSetup({ provider: "webdav", url: "https://cloud.example.com/remote.php/dav/files/me/", user: "me", password: "p w", path: "boxpilot" }, { run: obscure, secretsDirectory, rclone: "/" });
     expect(await readFile(configPath(secretsDirectory), "utf8")).toContain("pass = obscured(p w)");
     await expect(backupCloudSetup({ provider: "b2", account: "a", bucket: "bkt", key: "k" }, { run, secretsDirectory, rclone: "/nonexistent/rclone" })).rejects.toThrow("rclone is not installed");
+  });
+
+  // Linux only: POSIX file modes on the written config.
+  it.skipIf(onWindows)("tells rclone not to check or create the bucket, so a key scoped to one bucket works", async () => {
+    // A Cloudflare R2 token with Object Read & Write failed the destination test with 403
+    // AccessDenied on `rclone mkdir`, while `lsf` of the same bucket with the same keys listed it:
+    // rclone was checking the bucket existed and creating it when it thought otherwise, and neither
+    // is a call an object-scoped key may make. The owner makes the bucket; this only copies into it.
+    const secretsDirectory = await secretsDir();
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await backupCloudSetup({ provider: "s3", endpoint: "https://account.r2.cloudflarestorage.com", bucket: "bigbox-backups", path: "boxpilot", accessKeyId: "AK", secretAccessKey: "SK" }, { run, secretsDirectory, rclone: "/" });
+    const s3Config = await readFile(configPath(secretsDirectory), "utf8");
+    expect(s3Config).toContain("no_check_bucket = true");
+    expect(s3Config).toContain("provider = Other");   // an endpoint means an S3 service, not AWS
+    expect(s3Config).toContain("acl = private");
+    await backupCloudSetup({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox", key: "K123" }, { run, secretsDirectory, rclone: "/" });
+    expect(await readFile(configPath(secretsDirectory), "utf8")).toContain("no_check_bucket = true");
   });
 
   it("tests the destination by creating and listing the folder, and mirrors with rclone copy", async () => {
