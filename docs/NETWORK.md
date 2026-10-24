@@ -103,6 +103,22 @@ Things to know:
 - The token and the tunnel's key are kept in BoxPilot's root-only credential store and never shown
   again; what BoxPilot published is recorded in `/var/lib/boxpilot-managed/cloudflare-tunnel.json`.
 
+## Watching what is published
+
+The **Hosted domains** page lists every public name this server answers for and checks each one on
+the cadence you set there (5 to 60 minutes): whether the name resolves and points at Cloudflare,
+the certificate it shows and when it ends, whether it answers from the internet's side (through
+Cloudflare and back down the tunnel) and from inside this server, whether the Cloudflare Tunnel app
+is up and connected, and how the app behind it is backed up. BoxPilot finds the names it published
+itself, the ingress rules of a cloudflared config at `/etc/cloudflared/config.yml` or in the
+Cloudflare Tunnel app's folder, Nginx Proxy Manager's sites, and installed apps whose settings hold
+their public address. Anything else is added by hand on the page, with the loopback address the
+tunnel sends visitors to, so BoxPilot can ask the app directly as well.
+
+A name down on two checks running (one, at the half-hour and hourly cadences), or a certificate
+inside its last fourteen days, is one alert through your notification target and one "resolved"
+when it passes. A name that resolves to an address inside your network is reported and not probed.
+
 ## Wake-on-LAN
 
 Each device in the neighbour list has a **Wake** button, which sends a magic packet. The device

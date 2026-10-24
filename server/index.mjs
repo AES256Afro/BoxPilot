@@ -33,6 +33,8 @@ import { createPushRouter } from "./routes/push.mjs";
 import { createPushApprovals, defaultMayApprove } from "./push-approvals.mjs";
 import { loadVapidKey } from "./web-push.mjs";
 import { createHostRouter } from "./routes/host.mjs";
+import { createHostedDomainsRouter } from "./routes/hosted-domains.mjs";
+import { createHostedDomainsService } from "./hosted-domains.mjs";
 import { createFirewallRouter } from "./routes/firewall.mjs";
 import { createStorageRouter } from "./routes/storage.mjs";
 import { createPowerRouter } from "./routes/power.mjs";
@@ -260,6 +262,9 @@ const jobs = createJobService(state, helper, {
     "agents.cloud.disconnect": (job) => { agentsCloud.disconnected({ actorId: job.createdBy }); },
     // M39.2: whether the router kept answering with the DNS app here stopped. The DNS check reads it
     // (a job is pruned within weeks; the verdict holds for ninety days).
+    // M42.2: a name published or unpublished through the tunnel is checked at the next tick.
+    "cloudflare.publish": () => hostedDomains.forget(),
+    "cloudflare.unpublish": () => hostedDomains.forget(),
     "dns.fallback.rehearse": (job, result) => {
       state.setSetting(rehearsalSetting, { router: result.router, app: result.app ?? null, appName: result.appName ?? null, passed: typeof result.passed === "boolean" ? result.passed : null, answered: result.answered, total: result.total, slowestMs: result.slowestMs ?? null, stoppedForMs: result.stoppedForMs ?? null, at: result.at ?? new Date().toISOString(), by: job.createdBy }, { updatedBy: job.createdBy });
       dnsResilience.forget();
@@ -379,6 +384,11 @@ const pushApprovals = createPushApprovals({
 pushApprovals.start();
 const setup = createSetupService({ helper, scheduler, installRisk: installRiskLookup(catalogService) });
 createUpdateNotifier({ releaseUpdates, notifications, alerts: healthAlerts, store: state }).start();
+// Every public name this server answers for (M42.2), checked on the owner's cadence: the tunnel's
+// routes, hand-made configs, apps that say their address, and names typed in. Pushes once when a
+// name is down and once when a certificate is in its last fortnight, through the same ledger.
+const hostedDomains = createHostedDomainsService({ store: state, helper, catalog: catalogService, alerts: healthAlerts, notifications });
+hostedDomains.start();
 // The weekly self-report (M30.4). "Not covered yet" asks what the Overview's checklist asks, plus
 // which apps with data worth keeping have no backup schedule; either may fail, and is then left out.
 const weeklyReport = createWeeklyReport({
@@ -557,6 +567,7 @@ app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
 app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network, storage: storageRead }));
+app.use("/api/v1", createHostedDomainsRouter({ hostedDomains, auth }));
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, dnsResilience, notifications, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));
 app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
 // The runbook for this server (M34.4), from the same services the pages read.

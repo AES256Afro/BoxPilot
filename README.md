@@ -46,6 +46,7 @@ When a new release is out, BoxPilot says so. Installing it takes one click and y
 | **Apps** | The catalog: search, install, set up, update, back up, restore, remove. |
 | **Storage** | Disks and partitions, grow the system drive into free space, snapshots to roll back a bad update, mount drives and network shares so they come back after a reboot, share folders with other computers. |
 | **Network** | Your router, DNS, the devices on your network (with wake-up), Tailscale, and a VPN to send chosen apps through. Checks whether your whole network loses the internet when this server is off, and gives the router steps to fix that. |
+| **Hosted domains** | Every public name this server answers for, through the Cloudflare tunnel or a proxy: does it resolve, does it answer from the internet and from inside, is the certificate good, is the tunnel up, is the app behind it backed up. Checked on a schedule you set; a name that goes down, or a certificate near its end, reaches your phone. |
 | **Firewall** | Choose who can reach what. Suggestions come from what is actually listening. Ban addresses that keep failing to log in. SSH, Tailscale and BoxPilot itself can never be blocked. |
 | **Backups** | Tested backups of every app and of BoxPilot, encrypted copies kept off the server, a snapshot of the whole machine to rebuild it from, and copies to a drive, another computer, or cloud storage (Backblaze B2, S3, WebDAV, Google Drive, OneDrive, Dropbox). |
 | **VMs** | Virtual machines from ready-made cloud images or your own ISO: start, stop, snapshot, encrypted backups with restore tests. |
@@ -341,6 +342,7 @@ Each app is a short description file plus a Docker Compose template, so installi
 - **Drive health**: every six hours, each drive's own health report (SMART) and file-system errors are read, so a failing drive shows up before it fails.
 - **Backups and restore tests** on the schedules you set, each recorded as a job.
 - **Alerts** through ntfy, Gotify, a webhook, or your phone's notifications: failed jobs, full disks, drive warnings, power cuts. A weekly report sums up the week.
+- **Hosted domains**: every few minutes (you choose how many), each public name this server serves is looked up, asked for a page from the internet's side and from inside, and its certificate read. A name down twice running, or a certificate inside its last two weeks, is one alert.
 - **Heartbeat** (off until you turn it on): every five minutes the server checks in with a service you choose, such as healthchecks.io. When the check-ins stop, because the power is out or the server crashed, that service alerts your phone. An alert sent from the server itself cannot do this.
 - **After a power cut**: a few minutes after the server comes back from losing power, it checks that devices on your network can look up names again, and that the server itself can.
 - **Agents** (off until you turn them on): the digest and checks you schedule, at idle priority.

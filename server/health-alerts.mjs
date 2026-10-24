@@ -47,6 +47,9 @@ function reportedConditions() {
     // M30.1: one condition for the server, not one per job. The helper writes every job's log, so
     // when BoxPilot cannot open one it is usually every one (the umask of M27.4).
     "joblog.unreadable": "BoxPilot could not read a job's output",
+    // M42.2: raised and cleared by the hosted-domains checks, once per name.
+    "hosted.down": "A hosted domain is down",
+    "hosted.cert": "A hosted domain's certificate expires soon",
   };
 }
 const reportedFamilies = new Set(Object.keys(reportedConditions()));
