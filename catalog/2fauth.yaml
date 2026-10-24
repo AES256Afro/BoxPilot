@@ -20,6 +20,9 @@ volumes:
     label: Database and settings
     container: /2fauth
     path: data
+# The setting that holds the app's public address, so Hosted domains watches it once it is set.
+publicHostname:
+  env: APP_URL
 env:
   - name: APP_KEY
     label: App key
