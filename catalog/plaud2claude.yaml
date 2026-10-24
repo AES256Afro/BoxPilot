@@ -9,8 +9,8 @@ risk: low
 # It holds a Plaud sign-in and a Claude trigger token, so it starts on the tailnet only.
 defaultExposure: tailnet
 image:
-  reference: ghcr.io/aes256afro/plaud2claude:0.3.0@sha256:73ec2d6230a7fc3043b911fce82b2fa99c671070c4ae15fa88fef5df078ce647
-  version: "0.3.0"
+  reference: ghcr.io/aes256afro/plaud2claude:0.4.0@sha256:232e887e9952215a060c45fbd43e22bacad174d8932612e0d2da3478f966fc84
+  version: "0.4.0"
 user: "1000:1000"
 ports:
   - id: web

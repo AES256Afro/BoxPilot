@@ -29,6 +29,8 @@ export const operationRisk = {
   "app.backup.verify": "medium",
   "app.compose.edit": "high",
   "app.exposure.set": "medium",
+  "app.financialauthority.backups.check": "low",
+  "app.financialauthority.restorepoint.make": "low",
   "app.install": "medium",
   "app.model.pull": "medium",
   "app.model.remove": "medium",
