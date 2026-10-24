@@ -49,6 +49,26 @@ export { backupNamePattern, checkpointCeilingMs } from "./app-backups.mjs";
 export const updateHistoryLimit = 10;
 
 /**
+ * The end of a container's log, led by the line that says what went wrong. A traceback ends in the
+ * sentence that matters and a plain tail cuts mid-frame: a failed start read `alzone _cache_tz =
+ * _get_localzone()` where `ZoneInfoNotFoundError: ... American/Chicago` was the point, and the step
+ * that reported it was truncated before the exception. The last line that is not a stack frame or a
+ * caret leads; the tail follows for context.
+ */
+export function logTail(text, limit = 600) {
+  const cleaned = String(text ?? "").trim();
+  if (!cleaned) return "Last log lines: (none)";
+  const tail = cleaned.slice(-limit);
+  const frame = /^(File ".*", line \d+|at [\w.<>$[]|[\^~]+$|\.{3}$|Traceback )/;
+  const lines = cleaned.split("\n").map((line) => line.trim()).filter(Boolean);
+  // Only a stack trace is reordered. An ordinary log already ends in whatever it has to say, and
+  // repeating its last line in front of itself would be noise.
+  if (!lines.some((line) => frame.test(line))) return `Last log lines: ${tail}`;
+  const summary = [...lines].reverse().find((line) => !frame.test(line));
+  return summary && !tail.trimStart().startsWith(summary) ? `${summary} Last log lines: ${tail}` : `Last log lines: ${tail}`;
+}
+
+/**
  * Canonicalise a path for the deny-list check even when its leaf does not exist yet: resolve every
  * symlink in the longest existing prefix, then re-attach the not-yet-created tail. Without this a
  * symlink anywhere along the path (`/srv/app/x -> /etc`) would let a root-side mkdir or chown be
@@ -266,11 +286,11 @@ export function createAppHelper({
         if (!helper.exists) continue;
         if (helper.running && helper.status === "restarting" && helper.restarts >= 2) {
           const logs = await docker(["logs", "--tail", "20", projectNameFor(`${manifest.id}-${sidecar.id}`)], { timeout: 10_000 });
-          throw new Error(`The ${sidecar.id} container keeps restarting (${helper.restarts} times). Last log lines: ${redact(`${logs.stdout}\n${logs.stderr}`.trim()).slice(-600)}`);
+          throw new Error(`The ${sidecar.id} container keeps restarting (${helper.restarts} times). ${logTail(redact(`${logs.stdout}\n${logs.stderr}`))}`);
         }
         if (["exited", "dead"].includes(helper.status)) {
           const logs = await docker(["logs", "--tail", "20", projectNameFor(`${manifest.id}-${sidecar.id}`)], { timeout: 10_000 });
-          throw new Error(`The ${sidecar.id} container exited. Last log lines: ${redact(`${logs.stdout}\n${logs.stderr}`.trim()).slice(-600)}`);
+          throw new Error(`The ${sidecar.id} container exited. ${logTail(redact(`${logs.stdout}\n${logs.stderr}`))}`);
         }
         if (!helper.running || helper.status === "restarting") sidecarsSettled = false;
       }
@@ -285,7 +305,7 @@ export function createAppHelper({
         stableSince = null;
         if (status.restarts >= 2) {
           const logs = await docker(["logs", "--tail", "20", projectNameFor(manifest.id)], { timeout: 10_000 });
-          throw new Error(`Container keeps restarting (${status.restarts} times). Last log lines: ${redact(`${logs.stdout}\n${logs.stderr}`.trim()).slice(-600)}`);
+          throw new Error(`Container keeps restarting (${status.restarts} times). ${logTail(redact(`${logs.stdout}\n${logs.stderr}`))}`);
         }
       } else if (status.running) {
         if (manifest.health.kind === "healthcheck") {
@@ -301,7 +321,7 @@ export function createAppHelper({
         stableSince = null;
         if (status.exists && ["exited", "dead"].includes(status.status)) {
           const logs = await docker(["logs", "--tail", "20", projectNameFor(manifest.id)], { timeout: 10_000 });
-          throw new Error(`Container exited (code ${status.exitCode ?? "?"}). Last log lines: ${redact(`${logs.stdout}\n${logs.stderr}`.trim()).slice(-600)}`);
+          throw new Error(`Container exited (code ${status.exitCode ?? "?"}). ${logTail(redact(`${logs.stdout}\n${logs.stderr}`))}`);
         }
       }
       await wait(2000);
@@ -680,7 +700,14 @@ export function createAppHelper({
         const groupIds = await docker(["run", "--rm", "--entrypoint", "id", reference, "-g"], { timeout: 60_000 }).catch(() => ({ ok: false, stdout: "" }));
         const uid = Number.parseInt(ids.ok ? ids.stdout.trim() : "", 10);
         const gid = Number.parseInt(groupIds.ok ? groupIds.stdout.trim() : "", 10);
-        if (Number.isInteger(uid) && uid !== 0) resolved = { uid, gid: Number.isInteger(gid) ? gid : uid };
+        // The image could not be asked: the probe failed, or the pull before it did. That is not an
+        // answer and must not be cached as one. It was: a single failed probe left every later
+        // deploy of that image taking the cache hit at the top of this function, so its data folders
+        // stayed root-owned and the container crash-looped on its first mkdir -- four installs in a
+        // row, cleared only by restarting the helper. update and rollback drop the entry before they
+        // pull; install and reconfigure never do.
+        if (!Number.isInteger(uid)) return null;
+        if (uid !== 0) resolved = { uid, gid: Number.isInteger(gid) ? gid : uid };
       }
     }
     declaredOwnerCache.set(reference, resolved);
@@ -1018,6 +1045,16 @@ export function createAppHelper({
     if (!probe.ok) throw new Error("Docker Engine is not available; install it from Repair Center first");
     let directoryExisted = true;
     try { await stat(dirFor(id)); } catch { directoryExisted = false; }
+    // Pull before the project is written, not after. writeProject hands each data folder to the user
+    // the image runs as, and an image whose only statement of identity is its own `USER app` can be
+    // asked for that number only once it is here -- `up` downloads a step too late. The resolver
+    // carries its own pull for this, but then an 860 MB download sits inside a function whose job is
+    // to read one value, and its failure is silent. Failures stay with `up`, which reports them
+    // properly; this is only so the ownership can be worked out.
+    progress?.(`Downloading the images for ${manifest.name}`, "stdout");
+    for (const reference of [manifest.image.reference, ...(manifest.sidecars ?? []).map((sidecar) => sidecar.image)]) {
+      await docker(["pull", reference], { timeout: scaled(15 * 60_000, timeScale) }).catch(() => null);
+    }
     progress?.(`Writing compose project for ${manifest.name} (${manifest.image.reference})`, "stdout");
     const rendered = await writeProject(manifest, values, { existingEnv: await readEnv(id), devices });
     // Before anything is pulled or started: a port something else holds would fail `up` after the
