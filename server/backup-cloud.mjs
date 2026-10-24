@@ -52,13 +52,19 @@ export function normalizeCloudDestination(value) {
 
 /** The rclone remote section for a destination plus its secrets. Pure. */
 export function renderRcloneConfig(destination, secrets = {}) {
+  // The owner makes the bucket; BoxPilot only copies into it. Without this rclone checks the bucket
+  // exists before writing and creates it when it thinks it does not, and both are bucket-level calls
+  // that a key scoped to one bucket may not make -- which is the scoping the help text here asks
+  // for. A Cloudflare R2 token with Object Read & Write failed `rclone mkdir` with 403 AccessDenied
+  // while `lsf` of the same bucket with the same keys listed it, and the same mkdir passed with the
+  // check off. Nothing here wants a bucket created for it.
   const lines = ["# Managed by BoxPilot", "[boxpilot]"];
   switch (destination.provider) {
     case "b2":
-      lines.push("type = b2", `account = ${destination.account}`, `key = ${secrets.key ?? ""}`);
+      lines.push("type = b2", `account = ${destination.account}`, `key = ${secrets.key ?? ""}`, "no_check_bucket = true");
       break;
     case "s3":
-      lines.push("type = s3", `provider = ${destination.endpoint ? "Other" : "AWS"}`, `access_key_id = ${destination.accessKeyId}`, `secret_access_key = ${secrets.secretAccessKey ?? ""}`, ...(destination.endpoint ? [`endpoint = ${destination.endpoint}`] : []), ...(destination.region ? [`region = ${destination.region}`] : []), "acl = private");
+      lines.push("type = s3", `provider = ${destination.endpoint ? "Other" : "AWS"}`, `access_key_id = ${destination.accessKeyId}`, `secret_access_key = ${secrets.secretAccessKey ?? ""}`, ...(destination.endpoint ? [`endpoint = ${destination.endpoint}`] : []), ...(destination.region ? [`region = ${destination.region}`] : []), "acl = private", "no_check_bucket = true");
       break;
     case "webdav":
       lines.push("type = webdav", `url = ${destination.url}`, "vendor = other", `user = ${destination.user}`, `pass = ${secrets.passwordObscured ?? ""}`);
