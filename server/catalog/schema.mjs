@@ -66,6 +66,24 @@ export const networkModeChoices = Object.freeze(["bridge", "host"]);
 export const portTailnetModes = Object.freeze(["serve", "address", "unchanged"]);
 export const healthKinds = Object.freeze(["running", "healthcheck"]);
 export const envTypes = Object.freeze(["string", "password", "number", "boolean", "timezone", "path"]);
+
+/**
+ * A real time zone, not merely a string shaped like one. The pattern alone accepted
+ * `American/Chicago`, which looks exactly like Region/City: the app took it, crashed on every start,
+ * and the settings change rolled back after a 90 MB checkpoint and five restarts to learn what the
+ * formatter answers for free. The shape check stays first, so nothing wild reaches ICU, and the
+ * formatter is the authority rather than `Intl.supportedValuesOf`, which omits the `Etc/UTC` the
+ * catalog itself defaults to.
+ */
+export function isKnownTimeZone(value) {
+  if (typeof value !== "string" || !/^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+){0,2}$/.test(value)) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
 /**
  * Where a setting's choices come from when they are not fixed in the manifest. "ollama-models":
  * the models downloaded in this server's installed model runners (apps with `modelRunner`), read
@@ -545,7 +563,7 @@ export function resolveValues(manifest, raw = {}) {
     if (value.length > 512 || /[\0\r\n]/.test(value)) { fail(errors, `values.env.${entry.name}`, "is too long or contains line breaks"); continue; }
     if (entry.type === "number" && !/^-?\d+(\.\d+)?$/.test(value)) { fail(errors, `values.env.${entry.name}`, "must be a number"); continue; }
     if (entry.type === "boolean" && !["true", "false"].includes(value)) { fail(errors, `values.env.${entry.name}`, "must be true or false"); continue; }
-    if (entry.type === "timezone" && !/^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+){0,2}$/.test(value)) { fail(errors, `values.env.${entry.name}`, "must look like Region/City"); continue; }
+    if (entry.type === "timezone" && !isKnownTimeZone(value)) { fail(errors, `values.env.${entry.name}`, "must be a time zone this server knows, in Region/City form"); continue; }
     if (entry.type === "path" && !/^\/[^\0]*$/.test(value)) { fail(errors, `values.env.${entry.name}`, "must be an absolute path"); continue; }
     if (entry.options && !entry.options.includes(value)) { fail(errors, `values.env.${entry.name}`, `must be one of ${entry.options.join(", ")}`); continue; }
     // A secret is stored single-quoted in the app's .env, where a closing backslash would escape
