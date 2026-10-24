@@ -1322,3 +1322,76 @@ sign-in with a captured device cookie.
   the notice stays up.
 - Going back to a BoxPilot release from before this one leaves Serve pointing at a socket nothing
   listens on: run `sudo tailscale serve --bg http://127.0.0.1:<port>` first.
+
+## ADR-018: an app's backups deduplicate against each other instead of a full archive a night
+
+**Date:** 2026-10-24 · **Status:** Proposed (needs the owner's decision)
+
+### Context
+
+An application backup is `tar -czf <timestamp>.tar.gz` over the app's project directory, one whole
+copy per run. Nightly backups take one, every checkpoint before an update or a settings change takes
+another, and housekeeping keeps the newest three of each kind per app.
+
+Measured on a live server on 2026-10-24, 23 apps with data:
+
+```
+ 7.8G  10  baselinewatch      3.6G   5  plex              21.6M  5  qbittorrent
+ 3.9G   5  open-webui       857.6M   5  pi-hole            6.6M  5  vaultwarden
+                                                          48.4M     boxpilot's own
+```
+
+16.5 GB in all; the eighteen other apps hold 12 KB to 216 KB each. Five apps are 99% of it, and
+BoxPilot's own database backups — the part needed to rebuild the server — are 48 MB.
+
+BaselineWatch is the clearest case, and it is not the app being wasteful. Its data folder is 1.6 GB:
+a 177 MB SQLite index and a 1.4 GB `blobs/` tree, sharded `00`–`ff` by hash. All 4,536 files in it
+were hashed: **4,536 distinct digests, no duplicates**. It is a content-addressed store, written
+once and appended to, holding the standards corpora themselves so a diff against last year can be
+shown. Ten archives of it held roughly 12 GB to represent 1.4 GB of distinct bytes, re-read and
+re-compressed every night. Plex and open-webui have the same shape: large, mostly immutable.
+
+This reaches the owner's bill as well as their disk. `backup.cloud.sync` copies and never deletes at
+the destination. At about 2.9 GB of new archives a night, an off-box copy grows by roughly 86 GB a
+month, nearly all of it bytes already there; on R2's $0.015/GB-month that is around $15/month by the
+twelfth month and still climbing, for data that deduplicates to a fraction of it.
+
+restic is already a prerequisite (`prerequisite.restic.install`), already how controller backups are
+taken, and the catalog says so in Backrest's own description.
+
+### Proposal
+
+1. **An app's backups become a restic repository**, one snapshot per run, instead of a tarball per
+   run. Identical blobs are stored once however many snapshots reference them.
+2. **Retention becomes `restic forget --keep-last` plus a prune**, replacing housekeeping's
+   count-the-files rule, with checkpoints kept under their own policy as they are now.
+3. **`app.backup.verify` becomes `restic check`**, with `--read-data-subset` for a sampled read of
+   the packs rather than unpacking an archive to see whether it unpacks.
+4. **`app.backup.restore-path` restores one path** from a snapshot instead of extracting it from a
+   1.2 GB tarball.
+5. **Restores keep reading tarballs** for at least one major version: every archive already on disk,
+   and every copy an owner has taken off the server, stays restorable.
+
+### Consequences
+
+- Ten BaselineWatch snapshots cost about 1.4 GB plus each night's new blobs, not 12 GB. The same
+  applies to Plex and open-webui, which is most of the 16.5 GB.
+- Off-box growth falls to roughly the rate of genuinely new bytes, so the cloud bill stops
+  compounding. The owner's lifecycle rule stops being the only thing standing between them and it.
+- A restore gains single-file recovery without unpacking a whole archive.
+- **A repository is a shared failure mode.** A corrupt tarball costs one night; a corrupt repository
+  can cost every snapshot in it. `restic check` on a schedule is the mitigation, and the newest
+  backup of each app should stay a plain tarball so there is always one copy that needs nothing but
+  `tar`.
+- **restic encrypts, and a lost key loses every snapshot.** Today an app archive is readable with
+  `tar` alone, on any machine, with no BoxPilot and no key. That is a real property, and this trades
+  it for deduplication. The key would have to live beside the other secrets in `/etc/boxpilot/secrets`
+  and be part of the recovery kit, or the trade is a bad one.
+- Existing archives are not migrated. The repository starts empty and the old files age out under
+  the rule they have now.
+
+### Decision needed
+
+Accept 1–5, or accept it only for apps whose data passes a size threshold (the eighteen small apps
+gain nothing and would carry the key risk for no reason), or keep tarballs and answer only the
+off-box growth with a lifecycle rule at the destination.
