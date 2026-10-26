@@ -7,7 +7,7 @@ description: "Collaborative Markdown editing in real time: shared meeting notes 
 website: https://hedgedoc.org
 risk: low
 image:
-  reference: quay.io/hedgedoc/hedgedoc:1.11.1
+  reference: quay.io/hedgedoc/hedgedoc:1.11.1@sha256:7b3f79667ad58c6419758547f10940638bcdc85ebee2a4e650318a704095975b
   version: "1.11.1"
 user: "10000:10000"
 ports:
