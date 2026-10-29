@@ -48,7 +48,7 @@ const fixtures = {
   "vm.cloud.create": (s) => ({ name: "sentinel-vm", image: Object.keys(cloudImages)[0], vcpus: 1, memoryMiB: 1024, diskGiB: 8, sshKeys: ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyForTestsOnly fixture@example"], password: s("password") }),
   "share.mount": (s) => ({ kind: "smb", host: "nas", share: "Public", name: "nas", username: "jamie", password: s("password") }),
   "samba.user.set": (s) => ({ username: "sam", password: s("password") }),
-  "backup.cloud.setup": (s) => ({ provider: "drive", path: "boxpilot", key: s("key"), secretAccessKey: s("secretAccessKey"), password: s("password"), token: s("token") }),
+  "backup.cloud.setup": (s) => ({ provider: "drive", path: "boxpilot", key: s("key"), secretAccessKey: s("secretAccessKey"), password: s("password"), token: s("token"), passphrase: s("passphrase") }),
   "router.connect": (s) => ({ kind: "glinet", host: "router.example", password: s("password") }),
   "credentials.set": (s) => ({ name: "sentinel", value: s("value") }),
   // M39.3: the secret is an address, so the sentinel rides inside one.
