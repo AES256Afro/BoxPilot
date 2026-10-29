@@ -259,15 +259,23 @@ show_order() {
   note "systemctl list-dependencies --after docker.service, drives only:"
   systemctl list-dependencies --after --plain docker.service | grep 'mnt-' | sed 's/^/   /' || echo "   (none)"
 }
-# Each side of the ordering as systemd holds it: the drive's Before= and docker.service's After=
-# (what a shutdown stops by). Read whole and matched as words, not piped into grep -q: on systemd
-# 259 (Ubuntu 26.04) `list-dependencies --after docker.service | grep -qF <drive>` failed although
-# the same tree, printed just above it by show_order, named the drive. The tree is long, grep -q
-# quits at its first match while systemctl is still writing, and pipefail takes systemctl's status.
+# Each side of the ordering as systemd holds it: the drive's Before= and the units docker.service
+# is ordered after (what a shutdown stops by). Read whole and matched as whole names, not piped
+# into grep -q: on systemd 259 (Ubuntu 26.04) `list-dependencies --after docker.service | grep -qF
+# <drive>` failed although the same tree, printed just above it by show_order, named the drive.
+# The tree is long, grep -q quits at its first match while systemctl is still writing, and
+# pipefail takes systemctl's status. docker.service's After= as systemctl show prints it is no
+# help: matched against the drive's name it failed on 22.04, 24.04 and 26.04 alike, systemctl
+# show quoting a value with a backslash in it.
 in_list() { [[ " $1 " == *" $2 "* ]]; }  # $1 = space-separated units, $2 = one unit, literally
-docker_after_drive() { local after; after="$(systemctl show docker.service -p After --value)"; in_list "$after" "$UNIT"; }
+docker_after_units() {
+  local tree rc; tree="$(systemctl list-dependencies --after --plain docker.service)"; rc=$?
+  [ "$rc" -eq 0 ] || note "systemctl list-dependencies --after docker.service exited ${rc} with $(wc -l <<< "$tree") lines" >&2
+  [ -n "$tree" ] && awk '{ print $1 }' <<< "$tree"
+}
+docker_after_drive() { local units; units="$(docker_after_units)" && grep -qxF "$UNIT" <<< "$units"; }
+docker_not_after_drive() { local units; units="$(docker_after_units)" && ! grep -qxF "$UNIT" <<< "$units"; }
 drive_before_docker() { local before; before="$(systemctl show "$UNIT" -p Before --value)"; in_list "$before" docker.service; }
-docker_not_after_drive() { local after; after="$(systemctl show docker.service -p After --value)" && [ -n "$after" ] && ! in_list "$after" "$UNIT"; }
 not_required() { [ -z "$(systemctl show "$UNIT" -p RequiredBy --value)" ]; }
 
 section "1a. ordering, today's line: $TODAY"
