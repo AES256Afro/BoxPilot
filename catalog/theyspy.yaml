@@ -1,20 +1,20 @@
 # TheySpy (schemaVersion 2). Source of truth: AES256Afro/TheySpy boxpilot/theyspy.yaml, whose CI
-# validates it with this repository's validateManifest. The image is pinned to the digest the v0.2.0
+# validates it with this repository's validateManifest. The image is pinned to the digest the v0.3.0
 # release published: signed keylessly, with an SBOM and build provenance attested by GitHub.
 # Port 8797 is free in the BoxPilot catalog (BaselineWatch 8790, Protec 8765, BoxPilot itself 8787).
-# This version runs in bridge mode with no extra capabilities. M4 (network discovery) switches to `network: host`
-# with CAP_NET_RAW and CAP_NET_ADMIN, as NetAlertX does, and raises risk to medium.
+# This version runs in bridge mode with no extra capabilities. Network discovery in a later release
+# switches to `network: host` with CAP_NET_RAW and CAP_NET_ADMIN, as NetAlertX does, and raises risk to medium.
 schemaVersion: 2
 id: theyspy
 name: TheySpy
 category: Security
 icon: "🕵️"
-description: "Watches for ad-delivered spyware. Holds zero-breach's AdFection / Candiru indicators, kept current from signed releases you approve, and exports them for Pi-hole, AdGuard, dnsmasq, Amnesty's MVT and MISP. Pi-hole log hunting, a device list and CVE matching come in later versions."
+description: "Watches for ad-delivered spyware. Hunts your Pi-hole's DNS history and new queries for zero-breach's AdFection / Candiru indicators, shows which ones Pi-hole already blocks, and adds the rest with one approval (and removes them again). Indicators update from signed releases you approve; exports for MVT and MISP."
 website: https://github.com/AES256Afro/TheySpy
 risk: low
 image:
-  reference: ghcr.io/aes256afro/theyspy:0.2.0@sha256:f17046ce2c95db7d9f5bccc3568be4ea4dce442ad9ecdca0178e91e04fd9a7c4
-  version: "0.2.0"
+  reference: ghcr.io/aes256afro/theyspy:0.3.0@sha256:0237f0ad2a58698cd1a124ef922f684905ce5e135fe0614d8f9ef0e84e147c67
+  version: "0.3.0"
 user: "1000:1000"
 ports:
   - id: web
@@ -60,11 +60,26 @@ env:
     label: Accent colour (optional)
     description: "A colour such as #39c6ff. Empty uses the look's own accent."
     default: ""
+  - name: TS_PIHOLE_URL
+    label: Pi-hole address (optional)
+    description: "Pi-hole 6's web address as TheySpy reaches it, such as http://<this server>:8084. Empty: connect it on the Pi-hole Sentinel screen instead."
+    default: ""
+  - name: TS_PIHOLE_PASSWORD
+    label: Pi-hole app password (optional)
+    type: password
+    secret: true
+    description: An app password from Pi-hole → Settings → Web interface / API, so it can be revoked on its own.
+    default: ""
   - name: TS_IOC_AUTOCHECK
     label: Check for indicator updates daily
     type: boolean
     default: "true"
     description: Looks for a newer zero-breach indicator set once a day. An update waits on the Indicators screen until you apply it.
+connections:
+  - app: pi-hole
+    role: DNS history and denylist
+    where: Pi-hole Sentinel → Connect Pi-hole, or the Pi-hole address and app password here
+    note: On this server use http://<server address>:8084 when Pi-hole runs in Bridge mode, or port 80 in Host mode. TheySpy changes Pi-hole only after you allow it on that screen.
 signIn:
   path: /
   port: web
@@ -76,7 +91,8 @@ health:
 notes: >-
   Open the dashboard and sign in with the owner password from this card. Settings → Appearance
   picks the look and branding; the defaults for everyone can also be set here. Activity shows
-  every job and change. Indicators holds zero-breach's AdFection / Candiru set, checks GitHub daily
-  for a signed update (applied only when you approve it) and exports it for DNS filters, MVT and
-  MISP. Pi-hole hunting arrives in M2, the blocklist library and baselines in M3,
-  network discovery in M4.
+  every job and change. Pi-hole Sentinel connects to Pi-hole 6, hunts its history for lookups of
+  spyware and ad-intelligence indicators, watches new queries every 30 seconds, and can add the
+  indicator domains your lists miss (and roll that back). Indicators holds zero-breach's set, checks
+  GitHub daily for a signed update and exports it for DNS filters, MVT and MISP. The blocklist
+  library and baselines arrive next, then network discovery.
