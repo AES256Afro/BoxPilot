@@ -9,8 +9,8 @@ description: "Reads your live transactions, paystubs, bills, payments, debts (in
 website: https://github.com/AES256Afro/FinancialAuthority
 risk: low
 image:
-  reference: ghcr.io/aes256afro/financialauthority:0.10.4@sha256:18ef7c9c5e3418070f11c235ce3ba6bb7da297d428bb466d5234e5a509fc40db
-  version: "0.10.4"
+  reference: ghcr.io/aes256afro/financialauthority:0.10.5@sha256:f53b489638259884d8747913e072e9bb5358e7c27f6cfb83f895e9881d588757
+  version: "0.10.5"
 ports:
   - id: web
     label: Web UI, API and MCP
@@ -106,7 +106,7 @@ extraHosts:
   - host.docker.internal:host-gateway
 sidecars:
   - id: bridge
-    image: ghcr.io/aes256afro/financialauthority-bridge:0.10.4@sha256:96151c3e0391191b4fd47cf7d055a11866947a3aca6abe08d52dd2bd297d9443  # the community Bridge plus libfido2; see deploy/bridge
+    image: ghcr.io/aes256afro/financialauthority-bridge:0.10.5@sha256:ad39ec634e9442780660177cdb254dd4f2a2593fc2b7af8950350e1255f8b224  # the community Bridge plus libfido2; see deploy/bridge
     volumes:
       - id: bridge-state
         container: /root
