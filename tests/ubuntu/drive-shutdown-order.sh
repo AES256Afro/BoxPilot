@@ -190,18 +190,23 @@ unmount_drive() {
 # whole seconds reached back up to a second before the mount, to an earlier mount of the drive
 # while it was still marked.
 KMARK=""
+# Under pipefail, `cmd | grep -q` fails whenever grep finds its match and quits while cmd still has
+# output to write: cmd dies of SIGPIPE and the pipeline takes its status. So a long output is read
+# into a variable first and searched there, never piped into grep -q.
+has_kmark() { local log; log="$(dmesg)"; grep -qF "$KMARK" <<< "$log"; }
 kmark() {
   KMARK="bp-drive-test: mark $(date +%s%N)"
   echo "$KMARK" > /dev/kmsg
-  dmesg | grep -qF "$KMARK" || fail "the kernel's log did not take the test's mark, so no warning can be placed after it"
+  has_kmark || fail "the kernel's log did not take the test's mark, so no warning can be placed after it"
 }
 since_mark() { dmesg | awk -v mark="$KMARK" 'seen; index($0, mark) { seen = 1 }'; }
 kernel_since() { since_mark | grep -i 'exfat' | sed 's/^/   kernel: /'; }
 # 0 when the kernel has said "Volume was not properly unmounted" since the mark, 1 when it has
 # not, 2 when the mark is not in the log (so neither can be told).
 warned() {
-  dmesg | grep -qF "$KMARK" || return 2
-  since_mark | grep -q 'Volume was not properly unmounted'
+  has_kmark || return 2
+  local since; since="$(since_mark)"
+  grep -q 'Volume was not properly unmounted' <<< "$since"
 }
 not_warned() { warned; [ $? -eq 1 ]; }
 # Unmounts the drive, marks it, and mounts it afresh with the mark: the filesystem is gone
@@ -254,13 +259,20 @@ show_order() {
   note "systemctl list-dependencies --after docker.service, drives only:"
   systemctl list-dependencies --after --plain docker.service | grep 'mnt-' | sed 's/^/   /' || echo "   (none)"
 }
-docker_after_drive() { systemctl list-dependencies --after --plain docker.service | grep -qF "$UNIT"; }
-drive_before_docker() { systemctl show "$UNIT" -p Before --value | tr ' ' '\n' | grep -qx docker.service; }
+# Each side of the ordering as systemd holds it: the drive's Before= and docker.service's After=
+# (what a shutdown stops by). Read whole and matched as words, not piped into grep -q: on systemd
+# 259 (Ubuntu 26.04) `list-dependencies --after docker.service | grep -qF <drive>` failed although
+# the same tree, printed just above it by show_order, named the drive. The tree is long, grep -q
+# quits at its first match while systemctl is still writing, and pipefail takes systemctl's status.
+in_list() { [[ " $1 " == *" $2 "* ]]; }  # $1 = space-separated units, $2 = one unit, literally
+docker_after_drive() { local after; after="$(systemctl show docker.service -p After --value)"; in_list "$after" "$UNIT"; }
+drive_before_docker() { local before; before="$(systemctl show "$UNIT" -p Before --value)"; in_list "$before" docker.service; }
+docker_not_after_drive() { local after; after="$(systemctl show docker.service -p After --value)" && [ -n "$after" ] && ! in_list "$after" "$UNIT"; }
 not_required() { [ -z "$(systemctl show "$UNIT" -p RequiredBy --value)" ]; }
 
 section "1a. ordering, today's line: $TODAY"
 fstab_line "$TODAY"; show_order
-check "today's line: nothing orders docker.service after the drive" bash -c "! systemctl list-dependencies --after --plain docker.service | grep -qF '$UNIT'"
+check "today's line: nothing orders docker.service after the drive" docker_not_after_drive
 
 section "1b. ordering, the new line: $NEW"
 fstab_line "$NEW"; show_order
