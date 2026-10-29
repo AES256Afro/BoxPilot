@@ -3,8 +3,9 @@
 # release published, an image index for amd64 and arm64: signed keylessly, with an SBOM and build
 # provenance attested by GitHub.
 # Port 8797 is free in the BoxPilot catalog (BaselineWatch 8790, Protec 8765, BoxPilot itself 8787).
-# This version runs in bridge mode with no extra capabilities. Network discovery in a later release
-# switches to `network: host` with CAP_NET_RAW and CAP_NET_ADMIN, as NetAlertX does, and raises risk to medium.
+# This version runs in bridge mode with no extra capabilities: discovery uses Pi-hole's network table
+# (for MACs) and unprivileged TCP probes, only inside TS_SCAN_RANGES. An optional host-network mode for
+# full ARP and mDNS/SSDP may come later, with risk raised to medium if it does.
 schemaVersion: 2
 id: theyspy
 name: TheySpy
