@@ -2,7 +2,7 @@ import { access, mkdir, readFile, readdir, rmdir, unlink } from "node:fs/promise
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { appendFstabEntry, containersBoundTo, mountNamePattern, parseManagedFstab, processesUsing, removeManagedEntry, unmountFromHost } from "./storage.mjs";
-import { mountpointFor, reservedMountNames } from "../backup-mount.mjs";
+import { backupMountName, mountpointFor, reservedMountNames } from "../backup-mount.mjs";
 import { hostMountsAt as mountsInHostTable, realMount, startMountUnit } from "./mount-agreement.mjs";
 
 /**
@@ -85,7 +85,12 @@ export function buildShareEntry({ kind, host, share, name, readOnly = false, gue
   const common = ["nosuid", "nodev", "nofail", "_netdev", "x-systemd.automount", "x-systemd.idle-timeout=300", "x-systemd.mount-timeout=30"];
   if (kind === "smb") {
     const source = `//${host}/${share.replace(/ /g, "\\040")}`;
-    const options = [guest ? "guest" : `credentials=${credentialsPath(name)}`, "uid=1000", "gid=1000", "file_mode=0664", "dir_mode=0775", "iocharset=utf8", ...(readOnly ? ["ro"] : []), ...common];
+    // cifs shows every file with the modes named here, whatever the copy asked for. The backup
+    // destination holds each app's archive with its .env beside the data it seals, the controller
+    // database and the machine snapshots: at uid 1000 and 0664 any user and any service on this
+    // server read them. Only BoxPilot's root helper reads or writes there, so it is root's alone.
+    const owner = name === backupMountName ? ["uid=0", "gid=0", "file_mode=0600", "dir_mode=0700"] : ["uid=1000", "gid=1000", "file_mode=0664", "dir_mode=0775"];
+    const options = [guest ? "guest" : `credentials=${credentialsPath(name)}`, ...owner, "iocharset=utf8", ...(readOnly ? ["ro"] : []), ...common];
     return { source, mountpoint, fstype: "cifs", entry: `${source} ${mountpoint} cifs ${options.join(",")} 0 0` };
   }
   const source = `${host}:${share}`;
