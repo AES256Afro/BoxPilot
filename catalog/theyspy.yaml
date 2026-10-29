@@ -1,5 +1,5 @@
 # TheySpy (schemaVersion 2). Source of truth: AES256Afro/TheySpy boxpilot/theyspy.yaml, whose CI
-# validates it with this repository's validateManifest. The image is pinned to the digest the v0.8.0
+# validates it with this repository's validateManifest. The image is pinned to the digest the v0.9.0
 # release published, an image index for amd64 and arm64: signed keylessly, with an SBOM and build
 # provenance attested by GitHub.
 # Port 8797 is free in the BoxPilot catalog (BaselineWatch 8790, Protec 8765, BoxPilot itself 8787).
@@ -15,8 +15,8 @@ description: "Watches for ad-delivered spyware. Hunts your Pi-hole's DNS history
 website: https://github.com/AES256Afro/TheySpy
 risk: low
 image:
-  reference: ghcr.io/aes256afro/theyspy:0.8.0@sha256:afa547f71d729a4530bc2478e3335d8f21d06694e0bb30cb1ced098e58b949a2
-  version: "0.8.0"
+  reference: ghcr.io/aes256afro/theyspy:0.9.0@sha256:5501fa77ffdb11d715939c66900cbc12ca4e814ace0ddfa033c0fe204b06828f
+  version: "0.9.0"
 user: "1000:1000"
 ports:
   - id: web
@@ -86,6 +86,17 @@ env:
     label: Ranges TheySpy may scan
     default: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10"
     description: Comma-separated IPv4 ranges. Discovery never probes an address outside them; a sweep must also fit in one of them.
+  - name: TS_CVES_AUTO
+    label: Keep the CVE list current
+    type: boolean
+    default: "true"
+    description: CISA's known-exploited list hourly, NVD every 2 hours (the last 120 days on the first run) and EPSS scores daily.
+  - name: TS_NVD_API_KEY
+    label: NVD API key (optional)
+    type: password
+    secret: true
+    description: A free key from nvd.nist.gov/developers raises NVD's limit from 5 to 50 requests per 30 seconds, so the first load takes seconds instead of minutes.
+    default: ""
   - name: TS_IOC_AUTOCHECK
     label: Check for indicator updates daily
     type: boolean
@@ -115,4 +126,5 @@ notes: >-
   level per device and applies it through Pi-hole groups, or tries it in shadow first. Fleet lists
   every device from Pi-hole's network table (with MACs) and sweeps of the networks you choose; in this
   bridge-mode container a sweep finds hosts by address and Pi-hole supplies their MACs. Targeted check
-  looks at one device's ports and DNS history, or at who looked up a domain.
+  looks at one device's ports and DNS history, or at who looked up a domain. CVEs & zero-days aggregates CISA
+  KEV, NVD and EPSS, exploited bugs first.
