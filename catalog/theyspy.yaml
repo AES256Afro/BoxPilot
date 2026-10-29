@@ -1,6 +1,7 @@
 # TheySpy (schemaVersion 2). Source of truth: AES256Afro/TheySpy boxpilot/theyspy.yaml, whose CI
-# validates it with this repository's validateManifest. The image is pinned to the digest the v0.4.0
-# release published: signed keylessly, with an SBOM and build provenance attested by GitHub.
+# validates it with this repository's validateManifest. The image is pinned to the digest the v0.5.0
+# release published, an image index for amd64 and arm64: signed keylessly, with an SBOM and build
+# provenance attested by GitHub.
 # Port 8797 is free in the BoxPilot catalog (BaselineWatch 8790, Protec 8765, BoxPilot itself 8787).
 # This version runs in bridge mode with no extra capabilities. Network discovery in a later release
 # switches to `network: host` with CAP_NET_RAW and CAP_NET_ADMIN, as NetAlertX does, and raises risk to medium.
@@ -9,12 +10,12 @@ id: theyspy
 name: TheySpy
 category: Security
 icon: "🕵️"
-description: "Watches for ad-delivered spyware. Hunts your Pi-hole's DNS history and new queries for zero-breach's AdFection / Candiru indicators and blocks what your lists miss, with one approval. Keeps a categorised library of DNS blocklists, found and updated automatically behind safety checks, that Pi-hole subscribes to."
+description: "Watches for ad-delivered spyware. Hunts your Pi-hole's DNS history for zero-breach's AdFection / Candiru indicators and blocks what your lists miss. Keeps a categorised library of DNS blocklists, updated automatically behind safety checks, and suggests a blocking level per device (Essential to Lockdown) with a preview of what it would block on your own traffic."
 website: https://github.com/AES256Afro/TheySpy
 risk: low
 image:
-  reference: ghcr.io/aes256afro/theyspy:0.4.0@sha256:a51a93a6ca47b9b60ee86154e78287e187bccd1b00679b0c911c0ec962450c6f
-  version: "0.4.0"
+  reference: ghcr.io/aes256afro/theyspy:0.5.0@sha256:044c292fb74fe633e0f6f7eef2ad5efb08395f3ce2ffb8814918313e6f18184c
+  version: "0.5.0"
 user: "1000:1000"
 ports:
   - id: web
