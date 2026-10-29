@@ -1,5 +1,5 @@
 # TheySpy (schemaVersion 2). Source of truth: AES256Afro/TheySpy boxpilot/theyspy.yaml, whose CI
-# validates it with this repository's validateManifest. The image is pinned to the digest the v0.5.0
+# validates it with this repository's validateManifest. The image is pinned to the digest the v0.6.0
 # release published, an image index for amd64 and arm64: signed keylessly, with an SBOM and build
 # provenance attested by GitHub.
 # Port 8797 is free in the BoxPilot catalog (BaselineWatch 8790, Protec 8765, BoxPilot itself 8787).
@@ -14,8 +14,8 @@ description: "Watches for ad-delivered spyware. Hunts your Pi-hole's DNS history
 website: https://github.com/AES256Afro/TheySpy
 risk: low
 image:
-  reference: ghcr.io/aes256afro/theyspy:0.5.0@sha256:044c292fb74fe633e0f6f7eef2ad5efb08395f3ce2ffb8814918313e6f18184c
-  version: "0.5.0"
+  reference: ghcr.io/aes256afro/theyspy:0.6.0@sha256:194de49e09d72846502ff11aa315b93d647d8b708efc030c27191c0630600bc9
+  version: "0.6.0"
 user: "1000:1000"
 ports:
   - id: web
