@@ -2,6 +2,7 @@ import { defineOperation } from "./registry.mjs";
 import { validateDomainName } from "../libvirt.mjs";
 import { validateVmRestoreDrillInput } from "../vm-restore-drill-helper.mjs";
 import { validateVmRecoveryInput } from "../vm-recovery-helper.mjs";
+import { readHostedSources } from "../hosted-domains-sources.mjs";
 
 /**
  * Reads the web side's own services make through the helper: Docker's inventory for the Repair
@@ -22,6 +23,12 @@ export function internalReadOperations() {
     read({
       id: "container.docker.inventory", title: "List Docker containers, images, networks and volumes",
       run: (_parameters, { hostInspect }) => hostInspect.inventoryDocker(),
+    }),
+    read({
+      // M42.2: a hand-made cloudflared config's ingress and the proxy manager's sites, both under
+      // root-owned folders. Hostnames and the local addresses they go to, nothing else.
+      id: "hosted-domains.sources", title: "Read where public names are routed on this server",
+      run: () => readHostedSources(),
     }),
     read({
       id: "controller.database.protection.inspect", title: "Check the encrypted copy of BoxPilot's database",
