@@ -39,7 +39,7 @@ export const cloudflareLane = "cloudflare:tunnel";
  * read deletes from the snapshot folder the mirrors copy too, so both hold it.
  */
 export const backupTreeLane = "backup-tree";
-const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.restore-path", "app.backup.delete", "app.backup.verify", "app.update", "app.update.many", "app.rollback", "app.reconfigure", "app.compose.edit", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "housekeeping.reclaim", "housekeeping.unreadable-snapshot.remove"]);
+const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.restore-path", "app.backup.delete", "app.backup.verify", "app.update", "app.update.many", "app.update.available", "app.rollback", "app.reconfigure", "app.compose.edit", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "housekeeping.reclaim", "housekeeping.unreadable-snapshot.remove"]);
 /** Those that held the host lane before the tree had a lane of its own still hold it as well. */
 const hostBackupOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "housekeeping.reclaim", "housekeeping.unreadable-snapshot.remove"]);
 
