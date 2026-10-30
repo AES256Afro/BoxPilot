@@ -10,7 +10,7 @@ BoxPilot runs a home server from a web page. You install apps, keep them updated
 
 One computer at home can run your own versions of things you pay for or hand your data to: movies and TV, photo backup from your phone, file sync, a password manager, ad blocking for every device in the house, home automation, game servers. Setting those up and keeping them running is the hard part. BoxPilot does that part.
 
-- **Install** any of 173 apps and game servers from a catalog. Each one's address, username and password are in one place.
+- **Install** any of 174 apps and game servers from a catalog. Each one's address, username and password are in one place.
 - **Back up** every app and BoxPilot itself. A backup only counts once BoxPilot has restored it somewhere safe and checked it.
 - **Update** the system and the apps. An app whose new version does not come up healthy goes back to the old one.
 - **Watch** the drives, memory, temperatures and every app, and say in plain words what is wrong and what to do about it.
@@ -29,7 +29,7 @@ You pick how it looks: thirteen looks in Settings → Appearance, from frosted g
 On a fresh Ubuntu Server (22.04 or newer):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.218.0
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.231.0
 ```
 
 The installer sets up Node 24, builds BoxPilot in `/opt/boxpilot`, starts its services, and prints the address to open with a one-time setup code. Create your account, say what the server is for (home server, media server, smart home, ad blocking, virtual machines, development, monitoring, or just the basics), and follow the checklist on Ops.
@@ -302,7 +302,7 @@ Finds what is wrong and offers the fix for each one: a drive that dropped off an
 </details>
 <!-- /every-look -->
 
-173 apps and game servers, each installed and managed the same way:
+174 apps and game servers, each installed and managed the same way:
 
 - **Sign in**: its address, username and password, and a way to change them.
 - **Performance**: live CPU, memory, temperature and disk use, with pause and stop.
@@ -331,8 +331,8 @@ Each app is a short description file plus a Docker Compose template, so installi
 | Backup (4) | Backrest, Duplicati, Kopia, MinIO |
 | Books (4) | Calibre-Web, Kavita, Komga, Suwayomi |
 | Finance (4) | Actual Budget, FinancialAuthority, Firefly III, Wallos |
+| Security (4) | 2FAuth, Pocket ID, TheySpy, Vaultwarden |
 | Ad blocking and DNS (3) | AdGuard Home, Pi-hole, Technitium DNS Server |
-| Security (3) | 2FAuth, Pocket ID, Vaultwarden |
 | Photos (2) | Immich, PhotoPrism |
 | Administration (1) | Protec |
 <!-- apps:end -->

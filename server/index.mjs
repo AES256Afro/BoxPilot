@@ -282,6 +282,11 @@ const jobs = createJobService(state, helper, {
       const { apps: _named, ...found } = await withSnapshotDevices({ ...parameters, apps: Array.isArray(parameters?.ids) ? parameters.ids : [] });
       return found;
     },
+    // Every app that globs for a device: which ones get updated is decided when the job runs.
+    "app.update.available": async (parameters) => {
+      const { apps: _all, ...found } = await withSnapshotDevices({ ...parameters, apps: undefined });
+      return found;
+    },
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
     // Which disk the path is now; the format refuses a different one behind the same name later.
     // Last, so a browser cannot name the identity itself.
