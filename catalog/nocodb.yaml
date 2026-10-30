@@ -7,7 +7,7 @@ description: "Airtable-style spreadsheet database with forms, views, and an API;
 website: https://nocodb.com
 risk: low
 image:
-  reference: nocodb/nocodb:2026.08.1
+  reference: nocodb/nocodb:2026.08.1@sha256:2aacc3c704d4f74b27e2a39ac838ac9019c0b008bbbfff673b541a3a75ee1579
   version: "2026.08.1"
 ports:
   - id: web

@@ -7,7 +7,7 @@ description: "Recipe manager with import from almost any recipe site, meal plann
 website: https://tandoor.dev
 risk: low
 image:
-  reference: vabene1111/recipes:2.6.13
+  reference: vabene1111/recipes:2.6.13@sha256:f6c58afdea7a721d079ebd6ee5483f2c9da77dd1e709e16d60a82c218e80a451
   version: "2.6.13"
 ports:
   - id: web
@@ -57,7 +57,7 @@ env:
     default: Etc/UTC
 sidecars:
   - id: database
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     env:
       POSTGRES_DB: recipes
       POSTGRES_USER: recipes

@@ -45,6 +45,9 @@
 .system-rule .ui-field { flex: 0 1 12rem; }
 .system-rule__answer { align-self: center; color: var(--text); font-size: 13px; }
 .system-hint { margin: 0; padding: 0 12px 10px; color: var(--status-warning-text); font-size: 13px; line-height: 1.4; }
+/* Logs and caches (M30.8): the categories to clean on one line, then the bounds and the buttons. */
+.system-space__rule { align-items: flex-end; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.system-space__choices { display: flex; flex-basis: 100%; flex-wrap: wrap; gap: 6px 18px; }
 .system-preview p { margin: 0 0 6px; }
 .system-preview ul { margin: 0 0 6px; padding-left: 18px; }
 

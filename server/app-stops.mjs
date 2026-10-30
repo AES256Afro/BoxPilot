@@ -8,11 +8,17 @@
  * unpause, an update, a reinstall or reconfigure, a rollback, and removing the app. A pause leaves
  * it as it was. Only operations that finished are folded in (operationRecordHooks run on success).
  */
-export const appStopClearingOperations = Object.freeze(["app.install", "app.reinstall", "app.update", "app.reconfigure", "app.rollback", "app.uninstall", "app.purge"]);
+export const appStopClearingOperations = Object.freeze(["app.install", "app.reinstall", "app.update", "app.update.many", "app.update.available", "app.reconfigure", "app.rollback", "app.uninstall", "app.purge"]);
 
 /** The record after `job`: a new object, or the same one when the job changes nothing. */
 export function foldAppStop(entries, job, { now = () => new Date() } = {}) {
   const current = entries && typeof entries === "object" ? entries : {};
+  // Several apps updated in one job: each is replaced, as its own update would.
+  if (String(job?.type ?? "") === "op:app.update.many" && Array.isArray(job.parameters?.ids)) {
+    const named = job.parameters.ids.filter((entry) => typeof entry === "string" && entry in current);
+    if (!named.length) return current;
+    return Object.fromEntries(Object.entries(current).filter(([key]) => !named.includes(key)));
+  }
   const id = job?.parameters?.id;
   if (typeof id !== "string" || !id) return current;
   const operation = String(job.type ?? "").replace(/^op:/, "");

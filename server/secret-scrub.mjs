@@ -32,7 +32,7 @@ function parse(text) {
  * the audit entry records - rows rewritten per table and secrets masked - plus `unchecked`: rows
  * left as they were because the catalog could not be read, for the next start to try again.
  */
-export async function scrubStoredSecrets({ store, registry = defaultRegistry, secretEnvNamesFor = null, holdsStagedSecrets = () => false, afterJobRow = 0 }) {
+export async function scrubStoredSecrets({ store, registry = defaultRegistry, secretEnvNamesFor = null, holdsStagedSecrets = (_jobId) => false, afterJobRow = 0 }) {
   // One catalog answer per app for the whole pass: a history of nightly reconfigures asks once.
   const answers = new Map();
   const lookup = typeof secretEnvNamesFor === "function"

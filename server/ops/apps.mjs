@@ -1,4 +1,4 @@
-import { defineOperation } from "./registry.mjs";
+import { defineOperation, moreTimeCeilingMs } from "./registry.mjs";
 import { parseServeStatus } from "../tailscale-serve.mjs";
 import { composeVerdicts, planProbes } from "../reachability.mjs";
 import { coversEveryAddress, serveUrl } from "../ports.mjs";
@@ -11,6 +11,57 @@ async function serveStatus(run) {
   return status?.ok ? parseServeStatus(status.stdout) : [];
 }
 const urlOf = (serve) => serveUrl(serve);
+
+/**
+ * Whether a Serve entry is this app's: it forwards to this server's loopback at the app's own port.
+ * Anything else on that tailnet port (BoxPilot's own address, another app's) is not for an app's
+ * switch to replace or withdraw: an operator could otherwise give an app port 443 and take over the
+ * address BoxPilot is reached at, or take it down.
+ */
+
+/**
+ * Updates apps one at a time, each exactly as Update application does (a backup first, the new
+ * image, the previous one restored if unhealthy). One that fails does not stop the others; the
+ * error names it at the end, and any app there was no time left to start.
+ */
+async function updateEach(ids, devicesByApp, { apps, progress, timeScale, now = Date.now }) {
+  const parameters = { ids, devicesByApp };
+  const done = []; const failed = []; const notStarted = [];
+  // An app is started only while what is left of the budget covers one update at its worst
+  // (app.update's own budget): the job's deadline must not pass while the helper still holds
+  // the remaining apps' lanes and changes them with no job watching.
+  const startedAt = now();
+  const budget = moreTimeCeilingMs * (timeScale ?? 1);
+  const worstCase = (checkpointMs + minutes(40)) * (timeScale ?? 1);
+  for (const id of parameters.ids) {
+    if (now() - startedAt + worstCase > budget) { notStarted.push(id); continue; }
+    progress?.(`── ${id} ──`, "stdout");
+    try {
+      await apps.update({ id, devices: parameters.devicesByApp?.[id] ?? null }, { progress, checkpoint: true, timeScale });
+      done.push(id);
+    } catch (error) {
+      failed.push({ id, error: error.message });
+      progress?.(`${id}: ${error.message}`, "stderr");
+    }
+  }
+  if (notStarted.length) progress?.(`Not started, to stay within the job's time: ${notStarted.join(", ")}`, "stderr");
+  if (failed.length || notStarted.length) {
+    const parts = [...failed.map((entry) => `${entry.id}: ${entry.error}`), ...(notStarted.length ? [`not started in the time left: ${notStarted.join(", ")}`] : [])];
+    throw new Error(`${parts.join("; ")}${done.length ? `. ${done.join(", ")} ${done.length === 1 ? "was" : "were"} updated.` : ""}`);
+  }
+  return { updated: true, apps: done };
+}
+
+export function servesThisApp(serve, port) {
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(String(serve?.target ?? "")) ? serve.target : `http://${serve?.target}`);
+    const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const loopback = host === "localhost" || host === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+    return loopback && Number(url.port || (url.protocol === "https:" ? 443 : 80)) === port;
+  } catch { return false; }
+}
+const servesSomethingElse = (serve, port) => `Port ${port} on the tailnet already publishes ${serve.target ?? "something else"} at ${urlOf(serve)}, not this app; nothing was changed. Give the app another port.`;
+const heldForSomethingElse = (serve) => `that tailnet port already publishes ${serve.target ?? "something else"} at ${urlOf(serve)}, so it was left alone; give the app another port`;
 
 /** Serve again what was withdrawn, as it was; whether every one of them came back. */
 async function republish(run, serves, progress) {
@@ -49,7 +100,10 @@ export async function serveTailnetOnly(deployed, { run, progress = null }) {
   if (deployed?.exposure !== "tailnet" || !run) return { served: false, urls: [] };
   const webPorts = (deployed.hostPorts ?? []).filter((entry) => entry.protocol !== "udp" && entry.exposure === "loopback" && (entry.tailnet ?? "serve") === "serve").map((entry) => entry.host);
   const failures = [];
+  const before = webPorts.length ? await serveStatus(run) : [];
   for (const port of webPorts) {
+    const held = before.find((serve) => serve.port === port && !servesThisApp(serve, port));
+    if (held) { failures.push(`${port}: ${heldForSomethingElse(held)}`); continue; }
     const args = ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`];
     progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
     const result = await Promise.resolve().then(() => run(tailscaleBinary(), args, { timeout: 60_000 })).catch((error) => ({ ok: false, stderr: error.message }));
@@ -66,7 +120,7 @@ export async function serveTailnetOnly(deployed, { run, progress = null }) {
 const idField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
 // An app's install values. secretEnvOf: env entries its manifest (named by `id`) calls a password or
 // secret are secrets, which jobs stage in memory and schedules and flows refuse to store (M29.1).
-const valuesField = { type: "object", optional: true, secretEnvOf: "id", validate:(value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup", "exposure", "networkMode"].includes(key)) ? null : "may only contain ports, env, volumes, setup, exposure, and networkMode") };
+const valuesField = { type: "object", optional: true, secretEnvOf: "id", validate:(value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup", "exposure", "networkMode", "clearSecrets"].includes(key)) ? null : "may only contain ports, env, volumes, setup, exposure, networkMode, and clearSecrets") };
 // Concrete device paths resolved by the web process (the helper's sandbox has no real /dev); the deployer keeps only those matching the manifest.
 const devicesField = { type: "array", optional: true, nullable: true, validate: (value) => (value.length > 32 || value.some((entry) => typeof entry !== "string" || !/^\/dev\/[A-Za-z0-9._/-]{1,64}$/.test(entry) || /\/\.\.?(\/|$)/.test(entry)) ? "must be up to 32 /dev paths" : null) };
 const minutes = (value) => value * 60_000;
@@ -235,7 +289,9 @@ export function appOperations() {
           const published = (application.published ?? []).find((entry) => entry.host === port && entry.protocol === "tcp");
           if (published && coversEveryAddress(published.bind)) throw new Error(servedOnEveryAddress(name, port, { hostNetwork: Boolean(published.hostNetwork) }));
         }
-        const before = parameters.enabled ? [] : await serveStatus(run);
+        const before = await serveStatus(run);
+        const held = before.find((serve) => serve.port === port && !servesThisApp(serve, port));
+        if (held) throw new Error(servesSomethingElse(held, port));
         const args = parameters.enabled
           ? ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`]
           : ["serve", "--yes", `--https=${port}`, "off"];
@@ -245,7 +301,7 @@ export function appOperations() {
         const serves = await serveStatus(run);
         const entry = serves.find((serve) => serve.port === port) ?? null;
         if (parameters.enabled && !entry) throw new Error("tailscale accepted the command but the port is not being served; check tailscale serve status");
-        const withdrawn = before.find((serve) => serve.port === port) ?? null;
+        const withdrawn = parameters.enabled ? null : before.find((serve) => serve.port === port) ?? null;
         // Repair's fix for a port Serve held (Dockge, 2026-09-29): the app can have it now, so start it.
         let started = null;
         if (!parameters.enabled && parameters.start) {
@@ -343,7 +399,8 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.restoreAppBackupPath({ id: parameters.id, backup: parameters.backup, path: parameters.path }, { progress }),
     }),
     defineOperation({
-      id: "app.backup.delete", title: "Delete an application backup", risk: "medium",
+      // The owner's: an operator could otherwise remove every app's backups, one job at a time.
+      id: "app.backup.delete", title: "Delete an application backup", risk: "medium", minimumRole: "owner",
       description: "Removes one archive and its record. The app and its live data are untouched, and any copy already mirrored off this server stays where it is.", timeoutMs: 60_000,
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
       run: (parameters, { apps }) => apps.deleteAppBackup(parameters),
@@ -430,6 +487,43 @@ export function appOperations() {
       run: (parameters, { apps, progress, timeScale }) => apps.update({ id: parameters.id, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true, timeScale }),
     }),
     defineOperation({
+      // M36: every app with an update ready, in one approval, one job and one log.
+      // Twenty apps at app.update's worst case would outlast any budget, so this has the longest one,
+      // and the run starts no app it could not finish in what is left (see below).
+      id: "app.update.many", title: "Update several applications", risk: "medium", timeoutMs: moreTimeCeilingMs,
+      description: "Updates each app in turn exactly as Update application does: a data checkpoint, the catalog's current image, the container recreated, and the previous image restored if the new one does not become healthy. One app at a time. One that fails does not stop the others; the job names it at the end, and any app it had no time left to start.",
+      parameters: { fields: {
+        ids: { type: "array", validate: (value) => (value.length >= 1 && value.length <= 20 && value.every((entry) => typeof entry === "string" && idField.pattern.test(entry)) && new Set(value).size === value.length ? null : "must list 1 to 20 different app ids") },
+        // Found by the web process for each app that globs for a device (index.mjs prepare hook), never the browser's.
+        devicesByApp: { type: "object", optional: true, nullable: true, validate: (value) => (Object.entries(value).every(([id, devices]) => idField.pattern.test(id) && Array.isArray(devices) && devicesField.validate(devices) === null) ? null : "must map app ids to /dev paths") },
+      } },
+      run: (parameters, context) => updateEach(parameters.ids, parameters.devicesByApp, context),
+    }),
+    defineOperation({
+      // Unattended updates (scheduled from Automations): every installed app whose catalog image is
+      // newer than the one it runs, each exactly as Update application does: a backup (checkpoint)
+      // first, which the update refuses to go on without, the new image, and the previous one put
+      // back if the app does not come up healthy. Nothing to update is a quiet success.
+      id: "app.update.available", title: "Update every app that has an update", risk: "medium", timeoutMs: moreTimeCeilingMs,
+      description: "Backs up each app that has a newer image in the catalog, then updates it exactly as Update application does, one at a time; an app that does not become healthy is put back on its previous image. Apps that are up to date are left alone, and so are any listed in exclude.",
+      parameters: { fields: {
+        exclude: { type: "array", optional: true, validate: (value) => (value.length <= 50 && value.every((entry) => typeof entry === "string" && idField.pattern.test(entry)) ? null : "must list up to 50 app ids") },
+        // Found by the web process for every app that globs for a device (index.mjs prepare hook).
+        devicesByApp: { type: "object", optional: true, nullable: true, validate: (value) => (Object.entries(value).every(([id, devices]) => idField.pattern.test(id) && Array.isArray(devices) && devicesField.validate(devices) === null) ? null : "must map app ids to /dev paths") },
+      } },
+      run: async (parameters, context) => {
+        const { applications } = await context.apps.inspect({});
+        const skip = new Set(parameters.exclude ?? []);
+        const ids = applications.filter((app) => app.installed && app.updateAvailable && !skip.has(app.id)).map((app) => app.id).slice(0, 20);
+        if (!ids.length) {
+          context.progress?.("Every app is up to date.", "stdout");
+          return { updated: false, apps: [] };
+        }
+        context.progress?.(`Updating ${ids.join(", ")}, each backed up first.`, "stdout");
+        return updateEach(ids, parameters.devicesByApp, context);
+      },
+    }),
+    defineOperation({
       id: "app.exposure.set", title: "Change who can reach an application", risk: "medium", timeoutMs: minutes(15),
       description: "Tailnet only publishes the app on your tailnet over HTTPS and stops it listening on the network, so Tailscale authenticates every visitor before the app sees them. Home network publishes it on the LAN address instead, where anything on your network can reach it and only the firewall stands in the way; its tailnet HTTPS address is withdrawn first, because Tailscale holds that port on the tailnet address and Docker cannot publish it on every address beside it.",
       parameters: { fields: { id: idField, mode: { type: "string", validate: (value) => (["lan", "tailnet"].includes(value) ? null : "must be lan or tailnet") }, devices: devicesField } },
@@ -442,7 +536,10 @@ export function appOperations() {
         if (!tailnet) {
           const { applications } = await apps.inspect({ id: parameters.id });
           const webPorts = new Set((applications[0]?.urls ?? []).map((url) => url.host));
-          for (const serve of (await serveStatus(run)).filter((entry) => webPorts.has(entry.port))) {
+          const served = (await serveStatus(run)).filter((entry) => webPorts.has(entry.port));
+          const held = served.find((serve) => !servesThisApp(serve, serve.port));
+          if (held) throw new Error(servesSomethingElse(held, held.port));
+          for (const serve of served) {
             const args = ["serve", "--yes", `--https=${serve.port}`, "off"];
             progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
             const result = await run(tailscaleBinary(), args, { timeout: 60_000 });
@@ -476,7 +573,10 @@ export function appOperations() {
 
         // Home network: whatever was served was withdrawn before the rebind, above.
         const failures = [];
+        const servedBefore = tailnet ? await serveStatus(run) : [];
         for (const port of tailnet ? webPorts : []) {
+          const held = servedBefore.find((serve) => serve.port === port && !servesThisApp(serve, port));
+          if (held) { failures.push(`${port}: ${heldForSomethingElse(held)}`); continue; }
           const args = ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`];
           progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
           const result = await run(tailscaleBinary(), args, { timeout: 60_000 });

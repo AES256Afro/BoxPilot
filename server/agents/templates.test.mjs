@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The agent templates (M37, M43): every one a spec BoxPilot accepts, using only tools the runtime
  * has, with budgets under the ceilings that still hold its own nightly evaluation, schedules inside
@@ -31,6 +30,7 @@ const factTool = {
   hostname: "server.facts", operatingSystem: "server.facts", installedApps: "apps.list", stoppedApps: "apps.list", unhealthyApps: "apps.list", appUpdates: "apps.list",
   rootDiskPercent: "storage.health", drives: "storage.health", piholePlacement: "where.runs", piholeBlocking: "pihole.stats", failedServices: "services.status",
   firewallEnabled: "firewall.status", neverBackedUp: "backups.coverage", rebootRequired: "updates.status", busiestApp: "apps.usage",
+  theyspyContacts: "theyspy.status", theyspyUnblocked: "theyspy.status",
 };
 /** Every question the evaluation asks an agent made from this template: its built-in ones not covered, then its own. */
 const evaluationOf = (template) => {

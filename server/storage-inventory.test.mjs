@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { annotateDevices, collectStorage, parseLsblkTree, sharesFrom, splitDmName, volumeGroupsFrom } from "./storage-inventory.mjs";
+import { annotateDevices, collectStorage, diskIdentity, parseLsblkTree, pinDiskIdentity, sharesFrom, splitDmName, volumeGroupsFrom } from "./storage-inventory.mjs";
 
 const GiB = 1024 ** 3;
 const lsblkJson = JSON.stringify({ blockdevices: [
@@ -128,5 +128,39 @@ describe("volume groups over several physical volumes", () => {
     expect(groups[0]).toMatchObject({ name: "data-vg", sizeBytes: 2 * TiB, usedBytes: 1.5 * TiB, freeBytes: 0.5 * TiB });
     expect(groups[0].physicalVolumes).toEqual(["/dev/sdb1", "/dev/sdc1"]);
     expect(groups[0].logicalVolumes).toHaveLength(1);
+  });
+});
+
+describe("the disk a format is staged for", () => {
+  const listing = JSON.stringify({ blockdevices: [
+    { path: "/dev/sda", serial: "SYS-1", wwn: null, size: 500107862016, model: "System SSD" },
+    { path: "/dev/sdb", serial: "USB-STICK-01", wwn: "0x5000", size: 64023257088, model: "Stick " },
+    { path: "/dev/sdb1", serial: null, wwn: "0x5000", size: 64022208512, model: null },
+  ] });
+  const lsblk = (stdout = listing, ok = true) => {
+    const calls = [];
+    const run = async (binary, args) => { calls.push(args); return { ok, stdout }; };
+    return { run, calls };
+  };
+
+  it("lists every device and picks the row by path, since the web unit has no /dev/sdb to name", async () => {
+    const { run, calls } = lsblk();
+    expect(await diskIdentity("/dev/sdb", { run })).toEqual({ serial: "USB-STICK-01", wwn: "0x5000", size: "64023257088", model: "Stick" });
+    expect(calls[0]).not.toContain("/dev/sdb");
+    expect(await diskIdentity("/dev/sdb1", { run })).toMatchObject({ serial: null, size: "64022208512" });
+  });
+
+  it("is null for a disk lsblk does not list, a failed lsblk, or a path that is not a device", async () => {
+    expect(await diskIdentity("/dev/sdz", lsblk())).toBeNull();
+    expect(await diskIdentity("/dev/sdb", lsblk("", false))).toBeNull();
+    expect(await diskIdentity("/dev/sdb", lsblk("not json"))).toBeNull();
+    const { run, calls } = lsblk();
+    expect(await diskIdentity("sdb; reboot", { run })).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("pins the identity when staging, and stages nothing when it cannot be read", async () => {
+    await expect(pinDiskIdentity({ device: "/dev/sdb", label: "data" }, lsblk())).resolves.toMatchObject({ device: "/dev/sdb", label: "data", identity: { serial: "USB-STICK-01" } });
+    await expect(pinDiskIdentity({ device: "/dev/sdz" }, lsblk())).rejects.toThrow(/Could not read which disk \/dev\/sdz is; nothing was staged/);
   });
 });

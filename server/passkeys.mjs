@@ -61,6 +61,7 @@ export function makeRecoveryCode() {
   return [codeGroup(5), codeGroup(5), codeGroup(5), codeGroup(5)].join("-");
 }
 
+/** @param {{ store?: any, now?: () => number, challengeTtlMs?: number, recoveryCodeCount?: number, productName?: string }} [options] */
 export function createPasskeyService({
   store,
   now = () => Date.now(),

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The runner's shutdown signal lives as long as the process (runner-main.mjs), and the runner used
  * to add a listener to it for every run and every back-off sleep without taking it off. Each run's

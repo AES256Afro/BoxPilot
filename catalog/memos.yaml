@@ -7,7 +7,7 @@ description: "Quick notes and a journal: jot thoughts in Markdown, tag them, sea
 website: https://usememos.com
 risk: low
 image:
-  reference: neosmemo/memos:0.30.0
+  reference: neosmemo/memos:0.30.0@sha256:71a5b4738d1bed96e92112004054f0888e92791b64eb78afd79077c96e6f9327
   version: "0.30.0"
 ports:
   - id: web

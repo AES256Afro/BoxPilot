@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * An accuracy score that means something (M40): built-in questions each agent's own tools can
  * answer, graded against this server's facts; asked every night in quiet hours within the budgets,

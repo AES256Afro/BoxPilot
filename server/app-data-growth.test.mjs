@@ -32,6 +32,17 @@ describe("recording what each app's folders hold", () => {
     for (const row of rows) expect(row).toMatchObject({ grewBytes: 2 * GiB, sharedWith: ["one", "two"] });
   });
 
+  it("hands the daily sizes behind the figure when asked, oldest first (M31.4)", () => {
+    const entry = (bytes) => [{ key: "a", appId: "a", path: "/mnt/a", mount: "/mnt", bytes }];
+    let history = appendUsageSample({}, { at: day(3), entries: entry(3 * GiB) });
+    history = appendUsageSample(history, { at: day(1), entries: entry(GiB) });
+    history = appendUsageSample(history, { at: day(8), entries: entry(5 * GiB) });
+    expect(growthByApp(history, { now: new Date(day(8)) })[0]).not.toHaveProperty("series");
+    expect(growthByApp(history, { now: new Date(day(8)), series: true })[0].series).toEqual([
+      { at: day(1), bytes: GiB }, { at: day(3), bytes: 3 * GiB }, { at: day(8), bytes: 5 * GiB },
+    ]);
+  });
+
   it("forgets readings older than the window it was told to keep", () => {
     let history = { old: [{ at: "2026-01-01T03:00:00.000Z", bytes: GiB }] };
     history = appendUsageSample(history, { at: day(1), entries: [{ key: "old", bytes: 2 * GiB, appId: "x", path: "/mnt/x", mount: "/mnt/x" }] }, { maxDays: 30 });

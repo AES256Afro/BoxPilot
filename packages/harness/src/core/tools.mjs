@@ -28,7 +28,7 @@ const namePattern = /^[a-z][a-z0-9_]{0,63}$/;
  *
  * @param {{
  *   name: string, title?: string, description: string, kind: "read" | "write" | "operation",
- *   parameters?: object,
+ *   parameters?: Record<string, unknown>,
  *   run: (input: object, context: { signal: AbortSignal }) => Promise<string | { text: string, title?: string }> | string | { text: string, title?: string },
  *   describe?: (input: object) => string,
  *   asks?: boolean,
@@ -157,7 +157,7 @@ export function createToolbox({ tools, approve = async () => false, redact = (te
   }
 
   return {
-    /** The tools as the model is offered them. */
+    /** The tools as the model is offered them. @type {import("../messages.mjs").ToolSpec[]} */
     schemas: tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
     call,
     /** What the tools returned, for the check and for an answer the model could not write. */

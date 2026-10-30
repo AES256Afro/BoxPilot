@@ -132,3 +132,112 @@ describe("OIDC endpoints", () => {
     expect(listed.clients.some((entry) => entry.id === client.id)).toBe(true);
   });
 });
+
+const pkce = () => { const verifier = randomBytes(32).toString("base64url"); return { verifier, challenge: createHash("sha256").update(verifier).digest("base64url") }; };
+const form = (fields) => ({ method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", ...(fields.cookie ? { Cookie: fields.cookie } : {}) }, body: new URLSearchParams(Object.fromEntries(Object.entries(fields).filter(([key]) => key !== "cookie"))).toString(), redirect: "manual" });
+const request = (challenge, extra = {}) => ({ client_id: client.id, redirect_uri: redirectUri, response_type: "code", scope: "openid", code_challenge: challenge, code_challenge_method: "S256", ...extra });
+
+async function approvedCode(challenge) {
+  const session = await signIn();
+  const response = await fetch(`${base}/oidc/authorize`, form({ ...request(challenge), csrf: session.csrfToken, decision: "approve", cookie: session.cookie }));
+  return new URL(response.headers.get("location")).searchParams.get("code");
+}
+
+describe("what the OIDC endpoints refuse", () => {
+  it("issues no code without a session or without the session's CSRF token", async () => {
+    const session = await signIn();
+    const { challenge } = pkce();
+    const anonymous = await fetch(`${base}/oidc/authorize`, form({ ...request(challenge), csrf: session.csrfToken, decision: "approve" }));
+    expect(anonymous.status).toBe(401);
+    for (const csrf of [undefined, "", "x".repeat(session.csrfToken.length)]) {
+      const response = await fetch(`${base}/oidc/authorize`, form({ ...request(challenge), ...(csrf === undefined ? {} : { csrf }), decision: "approve", cookie: session.cookie }));
+      expect(response.status).toBe(403);
+      expect(response.headers.get("location")).toBeNull();
+    }
+  });
+
+  it("never redirects to an address the client did not register, and bounces later errors back to the client", async () => {
+    const session = await signIn();
+    const { challenge } = pkce();
+    for (const params of [request(challenge, { redirect_uri: "https://elsewhere.example/cb" }), request(challenge, { client_id: "unknown" })]) {
+      const viewed = await fetch(`${base}/oidc/authorize?${new URLSearchParams(params)}`, { headers: { Cookie: session.cookie }, redirect: "manual" });
+      expect(viewed.status).toBe(400);
+      expect(viewed.headers.get("location")).toBeNull();
+      const posted = await fetch(`${base}/oidc/authorize`, form({ ...params, csrf: session.csrfToken, decision: "approve", cookie: session.cookie }));
+      expect(posted.status).toBe(400);
+      expect(posted.headers.get("location")).toBeNull();
+    }
+    const noOpenid = await fetch(`${base}/oidc/authorize?${new URLSearchParams(request(challenge, { scope: "profile", state: "st-3" }))}`, { headers: { Cookie: session.cookie }, redirect: "manual" });
+    expect(noOpenid.status).toBe(302);
+    const location = new URL(noOpenid.headers.get("location"));
+    expect(location.origin + location.pathname).toBe(redirectUri);
+    expect(Object.fromEntries(location.searchParams)).toMatchObject({ error: "invalid_scope", state: "st-3" });
+  });
+
+  it("escapes what the request carries on the consent page", async () => {
+    const session = await signIn();
+    const { challenge } = pkce();
+    const html = await (await fetch(`${base}/oidc/authorize?${new URLSearchParams(request(challenge, { state: "\"><script>alert(1)</script>", scope: "openid <img>" }))}`, { headers: { Cookie: session.cookie } })).text();
+    expect(html).not.toContain("<script>alert(1)");
+    expect(html).not.toContain("<img>");
+    expect(html).toContain('value="&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"');
+  });
+
+  it("exchanges a code once, only with its verifier (a wrong one spends it), and only for authorization_code", async () => {
+    expect(await (await fetch(`${base}/oidc/token`, form({ grant_type: "password", username: "alex", password }))).json()).toMatchObject({ error: "unsupported_grant_type" });
+    const { verifier, challenge } = pkce();
+    const code = await approvedCode(challenge);
+    const exchange = (codeVerifier) => fetch(`${base}/oidc/token`, form({ grant_type: "authorization_code", code, redirect_uri: redirectUri, client_id: client.id, code_verifier: codeVerifier }));
+    const wrong = await exchange(pkce().verifier);
+    expect(wrong.status).toBe(400);
+    expect(await wrong.json()).toMatchObject({ error: "invalid_grant" });
+    // A wrong verifier spends the code: guessing again with the right one gets nothing.
+    expect((await exchange(verifier)).status).toBe(400);
+    const { challenge: second, verifier: secondVerifier } = pkce();
+    const fresh = await approvedCode(second);
+    const once = (value) => fetch(`${base}/oidc/token`, form({ grant_type: "authorization_code", code: fresh, redirect_uri: redirectUri, client_id: client.id, code_verifier: value }));
+    expect((await once(secondVerifier)).status).toBe(200);
+    expect(await (await once(secondVerifier)).json()).toMatchObject({ error: "invalid_grant" });
+  });
+
+  it("answers userinfo only for a Bearer access token", async () => {
+    const none = await fetch(`${base}/oidc/userinfo`);
+    expect(none.status).toBe(401);
+    expect(none.headers.get("www-authenticate")).toBe("Bearer");
+    const bad = await fetch(`${base}/oidc/userinfo`, { headers: { Authorization: "Bearer not.a.token" } });
+    expect(bad.status).toBe(401);
+    expect(bad.headers.get("www-authenticate")).toBe('Bearer error="invalid_token"');
+    const { verifier, challenge } = pkce();
+    const code = await approvedCode(challenge);
+    const tokens = await (await fetch(`${base}/oidc/token`, form({ grant_type: "authorization_code", code, redirect_uri: redirectUri, client_id: client.id, code_verifier: verifier }))).json();
+    expect((await fetch(`${base}/oidc/userinfo`, { headers: { Authorization: `Bearer ${tokens.id_token}` } })).status).toBe(401);
+  });
+
+  it("registers and removes clients only with the CSRF token, and says what was wrong", async () => {
+    const session = await signIn();
+    const headers = { Cookie: session.cookie, "Content-Type": "application/json" };
+    expect((await fetch(`${base}/api/v1/oidc/clients`, { method: "POST", headers, body: JSON.stringify({ name: "Wiki", redirectUris: [redirectUri] }) })).status).toBe(403);
+    const invalid = await fetch(`${base}/api/v1/oidc/clients`, { method: "POST", headers: { ...headers, "X-BoxPilot-CSRF": session.csrfToken }, body: JSON.stringify({ name: "Wiki", redirectUris: [] }) });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({ code: "invalid_client" });
+    const made = await (await fetch(`${base}/api/v1/oidc/clients`, { method: "POST", headers: { ...headers, "X-BoxPilot-CSRF": session.csrfToken }, body: JSON.stringify({ name: "Wiki", redirectUris: [redirectUri] }) })).json();
+    expect((await fetch(`${base}/api/v1/oidc/clients/${made.id}`, { method: "DELETE", headers })).status).toBe(403);
+    expect((await fetch(`${base}/api/v1/oidc/clients/${made.id}`, { method: "DELETE", headers: { ...headers, "X-BoxPilot-CSRF": session.csrfToken } })).status).toBe(200);
+    expect(await (await fetch(`${base}/api/v1/oidc/clients/${made.id}`, { method: "DELETE", headers: { ...headers, "X-BoxPilot-CSRF": session.csrfToken } })).json()).toMatchObject({ code: "client_not_found" });
+  });
+
+  it("says single sign-on is unavailable while the signing key is not ready", async () => {
+    const app = express();
+    app.use(createOidcRouter({ oidc: { status: () => ({ ready: false }) }, auth: {}, store: {} }));
+    const closed = app.listen(0);
+    await new Promise((resolve) => closed.once("listening", resolve));
+    try {
+      const at = `http://127.0.0.1:${closed.address().port}`;
+      for (const url of ["/.well-known/openid-configuration", "/oidc/jwks", "/oidc/token"]) {
+        const response = await fetch(`${at}${url}`, { method: url === "/oidc/token" ? "POST" : "GET" });
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({ error: "temporarily_unavailable" });
+      }
+    } finally { closed.close(); }
+  });
+});

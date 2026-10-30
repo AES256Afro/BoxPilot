@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { onWindows } from "../test/platform.mjs";
+import { onLinux } from "../test/platform.mjs";
 
 const script = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
 const copyProgram = /\nDB_COPY_JS='\n([\s\S]*?)\n'\n/.exec(script)?.[1];
@@ -97,8 +97,10 @@ describe("where the copy sits in the upgrade", () => {
   });
 
   it("gives the copy the live database's owner and mode, and makes it private from the start", () => {
-    expect(script).toContain('chown --reference="$DATABASE" "$DB_COPY"');
-    expect(script).toContain('chmod --reference="$DATABASE" "$DB_COPY"');
+    // Set as the database's own user while that user can still write the folder: root would follow a link there.
+    expect(script).toContain('elif [ -n "$AS_OWNER" ] && ! $AS_OWNER chmod --reference="$DATABASE" "$DB_COPY"; then');
+    expect(script).toContain('elif [ -z "$AS_OWNER" ] && { ! chown --no-dereference --reference="$DATABASE" "$DB_COPY" || ! chmod --reference="$DATABASE" "$DB_COPY"; }; then');
+    expect(script).not.toMatch(/^\s*elif ! chown --reference="\$DATABASE"/m);
     expect(script).toMatch(/copied="\$\(cd \/ && umask 077 && \$AS_OWNER "\$NODE_BIN" --no-warnings --input-type=module -e "\$DB_COPY_JS" "\$DATABASE" "\$DB_COPY" 2>&1\)"/);
   });
 
@@ -247,7 +249,9 @@ describe("where the copy sits in the upgrade", () => {
 // under bash, which the scripts are sometimes run with by hand. Needs POSIX sh, perl for a Unix
 // socket, mkfifo, and tar: Linux CI runs it; Windows skips it.
 describe("the install and upgrade scripts, run with stub commands", () => {
-  it.skipIf(onWindows).each(["sh", "bash"])("pass tests/ubuntu/install-upgrade-stubbed.sh under %s", (shell) => {
+  // The stubbed run drives the real install and upgrade scripts, which reach for GNU coreutils and
+  // a Linux-shaped host; BSD userland on macOS is not close enough.
+  it.skipIf(!onLinux).each(["sh", "bash"])("pass tests/ubuntu/install-upgrade-stubbed.sh under %s", (shell) => {
     const result = spawnSync("bash", ["tests/ubuntu/install-upgrade-stubbed.sh"], { encoding: "utf8", env: { ...process.env, SH: shell }, timeout: 180_000 });
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain("all checks passed");

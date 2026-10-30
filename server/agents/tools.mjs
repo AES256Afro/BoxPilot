@@ -17,6 +17,7 @@ import { searxSearch } from "./connectors.mjs";
 const queryRedactor = createRedactor();
 import { exactTools } from "./deterministic.mjs";
 import { describePihole } from "./pihole.mjs";
+import { describeTheyspy } from "./theyspy.mjs";
 import { roleAtLeast } from "./tool-catalog.mjs";
 import { describeApps, describeCoverage, describeFirewall, describePlaces, describeProtection, describeReclaimable, describeRepair, describeServer, describeStorage, describeTunnel, describeUpdates, describeUsage, describeUsers, locate } from "./tool-text.mjs";
 
@@ -28,6 +29,8 @@ export const appAllowed = (spec, appId) => !spec?.allow || spec.allow.apps === "
  * owner's switch for every agent (`sources`, the Knowledge tab's). The owner's documents only for
  * the owner or an operator, as the library's own page: a viewer asking the House Guide read all
  * of them (2026-10 sweep).
+ *
+ * @param {{ spec?: any, sources?: any, readRole?: string }} [options]
  */
 export function readableSources({ spec, sources = null, readRole } = {}) {
   const own = spec?.knowledge ?? {};
@@ -239,6 +242,11 @@ export function createToolRunner({ state, store, registry, helper = null, invent
       if (!appAllowed(context.spec, "baselinewatch")) throw new ToolError("This agent may not look at BaselineWatch");
       if (!appGlances) throw new ToolError("BaselineWatch cannot be read here");
       return appGlances.digest("baselinewatch");
+    },
+
+    async "theyspy.status"(_input, context) {
+      if (!appAllowed(context.spec, "theyspy")) throw new ToolError("This agent may not look at TheySpy");
+      return describeTheyspy(await read("app.theyspy.inspect", {}, context));
     },
 
     async "records.query"({ collection, contains = null, limit = 10 }, context) {

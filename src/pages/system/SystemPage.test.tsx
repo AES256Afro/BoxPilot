@@ -64,7 +64,7 @@ function serve(overrides: Record<string, (init?: RequestInit) => Response> = {})
     const url = input.toString();
     for (const [suffix, answer] of Object.entries(overrides)) if (url.endsWith(suffix)) return answer(init);
     const job = url.match(/\/operations\/([^/]+)\/jobs$/);
-    if (job) { staged[job[1]] = JSON.parse(String(init?.body)); return stagedJob(job[1], job[1] === "system.update" ? "high" : "medium"); }
+    if (job) { staged[job[1]] = JSON.parse(String(init?.body)); return stagedJob(job[1], ["system.update", "system.update.signer.set"].includes(job[1]) ? "high" : "medium"); }
     if (url.endsWith("/operations/system.settings.inspect/inspect")) return json({ operation: "system.settings.inspect", result: settings });
     if (url.endsWith("/operations/housekeeping.inspect/inspect")) return json({ operation: "housekeeping.inspect", result: housekeeping });
     if (url.endsWith("/api/v1/system/update")) return json({ ...release, updateAvailable: false, latest: { ...release.latest, tag: "v0.61.0", version: "0.61.0" } });
@@ -160,6 +160,31 @@ describe("System page", () => {
     await waitFor(() => expect(name().value).toBe("renamed-box"));
   });
 
+  // The update restarts BoxPilot, and approving it while a job runs is refused (server/jobs.mjs):
+  // the button says so first, naming the jobs (runningJobs.test.ts: and offers itself again).
+  it("holds the update button while jobs run, and says which", async () => {
+    const jobs = [
+      { id: "j1", type: "op:app.backup", title: "Back up Jellyfin", state: "applying", risk: "low", error: null, result: null, steps: [], approvals: [] },
+      { id: "j2", type: "op:system.update", title: "Update BoxPilot to v0.62.0", state: "awaiting_approval", risk: "high", error: null, result: null, steps: [], approvals: [] },
+      { id: "j3", type: "op:apt.upgrade", title: "Install updates", state: "completed", risk: "medium", error: null, result: null, steps: [], approvals: [] },
+    ];
+    serve({
+      "/api/v1/system/update": () => json(release),
+      "/api/v1/jobs?limit=30": () => json({ jobs }),
+      "/operations/system.update.status/inspect": () => json({ operation: "system.update.status", result: { units: [], log: [], outcome: "live" } }),
+    });
+    render(<SystemPage csrfToken="csrf-token" />);
+    expect(await screen.findByText("Update available")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /BoxPilot update/ }));
+    const go = await screen.findByRole("button", { name: /Update to v0.62.0/ });
+    await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(true));
+    const why = "Wait for a running job to finish first: Back up Jellyfin. The update restarts BoxPilot and would interrupt it.";
+    expect(document.querySelector(".system-asks")?.textContent).toBe(why);
+    // The button carries the same reason, read out with it (ui/Button.tsx).
+    expect(go.getAttribute("title")).toBe(why);
+    expect(screen.queryByText(/Updating asks for your password/)).toBeNull();
+  });
+
   it("offers the newer GitHub release and stages the high-risk update with only the tag, the tag typed out", async () => {
     const staged = serve({
       "/api/v1/system/update": () => json(release),
@@ -176,6 +201,32 @@ describe("System page", () => {
     expect(screen.getByLabelText("Typed confirmation")).toBeTruthy();
     expect(staged["system.update"]).toEqual({ parameters: { tag: "v0.62.0" } });
     expect(screen.getByText("Last update log, live")).toBeTruthy();
+  });
+
+  it("shows whether releases must be signed and stages the release key as high risk, typed out", async () => {
+    const fingerprint = "SHA256:abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
+    let signer: { type: string; fingerprint: string } | null = null;
+    const staged = serve({
+      "/api/v1/system/update": () => json(release),
+      "/operations/system.update.status/inspect": () => json({ operation: "system.update.status", result: { units: [], log: [], outcome: null, signer } }),
+    });
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /BoxPilot update/ }));
+    expect(await screen.findByText("not required")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Release key…" }));
+    const require = screen.getByRole("button", { name: "Require this key" }) as HTMLButtonElement;
+    expect(require.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("SSH public key"), { target: { value: "  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl owner@laptop\n" } });
+    expect(require.getAttribute("data-risk")).toBe("high");
+    fireEvent.click(require);
+    expect(await screen.findByText("High risk")).toBeTruthy();
+    expect(screen.getByLabelText("Typed confirmation")).toBeTruthy();
+    expect(staged["system.update.signer.set"]).toEqual({ parameters: { publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl owner@laptop" } });
+    cleanup();
+    signer = { type: "ssh-ed25519", fingerprint };
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /BoxPilot update/ }));
+    expect(await screen.findByText(`required, key ${fingerprint}`)).toBeTruthy();
   });
 
   // "Updating to X" was never cleared when the update stopped or ran past ten minutes: the verdict
@@ -199,7 +250,7 @@ describe("System page", () => {
       fireEvent.change(await screen.findByLabelText("Typed confirmation"), { target: { value: "v0.62.0" } });
       fireEvent.change(screen.getByLabelText("Approval password"), { target: { value: "correct horse battery" } });
       fireEvent.click(screen.getByRole("button", { name: "Approve and run" }));
-      fireEvent.click(await screen.findByRole("button", { name: "Close" }, { timeout: 4000 }));
+      fireEvent.click(await screen.findByRole("button", { name: "Close" }));
       await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Updating to 0.62.0"));
       expect(screen.queryByRole("button", { name: /Update to v0.62.0/ })).toBeNull();
     }
@@ -292,7 +343,7 @@ describe("System page", () => {
     render(<SystemPage csrfToken="csrf-token" />);
     fireEvent.click(await screen.findByRole("button", { name: `Remove ${damaged}` }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull());
   });
 
   it("switches the weekly trim through its own tiered switch", async () => {
@@ -335,6 +386,145 @@ describe("System page", () => {
     expect(await screen.findByText("System settings could not be read")).toBeTruthy();
     expect(screen.getByText("Not read").closest(".ui-chip")?.getAttribute("data-status")).toBe("unknown");
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+});
+
+// M30.8: the journal, job logs, APT's cache and dangling images, measured when asked, previewed
+// with the chosen bounds, and cleaned with exactly the parameters the preview was made for.
+describe("logs and caches", () => {
+  const MiB = 1024 ** 2;
+  const spaceReport = {
+    generatedAt: "2026-10-18T09:00:00.000Z",
+    categories: [
+      { id: "journal", title: "System journal", path: "/var/log/journal", bytes: 1288 * MiB, inodes: 26, available: true, unavailable: null, humanBytes: "1.3 GiB", filesystem: "2049",
+        detail: { journaldReportedBytes: 1288 * MiB, folders: 1, activeFiles: 2, activeBytes: 96 * MiB, archivedFiles: 23, archivedBytes: 1192 * MiB } },
+      { id: "job-logs", title: "BoxPilot job logs", path: "/run/boxpilot/job-logs", bytes: 22_000, inodes: 6, available: true, unavailable: null, humanBytes: "21.5 KiB", filesystem: "25",
+        detail: { retentionDays: 14, active: { count: 2, bytes: 9000 }, "past-retention": { count: 1, bytes: 2000 }, completed: { count: 1, bytes: 4000 }, failed: { count: 1, bytes: 5000 }, unlisted: { count: 1, bytes: 2000 } } },
+      { id: "apt-cache", title: "APT download cache", path: "/var/cache/apt", bytes: 312 * MiB, inodes: 91, available: true, unavailable: null, humanBytes: "312.0 MiB", filesystem: "2049",
+        detail: { cleanableFiles: 84, cleanableBytes: 300 * MiB, packages: 82 } },
+      { id: "docker", title: "Docker", available: false, unavailable: "Docker did not answer", bytes: null, inodes: null, humanBytes: null, detail: null },
+      { id: "backups", title: "Local backups", path: "/var/lib/boxpilot-managed/backups/catalog", bytes: 5020, inodes: 12, available: true, unavailable: null, humanBytes: "4.9 KiB", filesystem: "2049",
+        detail: { roots: [
+          { id: "application", title: "Application backups", path: "/var/lib/boxpilot-managed/backups/catalog", bytes: 5020, inodes: 12, files: 10, retention: "Each backup keeps the newest copies of its own kind.", beyondNewest: { count: 2, bytes: 2001, keepsPerKind: 3 } },
+          { id: "machine-snapshots", title: "Machine snapshots", path: "/var/lib/boxpilot-managed/machine-snapshots", bytes: null, inodes: null, files: null, retention: "Each new snapshot keeps the newest 3.", unavailable: "Not created yet" },
+        ] } },
+    ],
+    filesystems: [
+      { key: "2049", path: "/var/log/journal", freeBytes: 3 * 1024 ** 3, totalBytes: 100 * 1024 ** 3, freeInodes: 6_000_000, totalInodes: 6_553_600, categories: ["journal", "apt-cache", "backups"] },
+      { key: "25", path: "/run/boxpilot/job-logs", freeBytes: 1600 * MiB, totalBytes: 1600 * MiB, freeInodes: 400_000, totalInodes: 400_100, categories: ["job-logs"] },
+    ],
+  };
+  const plan = (parameters: { categories: string[]; journalMaxBytes?: number; journalMaxAgeDays?: number; jobLogRetentionDays?: number }) => ({
+    generatedAt: "2026-10-18T09:01:00.000Z",
+    bounds: { journalMaxBytes: parameters.journalMaxBytes ?? null, journalMaxAgeDays: parameters.journalMaxAgeDays ?? null, jobLogRetentionDays: parameters.jobLogRetentionDays ?? 14 },
+    categories: [
+      { id: "journal", title: "System journal", available: true, unavailable: null, bound: "Archived journal files, oldest first, until no archived file starts more than 30 days ago (journalctl --vacuum-time=30d).", bytes: 256 * MiB, inodes: 2,
+        items: [{ what: "/var/log/journal/0123456789abcdef0123456789abcdef/system@aaaa-0001.journal", bytes: 128 * MiB, at: "2026-09-01T00:00:00.000Z" }, { what: "/var/log/journal/0123456789abcdef0123456789abcdef/system@aaaa-0002.journal", bytes: 128 * MiB, at: "2026-09-10T00:00:00.000Z" }],
+        more: 0, keeping: ["2 active journal files (96.0 MiB), which journald is writing and never deletes"], humanBytes: "256.0 MiB" },
+      { id: "job-logs", title: "BoxPilot job logs", available: true, unavailable: null, bound: "Logs of completed jobs last written more than 14 days ago.", bytes: 2000, inodes: 1,
+        items: [{ what: "job-0001.log", bytes: 2000, at: "2026-09-20T00:00:00.000Z", detail: "Activity keeps its output" }], more: 0, keeping: ["1 log of failed or cancelled jobs, the record of what went wrong (4.9 KiB)"], humanBytes: "2.0 KiB" },
+      ...(parameters.categories.includes("apt-cache") ? [{ id: "apt-cache", title: "APT download cache", available: true, unavailable: null, bound: "Downloaded package files and APT's rebuildable package cache (apt-get clean).", bytes: 300 * MiB, inodes: 84, items: [], more: 84, keeping: ["The package lists, so the next install only downloads its own packages"], humanBytes: "300.0 MiB" }] : []),
+    ].filter((category) => parameters.categories.includes(category.id)),
+    totalBytes: 556 * MiB + 2000, totalHumanBytes: "556.0 MiB", totalInodes: 87,
+  });
+
+  function serveSpace() {
+    const previews: unknown[] = [];
+    const staged = serve({
+      "/operations/space.inspect/inspect": () => json({ operation: "space.inspect", result: spaceReport }),
+      "/operations/space.cleanup.preview/run": (init) => {
+        const { parameters } = JSON.parse(String(init?.body));
+        previews.push(parameters);
+        return json({ operation: "space.cleanup.preview", result: plan(parameters) });
+      },
+    });
+    return { staged, previews };
+  }
+  const asked = () => (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => String(url));
+
+  it("measures only when asked, and shows a category it could not read as unavailable, never zero", async () => {
+    serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    expect(await screen.findByText("Not measured")).toBeTruthy();
+    expect(asked().filter((url) => url.includes("space."))).toEqual([]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Measure" })[0]);
+    const table = await screen.findByRole("table", { name: "Where the disk space went" });
+    const row = (name: string) => within(table).getByText(name).closest("tr")!;
+    expect(within(row("System journal")).getByText("1.3 GiB")).toBeTruthy();
+    expect(within(row("System journal")).getByText(/23 archived files/)).toBeTruthy();
+    expect(within(row("APT download cache")).getByText("91")).toBeTruthy();
+    expect(within(row("Docker")).getByText("Unavailable")).toBeTruthy();
+    expect(within(row("Docker")).getByText("Docker did not answer")).toBeTruthy();
+    expect(within(row("Docker")).queryByText(/^0/)).toBeNull();
+    expect(screen.getByText("3.0 GiB free of 100.0 GiB")).toBeTruthy();
+    expect(asked().filter((url) => url.includes("space.inspect"))).toHaveLength(1);
+  });
+
+  it("previews the chosen bounds, then stages the cleanup with exactly the parameters previewed", async () => {
+    const { staged, previews } = serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Measure" }))[0]);
+    await screen.findByRole("table", { name: "Where the disk space went" });
+    const free = () => screen.getByRole("button", { name: /^Free/ }) as HTMLButtonElement;
+    expect(free().disabled).toBe(true);
+    expect(free().getAttribute("data-risk")).toBe("medium");
+
+    // The defaults: journal 30 days, job logs 14 days, the APT cache.
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(previews).toEqual([{ categories: ["journal", "job-logs", "apt-cache"], journalMaxAgeDays: 30, jobLogRetentionDays: 14 }]));
+    expect(await screen.findByRole("list", { name: "What the cleanup removes" })).toBeTruthy();
+    expect(screen.getByText(/journalctl --vacuum-time=30d/)).toBeTruthy();
+
+    // A change makes the preview stale: nothing can be freed until it is made again.
+    fireEvent.click(screen.getByRole("checkbox", { name: "APT download cache" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Size" }));
+    fireEvent.change(screen.getByLabelText(/Journal: keep at most/), { target: { value: "2048" } });
+    fireEvent.change(screen.getByLabelText(/Job logs: keep the last/), { target: { value: "30" } });
+    expect(free().disabled).toBe(true);
+    expect(screen.getByText("The choices changed. Preview again.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const exact = { categories: ["journal", "job-logs"], journalMaxBytes: 2048 * MiB, jobLogRetentionDays: 30 };
+    await waitFor(() => expect(previews.at(-1)).toEqual(exact));
+    await waitFor(() => expect(free().disabled).toBe(false));
+    fireEvent.click(free());
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Medium risk")).toBeTruthy();
+    expect(within(dialog).getByText(/Removes what the preview listed/)).toBeTruthy();
+    expect(staged["space.cleanup"]).toEqual({ parameters: exact });
+  });
+
+  it("refuses a journal bound below the server's floor before asking", async () => {
+    const { previews } = serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Measure" }))[0]);
+    await screen.findByRole("table", { name: "Where the disk space went" });
+    fireEvent.click(screen.getByRole("radio", { name: "Size" }));
+    fireEvent.change(screen.getByLabelText(/Journal: keep at most/), { target: { value: "32" } });
+    expect(screen.getByText("64 to 1048576 MiB")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(previews).toEqual([]);
+  });
+
+  it("gives an operator the cleanup, and a viewer neither the measurement nor the cleanup", async () => {
+    serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" role="operator" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Measure" }))[0]);
+    await screen.findByRole("table", { name: "Where the disk space went" });
+    expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+    cleanup();
+
+    serveSpace();
+    render(<SystemPage csrfToken="csrf-token" role="viewer" />);
+    expect(await screen.findByText("Housekeeping is for an operator")).toBeTruthy();
+    expect(screen.queryByText("Logs and caches")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Measure" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Free/ })).toBeNull();
+    expect(asked().filter((url) => url.includes("space."))).toEqual([]);
   });
 });
 
@@ -396,6 +586,36 @@ describe("the database copies updates took", () => {
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { keep: 3, keepDays: 30, names: copies.goes } });
   });
 
+  it("puts a copy back as a high-risk job with its name typed out", async () => {
+    let staged: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/housekeeping.database-copies.inspect/inspect")) return json({ operation: "housekeeping.database-copies.inspect", result: copies });
+      if (url.endsWith("/operations/housekeeping.database-copies.restore/jobs")) { staged = init?.body as string; return stagedJob("housekeeping.database-copies.restore", "high"); }
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<DatabaseCopies csrfToken="csrf-token" role="owner" />);
+    const putBack = await screen.findByRole("button", { name: /^Put back the copy from 1\.138\.0/ });
+    expect(putBack.getAttribute("data-risk")).toBe("high");
+    fireEvent.click(putBack);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("High risk")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Typed confirmation")).toBeTruthy();
+    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { name: "boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3" } });
+  });
+
+  it("says how the last restore ended", async () => {
+    const lastRestore = { at: "2026-10-19T13:00:00.000Z", copy: "boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3", outcome: "rolled-back", message: "BoxPilot did not answer on it", saved: null };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/housekeeping.database-copies.inspect/inspect")) return json({ operation: "housekeeping.database-copies.inspect", result: { ...copies, lastRestore } });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<DatabaseCopies csrfToken="csrf-token" role="owner" />);
+    expect(await screen.findByText(/boxpilot-rollback-1\.138\.0-20260929T101500Z\.sqlite3 did not work, so the database it had was put back/)).toBeTruthy();
+    expect(screen.getByText("BoxPilot did not answer on it")).toBeTruthy();
+  });
+
   it("asks again when the rule changes, and offers nothing until the answer matches it", async () => {
     const asked: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -420,6 +640,7 @@ describe("the database copies updates took", () => {
     render(<DatabaseCopies csrfToken="csrf-token" role="operator" />);
     expect(await screen.findByRole("table", { name: "Database copies, newest first" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Put back/ })).toBeNull();
   });
 });
 

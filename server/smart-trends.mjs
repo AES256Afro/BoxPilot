@@ -68,6 +68,10 @@ function slopePerDay(samples, key, { now, minSamples = 3, minSpanDays = 2, windo
 }
 
 /** Alerts for disks whose SMART numbers are trending toward failure. Same shape as the health checks. */
+/**
+ * @param {Record<string, any> | null} history samples by device
+ * @param {{ now?: Date | number }} [options]
+ */
 export function evaluateSmartTrends(history, { now } = {}) {
   const alerts = [];
   for (const [device, samples] of Object.entries(history ?? {})) {
@@ -100,7 +104,42 @@ export function evaluateSmartTrends(history, { now } = {}) {
   return alerts;
 }
 
+/**
+ * Each disk's history as the Storage page charts it (M31.2): its daily samples oldest first, and how
+ * far wear and media errors moved across them. A change is null where the disk does not report the
+ * figure or only one day is known. Pure and clock-injected.
+ * @param {Record<string, any> | null} history samples by device
+ * @param {{ now?: Date | number, windowDays?: number }} [options]
+ */
+export function smartTrendsByDisk(history, { now, windowDays = 45 } = {}) {
+  const at = now instanceof Date ? now.getTime() : Number(now);
+  const change = (samples, key) => {
+    const known = samples.filter((sample) => Number.isFinite(sample[key]));
+    return known.length >= 2 ? known.at(-1)[key] - known[0][key] : null;
+  };
+  return Object.entries(history && typeof history === "object" ? history : {})
+    .map(([device, list]) => {
+      const samples = (Array.isArray(list) ? list : [])
+        .filter((sample) => Number.isFinite(Date.parse(sample?.at)) && at - Date.parse(sample.at) <= windowDays * DAY_MS)
+        .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+        .map((sample) => ({
+          at: sample.at,
+          temperatureCelsius: Number.isFinite(sample.temperatureCelsius) ? sample.temperatureCelsius : null,
+          percentageUsed: Number.isFinite(sample.percentageUsed) ? sample.percentageUsed : null,
+          mediaErrors: Number.isFinite(sample.mediaErrors) ? sample.mediaErrors : null,
+        }));
+      const days = samples.length >= 2 ? Math.round((Date.parse(samples.at(-1).at) - Date.parse(samples[0].at)) / DAY_MS) : 0;
+      return { device, samples, days, wearChange: change(samples, "percentageUsed"), errorChange: change(samples, "mediaErrors") };
+    })
+    .filter((disk) => disk.samples.length > 0)
+    .sort((a, b) => a.device.localeCompare(b.device));
+}
+
 /** Background sampler: once a day, record SMART numbers so the trends have something to fit. */
+/**
+ * @param {{ inventory?: any, store?: any, now?: () => Date, intervalMs?: number, initialDelayMs?: number, maxDays?: number, setInterval?: typeof setInterval,
+ *   setTimeout?: typeof setTimeout, clearInterval?: typeof clearInterval, clearTimeout?: typeof clearTimeout }} [options]
+ */
 export function createSmartSampler({ inventory, store, now = () => new Date(), intervalMs = 6 * 60 * 60 * 1000, initialDelayMs = 6 * 60 * 1000, maxDays = 45, setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   async function sample() {
     const snapshot = await inventory.inspect();

@@ -7,7 +7,7 @@ description: "Music library manager: follows artists, grabs new albums, tags and
 website: https://lidarr.audio
 risk: low
 image:
-  reference: lscr.io/linuxserver/lidarr:3.1.0.4875-ls39
+  reference: lscr.io/linuxserver/lidarr:3.1.0.4875-ls39@sha256:2e4cdc7c8d5fa36915f446a29976ee01d3f9cc9722b8530a09121c76fbabef55
   version: 3.1.0.4875
 ports:
   - id: web

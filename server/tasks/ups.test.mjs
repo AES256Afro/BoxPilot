@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { onWindows } from "../../test/platform.mjs";
+import { onLinux, onWindows } from "../../test/platform.mjs";
 import { driverManager, modeFor, renderNotifyScript, renderNutConfig, renderShutdownScript, upsSetup, validateUpsSetup, writeOrder } from "./ups.mjs";
 import { classifyUsbDevice, detectUsbUps } from "../ups-detect.mjs";
 import { parsePowerEvents } from "../power-events.mjs";
@@ -138,7 +138,8 @@ describe("the NUT configuration", () => {
   });
 
   // Linux only: runs the rendered scripts with /bin/sh, as upsmon does.
-  it.skipIf(onWindows)("scripts that sh accepts, and a notify script whose lines the reader reads back", () => {
+  // The generated shutdown script execs /bin/true, which Linux ships and macOS does not.
+  it.skipIf(!onLinux)("scripts that sh accepts, and a notify script whose lines the reader reads back", () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), "bp-ups-"));
     try {
       const log = path.join(directory, "events.log");

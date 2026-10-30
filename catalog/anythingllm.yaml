@@ -7,7 +7,7 @@ description: Give a local model a memory of your own material. Drop in documents
 website: https://anythingllm.com
 risk: medium
 image:
-  reference: mintplexlabs/anythingllm:1.16.0
+  reference: mintplexlabs/anythingllm:1.16.0@sha256:68bcedecb720e3fadde986bcc4f3aad20059fa64805bc9b306a3023244947515
   version: 1.16.0
 ports:
   - id: web

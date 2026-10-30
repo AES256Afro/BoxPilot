@@ -7,7 +7,7 @@ description: "Read-it-later: save articles from any browser or phone and read th
 website: https://wallabag.org
 risk: low
 image:
-  reference: wallabag/wallabag:2.6.14
+  reference: wallabag/wallabag:2.6.14@sha256:4a527e027e0d59e87c14225ef11e005af3d4890374202ad319ce5e63dfc66709
   version: "2.6.14"
 ports:
   - id: web
@@ -43,4 +43,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 600
-notes: "First login is wallabag / wallabag; change it under Config. Registration is off; add users under Users."
+notes: "First login is wallabag / wallabag; change it under Config. Registration is off; add users under Users. This image still ships PHP 8.1, which stopped getting security fixes at the end of 2025; keep wallabag on your home network or tailnet rather than publishing it to the internet."

@@ -7,7 +7,7 @@ description: "Live logs of every container in the browser with search and multi-
 website: https://dozzle.dev
 risk: medium
 image:
-  reference: amir20/dozzle:v10.7.3
+  reference: amir20/dozzle:v10.7.3@sha256:c32ca7a443796de62a07afd621b17b6c6c073320cd8431493bb1fd84e3a1eff8
   version: "10.7.3"
 ports:
   - id: web

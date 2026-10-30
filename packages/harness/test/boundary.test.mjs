@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";

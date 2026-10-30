@@ -265,7 +265,7 @@ export function createSpaceRecovery({
   expectedUid = 0,
   usageOf = diskUsage,
   now = () => new Date(),
-  treeScanLimits = {},
+  treeScanLimits = /** @type {{ maxEntries?: number, maxDurationMs?: number, maxDepth?: number, now?: () => number }} */ ({}),
   // du runs at idle IO priority and nice 10, as the app-data scan's does (scan-resources.mjs).
   scanCommand = lowPriorityCommand,
   passMs = spacePassMs,
@@ -292,7 +292,7 @@ export function createSpaceRecovery({
   }
 
   /** Regular files directly inside `directory`, with what they take on disk. Missing is empty. */
-  async function filesIn(directory, scan, accept = () => true) {
+  async function filesIn(directory, scan, accept = (_name) => true) {
     const listed = [];
     for (const entry of await listTreeEntries(directory, { budget: scan })) {
       if (!entry.isFile() || !accept(entry.name)) continue;
@@ -409,6 +409,7 @@ export function createSpaceRecovery({
     for (const root of backupRoots) {
       try {
         const usage = await measureTreeUsage(root.path, { budget: budget(deadlineAt), usageOf });
+        /** @type {Record<string, unknown>} */
         const entry = { id: root.id, title: root.title, path: root.path, ...usage, retention: root.retention };
         if (root.id === "application") entry.beyondNewest = await applicationBackupsBeyondNewest(root.path, deadlineAt);
         roots.push(entry);
@@ -522,10 +523,12 @@ export function createSpaceRecovery({
    */
   async function inspect() {
     const titles = { journal: "System journal", "job-logs": "BoxPilot job logs", "apt-cache": "APT download cache", docker: "Docker", backups: "Local backups" };
+    /** @type {Array<[string, (deadlineAt: number) => Promise<Record<string, any>>]>} */
     const readers = [["journal", inspectJournal], ["job-logs", inspectJobLogs], ["apt-cache", inspectApt], ["docker", inspectDocker], ["backups", inspectBackups]];
     const deadlineAt = passDeadline();
     const settled = await Promise.allSettled(readers.map(([, read]) => read(deadlineAt)));
     // Unavailable is never zero: a category that could not be read has no numbers, only the reason.
+    /** @type {Array<Record<string, any>>} */
     const categories = settled.map((result, index) => (result.status === "fulfilled"
       ? { ...result.value, available: true, unavailable: null, humanBytes: result.value.bytes === null ? null : humanBytes(result.value.bytes) }
       : { id: readers[index][0], title: titles[readers[index][0]], available: false, unavailable: unavailableReason(result.reason), bytes: null, inodes: null, humanBytes: null, detail: null }));

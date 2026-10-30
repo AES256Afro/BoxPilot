@@ -144,7 +144,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
   /** The problem scan alone: what a fix reads again when it ends. */
   const loadScan = useCallback(async (): Promise<RepairScan | null> => {
     try {
-      const parsed = scanFrom(await readJson(await fetch("/api/v1/remediations")));
+      const parsed = scanFrom(await readJson(await fetch("/api/v1/remediations?fresh=1")));
       setScan(parsed);
       setScanError(parsed.sourceStatus === "partial" ? `Could not check: ${parsed.unavailableChecks.join(", ") || "some parts of this server"}. Other findings are shown below.` : null);
       return parsed;

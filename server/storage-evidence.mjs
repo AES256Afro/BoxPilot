@@ -176,6 +176,8 @@ function normalizedSmartDisk(item) {
     // with -d sat. Absent from evidence written before the scanner asked; null then.
     transport: typeof item.transport === "string" && /^[a-z0-9]{1,16}$/.test(item.transport) ? item.transport : null,
     deviceType: ["auto", "sat"].includes(item.deviceType) ? item.deviceType : null,
+    // Read by waking it, because the owner allows a weekly read of a disk that sleeps through every check.
+    wokenForWeeklyRead: item.wokenForWeeklyRead === true,
     // When this reading was taken; for a disk left asleep, what it said the last time it was read.
     readAt: isoOrNull(item.readAt),
     lastHealth: ["healthy", "warning", "critical"].includes(item.lastHealth) ? item.lastHealth : null,

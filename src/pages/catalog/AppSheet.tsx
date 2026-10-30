@@ -7,7 +7,7 @@ import { LogsTab } from "./LogsTab";
 import { ModelsTab } from "./ModelsTab";
 import { ReachTab, reachOf } from "./ReachTab";
 import { TunnelTab } from "./TunnelTab";
-import { appStatus, drillFailed, installTier, isPaused, isRunning, troubledSidecar } from "./appState";
+import { appStatus, drillFailed, installTier, isPaused, isRunning, shortImage, troubledSidecar } from "./appState";
 import type { CatalogContext, Entry } from "./types";
 
 /*
@@ -84,7 +84,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
         <AppIcon id={manifest.id} name={manifest.name} icon={manifest.icon} size="lg" />
         <div className="catalog-sheet__lead">
           <StatusChip status={status.status}>{status.label}</StatusChip>
-          <p className="catalog-sheet__meta"><code>{manifest.image.reference}</code>{manifest.image.digestPinned ? " · digest pinned" : ""}</p>
+          <p className="catalog-sheet__meta"><code title={manifest.image.reference}>{shortImage(manifest.image.reference)}</code>{manifest.image.digestPinned ? " · digest pinned" : ""}</p>
           <p className="catalog-sheet__description">{manifest.description}</p>
         </div>
       </div>
@@ -122,7 +122,7 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
   const facts: KeyValueItem[] = [
     // The container's own state here; a folder it cannot write to is said above, in its notice.
     { id: "state", label: "State", value: stateWords(entry), status: appStatus(live ? { ...live, folderProblems: [] } : live).status, hint: live && installed && live.container.restarts > 0 ? `${live.container.restarts} restarts` : undefined },
-    { id: "version", label: "Version", mono: true, value: manifest.image.version ?? manifest.image.reference, hint: live?.updateAvailable ? `update ready: ${live.installedImage ?? "installed image"} → ${manifest.image.reference}` : installed ? "up to date" : undefined },
+    { id: "version", label: "Version", mono: true, value: manifest.image.version ?? shortImage(manifest.image.reference), hint: live?.updateAvailable ? `update ready: ${live.installedImage ? shortImage(live.installedImage) : "installed image"} → ${shortImage(manifest.image.reference)}` : installed ? "up to date" : undefined },
     ...(reach ? [{ id: "reach", label: "Reach", value: reach.tailnetOnly ? "Tailscale only" : "Your home network", hint: live!.urls.length ? live!.urls.map((url) => `${url.label} ${url.host}`).join(" · ") : "No web page" }] : []),
     ...(!installed && manifest.ports.length ? [{ id: "ports", label: "Ports", mono: true, value: manifest.ports.map((port) => `${port.label} ${port.host}/${port.protocol}`).join(" · ") }] : []),
     ...(folders.length ? [{ id: "data", label: "Data", mono: true, value: <span className="catalog-paths">{folders.map((folder) => <code key={folder.path} title={folder.label}>{folder.path}</code>)}</span> }] : []),
@@ -176,7 +176,7 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
             </>
             : <Button risk={riskOf("app.action")} onClick={() => lifecycle("start", `Start ${name}`)}>Start</Button>)}
         {installed && may("app.update") && (
-          <Button variant={live?.updateAvailable ? "primary" : "secondary"} risk={riskOf("app.update")} onClick={() => act({ operationId: "app.update", title: `Update ${name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>
+          <Button variant={live?.updateAvailable ? "primary" : "secondary"} risk={riskOf("app.update")} onClick={() => act({ operationId: "app.update", title: `Update ${name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code title={live.installedImage ?? undefined}>{shortImage(live.installedImage)}</code> to <code title={manifest.image.reference}>{shortImage(manifest.image.reference)}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>
             {live?.updateAvailable ? "Update available" : "Update"}
           </Button>
         )}

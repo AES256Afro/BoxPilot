@@ -79,6 +79,7 @@ const loadPowerLossModule = () => import(/* @vite-ignore */ powerLossModule);
 /**
  * Did the boot before this one end without a shutdown? The outage, or null. `bootedAt` is when this
  * boot began: an outage recorded for an earlier boot is not this one's.
+ * @param {{ store?: any, helper?: any, bootedAt?: number, now?: () => Date, loadPowerLoss?: () => Promise<any> }} [options]
  */
 export async function previousBootEndedUncleanly({ store, helper = null, bootedAt, now = () => new Date(), loadPowerLoss = loadPowerLossModule } = {}) {
   const powerLoss = await loadPowerLoss().catch(() => null);
@@ -116,6 +117,8 @@ export function latestOutageCheck(store) {
 /**
  * Once per start, a few minutes in: if this boot followed an unclean end, check and record. A boot
  * more than an hour old is not "after the outage" any more (BoxPilot restarted since), and is left.
+ * @param {{ store?: any, helper?: any, network?: any, dnsApp?: () => Promise<object | null>, previous?: typeof previousBootEndedUncleanly, check?: typeof checkDnsAfterOutage,
+ *   uptimeSeconds?: () => number, now?: () => Date, delay?: typeof setTimeout, firstDelayMs?: number, retryMs?: number, attempts?: number, freshBootMs?: number }} [options]
  */
 export function createOutageDnsWatch({ store, helper = null, network, dnsApp = async () => null, previous = previousBootEndedUncleanly, check = checkDnsAfterOutage, uptimeSeconds = () => os.uptime(), now = () => new Date(), delay = globalThis.setTimeout, firstDelayMs = 3 * 60_000, retryMs = 3 * 60_000, attempts = 4, freshBootMs = 60 * 60_000 } = {}) {
   async function once() {

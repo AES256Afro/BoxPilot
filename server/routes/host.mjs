@@ -66,7 +66,7 @@ export function withSavedSecretsAssumed(manifest, raw) {
  * `trusted` is whether the certificate is trusted without installing anything (loopback and the real
  * ts.net certificate are; the local-CA LAN certificate is not until the CA is installed).
  */
-export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, servePublished }) {
+export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, servePublished, serveOverLoopback = false }) {
   const onLan = webHost === "0.0.0.0";
   const ways = [
     { id: "loopback", label: "On this server", url: `http://127.0.0.1:${webPort}`, scope: "Only from the server itself", encrypted: false, trusted: true },
@@ -78,7 +78,7 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
     }
   }
   if (servePublished && dnsName) ways.push({ id: "tailnet", label: "Over Tailscale, from anywhere", url: `https://${dnsName}`, scope: "Any device on your tailnet", encrypted: true, trusted: true });
-  return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished) };
+  return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished), serveOverLoopback: Boolean(servePublished && serveOverLoopback) };
 }
 
 export function createHostRouter({ state, helper, catalogService, inventory, network, appGlances = createAppGlances({ helper }), dnsResilience = null, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners }) {
@@ -204,6 +204,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
    * that fixes each one; nothing runs until the owner approves it.
    */
   router.get("/remediations", async (request, response) => {
+    // The Repair page asks for what is true now; Home's loop takes the drive evidence the helper
+    // client holds for a few minutes (helper-client.mjs heldReadMs).
+    if (request.query?.fresh === "1") helper?.invalidate?.(["storage.usb.events", "storage.unclean.events", "storage.volumes.state"]);
     // The scan is shared with the agents' repair.findings tool (M47): the same findings on the Repair page and in an agent's answer.
     const visibleJobs = typeof state.listJobs === "function" ? state.listJobs(200, seesEveryAccount(request) ? {} : { createdBy: callerId(request) }) : [];
     const scanned = await scanRemediations({ helper, state, catalogService, inventory, collect, fileExists, readListeners, notifications, dnsResilience, operatorReadsWanted: readsThroughHelper(request), visibleJobsGiven: visibleJobs });
@@ -344,8 +347,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   router.get("/network/dns-resilience", async (request, response) => {
     if (!dnsResilience) return response.status(404).json({ error: "Not found", code: "not_found" });
     try {
-      const verdict = await dnsResilience.check({ fresh: request.query?.fresh === "1" && (request.boxpilotSession?.owner?.role ?? "disabled") !== "viewer" });
-      return response.json({ ...verdict, afterOutage: latestOutageCheck(state) });
+      const verdict = await dnsResilience.check({ fresh: request.query?.fresh === "1" && (request.boxpilotSession?.owner?.role ?? "disabled") !== "viewer", counts: readsThroughHelper(request) });
+      return response.json(withOwnActors(request, { ...verdict, afterOutage: latestOutageCheck(state) }));
     } catch (error) {
       return response.status(500).json({ error: `The DNS check could not run: ${error.message}`, code: "dns_resilience_failed" });
     }
@@ -354,16 +357,17 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   // Every way to reach the BoxPilot control plane, so "which URL do I use" has one honest answer
   // (M18.3). Assembled from the bind, the local certificate, and whether Tailscale Serve publishes us.
   router.get("/network/reachability", async (_request, response) => {
-    const [topology, tls, servePublished] = await Promise.all([
+    const [topology, tls, servePublished, serveOverLoopback] = await Promise.all([
       network.inspect().catch(() => ({})),
       readTlsStatus({ dir: tlsDir }),
       identity?.servePublishesControlPlane ? identity.servePublishesControlPlane().catch(() => false) : Promise.resolve(false),
+      identity?.serveOverLoopbackOnly ? identity.serveOverLoopbackOnly().catch(() => false) : Promise.resolve(false),
     ]);
     response.json(buildReachability({
       webHost, webPort,
       lanIp: topology.eligibleLanAddresses?.[0]?.address ?? null,
       dnsName: topology.tailscale?.dnsName ?? null,
-      tls, servePublished,
+      tls, servePublished, serveOverLoopback,
     }));
   });
 

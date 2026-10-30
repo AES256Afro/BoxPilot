@@ -37,6 +37,11 @@ function filesystemSummary(value) {
   return { totalBytes, freeBytes, usedBytes: Math.max(0, totalBytes - freeBytes), usedPercent: totalBytes ? Math.round(((totalBytes - freeBytes) / totalBytes) * 100) : 0 };
 }
 
+/**
+ * `family` was a number on Node 18.0 to 18.3, so the address filter accepts either.
+ *
+ * @param {{ helper?: any, runCommand?: typeof fixedCommand, readOsRelease?: () => Promise<string>, getFilesystem?: typeof statfs, getNetworkInterfaces?: () => Record<string, { address: string, family: string | number, internal: boolean, cidr?: string | null }[] | undefined>, readStorageHealth?: () => Promise<string>, maintenance?: ReturnType<typeof createMaintenanceService>, ups?: ReturnType<typeof createUpsService>, powerEvents?: () => any, powerPolicy?: () => any, now?: () => Date, webStartedAt?: () => Date }} [options]
+ */
 export function createInventoryService({
   helper,
   runCommand = fixedCommand,
