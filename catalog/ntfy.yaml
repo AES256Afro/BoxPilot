@@ -25,6 +25,9 @@ volumes:
     label: Configuration
     container: /etc/ntfy
     path: config
+# The setting that holds the app's public address, so Hosted domains watches it once it is set.
+publicHostname:
+  env: NTFY_BASE_URL
 env:
   - name: NTFY_BASE_URL
     label: Base URL
