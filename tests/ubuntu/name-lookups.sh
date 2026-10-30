@@ -68,7 +68,14 @@ cp /etc/nsswitch.conf "${WORK}/nsswitch.conf"
 note "/etc/resolv.conf -> $(readlink /etc/resolv.conf || echo 'a plain file')"
 note "nsswitch: $(grep '^hosts:' /etc/nsswitch.conf)"
 note "systemd-resolved: $(systemctl is-active systemd-resolved.service)"
-if [ "$(readlink /etc/resolv.conf)" != "$STUB" ] || [ "$(systemctl is-active systemd-resolved.service)" != active ]; then
+# GitHub's Ubuntu images differ: some link the stub as a stock server does, some ship a plain file
+# with systemd-resolved still running. Make the second like the first (the original is put back by
+# cleanup), and refuse to go on only when names do not resolve through the stub either.
+if [ "$(readlink /etc/resolv.conf)" != "$STUB" ] && [ "$(systemctl is-active systemd-resolved.service)" = active ]; then
+  ln -sf "$STUB" /etc/resolv.conf
+  note "linked the stub, as a stock Ubuntu server has it"
+fi
+if [ "$(readlink /etc/resolv.conf)" != "$STUB" ] || [ "$(systemctl is-active systemd-resolved.service)" != active ] || ! getent hosts github.com >/dev/null; then
   record FAIL "the runner uses systemd-resolved's stub, as a stock Ubuntu server does"
   printf '%s' "$RESULTS"; exit 1
 fi
