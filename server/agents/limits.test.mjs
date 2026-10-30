@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Every limit an agent lives under (M37), each shown to hold: steps, tool calls, tokens, model time
  * and runs a day; one run at a time for the whole server and one question at a time per person; a
@@ -19,7 +18,12 @@ const ask = (agent, role, question = "How is the server?") => h.service.startRun
 const thrown = (fn) => { try { fn(); } catch (error) { return error; } return null; };
 const withBudget = (agent, budget) => h.service.updateAgent(h.caller("owner"), agent.id, { spec: { ...agent.spec, budget: { ...agent.spec.budget, ...budget } } });
 /** A model that asks for a tool whenever it is offered one, and answers only when it is not. */
-const toolHungry = (body) => (body.tools?.length ? { toolCalls: [{ name: "server_facts", arguments: {} }, { name: "alerts_active", arguments: {} }] } : { content: "Out of steps, so here is what I have [T1]." });
+// Two new reads every step (a repeated call is answered without running since M48.1, so each asks something new).
+const toolHungry = (body) => {
+  if (!body.tools?.length) return { content: "Out of steps, so here is what I have [T1]." };
+  const asked = body.messages.filter((message) => message.role === "tool").length;
+  return { toolCalls: [{ name: "docs_search", arguments: { query: `question ${asked + 1}` } }, { name: "docs_search", arguments: { query: `question ${asked + 2}` } }] };
+};
 
 describe("steps, tool calls and tokens a run", () => {
   it("stops a model that keeps calling tools at its steps, and asks it for an answer without tools", async () => {
@@ -136,6 +140,24 @@ describe("one run at a time", () => {
     await h.runner.execute(first);
     const second = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
     expect(second.run.id).not.toBe(first.run.id);
+  });
+
+  it("ends a question that waited too long while no runner asked for work, so its person may ask again (R3B1-8)", async () => {
+    await setup();
+    const keeper = make("server-keeper");
+    const helper = make("it-support");
+    const waiting = ask(keeper, "operator");
+    // No runner asks for work for two hours: the next tick ends it, as handing it out would have.
+    h.advance(2 * 3600_000 + 60_000);
+    await h.service.tick();
+    expect(h.store.getRun(waiting.id)).toMatchObject({ state: "cancelled", reason: "It waited too long to start" });
+    expect(ask(helper, "operator", "Anything else?")).toMatchObject({ state: "queued" });
+    // A background run waits its own, longer time, from when quiet hours begin.
+    h.service.relearn(h.caller("owner"), keeper.id);
+    const learn = h.store.activeRuns().find((run) => run.kind === "learn");
+    h.advance(3 * 3600_000);
+    await h.service.tick();
+    expect(h.store.getRun(learn.id).state).toBe("queued");
   });
 
   it("takes one question at a time from each person", async () => {

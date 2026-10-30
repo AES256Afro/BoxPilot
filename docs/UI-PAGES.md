@@ -128,6 +128,10 @@ All of them are in the gallery (`/?gallery` on the demo), in both themes, in the
   said in words too (a chip's label, a mark's shape).
 - No horizontal scroll at 375 px: give a table's less important columns `hideOnPhone`, let
   toolbars wrap, and check the phone screenshots.
+- On a touch screen (`pointer: coarse`, M25) the kit's buttons and fields grow to 44 px and fields
+  to 16 px type, so a page built from the kit is tappable with no work of its own. A control a page
+  draws itself follows the same rule in its own sheet. Keep clear of `env(safe-area-inset-*)` if a
+  page pins anything to an edge; the shell already does for the bar, the dock and the sheets.
 
 ## Checklist before the pull request
 

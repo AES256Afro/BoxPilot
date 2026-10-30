@@ -33,6 +33,8 @@ export function CopyButton({ value, label = "Copy", name, className }: CopyButto
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(value);
       if (ticket === generation.current) setState("copied");
+      // "Copied" stays a couple of seconds, then the button is itself again (M50): it used to say Copied until the value changed.
+      window.setTimeout(() => { if (ticket === generation.current) setState("idle"); }, 2_000);
     } catch {
       if (ticket === generation.current) setState("failed");
     }

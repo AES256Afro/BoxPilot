@@ -2,6 +2,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { access, chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { parseMountInventory } from "../server/storage-evidence.mjs";
@@ -91,6 +92,53 @@ export async function collectFilesystemErrors(filesystems, { run = fixedRun, loa
  * idle drive. NVMe ignores it; nothing else about the read changes.
  */
 export const smartReadArgs = Object.freeze(["--json=c", "--all", "-n", "standby"]);
+
+/** The same read, allowed to spin a sleeping disk up: the owner's weekly read (wakeAfterMs). */
+export const wakingReadArgs = Object.freeze(["--json=c", "--all"]);
+
+/** How long a disk may sleep through every check before the owner's weekly read wakes it. */
+export const wakeAfterMs = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether the owner turned the weekly read on (Storage → Drives, the `storageWeeklyWake` setting).
+ * Read straight from the database, read-only, the way the job-log cleanup reads it: this scan opens
+ * no state store and runs no migration. Off when the database or the setting cannot be read.
+ */
+export function weeklyWakeEnabled(databasePath = process.env.BOXPILOT_CONTROLLER_DATABASE ?? path.join(process.env.BOXPILOT_STATE_DIRECTORY ?? "/var/lib/boxpilot", "boxpilot.sqlite3")) {
+  let database;
+  try {
+    database = new DatabaseSync(databasePath, { readOnly: true });
+    const row = database.prepare("SELECT value_json FROM settings WHERE key = 'storageWeeklyWake'").get();
+    return JSON.parse(String(row?.value_json ?? "null"))?.enabled === true;
+  } catch {
+    return false;
+  } finally {
+    database?.close();
+  }
+}
+
+/** When a disk was last read awake, from the evidence this scan replaces; null when never. */
+export function lastReadAwake(previous, device) {
+  const disk = (Array.isArray(previous?.disks) ? previous.disks : []).find((entry) => entry?.device === device);
+  const at = disk?.reason === "asleep" ? disk.lastReadAt : disk?.readAt ?? null;
+  return typeof at === "string" && Number.isFinite(Date.parse(at)) ? at : null;
+}
+
+/** When the weekly read last tried to wake a disk, whether or not the drive answered; null when never. */
+export function lastWakeTry(previous, device) {
+  const at = (Array.isArray(previous?.disks) ? previous.disks : []).find((entry) => entry?.device === device)?.wakeTriedAt;
+  return typeof at === "string" && Number.isFinite(Date.parse(at)) ? at : null;
+}
+
+/**
+ * Whether a week has passed since `at`. A time ahead of the clock (written while it ran fast, then
+ * corrected) counts as passed: otherwise the read would stay off until the clock caught up.
+ */
+export function weekPassed(at, nowMs) {
+  if (at === null) return true;
+  const then = Date.parse(at);
+  return then > nowMs || nowMs - then >= wakeAfterMs;
+}
 
 /** smartctl skipped the disk because it was asleep (standby or sleep), which says nothing about its health. */
 export function diskAsleep(output) {
@@ -188,7 +236,11 @@ export function createStorageScanner({
   findmntBinary = defaultFindmnt,
   loadFile = readFile,
 } = {}) {
-  async function scan() {
+  /**
+   * `wake`: whether the owner allows waking a disk that has slept through every check for a week,
+   * and the evidence this scan replaces, which says when each disk was last read awake.
+   */
+  async function scan({ wake = false, previous = null } = {}) {
     const mountResult = await run(findmntBinary, ["--json", "--bytes", "--real", "--tab-file", "/proc/1/mountinfo", "--output", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL,USE%,OPTIONS"], { timeout: 10000 });
     let filesystems = parseMountInventory(mountResult.ok ? mountResult.stdout : "");
     filesystems.namespace = mountResult.ok ? "host-pid1" : "unavailable";
@@ -205,7 +257,20 @@ export function createStorageScanner({
     for (const { device, transport } of devices) {
       const direct = await run(smartctlBinary, [...smartReadArgs, device], { timeout: 30000 });
       const sat = needsSatRetry(transport, direct.stdout) ? await run(smartctlBinary, [...smartReadArgs, "-d", "sat", device], { timeout: 30000 }) : null;
-      const reading = smartEvidenceFor(device, { transport, direct: direct.stdout, sat: sat ? sat.stdout : null });
+      let reading = smartEvidenceFor(device, { transport, direct: direct.stdout, sat: sat ? sat.stdout : null });
+      // Asleep at every check for a week, and the owner allows it: read once more, letting it spin up.
+      // A wake that did not get a reading (the drive took too long, or answered nothing usable) counts
+      // too, so a drive that never answers is tried once a week, not at every scan.
+      const nowMs = now().getTime();
+      if (wake && reading.reason === "asleep" && weekPassed(lastReadAwake(previous, device), nowMs) && weekPassed(lastWakeTry(previous, device), nowMs)) {
+        const viaSat = reading.deviceType === "sat";
+        const woken = await run(smartctlBinary, [...wakingReadArgs, ...(viaSat ? ["-d", "sat"] : []), device], { timeout: 60000 });
+        const awake = viaSat
+          ? { ...parseSmartctlEvidence(device, woken.stdout), transport: "usb", deviceType: "sat" }
+          : smartEvidenceFor(device, { transport, direct: woken.stdout, sat: null });
+        reading = awake.health !== "unavailable" ? { ...awake, wokenForWeeklyRead: true } : reading;
+        reading = { ...reading, wakeTriedAt: now().toISOString() };
+      }
       disks.push(reading.health === "unavailable" ? reading : { ...reading, readAt: now().toISOString() });
     }
     const read = disks.some((item) => item.health !== "unavailable");
@@ -225,8 +290,10 @@ export function createStorageScanner({
 export function carryLastReadings(evidence, previous) {
   const before = new Map((Array.isArray(previous?.disks) ? previous.disks : []).map((disk) => [disk?.device, disk]));
   const disks = (evidence.disks ?? []).map((disk) => {
-    if (disk.reason !== "asleep") return disk;
     const last = before.get(disk.device);
+    // When the weekly read last tried this disk stays until it tries again.
+    if (!disk.wakeTriedAt && typeof last?.wakeTriedAt === "string") disk = { ...disk, wakeTriedAt: last.wakeTriedAt };
+    if (disk.reason !== "asleep") return disk;
     if (!last) return disk;
     const health = last.reason === "asleep" ? last.lastHealth : last.health;
     const readAt = last.reason === "asleep" ? last.lastReadAt : last.readAt ?? previous.generatedAt;
@@ -236,12 +303,13 @@ export function carryLastReadings(evidence, previous) {
   return { ...evidence, disks };
 }
 
-export async function writeStorageEvidence({ outputPath = process.env.BOXPILOT_STORAGE_HEALTH_PATH ?? defaultOutputPath, stateDirectory = process.env.BOXPILOT_STATE_DIRECTORY ?? "/var/lib/boxpilot", scanner = createStorageScanner() } = {}) {
+export async function writeStorageEvidence({ outputPath = process.env.BOXPILOT_STORAGE_HEALTH_PATH ?? defaultOutputPath, stateDirectory = process.env.BOXPILOT_STATE_DIRECTORY ?? "/var/lib/boxpilot", scanner = createStorageScanner(), wake = () => weeklyWakeEnabled() } = {}) {
   const resolved = path.resolve(outputPath);
   const resolvedStateDirectory = path.resolve(stateDirectory);
   if (resolved !== path.join(resolvedStateDirectory, "storage-health.json")) throw new Error("Storage evidence path must remain the fixed file in the BoxPilot state directory");
   const partial = `${resolved}.partial`;
-  const evidence = carryLastReadings(await scanner.scan(), await readFile(resolved, "utf8").then(JSON.parse).catch(() => null));
+  const previous = await readFile(resolved, "utf8").then(JSON.parse).catch(() => null);
+  const evidence = carryLastReadings(await scanner.scan({ wake: wake(), previous }), previous);
   await mkdir(path.dirname(resolved), { recursive: true, mode: 0o700 });
   await writeFile(partial, `${JSON.stringify(evidence)}\n`, { encoding: "utf8", mode: 0o640 });
   await rename(partial, resolved);

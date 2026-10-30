@@ -7,7 +7,7 @@ description: "Build and flash firmware for ESP32/ESP8266 boards from the browser
 website: https://esphome.io
 risk: medium
 image:
-  reference: esphome/esphome:2026.8.0
+  reference: esphome/esphome:2026.8.0@sha256:e081a5e5e80203235245db62bd3003bec3db3ddd13e3834f0613ac4ad78d89b1
   version: "2026.8.0"
 network: host
 devices:

@@ -7,7 +7,7 @@ description: "Follow YouTube channels and playlists and keep the videos on this 
 website: https://github.com/kieraneglin/pinchflat
 risk: low
 image:
-  reference: ghcr.io/kieraneglin/pinchflat:v2025.6.6
+  reference: ghcr.io/kieraneglin/pinchflat:v2025.6.6@sha256:4e975edf58f0861a5cbfe8fc6aac4851ff5a02dfc3f05ffeea4982e3084a5a4a
   version: "2025.6.6"
 ports:
   - id: web
@@ -23,7 +23,7 @@ volumes:
   - id: downloads
     label: Downloads folder
     container: /downloads
-    hostPath: /srv/media/youtube
+    hostPath: /srv/pinchflat
     configurable: true
     backup: false
 env:

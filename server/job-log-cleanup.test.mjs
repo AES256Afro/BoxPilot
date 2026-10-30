@@ -43,18 +43,28 @@ describe("releasing durable job output", () => {
   it("does not follow a caller-supplied path outside the log directory", async () => {
     await expect(releaseSavedJobLog({ jobId: "../../etc/passwd" }, await fixture())).rejects.toThrow("UUID");
   });
-  it("reads only completed outputs from an existing database and never creates a missing database", async () => {
+  it("reads the outputs of finished jobs from an existing database and never creates a missing database", async () => {
     const options = await fixture();
     const databasePath = path.join(options.directory, "state.sqlite3");
     const db = new DatabaseSync(databasePath);
-    db.exec("CREATE TABLE jobs(id TEXT PRIMARY KEY,state TEXT); CREATE TABLE job_output(job_id TEXT PRIMARY KEY,output TEXT)");
-    db.prepare("INSERT INTO jobs VALUES (?,?)").run(jobId, "applying");
+    db.exec("CREATE TABLE jobs(id TEXT PRIMARY KEY,state TEXT,timeout_json TEXT); CREATE TABLE job_output(job_id TEXT PRIMARY KEY,output TEXT)");
+    db.prepare("INSERT INTO jobs VALUES (?,?,NULL)").run(jobId, "applying");
     db.prepare("INSERT INTO job_output VALUES (?,?)").run(jobId, "complete output\n");
     expect(savedCompletedOutput(jobId, databasePath)).toBeNull();
+    // A failed job's saved log can go too...
     db.prepare("UPDATE jobs SET state='failed'").run();
-    expect(savedCompletedOutput(jobId, databasePath)).toBeNull();
-    db.prepare("UPDATE jobs SET state='completed'").run();
     expect(savedCompletedOutput(jobId, databasePath)).toBe("complete output\n");
+    // ...unless it ran out of time with work that may still be writing to the log.
+    db.prepare("UPDATE jobs SET timeout_json=?").run(JSON.stringify({ scope: "operation", phase: "running", budgetMs: 60_000 }));
+    expect(savedCompletedOutput(jobId, databasePath)).toBeNull();
+    db.prepare("UPDATE jobs SET timeout_json=?").run(JSON.stringify({ scope: "step", phase: "running", stillRunning: false }));
+    expect(savedCompletedOutput(jobId, databasePath)).toBe("complete output\n");
+    db.prepare("UPDATE jobs SET timeout_json='not json'").run();
+    expect(savedCompletedOutput(jobId, databasePath)).toBeNull();
+    db.prepare("UPDATE jobs SET state='completed', timeout_json=NULL").run();
+    expect(savedCompletedOutput(jobId, databasePath)).toBe("complete output\n");
+    db.prepare("UPDATE jobs SET state='cancelled'").run();
+    expect(savedCompletedOutput(jobId, databasePath)).toBeNull();
     db.close();
     expect(() => savedCompletedOutput(jobId, path.join(options.directory, "missing.db"))).toThrow();
   });

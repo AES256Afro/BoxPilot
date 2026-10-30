@@ -5,6 +5,7 @@ import { relativeTime } from "../home/format";
 import { readJson } from "../http";
 import { Button, EmptyState, Facts, Notice, Sheet, StatusChip, Tag, type Status } from "../ui";
 import { BellIcon } from "./areaIcons";
+import { PushPanel } from "./PushPanel";
 import "./look.css";
 import "./bar.css";
 import "./notifications.css";
@@ -20,14 +21,14 @@ import "./notifications.css";
 
 export interface NotificationEntry {
   id: string;
-  kind: "alert" | "notice" | "job";
+  kind: "alert" | "notice" | "job" | "approval";
   key: string;
   family: string;
   title: string;
   message: string | null;
   at: string;
   delivered: boolean;
-  reason: "no-target" | "failed" | null;
+  reason: "no-target" | "failed" | "held" | null;
   deliveredAt: string | null;
   resolvedAt: string | null;
   live: boolean;
@@ -39,12 +40,15 @@ export interface NotificationList { entries: NotificationEntry[]; seenAt: string
 export function destinationOf(entry: NotificationEntry): { kind: "activity"; jobId: string | null; label: string } | { kind: "view"; view: ViewName; label: string; tab?: string } {
   const [, subject] = entry.key.split(/:(.*)/s);
   if (entry.family === "job.failed" || entry.family === "approval.lapsed") return { kind: "activity", jobId: subject && entry.key !== entry.family ? subject : null, label: "Open in Activity" };
+  // An approval pushed to a phone (M25.2): the job, where it can be reviewed; several at once, Today.
+  if (entry.family === "approval.waiting") return subject && entry.key !== entry.family ? { kind: "activity", jobId: subject, label: "Open in Activity" } : { kind: "view", view: "today", label: "Open Today" };
   if (entry.family === "job.interrupted" || entry.family === "record.failed" || entry.family === "joblog.unreadable") return { kind: "activity", jobId: null, label: "Open Activity" };
   if (entry.family.startsWith("storage.") || entry.family.startsWith("smart.")) return { kind: "view", view: "storage", label: "Open Storage" };
   if (entry.family.startsWith("docker.")) return { kind: "view", view: "catalog", label: "Open the App catalog" };
-  if (entry.family === "system.services") return { kind: "view", view: "services", label: "Open Services" };
+  if (entry.family === "system.services" || entry.family === "boxpilot.restart") return { kind: "view", view: "services", label: "Open Services" };
   if (entry.family === "system.reboot") return { kind: "view", view: "updates", label: "Open Updates" };
-  if (entry.family === "power.ups") return { kind: "view", view: "system", label: "Open System" };
+  // The tab the entry is about, not System's overview (M50).
+  if (entry.family === "power.ups") return { kind: "view", view: "system", label: "Open the Power tab", tab: "power" };
   if (entry.family === "schedule.overdue") return { kind: "view", view: "backups", label: "Open Backups" };
   // As Home's list sends them (src/home/needs.ts watchView), without loading Home to know it.
   const view: ViewName = entry.family === "schedule.failed" || entry.family === "release.available" ? "system"
@@ -52,20 +56,22 @@ export function destinationOf(entry: NotificationEntry): { kind: "activity"; job
       : entry.family === "drive.reconnected" ? "storage"
         : entry.family === "signin.new" || entry.family === "report.weekly" ? "settings" : "repairs";
   // Settings opens at the tab the entry is about (M33.13).
-  const tab = entry.family === "report.weekly" ? "notifications" : entry.family === "signin.new" ? "account" : undefined;
-  return { kind: "view", view, label: `Open ${viewLabel(view)}`, ...(tab ? { tab } : {}) };
+  const tab = entry.family === "report.weekly" ? "notifications" : entry.family === "signin.new" ? "account" : entry.family === "release.available" ? "updates" : entry.family === "schedule.failed" ? "schedules" : undefined;
+  const label = entry.family === "release.available" ? "Open the BoxPilot update" : entry.family === "schedule.failed" ? "Open Schedules" : `Open ${viewLabel(view)}`;
+  return { kind: "view", view, label, ...(tab ? { tab } : {}) };
 }
 
 /** Whether it arrived, in words, with the status that goes with them. */
 export function deliveryOf(entry: NotificationEntry): { status: Status; words: string } {
   if (entry.delivered) return { status: "good", words: "Sent" };
   if (entry.reason === "no-target") return { status: "neutral", words: "Not sent: no target set" };
+  if (entry.reason === "held") return { status: "neutral", words: "Held for quiet hours" };
   return { status: "warning", words: "Sending failed" };
 }
 
 const pollMs = 60_000;
 
-export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: string; onNavigate: (view: ViewName, options?: { tab?: string }) => void }) {
+export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { csrfToken: string; role?: string; onNavigate: (view: ViewName, options?: { tab?: string }) => void }) {
   const [list, setList] = useState<NotificationList | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -117,7 +123,7 @@ export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: strin
 
   return (
     <>
-      <button className="bar-button" data-live={unseen > 0 || undefined} type="button" aria-expanded={open} aria-haspopup="dialog" aria-label={unseen ? `Notifications, ${unseen} new` : "Notifications"} onClick={() => setOpen((value) => !value)}>
+      <button className="bar-button bar-bell" data-live={unseen > 0 || undefined} type="button" aria-expanded={open} aria-haspopup="dialog" aria-label={unseen ? `Notifications, ${unseen} new` : "Notifications"} onClick={() => setOpen((value) => !value)}>
         <BellIcon aria-hidden="true" />
         {unseen > 0 && <span className="bar-badge" aria-hidden="true">{unseen > 99 ? "99+" : unseen}</span>}
       </button>
@@ -163,6 +169,8 @@ export function NotificationCentre({ csrfToken, onNavigate }: { csrfToken: strin
               })}
             </ul>
           )}
+          {/* Approvals pushed to a phone (M25.2), folded under what happened (M50): the bell opened on the set-up, and the list was a scroll away. */}
+          {role !== "viewer" && <details className="notifications-push"><summary>Approvals on your phone</summary><PushPanel csrfToken={csrfToken} role={role} /></details>}
         </Sheet>
       )}
     </>

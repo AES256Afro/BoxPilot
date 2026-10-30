@@ -57,6 +57,39 @@ describe("a VM planned from an ISO", () => {
     expect((screen.getByRole("button", { name: "Generate reviewed plan" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  // A slow plan answer arrived after the form was changed, was shown as the plan, and the VM was
+  // staged with the values from before the change.
+  it("drops a plan answered for values that have since been changed", async () => {
+    const options = {
+      mediaRoot: "/var/lib/libvirt/boot", mediaError: null, isoImages: [{ name: "ubuntu.iso", sizeBytes: 1, modifiedAt: "2026-08-14T12:00:00Z" }], hostCapacity: { cpuThreads: 8, memoryMiB: 32768 },
+      limits: { vcpus: { minimum: 1, maximum: 32 }, memoryMiB: { minimum: 1024, maximum: 131072 }, diskGiB: { minimum: 8, maximum: 4096 } },
+      profiles: [{ id: "ubuntu-24.04", label: "Ubuntu 24.04 LTS", osVariant: "ubuntu24.04", minimumMemoryMiB: 2048, minimumDiskGiB: 20 }], networks: [{ name: "default", kind: "NAT", recommended: true }], firmware: ["uefi", "bios"],
+    };
+    const planFor = (input: Record<string, unknown>) => ({ ok: true, plan: { id: "plan-1", revision: "revision12345678", stageable: true, input, profile: { label: "Ubuntu 24.04 LTS", osVariant: "ubuntu24.04" }, media: { name: "ubuntu.iso", sizeBytes: 1, modifiedAt: "" }, warnings: [], command: { program: "virt-install", arguments: [], display: `virt-install --name ${String(input.name)}` }, gates: [] } });
+    const answers: Array<() => void> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!input.toString().endsWith("/virtualization/plans")) return json(options);
+      const asked = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Promise<Response>((resolve) => { answers.push(() => resolve(json(planFor(asked)))); });
+    }));
+    const onStage = vi.fn();
+    render(<PlanVmSheet csrfToken="csrf" onClose={vi.fn()} onStage={onStage} />);
+    await screen.findByText("Host CPU threads");
+    fireEvent.change(screen.getByLabelText(/VM name/), { target: { value: "old-lab" } });
+    fireEvent.click(screen.getByRole("button", { name: "Generate reviewed plan" }));
+    await waitFor(() => expect(answers).toHaveLength(1));
+    fireEvent.change(screen.getByLabelText(/VM name/), { target: { value: "new-lab" } });
+    answers[0]();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Generate reviewed plan" }) as HTMLButtonElement).getAttribute("aria-busy")).not.toBe("true"));
+    expect(screen.queryByText("virt-install --name old-lab")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Continue to approval/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Generate reviewed plan" }));
+    await waitFor(() => expect(answers).toHaveLength(2));
+    answers[1]();
+    fireEvent.click(await screen.findByRole("button", { name: /Continue to approval/ }));
+    expect(onStage).toHaveBeenCalledWith(expect.objectContaining({ name: "new-lab" }));
+  });
+
   it("takes focus, closes on Escape and hands focus back", async () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
     const opener = document.createElement("button");

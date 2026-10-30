@@ -28,9 +28,10 @@ async function declaredRoutes() {
 const server = app.listen(0, "127.0.0.1");
 await new Promise((resolve) => server.once("listening", resolve));
 const { port } = server.address();
+// JSON answers only: a download (the runbook's Markdown) is a file, not an answer to freeze.
 const ask = (route, scenario) => fetch(`http://127.0.0.1:${port}/api/v1${route}`, {
   headers: { referer: `http://127.0.0.1:${port}/?scenario=${scenario}` },
-}).then((response) => (response.ok ? response.json() : null));
+}).then((response) => (response.ok && (response.headers.get("content-type") ?? "").includes("json") ? response.json() : null));
 
 const routes = await declaredRoutes();
 const bundle = { scenarios: {}, generatedAt: new Date().toISOString() };

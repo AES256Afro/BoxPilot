@@ -7,12 +7,14 @@
  * the job record, not into a log line. The response comes back bounded: the status, a capped body
  * excerpt, and the parsed JSON when it parses, which is what later flow steps read.
  */
-import { createCredentialStore } from "../credentials.mjs";
+import { lookup as dnsLookup } from "node:dns/promises";
+import { createCredentialStore, headerUnsafe, managedCredentialProblem } from "../credentials.mjs";
+import { fetchGuarded, linkLocalProblem } from "../outbound-guard.mjs";
 
 const bodyLimit = 8192;
 const methods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
-export async function httpRequest(parameters = {}, { credentials = createCredentialStore(), timeoutMs = 25_000, fetcher = fetch, now = () => Date.now() } = {}) {
+export async function httpRequest(parameters = {}, { credentials = createCredentialStore(), timeoutMs = 25_000, fetcher = fetch, lookup = dnsLookup, now = () => Date.now() } = {}) {
   const { url, method = "GET", body = null, contentType = null, credentialName = null, credentialHeader = "Authorization", credentialPrefix = "Bearer " } = parameters;
   if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) throw new Error("url must be http(s) and at most 2048 characters");
   if (!methods.has(method)) throw new Error(`method must be one of ${[...methods].join(", ")}`);
@@ -21,18 +23,25 @@ export async function httpRequest(parameters = {}, { credentials = createCredent
   // The cloud metadata endpoint answers no legitimate home-server request and hands out
   // instance credentials; nothing else legitimate lives on link-local. Loopback and LAN are
   // deliberately allowed, because the owner's own ntfy and LAN webhooks are the point.
-  const host = new URL(url).hostname;
-  if (host === "169.254.169.254" || host === "metadata.google.internal" || /^169\.254\./.test(host) || /^\[?fe80:/i.test(host)) {
-    throw new Error("Requests to the link-local metadata range are refused");
-  }
+  // Checked as an address, resolved first when it is a name, and again on every redirect (M50):
+  // matching the hostname's text let a mapped literal, a name and a redirect through.
+  const linkLocal = await linkLocalProblem(url, { lookup });
+  if (linkLocal) throw new Error(`Requests to the link-local metadata range are refused: the address ${linkLocal}`);
 
   const headers = {};
   if (body !== null) headers["Content-Type"] = contentType ?? "application/json";
   let carriesCredential = false;
   if (credentialName) {
+    // The parameter check refuses these first; the root task holds the same line on its own, since
+    // it is the one place the value is read.
+    const reserved = managedCredentialProblem(credentialName);
+    if (reserved) throw new Error(reserved);
     const value = await credentials.read(credentialName);
     if (value === null) throw new Error(`No credential is named ${credentialName}; save it under Settings first`);
-    headers[credentialHeader] = `${credentialPrefix}${value}`;
+    const headerValue = `${credentialPrefix}${value}`;
+    // fetch refuses such a header with an error that quotes it; say so here, without the value.
+    if (headerUnsafe.test(headerValue)) throw new Error(`The credential ${credentialName} holds a line break, which no request header can carry; save it again as one line`);
+    headers[credentialHeader] = headerValue;
     carriesCredential = true;
   }
 
@@ -44,7 +53,7 @@ export async function httpRequest(parameters = {}, { credentials = createCredent
     // A redirect can send a custom credential header to another origin (fetch strips only
     // Authorization/Cookie), so a request that carries a credential never follows one: a 3xx
     // is returned as-is for the caller to read rather than chased to an attacker's host.
-    response = await fetcher(url, { method, headers, ...(body !== null && method !== "GET" && method !== "HEAD" ? { body } : {}), redirect: carriesCredential ? "manual" : "follow", signal: controller.signal });
+    response = await fetchGuarded(url, { method, headers, ...(body !== null && method !== "GET" && method !== "HEAD" ? { body } : {}), signal: controller.signal }, { fetcher, lookup, followRedirects: !carriesCredential });
   } catch (error) {
     // Clear it here too: the finally that clears it belongs to the body read below, which a
     // connection refused never reaches. An armed timer keeps the task process, and so the

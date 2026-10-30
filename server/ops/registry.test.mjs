@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { OperationRegistry, budgetFor, createRegistry, defineOperation, maskSecrets, moreTimeCeilingMs, nextBudgetMs, placeholderPaths, rerunsAfterInterrupt, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
+import { OperationRegistry, budgetFor, confirmTextFor, createRegistry, defineOperation, maskSecrets, moreTimeCeilingMs, nextBudgetMs, placeholderPaths, rerunsAfterInterrupt, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
 import { registry } from "./index.mjs";
-import { helperOperations, legacyHelperOperations, validateHelperRequest } from "../helper-protocol.mjs";
+import { helperOperations, validateHelperRequest } from "../helper-protocol.mjs";
 
 describe("operation registry", () => {
   it("rejects malformed definitions", () => {
@@ -24,6 +24,15 @@ describe("operation registry", () => {
     expect(validateParameters({ fields: {} }, { anything: 1 })).toContain("accepts no parameters");
     expect(validateParameters({ fields: {} }, [])).toContain("must be an object");
     expect(validateParameters({ fields: { v: { validate: (value) => (value === "bad" ? "is bad" : null) } } }, { v: "bad" })).toContain("is bad");
+  });
+
+  it("runs the spec's own check last, and only once every field has passed", () => {
+    const seen = [];
+    const spec = { fields: { from: { type: "number" }, to: { type: "number" } }, validate: ({ from, to }) => { seen.push([from, to]); return from <= to ? null : "from must not be after to"; } };
+    expect(validateParameters(spec, { from: 1, to: 2 }, "Range")).toBeNull();
+    expect(validateParameters(spec, { from: 3, to: 2 }, "Range")).toBe("Range: from must not be after to");
+    expect(validateParameters(spec, { from: "3", to: 2 }, "Range")).toContain("must be a number");
+    expect(seen).toEqual([[1, 2], [3, 2]]);
   });
 
   it("registers, lists, validates, and executes operations with injected dependencies", async () => {
@@ -49,12 +58,9 @@ describe("operation registry", () => {
   });
 });
 
-describe("default registry and legacy allowlists stay consistent", () => {
-  it("declares every operation in exactly one place", () => {
-    for (const id of registry.ids()) expect(legacyHelperOperations.has(id), `${id} is declared both in the registry and the legacy allowlist`).toBe(false);
-    for (const id of registry.ids()) expect(helperOperations.has(id)).toBe(true);
-    for (const id of legacyHelperOperations) expect(helperOperations.has(id)).toBe(true);
-    expect(helperOperations.size).toBe(registry.ids().length + legacyHelperOperations.size);
+describe("the default registry is the helper's whole allowlist", () => {
+  it("allows exactly the registered operations", () => {
+    expect([...helperOperations].sort()).toEqual(registry.ids().sort());
   });
 
   it("routes registered operations through the registry validator", () => {
@@ -189,6 +195,21 @@ describe("more time for an operation that ran out of it (M30.3)", () => {
   });
 });
 
+// Sweep 4: a typed confirmation some requests ask for and others do not, said as such.
+describe("a typed confirmation for some requests", () => {
+  it("is said by a clause, and only for an operation with a confirm", () => {
+    const sometimes = defineOperation({ id: "a.b", title: "x", risk: "high", confirm: (parameters) => (parameters.allow ? "allow" : null), confirmWhen: "it allows something", run() {} });
+    expect(sometimes.confirmWhen).toBe("it allows something");
+    expect(confirmTextFor(sometimes, {})).toBeNull();
+    expect(confirmTextFor(sometimes, { allow: true })).toBe("allow");
+    expect(confirmTextFor(defineOperation({ id: "a.c", title: "x", risk: "high", confirm: () => { throw new Error("x"); }, run() {} }), {})).toBeNull();
+    expect(confirmTextFor(null, {})).toBeNull();
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "high", confirmWhen: "it allows something", run() {} })).toThrow("confirmWhen");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "high", confirm: () => "x", confirmWhen: "", run() {} })).toThrow("confirmWhen");
+    expect(registry.get("app.backup.restore").confirmWhen).toMatch(/compose file/);
+  });
+});
+
 describe("running an interrupted job again (M30.2)", () => {
   it("is declared, and cannot be declared where a second run is not safe", () => {
     expect(rerunsAfterInterrupt(defineOperation({ id: "a.read", title: "x", risk: "low", readOnly: true, run() {} }))).toBe(true);
@@ -197,6 +218,8 @@ describe("running an interrupted job again (M30.2)", () => {
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "high", rerunAfterInterrupt: true, run() {} })).toThrow("high risk");
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", confirm: () => "yes", rerunAfterInterrupt: true, run() {} })).toThrow("typed confirmation");
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: true, rerunAfterInterrupt: true, run() {} })).toThrow("restarts BoxPilot");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: "drained", rerunAfterInterrupt: true, run() {} })).toThrow("restarts BoxPilot");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", restartsService: "sometimes", run() {} })).toThrow('true, false or "drained"');
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", rerunAfterInterrupt: true, parameters: { fields: { password: { type: "string", secret: true } } }, run() {} })).toThrow("secrets");
     expect(() => defineOperation({ id: "a.b", title: "x", risk: "medium", rerunAfterInterrupt: true, parameters: { fields: { id: { type: "string" }, values: { type: "object", secretEnvOf: "id" } } }, run() {} })).toThrow("secrets");
   });

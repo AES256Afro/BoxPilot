@@ -41,7 +41,7 @@ export interface OffBoxTabProps {
   onNavigate?: (view: ViewName) => void;
 }
 
-const fieldLabels: Record<string, string> = { account: "Key ID", bucket: "Bucket", path: "Folder in the bucket", endpoint: "Endpoint URL", region: "Region", accessKeyId: "Access key ID", url: "WebDAV URL", user: "Username", key: "Application key", secretAccessKey: "Secret access key", password: "Password", token: "Token (from rclone authorize)" };
+const fieldLabels: Record<string, string> = { account: "Key ID", bucket: "Bucket", path: "Folder in the bucket", endpoint: "Endpoint URL", region: "Region", accessKeyId: "Access key ID", url: "WebDAV URL", user: "Username", key: "Application key", secretAccessKey: "Secret access key", password: "Password", token: "Token (from rclone authorize)", passphrase: "Encryption passphrase" };
 const placeholders: Record<string, string> = { bucket: "home-backups", path: "boxpilot", endpoint: "https://s3.eu-central-1.wasabisys.com", region: "us-east-1", url: "https://cloud.example.com/remote.php/dav/files/me/" };
 
 function destinationState(configured: boolean, lastSyncAt: string | null): { status: Status; label: string } {
@@ -60,7 +60,12 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   const [cloudForm, setCloudForm] = useState<{ provider: string; values: Record<string, string> } | null>(null);
 
   const mounted = Boolean(machine?.sync.mount.mounted);
-  const destination = remoteSettings?.destination ?? null;
+  // What the last sync to the drive left out (R5B4-7): recent, and still not every backup.
+  const driveSkipped = machine?.sync.lastSync?.skippedCount ?? 0;
+  const saved = remoteSettings?.destination ?? null;
+  // A viewer is told one is set, not where it is.
+  const destination = saved && !("hidden" in saved) ? saved : null;
+  const hiddenDestination = Boolean(saved && "hidden" in saved);
   const pinned = (remote?.hostKeysPinned ?? 0) > 0;
 
   const saveSsh = async () => {
@@ -94,13 +99,16 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   };
   const saveCloud = () => {
     if (!cloudForm || !complete || !cloud?.rcloneInstalled) return;
-    const { provider, values } = cloudForm;
+    const kept = cloudForm;
+    const { provider, values } = kept;
     setCloudForm(null);
     start({
       operationId: "backup.cloud.setup",
       title: `Save the ${spec?.label ?? provider} backup destination`,
       parameters: { provider, ...Object.fromEntries([...fields, ...secrets].map((field) => [field, (values[field] ?? "").trim()]).filter(([, value]) => value)) },
       preview: <span>Writes the rclone remote to <code>/etc/boxpilot/secrets/rclone.conf</code> (root only). The {secrets.map((field) => fieldLabels[field] ?? field).join(" and ")} stays in memory until this job runs and is never stored in BoxPilot's database. Test the connection afterwards.</span>,
+      // The sheet closes for the approval, and comes back as it was filled in unless the job completed.
+      onClosed: (job) => { if (job?.state !== "completed") setCloudForm(kept); },
     });
   };
 
@@ -139,11 +147,19 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           ? <p className="backups-pad backups-dim">The backup drive's state could not be read.</p>
           : mounted
             ? (
-              <KeyValue items={[
-                { id: "to", label: "Copies to", value: machine.sync.destination, mono: true },
-                { id: "free", label: "Free", value: formatBytes(machine.sync.mount.freeBytes ?? null), mono: true },
-                { id: "last", label: "Last synced", value: machine.sync.lastSync ? `${when(machine.sync.lastSync.completedAt)} · ${countOf(machine.sync.lastSync.copiedCount, "file")}` : "never", mono: true, status: machine.sync.lastSync ? undefined : "warning" },
-              ]} />
+              <>
+                <KeyValue items={[
+                  { id: "to", label: "Copies to", value: machine.sync.destination, mono: true },
+                  { id: "free", label: "Free", value: formatBytes(machine.sync.mount.freeBytes ?? null), mono: true },
+                  { id: "last", label: "Last synced", value: machine.sync.lastSync ? `${when(machine.sync.lastSync.completedAt)} · ${countOf(machine.sync.lastSync.copiedCount, "file")}${driveSkipped ? ` · ${driveSkipped} not copied` : ""}` : "never", mono: true, status: !machine.sync.lastSync || driveSkipped ? "warning" : undefined },
+                ]} />
+                {driveSkipped > 0 && (
+                  <Notice tone="warning" className="backups-inset" title={`The last sync left ${countOf(driveSkipped, "file")} out`}>
+                    <ul>{(machine.sync.lastSync?.skipped ?? []).map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                    {driveSkipped > (machine.sync.lastSync?.skipped ?? []).length && <p>The job of that sync lists the rest.</p>}
+                  </Notice>
+                )}
+              </>
             )
             : (
               <EmptyState title="No backup drive is mounted" action={onNavigate ? <Button onClick={() => onNavigate("storage")}>Open Storage</Button> : undefined}>
@@ -168,7 +184,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
       >
         <KeyValue items={[
           { id: "key", label: "Mirror key", value: remote?.keyReady ? `ready${remote.fingerprint ? ` · ${remote.fingerprint}` : ""}` : remote ? "not created yet" : "not read", mono: true, status: remote && !remote.keyReady ? "warning" : undefined },
-          { id: "destination", label: "Destination", value: destination ? `${destination.user}@${destination.host}:${destination.path}${destination.port && destination.port !== 22 ? ` (port ${destination.port})` : ""}` : "not set", mono: true },
+          { id: "destination", label: "Destination", value: destination ? `${destination.user}@${destination.host}:${destination.path}${destination.port && destination.port !== 22 ? ` (port ${destination.port})` : ""}` : hiddenDestination ? "set (an operator or the owner can see where)" : "not set", mono: !hiddenDestination },
           { id: "pinned", label: "Host key", value: destination ? (pinned ? `pinned (${remote?.hostKeysPinned})` : "not pinned: test the connection first") : "—", mono: true, status: destination && !pinned ? "warning" : undefined },
           { id: "last", label: "Last mirrored", value: remoteSettings?.lastSync ? `${when(remoteSettings.lastSync.completedAt)} · ${countOf(remoteSettings.lastSync.filesTransferred, "file")}` : "never", mono: true },
         ]} />
@@ -187,7 +203,8 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           {savedCloud && may("backup.cloud.sync") && <Button variant="primary" risk={riskOf("backup.cloud.sync")} onClick={() => start({ operationId: "backup.cloud.sync", title: "Mirror backups to the cloud", parameters: {}, preview: <span><code>rclone copy --checksum</code> of the controller backups, app backups, and machine snapshots to the destination. Files already there are verified, not re-uploaded; nothing is ever deleted at the destination.</span> })}>Mirror now</Button>}
         </>}
       >
-        {cloudError && <Notice tone="danger" live title="The cloud destination could not be read">{cloudError}</Notice>}
+        {cloudError && <Notice tone="danger" live title="The cloud destination could not be read" action={<Button onClick={onChanged}>Try again</Button>}>{cloudError}</Notice>}
+        {cloud?.configured && cloud.sealed === false && <Notice tone="warning" title="The cloud mirror is not encrypted">App backups hold each app's passwords and keys, so mirroring stops until the destination is set again with an encryption passphrase. Copies made before this stay in the bucket unencrypted until you delete them there.</Notice>}
         <KeyValue items={[
           { id: "provider", label: "Provider", value: savedCloud ? cloud?.providers?.[savedCloud.provider]?.label ?? savedCloud.provider : "not set" },
           ...(savedCloud?.bucket ? [{ id: "bucket", label: "Bucket", value: savedCloud.bucket, mono: true }] : []),
@@ -250,7 +267,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
             </Field>
           ))}
           {secrets.map((field) => (
-            <Field key={field} label={fieldLabels[field] ?? field} hint={field === "token" ? "Paste what rclone authorize printed." : "Goes only to the root-only rclone.conf, never to BoxPilot's database."}>
+            <Field key={field} label={fieldLabels[field] ?? field} hint={field === "token" ? "Paste what rclone authorize printed." : field === "passphrase" ? "Every copy is encrypted with it before it leaves this server: app backups hold each app's passwords and keys. At least 12 characters. Keep it somewhere other than this server; without it nobody, you included, can read the copies in the bucket." : "Goes only to the root-only rclone.conf, never to BoxPilot's database."}>
               {field === "token"
                 ? <Textarea mono rows={3} placeholder='{"access_token":"...","token_type":"Bearer",...}' value={cloudForm.values[field] ?? ""} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [field]: value } })} />
                 : <SecretInput autoComplete="new-password" value={cloudForm.values[field] ?? ""} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [field]: value } })} />}

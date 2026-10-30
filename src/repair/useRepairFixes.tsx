@@ -6,7 +6,7 @@ import { riskOf } from "../ui/operationRisk";
 import type { RiskTier } from "../ui/types";
 import { BatchDialog, DismissDialog, ScheduleDialog, type DismissTarget, type FindingTarget } from "./RepairDialogs";
 import { nextStep, whatChanged } from "./outcome";
-import type { Finding, RepairFix, RepairScan } from "./types";
+import { fixesOf, type Finding, type RepairFix, type RepairScan } from "./types";
 
 /*
  * Running Repair's fixes (M35), the same way from Repair, Home and Ops.
@@ -52,6 +52,8 @@ export interface RepairFixes {
   /** Findings as they were when last fixed from here: a fixed one is gone from the scan but still worth showing. */
   remembered: Record<string, Finding>;
   start: (finding: Finding, fix: RepairFix) => void;
+  /** Stage the finding's last try again with the more time the server offered it (M30.3), as Activity does. */
+  moreTime: (finding: Finding) => void;
   startBatch: (entries: BatchEntry[]) => void;
   dismiss: (target: DismissTarget) => void;
   restore: (key: string) => Promise<void>;
@@ -64,6 +66,7 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
   const [runs, setRuns] = useState<Record<string, FixRun>>({});
   const [remembered, setRemembered] = useState<Record<string, Finding>>({});
   const [approving, setApproving] = useState<BatchEntry | null>(null);
+  const [extending, setExtending] = useState<Finding | null>(null);
   const [scheduling, setScheduling] = useState<BatchEntry | null>(null);
   const [batching, setBatching] = useState<BatchEntry[] | null>(null);
   const [dismissing, setDismissing] = useState<FindingTarget | null>(null);
@@ -103,6 +106,11 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
   const start = useCallback((finding: Finding, fix: RepairFix) => {
     setNotice(null);
     if (fix.kind === "schedule") setScheduling({ finding, fix }); else setApproving({ finding, fix });
+  }, []);
+
+  const moreTime = useCallback((finding: Finding) => {
+    setNotice(null);
+    if (finding.lastAttempt) setExtending(finding);
   }, []);
 
   const runBatch = useCallback(async (entries: BatchEntry[]) => {
@@ -206,6 +214,24 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
         handoff={(job) => { setApproving(null); void follow(finding, fix, job.id); }}
       />
     );
+  } else if (extending?.lastAttempt) {
+    // Staged by the server from the try that ran out, then approved like anything else, and followed
+    // on the card as any fix is: recorded against the finding, the scan read again when it ends.
+    const finding = extending;
+    const attempt = extending.lastAttempt;
+    const fix = fixesOf(finding).find((entry) => entry.operationId === attempt.operationId) ?? { operationId: attempt.operationId, label: attempt.label ?? attempt.title, parameters: noParameters, preview: "" };
+    dialog = (
+      <ApproveDialog
+        operationId={attempt.operationId}
+        title={attempt.title}
+        parameters={noParameters}
+        moreTimeFor={attempt.jobId}
+        csrfToken={csrfToken}
+        onClose={() => setExtending(null)}
+        onStaged={(job) => { void recordAttempt(finding.id, job.id, csrfToken); }}
+        handoff={(job) => { setExtending(null); void follow(finding, fix, job.id); }}
+      />
+    );
   } else if (scheduling) {
     dialog = <ScheduleDialog fix={scheduling.fix} onClose={() => setScheduling(null)} onConfirm={() => { const entry = scheduling; setScheduling(null); void schedule(entry); }} />;
   } else if (batching) {
@@ -215,5 +241,5 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
   }
   if (jobProblem) dialog = <>{dialog}<p className="rp-dialog__error" role="alert">{jobProblem}</p></>;
 
-  return { runs, remembered, start, startBatch, dismiss, restore, busy: batchBusy, notice, dialog };
+  return { runs, remembered, start, moreTime, startBatch, dismiss, restore, busy: batchBusy, notice, dialog };
 }

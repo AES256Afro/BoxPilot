@@ -8,6 +8,17 @@ import { defineOperation } from "./registry.mjs";
 import { parseDockerStats, aggregateAppStats } from "./apps.mjs";
 
 export function performanceOperations() {
+  // The apps' inspection held for ten seconds (M50): Ops asks every 5 s and Performance every 3 s,
+  // and each ask read and parsed every installed app's state and compose file again. The live CPU
+  // and memory still come from docker stats on every ask; which apps exist changes far slower.
+  let appsHeld = null;
+  const appsFor = (apps, now = Date.now()) => {
+    if (appsHeld && now - appsHeld.at < 10_000) return appsHeld.promise;
+    const promise = apps.inspect({});
+    appsHeld = { at: now, promise };
+    promise.catch(() => { if (appsHeld?.promise === promise) appsHeld = null; });
+    return promise;
+  };
   return [
     defineOperation({
       id: "system.performance.inspect", title: "Read live system performance", risk: "low", readOnly: true, timeoutMs: 30_000,
@@ -16,7 +27,7 @@ export function performanceOperations() {
         const docker = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker";
         const [host, { applications }, stats] = await Promise.all([
           performance.snapshot(),
-          apps.inspect({}),
+          appsFor(apps),
           run(docker, ["stats", "--no-stream", "--format", "json"], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 }).catch(() => ({ ok: false, stdout: "" })),
         ]);
         const perApp = stats.ok ? aggregateAppStats(parseDockerStats(stats.stdout), applications.map((application) => application.id)) : {};

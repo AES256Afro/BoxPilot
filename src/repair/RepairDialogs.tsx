@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { readJson } from "../http";
 import "../shell/look.css";
 import { Button, Field, Notice, RiskTag, Sheet, Textarea } from "../ui";
 import { riskOf } from "../ui/operationRisk";
-import type { Finding, RepairFix } from "./types";
+import type { Finding, RepairFix, ScheduleSpec } from "./types";
 import "./dialogs.css";
 
 /*
@@ -30,13 +30,26 @@ const time = (hour: number | undefined, minute: number) => `${String(hour ?? 0).
 export function ScheduleDialog({ fix, onClose, onConfirm }: { fix: RepairFix; onClose: () => void; onConfirm: () => void }) {
   const specs = fix.schedules ?? [];
   const risk = fix.risk ?? riskOf(fix.operationId);
+  // Each schedule's app by its name (M49.3): the list said "vaultwarden every night at 02:00".
+  const [names, setNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let gone = false;
+    fetch("/api/v1/catalog?view=summary")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { applications?: Array<{ manifest: { id: string; name: string } }> } | null) => {
+        if (!gone && Array.isArray(data?.applications)) setNames(Object.fromEntries(data.applications.map((entry) => [entry.manifest.id, entry.manifest.name])));
+      })
+      .catch(() => { /* the ids stay */ });
+    return () => { gone = true; };
+  }, []);
+  const subjectOf = (spec: ScheduleSpec) => { const id = String(spec.parameters.id ?? spec.parameters.subject ?? ""); return names[id] ?? id; };
   return (
     <Dialog title={fix.label} kicker="Schedule" onClose={onClose}
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" risk={risk} onClick={onConfirm}>{specs.length === 1 ? "Create the schedule" : `Create ${specs.length} schedules`}</Button></>}>
       <p className="rp-dialog__tier"><RiskTag risk={risk} /> <span>Each run is this tier's job, approved as you, like any schedule.</span></p>
       <p className="rp-dialog__text">{fix.preview}</p>
       <ul className="rp-dialog__list">
-        {specs.map((spec) => <li key={JSON.stringify(spec.parameters)}><code>{String(spec.parameters.id ?? spec.parameters.subject ?? "")}</code> every night at {time(spec.hour, spec.minute)}</li>)}
+        {specs.map((spec) => <li key={JSON.stringify(spec.parameters)}>{subjectOf(spec)} every night at {time(spec.hour, spec.minute)}</li>)}
       </ul>
     </Dialog>
   );

@@ -67,7 +67,7 @@ prepare() {
   install -d -m 0700 "$PROBE_DIR" /etc/boxpilot/secrets
   # What production has under /opt/boxpilot, as far as the probe needs it.
   install -d -m 0755 /opt/boxpilot/tests/ubuntu
-  cp -r "${ROOT}/server" "${ROOT}/package.json" /opt/boxpilot/
+  cp -r "${ROOT}/server" "${ROOT}/packages" "${ROOT}/package.json" /opt/boxpilot/
   cp "${ROOT}/tests/ubuntu/helper-probe.mjs" /opt/boxpilot/tests/ubuntu/
   # A local backup for the mirror to copy, where the controller backups live.
   install -d -m 0700 /var/lib/boxpilot-managed /var/lib/boxpilot-managed/backups /var/lib/boxpilot-managed/backups/boxpilot-controller/probe-backup

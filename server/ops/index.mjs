@@ -23,6 +23,7 @@ import { shareOperations } from "./shares.mjs";
 import { sambaOperations } from "./samba.mjs";
 import { nfsOperations } from "./nfs.mjs";
 import { upsOperations } from "./ups.mjs";
+import { powerOperations } from "./power.mjs";
 import { fail2banOperations } from "./fail2ban.mjs";
 import { backupCloudOperations } from "./backup-cloud.mjs";
 import { tailscaleOperations } from "./tailscale.mjs";
@@ -30,9 +31,26 @@ import { connectorOperations } from "./connectors.mjs";
 import { vpnOperations } from "./vpn.mjs";
 import { notificationOperations } from "./notifications.mjs";
 import { agentsOperations } from "./agents.mjs";
+import { zulipOperations } from "./zulip.mjs";
+import { financialAuthorityOperations } from "./financialauthority.mjs";
+import { dnsResilienceOperations } from "./dns-resilience.mjs";
+import { heartbeatOperations } from "./heartbeat.mjs";
+import { cloudflareOperations } from "./cloudflare.mjs";
+import { agentsCloudOperations } from "./agents-cloud.mjs";
+import { internalReadOperations } from "./internal-reads.mjs";
 
 /** The default registry used by the helper and the web service. Add new operation modules here. */
-export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations, fail2banOperations, backupCloudOperations, tailscaleOperations, housekeepingOperations, spaceOperations, performanceOperations, localDnsOperations, routerOperations, connectorOperations, vpnOperations, notificationOperations, agentsOperations];
+export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations, powerOperations, fail2banOperations, backupCloudOperations, tailscaleOperations, housekeepingOperations, spaceOperations, performanceOperations, localDnsOperations, routerOperations, connectorOperations, vpnOperations, notificationOperations, agentsOperations, zulipOperations,
+  // M39: DNS that survives this server being off, and the heartbeat that says it is up.
+  dnsResilienceOperations, heartbeatOperations,
+  // M42: publish an app to the internet through Cloudflare Tunnel.
+  cloudflareOperations,
+  // M45.3: Claude for the agents, through the model gateway.
+  agentsCloudOperations,
+  // Reads the web side's own services make: once a hand-written allowlist in the helper protocol.
+  internalReadOperations,
+  // FinancialAuthority's own restore points, from its sheet.
+  financialAuthorityOperations];
 export const registry = createRegistry(operationModules);
 setRegistryLookup((id) => registry.get(id));
 export { createRegistry, defineOperation, validateParameters, riskTiers } from "./registry.mjs";

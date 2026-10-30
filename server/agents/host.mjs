@@ -27,7 +27,10 @@ export const agentsPaths = Object.freeze({
 
 export const cacheDirectory = (stateDir, repo) => path.join(stateDir, "hf", "hub", `models--${repo.replace("/", "--")}`);
 
-/** A model's parameters as every agents operation takes them, checked; throws on anything else. */
+/**
+ * A model's parameters as every agents operation takes them, checked; throws on anything else.
+ * @param {{ repo?: string, file?: string, projector?: string | null }} parameters
+ */
 export function readModelParameters({ repo, file, projector = null }) {
   // Unsloth's Qwen GGUFs, and the one embedder memory search uses: nothing else is downloaded.
   const embedder = repo === embedderModel.repo && file === embedderModel.file;

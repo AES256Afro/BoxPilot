@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -19,7 +19,7 @@ function digest(content) {
   return createHash("sha256").update(content).digest("hex");
 }
 
-async function fixture({ guestAgent = true, uefi = false } = {}) {
+async function fixture({ guestAgent = true, uefi = false, diskInfo = { format: "qcow2", "virtual-size": 1073741824 } } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-restore-drill-"));
   directories.push(directory);
   const managedRoot = path.join(directory, "managed");
@@ -55,6 +55,7 @@ async function fixture({ guestAgent = true, uefi = false } = {}) {
       await writeFile(path.join(restored, "vda.qcow2"), disk);
       return { stdout: "", stderr: "" };
     }
+    if (binary === "/usr/bin/qemu-img" && args[0] === "info") return { stdout: JSON.stringify(diskInfo), stderr: "" };
     if (binary === "/usr/bin/qemu-img") return { stdout: '{"corruptions":0,"check-errors":0}', stderr: "" };
     if (binary === "/usr/bin/id") return { stdout: "64055", stderr: "" };
     if (binary === "/usr/bin/virt-install") {
@@ -109,6 +110,23 @@ describe("isolated VM restore drill helper", () => {
     expect(validateVmRestoreDrillInput({ drillId: "bad" })).toEqual(expect.arrayContaining(["Drill id must be a UUID", "Backup id must be a UUID", "Repository id is invalid", "Snapshot id is invalid"]));
   });
 
+  // A restored qcow2 can name a backing file anywhere on the host, and libvirt opens what it names
+  // for the guest. The export side never writes a chain, so a restored disk with one is refused.
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("refuses a restored disk that names a backing file or a data file, or is not qcow2", async () => {
+    const chained = await fixture({ diskInfo: { format: "qcow2", "virtual-size": 1073741824, "backing-filename": "/etc/shadow", "full-backing-filename": "/etc/shadow" } });
+    await expect(chained.helper.runDrill(chained.input)).rejects.toThrow("Restored disk vda names a backing file (/etc/shadow)");
+    expect(chained.run.mock.calls.some(([binary]) => binary === "/usr/bin/virt-install")).toBe(false);
+    const external = await fixture({ diskInfo: { format: "qcow2", "virtual-size": 1073741824, "format-specific": { type: "qcow2", data: { "data-file": "/dev/sda", "data-file-raw": true } } } });
+    await expect(external.helper.runDrill(external.input)).rejects.toThrow("Restored disk vda keeps its data in another file (/dev/sda)");
+    expect(external.run.mock.calls.some(([binary]) => binary === "/usr/bin/virt-install")).toBe(false);
+    const raw = await fixture({ diskInfo: { format: "raw", "virtual-size": 1073741824 } });
+    await expect(raw.helper.runDrill(raw.input)).rejects.toThrow("Restored disk vda is raw, not qcow2");
+    const fine = await fixture();
+    await fine.helper.runDrill(fine.input);
+    expect(fine.run.mock.calls.filter(([binary]) => binary === "/usr/bin/qemu-img").map(([, args]) => args.slice(0, 4))).toEqual([["info", "--output=json", "-f", "qcow2"], ["check", "--output=json", "-f", "qcow2"]]);
+  });
+
   it("reports fixed transient no-network readiness", async () => {
     const { helper, input } = await fixture();
     await expect(helper.inspect(input)).resolves.toMatchObject({ ready: true, drillDomain: restoreDrillDomainName(drillId), network: "none", transient: true, memoryMiB: 2048, vcpus: 2, blockers: [] });
@@ -123,6 +141,29 @@ describe("isolated VM restore drill helper", () => {
     const nvramFixture = await fixture();
     await symlink("/etc/passwd", path.join(nvramFixture.nvramRoot, `${restoreDrillDomainName(drillId)}_VARS.fd`));
     await expect(nvramFixture.helper.inspect(nvramFixture.input)).resolves.toMatchObject({ ready: false, blockers: expect.arrayContaining(["Libvirt NVRAM inspection is unavailable"]) });
+  });
+
+  // R4S2-1: only the export folder itself was checked. A link on the way to it (<drill>/var -> /var)
+  // had the drill check the host's own export and grant QEMU access along, chown and chmod included,
+  // on whatever the link named.
+  // Linux only: creates directory symlinks and expects POSIX paths.
+  it.skipIf(onWindows)("refuses a restored export reached through a link on the way to it", async () => {
+    const { helper, input, run } = await fixture();
+    const elsewhere = await mkdtemp(path.join(os.tmpdir(), "boxpilot-elsewhere-")); directories.push(elsewhere);
+    const original = run.getMockImplementation();
+    run.mockImplementation(async (binary, args, options) => {
+      const result = await original(binary, args, options);
+      if (binary === "/usr/bin/restic" && args.includes("restore")) {
+        // The export as restic restored it, its first folder moved away and linked back.
+        const target = args[args.indexOf("--target") + 1];
+        const [first] = await readdir(target);
+        await rename(path.join(target, first), path.join(elsewhere, first));
+        await symlink(path.join(elsewhere, first), path.join(target, first));
+      }
+      return result;
+    });
+    await expect(helper.runDrill(input)).rejects.toThrow(/Restored export is not a safe directory/);
+    expect(run.mock.calls.some(([binary]) => binary === "/usr/bin/virt-install")).toBe(false);
   });
 
   // Linux only: expects POSIX paths.

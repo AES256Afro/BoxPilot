@@ -1,22 +1,26 @@
 import { useState } from "react";
 import { Button, Checkbox, EmptyState, Notice, Panel, Table, mayStart, riskOf } from "../../ui";
 import { DatabaseCopies } from "./DatabaseCopies";
-import { bytesWords, type DockerDisk, type Housekeeping, type StartOperation } from "./systemTypes";
+import { SpaceRecovery } from "./SpaceRecovery";
+import { bytesWords, type DockerDisk, type Housekeeping, type SpaceReport, type StartOperation } from "./systemTypes";
 
 type DockerRow = DockerDisk["rows"][number];
 
 /**
  * What is taking up room that nothing needs any more (M33.12): the categories housekeeping found,
  * each chosen by hand and reclaimed in one approved job; how Docker accounts for its own space and
- * whether its logs are capped; and the database copies updates took (M36).
+ * whether its logs are capped; the logs and caches that grow on their own (M30.8); and the
+ * database copies updates took (M36).
  */
-export function SystemHousekeeping({ csrfToken, role, housekeeping, scanning, onRescan, dockerDisk, start }: {
+export function SystemHousekeeping({ csrfToken, role, housekeeping, scanning, onRescan, dockerDisk, space, start }: {
   csrfToken: string;
   role: string;
   housekeeping: Housekeeping | null;
   scanning: boolean;
   onRescan: () => void;
   dockerDisk: DockerDisk | null;
+  /** Low-space recovery: what was measured, and how to measure, kept by the page across tabs. */
+  space: { report: SpaceReport | null; measuring: boolean; problem: string | null; onMeasure: () => void };
   start: StartOperation;
 }) {
   const [chosen, setChosen] = useState<Set<string>>(new Set());
@@ -37,6 +41,19 @@ export function SystemHousekeeping({ csrfToken, role, housekeeping, scanning, on
       <span>
         Removes {[...chosen].map((id) => categories.find((category) => category.id === id)?.title.toLowerCase()).filter(Boolean).join(", ")}, about {chosenWords}.
         Images a container or an installed app needs, the most recent version you could put back by hand, and the newest backups of each app are not touched.
+      </span>
+    ),
+  });
+  // A machine snapshot that cannot be read keeps every app's older backups (R4B3-5); the owner removes
+  // one by name, and the job removes it only if it still cannot be read then.
+  const mayRemoveSnapshot = mayStart(role, "housekeeping.unreadable-snapshot.remove");
+  const removeSnapshot = (name: string) => start({
+    operationId: "housekeeping.unreadable-snapshot.remove",
+    title: "Remove an unreadable machine snapshot",
+    parameters: { name },
+    preview: (
+      <span>
+        Deletes <code>{name}</code> and its description from the machine snapshot folder, if it still cannot be read when the job runs. Nothing can be restored from a damaged snapshot, and while it is there no app's older backups are removed. It cannot be brought back.
       </span>
     ),
   });
@@ -80,6 +97,16 @@ export function SystemHousekeeping({ csrfToken, role, housekeeping, scanning, on
                     </span>
                     {category.unavailable && <span className="system-sub">{category.unavailable}</span>}
                     {category.keeping.length > 0 && <span className="system-sub">Keeping: {category.keeping.join(", ")}.</span>}
+                    {category.id === "unreadable-snapshots" && mayRemoveSnapshot && category.detail.length > 0 && (
+                      <ul className="system-clean__remove">
+                        {category.detail.map((name) => (
+                          <li key={name}>
+                            <code>{name}</code>
+                            <Button risk={riskOf("housekeeping.unreadable-snapshot.remove")} aria-label={`Remove ${name}`} onClick={() => removeSnapshot(name)}>Remove</Button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     {category.detail.length > 0 && (
                       <details className="system-details">
                         <summary>What exactly</summary>
@@ -118,6 +145,9 @@ export function SystemHousekeeping({ csrfToken, role, housekeeping, scanning, on
           )}
         </Panel>
       )}
+
+      {/* Measuring reads the journal, other people's job logs and the backups as root (ADR-003). */}
+      {canRead && <SpaceRecovery csrfToken={csrfToken} role={role} report={space.report} measuring={space.measuring} problem={space.problem} onMeasure={space.onMeasure} start={start} />}
 
       {/* Listing them reads the state directory as root, which is an operator's (ADR-003). */}
       {canRead && <DatabaseCopies csrfToken={csrfToken} role={role} />}

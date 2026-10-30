@@ -7,7 +7,7 @@ description: "Dashboards and charts over any database without SQL (or with it): 
 website: https://www.metabase.com
 risk: low
 image:
-  reference: metabase/metabase:v0.63.14.1
+  reference: metabase/metabase:v0.63.14.1@sha256:a56bef7d9c75ac83a393b78c1335dd1a2ad5a8425867803931da7317078afaf7
   version: "0.63.14.1"
 ports:
   - id: web

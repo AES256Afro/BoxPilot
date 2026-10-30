@@ -33,14 +33,18 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 export function Button({ risk, variant = "secondary", busy = false, icon, children, className, type = "button", disabled, "aria-describedby": describedBy, ...rest }: ButtonProps) {
   const descriptionId = useId();
+  const reasonId = useId();
   const copy = risk ? riskCopy[risk] : null;
+  // Why a disabled button is disabled, when its title says: read out with it too, since a tooltip
+  // reaches only a mouse, and a keyboard or screen reader user met a dead button with no reason.
+  const reason = disabled && !busy && typeof rest.title === "string" && rest.title ? rest.title : null;
   return (
     <button
       {...rest}
       type={type}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
-      aria-describedby={cx(describedBy, copy && descriptionId) || undefined}
+      aria-describedby={cx(describedBy, copy && descriptionId, reason && reasonId) || undefined}
       data-risk={risk}
       className={cx("ui-button", `ui-button--${variant}`, risk && `ui-button--risk-${risk}`, className)}
     >
@@ -50,6 +54,7 @@ export function Button({ risk, variant = "secondary", busy = false, icon, childr
       {copy?.tag && <span className="ui-button__tier" aria-hidden="true">{copy.tag}</span>}
       {/* Hidden, so it stays out of the button's name, and read as its description. */}
       {copy && <span id={descriptionId} hidden>{copy.description}</span>}
+      {reason && <span id={reasonId} hidden>{reason}</span>}
     </button>
   );
 }

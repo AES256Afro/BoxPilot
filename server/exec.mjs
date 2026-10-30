@@ -10,6 +10,10 @@ export const fixedEnvironment = Object.freeze({ PATH: "/usr/sbin:/usr/bin:/sbin:
  * Resolves to `{ ok, code, stdout, stderr }`; never throws for a non-zero exit.
  * Pass `onLine(line, stream)` to receive output as it is produced (then the process is spawned
  * with streaming pipes; stdout/stderr in the result are capped to the last `tailBytes`).
+ *
+ * @param {string} binary
+ * @param {string[]} [args]
+ * @param {{ timeout?: number, maxBuffer?: number, env?: Record<string, string>, cwd?: string, onLine?: ((line: string, stream: string) => void) | null, tailBytes?: number, input?: string }} [options]
  */
 export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer = 1024 * 1024, env = {}, cwd, onLine = null, tailBytes = 256 * 1024, input = undefined } = {}) {
   if (typeof onLine === "function") return streamRun(binary, args, { timeout, env, cwd, onLine, tailBytes });
@@ -36,7 +40,6 @@ export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer 
   }
 }
 
-/** Spawn with line-by-line callbacks. Same result shape as fixedRun. */
 /**
  * Terminal control sequences, removed so a log reads as text.
  *
@@ -65,6 +68,13 @@ export function stripTerminalCodes(text) {
     .replace(/\r/g, "");
 }
 
+/**
+ * Spawn with line-by-line callbacks. Same result shape as fixedRun.
+ *
+ * @param {string} binary
+ * @param {string[]} [args]
+ * @param {{ timeout?: number, env?: Record<string, string>, cwd?: string, onLine?: (line: string, stream: string) => void, tailBytes?: number, redrawIntervalMs?: number, clock?: () => number }} [options]
+ */
 export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, onLine, tailBytes = 256 * 1024, redrawIntervalMs = 1000, clock = () => Date.now() } = {}) {
   return new Promise((resolve) => {
     let child;
@@ -74,7 +84,16 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
       resolve({ ok: false, code: null, stdout: "", stderr: error.message });
       return;
     }
-    const tails = { stdout: "", stderr: "" };
+    // The tail as lines with a running byte count (M50): a string re-sliced per line copied the whole
+    // 256 KB for every line once full, gigabytes over an image pull or an apt upgrade.
+    const tails = { stdout: { lines: [], bytes: 0 }, stderr: { lines: [], bytes: 0 } };
+    const keep = (stream, line) => {
+      const tail = tails[stream];
+      tail.lines.push(line);
+      tail.bytes += line.length + 1;
+      while (tail.lines.length > 1 && tail.bytes > tailBytes) tail.bytes -= tail.lines.shift().length + 1;
+    };
+    const tailText = (stream) => `${tails[stream].lines.join("\n")}\n`.slice(-tailBytes);
     const partial = { stdout: "", stderr: "" };
     const lastRedrawAt = { stdout: 0, stderr: 0 };
     let settled = false;
@@ -84,7 +103,7 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
       const clean = stripTerminalCodes(line).trimEnd();
       // A blank line is still output: it goes into the tail the caller reads, even though there is
       // nothing worth handing to a log writer.
-      tails[stream] = (tails[stream] + clean + "\n").slice(-tailBytes);
+      keep(stream, clean);
       if (clean) { try { onLine(clean, stream); } catch { /* logging must never break the command */ } }
     };
     const consume = (stream, chunk) => {
@@ -114,7 +133,7 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
     const finish = (code, error) => {
       if (settled) return; settled = true; clearTimeout(timer);
       for (const stream of ["stdout", "stderr"]) if (partial[stream]) { consume(stream, "\n"); }
-      resolve({ ok: code === 0 && !error, code: typeof code === "number" ? code : null, ...(timedOut ? { timedOut: true } : {}), stdout: tails.stdout.trim(), stderr: `${timedOut ? `timed out after ${timeout} ms\n` : ""}${error ? `${error.message}\n` : ""}${tails.stderr.trim()}`.trim() });
+      resolve({ ok: code === 0 && !error, code: typeof code === "number" ? code : null, ...(timedOut ? { timedOut: true } : {}), stdout: tailText("stdout").trim(), stderr: `${timedOut ? `timed out after ${timeout} ms\n` : ""}${error ? `${error.message}\n` : ""}${tailText("stderr").trim()}`.trim() });
     };
     child.on("error", (error) => finish(null, error));
     child.on("close", (code) => finish(code, null));

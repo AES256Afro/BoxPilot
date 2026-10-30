@@ -17,6 +17,18 @@ describe("Agents at a glance on Home and Ops", () => {
     expect(onOpen).toHaveBeenCalled();
   });
 
+  it("draws the digest's markdown as prose, never as stars, and keeps HTML as text (M44)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ ...glance, digest: { ...glance.digest, excerpt: "**Daily digest complete.** All is *well*.\n\n- Backups ran [T1].\n- <img src=x onerror=alert(1)>" } })));
+    render(<AgentsGlance variant="home" role="owner" onOpen={() => undefined} now={() => Date.parse("2026-09-29T09:31:00Z")} />);
+    const strong = await screen.findByText("Daily digest complete.");
+    expect(strong.tagName).toBe("STRONG");
+    const digest = strong.closest(".agents-glance__digest") as HTMLElement;
+    expect(digest.textContent).not.toContain("*");
+    expect(digest.querySelector("em")?.textContent).toBe("well");
+    expect([...digest.querySelectorAll("li")].map((item) => item.textContent)).toEqual(["Backups ran T1.", "<img src=x onerror=alert(1)>"]);
+    expect(digest.querySelector("img")).toBeNull();
+  });
+
   it("shows nothing to a viewer, and asks nothing for them", () => {
     const fetchMock = vi.fn(async () => json(glance));
     vi.stubGlobal("fetch", fetchMock);

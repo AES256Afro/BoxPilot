@@ -24,6 +24,19 @@ describe("setting the control plane's listening address", () => {
     expect(restart[1]).toEqual(expect.arrayContaining(["--on-active", "5", "restart", "boxpilot.service"]));
   });
 
+  // Both readers took the first `^KEY=` line literally: the port opened was not the one systemd
+  // started the service on, and a second BOXPILOT_HOST line kept the old address in force.
+  it("reads the port and rewrites the address as systemd reads the env file", async () => {
+    let written = null;
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    const before = "BOXPILOT_HOST=127.0.0.1\nBOXPILOT_PORT=8787\n  BOXPILOT_PORT = 9000\r\nBOXPILOT_HOST = 127.0.0.1\n";
+    const files = { readFile: async () => before, writeFile: async (_p, text) => { written = text; } };
+    const result = await webBindSet({ scope: "lan" }, { run, files });
+    expect(result).toMatchObject({ host: "0.0.0.0", port: "9000" });
+    expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["allow", "9000/tcp"], expect.anything());
+    expect(written.split("\n").filter((line) => line.includes("BOXPILOT_HOST"))).toEqual(["BOXPILOT_HOST=0.0.0.0", "BOXPILOT_HOST=0.0.0.0"]);
+  });
+
   it("returning to loopback removes the firewall opening", async () => {
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
     const files = { readFile: async () => "BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=9000\n", writeFile: async () => {} };

@@ -40,11 +40,27 @@ export function contentSecurityPolicy({ scripts = [], styles = [] } = {}) {
     "img-src 'self' data:",
     "font-src 'self'",
     "connect-src 'self'",
+    // The service worker (/sw.js) and the web app manifest (M25.1), said outright rather than left to
+    // default-src: both are this origin's own files and nothing else may stand in for them.
+    "worker-src 'self'",
+    "manifest-src 'self'",
     "frame-ancestors 'none'",
     "form-action 'self'",
     "base-uri 'none'",
     "object-src 'none'",
   ].join("; ");
+}
+
+/**
+ * express.static's setHeaders for the files at the root of the build (M25.1). The service worker and
+ * the manifest are asked for again before each use rather than kept for a day by the browser's HTTP
+ * cache: a worker that lingers keeps serving the previous build's shell after an update. Hashed files
+ * under /assets are immutable and set their own.
+ */
+export function rootFileHeaders(response, filePath) {
+  const name = String(filePath).split(/[\\/]/).pop();
+  if (name === "sw.js" || name === "manifest.webmanifest") response.setHeader("Cache-Control", "no-cache");
+  if (name === "manifest.webmanifest") response.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
 }
 
 /**

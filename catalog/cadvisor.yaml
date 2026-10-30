@@ -7,7 +7,7 @@ description: "Per-container CPU, memory, network, and disk metrics for Prometheu
 website: https://github.com/google/cadvisor
 risk: low
 image:
-  reference: gcr.io/cadvisor/cadvisor:v0.55.1
+  reference: gcr.io/cadvisor/cadvisor:v0.55.1@sha256:3de2bd5203120b866d74a9b283b2ffb8ec382fbf9dc321814700c6ea6f44ec57
   version: "0.55.1"
 ports:
   - id: web

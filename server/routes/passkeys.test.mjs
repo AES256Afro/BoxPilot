@@ -13,7 +13,7 @@ import { createStateStore } from "../state.mjs";
 import { createAuthService, hashPassword } from "../security.mjs";
 import { createIdentityService } from "../identity.mjs";
 import { createPasskeyService } from "../passkeys.mjs";
-import { createPasskeyRouter } from "./passkeys.mjs";
+import { createPasskeyRouter, listenerOrigin } from "./passkeys.mjs";
 import { bufferToBase64url } from "../webauthn.mjs";
 
 const password = "correct horse battery";
@@ -45,11 +45,12 @@ function authenticator() {
   const credentialId = bufferToBase64url(randomBytes(16));
   let counter = 0;
   const authData = () => { counter += 1; const b = Buffer.concat([sha256(Buffer.from(rpId)), Buffer.from([0x05]), Buffer.alloc(4)]); b.writeUInt32BE(counter, 33); return b; };
-  const clientData = (type, challenge) => Buffer.from(JSON.stringify({ type, challenge, origin, crossOrigin: false }));
+  // The origin the browser signs is the page's own: an app on another port of the same name signs its own.
+  const clientData = (type, challenge, signedOrigin = origin) => Buffer.from(JSON.stringify({ type, challenge, origin: signedOrigin, crossOrigin: false }));
   return {
     credentialId,
     create: (challenge, label) => ({ challenge, id: credentialId, label, algorithm: -7, publicKey: bufferToBase64url(publicKey.export({ format: "der", type: "spki" })), authenticatorData: bufferToBase64url(authData()), clientDataJSON: bufferToBase64url(clientData("webauthn.create", challenge)), transports: ["internal"] }),
-    get: (challenge) => { const ad = authData(); const cd = clientData("webauthn.get", challenge); return { challenge, id: credentialId, authenticatorData: bufferToBase64url(ad), clientDataJSON: bufferToBase64url(cd), signature: bufferToBase64url(cryptoSign("sha256", Buffer.concat([ad, sha256(cd)]), { key: privateKey, dsaEncoding: "der" })) }; },
+    get: (challenge, signedOrigin = origin) => { const ad = authData(); const cd = clientData("webauthn.get", challenge, signedOrigin); return { challenge, id: credentialId, authenticatorData: bufferToBase64url(ad), clientDataJSON: bufferToBase64url(cd), signature: bufferToBase64url(cryptoSign("sha256", Buffer.concat([ad, sha256(cd)]), { key: privateKey, dsaEncoding: "der" })) }; },
   };
 }
 
@@ -62,7 +63,8 @@ beforeAll(async () => {
   const passkeys = createPasskeyService({ store: state });
   const app = express();
   app.use(express.json({ limit: "256kb", strict: true }));
-  app.use("/api/v1", createPasskeyRouter({ store: state, auth, passkeys, identity }));
+  // The LAN name over HTTPS is configured, as BOXPILOT_PUBLIC_ORIGINS would; this listener is plain HTTP.
+  app.use("/api/v1", createPasskeyRouter({ store: state, auth, passkeys, identity, publicOrigins: [origin] }));
   app.post("/api/v1/auth/login", auth.login);
   app.use("/api/v1", auth.requireSession);
   app.use((_request, response) => response.status(404).json({ error: "Not found" }));
@@ -141,5 +143,63 @@ describe("passkey routes", () => {
 
     const reused = await api("POST", "/api/v1/auth/passkey/recovery", { body: { code: minted.body.codes[0] } });
     expect(reused.status).toBe(401);
+  });
+});
+
+describe("an app on another port of the same name", () => {
+  // A passkey is bound to the host name, not the port, so a page an app serves at boxpilot.lan:3000
+  // can ask the owner's authenticator for an assertion, which it signs naming that page. Relayed to
+  // BoxPilot with that page's origin in the body, it used to sign the app in as the owner.
+  const appOrigin = "https://boxpilot.lan:3000";
+  const phone = authenticator();
+
+  it("cannot start a passkey sign-in, or finish one it phished", async () => {
+    const session = await signInWithPassword();
+    const options = await api("POST", "/api/v1/auth/passkey/register/options", { session, body: { origin } });
+    expect((await api("POST", "/api/v1/auth/passkey/register/verify", { session, body: { origin, credential: phone.create(options.body.challenge, "Phone") } })).status).toBe(201);
+
+    const phished = await api("POST", "/api/v1/auth/passkey/options", { body: { origin: appOrigin } });
+    expect(phished.status).toBe(400);
+    expect(phished.body.error).toMatch(/not an address BoxPilot is served at/);
+    // Even with a challenge in hand, an assertion the app's page asked for is refused.
+    const challenge = phished.body.challenge ?? (await api("POST", "/api/v1/auth/passkey/options", { body: { origin } })).body.challenge;
+    const relayed = await api("POST", "/api/v1/auth/passkey/verify", { body: { origin: appOrigin, response: phone.get(challenge, appOrigin) } });
+    expect(relayed.status).toBe(401);
+    expect(relayed.setCookie.join()).not.toMatch(/boxpilot_session/);
+  });
+
+  it("cannot register one either", async () => {
+    const session = await signInWithPassword();
+    expect((await api("POST", "/api/v1/auth/passkey/register/options", { session, body: { origin: appOrigin } })).status).toBe(400);
+  });
+
+  it("is told apart from the address this listener answers at, from the request itself", async () => {
+    // Nothing configured for localhost: the Host this request came in on, at the listener's own port, is BoxPilot.
+    const port = server.address().port;
+    const local = (claimed) => fetch(`http://localhost:${port}/api/v1/auth/passkey/options`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: claimed }) });
+    expect((await local(`http://localhost:${port}`)).status).toBe(200);
+    expect((await local(`http://localhost:${port + 1}`)).status).toBe(400);
+  });
+});
+
+describe("the origin a request reached this listener at", () => {
+  const request = (host, { localPort = 8787, encrypted = false } = {}) => ({ get: (name) => (name === "host" ? host : undefined), socket: { localPort, encrypted } });
+
+  it("is the Host with this listener's scheme, only when it names this listener's port", () => {
+    expect(listenerOrigin(request("box.example:8787"))).toBe("http://box.example:8787");
+    expect(listenerOrigin(request("box.example:8443", { localPort: 8443, encrypted: true }))).toBe("https://box.example:8443");
+    expect(listenerOrigin(request("box.example", { localPort: 443, encrypted: true }))).toBe("https://box.example");
+    expect(listenerOrigin(request("box.example", { localPort: 80 }))).toBe("http://box.example");
+    // An app on another port of the same name must not pass for BoxPilot.
+    expect(listenerOrigin(request("box.example:3000"))).toBeNull();
+    expect(listenerOrigin(request("box.example"))).toBeNull();
+  });
+
+  it("gives nothing for a Host carrying credentials, a path, a query or a fragment, or none at all", () => {
+    for (const host of ["user:pass@box.example:8787", "box.example:8787/evil", "box.example:8787?x=1", "box.example:8787#x", "", "bad host:8787"]) {
+      expect(listenerOrigin(request(host))).toBeNull();
+    }
+    expect(listenerOrigin({ get: () => "box.example:8787", socket: {} })).toBeNull();
+    expect(listenerOrigin({ get: () => undefined, socket: { localPort: 8787 } })).toBeNull();
   });
 });

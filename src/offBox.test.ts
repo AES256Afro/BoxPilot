@@ -20,7 +20,7 @@ describe("whether a copy exists off this server", () => {
 
   it("is satisfied by a recent copy and complains about an old one", () => {
     expect(warn({ cloud: { configured: true, lastSyncAt: daysAgo(1) } })).toBeNull();
-    expect(warn({ cloud: { configured: true, lastSyncAt: daysAgo(30) } })).toBe("The off-box copy of your backups is 30 days old");
+    expect(warn({ cloud: { configured: true, lastSyncAt: daysAgo(30) } })).toBe("The copy of your backups off this server is 30 days old");
   });
 
   it("takes the best copy anywhere, not the most neglected destination", () => {
@@ -35,6 +35,18 @@ describe("whether a copy exists off this server", () => {
     expect(verdict.where).toEqual(["cloud", "a backup drive"]);
   });
 
+  // R5B4-7: a sync that left files out (an archive that did not match its record) still counted as
+  // a recent copy, and Home said nothing.
+  it("says when the newest copy left files out, and not when a newer whole one is elsewhere", () => {
+    const verdict = offBoxVerdict({ drive: { configured: true, lastSyncAt: daysAgo(1), skipped: 2 } }, { now });
+    expect(verdict).toMatchObject({ state: "ok", skipped: 2 });
+    expect(offBoxWarning(verdict)).toBe("The last copy off this server left 2 files out");
+    expect(warn({ drive: { configured: true, lastSyncAt: daysAgo(1), skipped: 1 } })).toBe("The last copy off this server left 1 file out");
+    const elsewhere = offBoxVerdict({ drive: { configured: true, lastSyncAt: daysAgo(2), skipped: 2 }, cloud: { configured: true, lastSyncAt: daysAgo(1) } }, { now });
+    expect(elsewhere.skipped).toBe(0);
+    expect(offBoxWarning(elsewhere)).toBeNull();
+  });
+
   it("ignores a destination that was never saved, even if a stale timestamp lingers", () => {
     expect(offBoxVerdict({ ssh: { configured: false, lastSyncAt: daysAgo(2) } }, { now }).state).toBe("none");
   });
@@ -47,7 +59,7 @@ describe("whether a copy exists off this server", () => {
     const verdict = offBoxVerdict(inputs, { now, newestLocalBackupAt: hoursAgo(30) });
     expect(verdict.state).toBe("behind");
     expect(verdict.behindHours).toBe(30);
-    expect(offBoxWarning(verdict)).toBe("Backups newer than the off-box copy have been waiting 30 hours; the sync that should have followed them has not run");
+    expect(offBoxWarning(verdict)).toBe("Backups newer than the copy off this server have been waiting 30 hours; the sync that should have followed them has not run");
     // Inside the slack window the ordinary backup-then-sync gap is not an alarm.
     expect(offBoxVerdict(inputs, { now, newestLocalBackupAt: hoursAgo(6) }).state).toBe("ok");
     // A local backup older than the copy means the mirror has everything.

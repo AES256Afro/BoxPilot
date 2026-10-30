@@ -1,6 +1,7 @@
 import { defineOperation } from "./registry.mjs";
 import { releaseTagPattern } from "../tasks/update.mjs";
 import { compareVersions } from "../release-updates.mjs";
+import { parseSignerKey, readReleaseSigner, setReleaseSigner } from "../release-signer.mjs";
 
 /**
  * An update staged for a version this server already runs, or an older one, has nothing to do: two
@@ -40,7 +41,7 @@ export function updateOperations() {
     defineOperation({
       // operator (ADR-003): returns up to eighty raw journal lines as root; every other journal read needs an operator.
       id: "system.update.status", title: "Read BoxPilot update status", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 30_000,
-      description: "The most recent self-update units and the upgrade log they wrote.",
+      description: "The most recent self-update units, the upgrade log they wrote, and the key releases must be signed with, if one is set.",
       run: async (_parameters, { run }) => {
         const [units, journal] = await Promise.all([
           run(systemctl, ["list-units", "--all", "--plain", "--no-legend", "--no-pager", "boxpilot-update-*"], { timeout: 15_000 }),
@@ -48,7 +49,7 @@ export function updateOperations() {
         ]);
         const unitList = parseUpdateUnits(units.ok ? units.stdout : "");
         const lines = journal.ok ? journal.stdout.split("\n").filter((line) => line && !line.startsWith("-- ")) : [];
-        return { units: unitList, log: lines, outcome: updateOutcome(unitList, lines) };
+        return { units: unitList, log: lines, outcome: updateOutcome(unitList, lines), signer: await readReleaseSigner() };
       },
     }),
     defineOperation({
@@ -57,6 +58,14 @@ export function updateOperations() {
       parameters: { fields: { tag: { type: "string", pattern: releaseTagPattern }, expectedCommit: { type: "string", pattern: /^[a-f0-9]{40}$/ } } },
       supersededWhen: updateSuperseded,
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.update", { tag: parameters.tag, expectedCommit: parameters.expectedCommit }, { timeoutMs: 5 * 60_000, logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      // High and owner only: the key decides which code this server will build and run as root.
+      id: "system.update.signer.set", title: "Require signed BoxPilot releases", risk: "high", minimumRole: "owner", timeoutMs: 30_000,
+      confirm: (parameters) => (parameters.publicKey ? "require signed releases" : "stop checking signatures"),
+      description: "Sets the SSH public key a release tag must be signed with before an update builds it (git verify-tag), or clears it. With a key set, an update of a tag nobody signed with it stops before anything changes. Sign a release with: git tag -s vX.Y.Z (with git config gpg.format ssh).",
+      parameters: { fields: { publicKey: { type: "string", optional: true, maxLength: 2400, validate: (value) => (parseSignerKey(value) ? null : "must be one SSH public key line, as ssh-keygen prints it") } } },
+      run: (parameters) => setReleaseSigner({ publicKey: parameters.publicKey ?? null }),
     }),
   ];
 }

@@ -7,7 +7,7 @@ import { NetworkOverview } from "./NetworkOverview";
 import { NetworkRouter } from "./NetworkRouter";
 import { NetworkTailnet } from "./NetworkTailnet";
 import { NetworkVpn } from "./NetworkVpn";
-import { isTopology, type NetworkCapability, type Reachability, type Tailnet, type TlsCapability, type Topology } from "./types";
+import { isResilience, isTopology, type NetworkCapability, type Reachability, type Resilience, type Tailnet, type TlsCapability, type Topology } from "./types";
 import "./network.css";
 
 /*
@@ -20,6 +20,15 @@ import "./network.css";
 
 type Tab = "overview" | "tailnet" | "dns" | "router" | "vpn";
 const tabIds: readonly Tab[] = ["overview", "tailnet", "dns", "router", "vpn"];
+
+/** The strip's words for whether the house keeps its DNS with this server off. */
+const survivalWords: Record<Resilience["state"], { value: string; status: Status }> = {
+  "single-point": { value: "Goes down with it", status: "danger" },
+  unproven: { value: "Not proven", status: "warning" },
+  resilient: { value: "Keeps working", status: "good" },
+  independent: { value: "Does not lean on it", status: "neutral" },
+  unknown: { value: "Not known", status: "unknown" },
+};
 
 export interface NetworkPageProps {
   csrfToken: string;
@@ -51,6 +60,26 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
   const [tailnetError, setTailnetError] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [tab, setTab] = useUrlParam<Tab>("tab", tabIds, "overview");
+  // Whether the house keeps its DNS while this server is off (M39.2): read with the page, said at
+  // its top when the whole house goes down with this server, and in full on Names & DNS.
+  const [resilience, setResilience] = useState<Resilience | null>(null);
+  const [resilienceError, setResilienceError] = useState<string | null>(null);
+  const [checkingDns, setCheckingDns] = useState(false);
+  const readResilience = useCallback(async (fresh = false) => {
+    setCheckingDns(true);
+    try {
+      const response = await fetch(`/api/v1/network/dns-resilience${fresh ? "?fresh=1" : ""}`);
+      const body = (await response.json().catch(() => null)) as unknown;
+      if (!response.ok || !isResilience(body)) throw new Error((body as { error?: string } | null)?.error ?? "The DNS check could not run");
+      setResilience(body);
+      setResilienceError(null);
+    } catch (caught) {
+      setResilienceError(caught instanceof Error ? caught.message : "The DNS check could not run");
+    } finally {
+      setCheckingDns(false);
+    }
+  }, []);
+  useEffect(() => { void readResilience(); }, [readResilience]);
 
   const readAround = useCallback(async () => {
     const [capabilities, reachability, nodes] = await Promise.all([
@@ -82,7 +111,7 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
   }, [readAround]);
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const { start, dialog } = useOperation(csrfToken, () => { setRefreshKey((key) => key + 1); void readAround(); void refresh(); });
+  const { start, dialog } = useOperation(csrfToken, () => { setRefreshKey((key) => key + 1); void readAround(); void refresh(); void readResilience(true); });
 
   const clock = now();
   const gateway = topology?.defaultRoutes[0] ?? null;
@@ -119,6 +148,9 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
       />
 
       {error && <Notice tone="danger" live title="The network could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{error}</Notice>}
+      {resilience?.state === "single-point" && tab !== "dns" && (
+        <Notice tone="danger" title={resilience.headline} action={<Button onClick={() => setTab("dns")}>See what to do</Button>}>{resilience.detail}</Notice>
+      )}
 
       {topology && (
         <KeyValue
@@ -130,6 +162,7 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
             { id: "dns", label: "Resolvers", value: topology.defaultResolvers.join(" + ") || "None", mono: true, hint: "in use now" },
             { id: "tailscale", label: "Tailscale", value: tailscale?.connected ? "Connected" : "Not connected", status: tailscale?.connected ? "good" : "neutral", hint: tailscale?.dnsName ?? undefined },
             { id: "tsdns", label: "Tailnet DNS", value: !tailscale?.connected ? "—" : tailscale.defaultDnsObserved ? "Default resolver" : "Split only", hint: !tailscale?.connected ? undefined : tailscale.defaultDnsObserved ? "Tailscale's resolver is the default" : "for tailnet names only" },
+            ...(resilience ? [{ id: "survives", label: "House DNS", ...survivalWords[resilience.state], hint: "if this server is off" }] : []),
           ]}
         />
       )}
@@ -148,7 +181,7 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
       >
         {(open) => (
           open === "tailnet" ? <NetworkTailnet tailscale={tailscale} tailnet={tailnet} tailnetError={tailnetError} role={role} start={start} now={clock} />
-            : open === "dns" ? <NetworkDns csrfToken={csrfToken} topology={topology} role={role} start={start} refreshKey={refreshKey} />
+            : open === "dns" ? <NetworkDns csrfToken={csrfToken} topology={topology} role={role} start={start} refreshKey={refreshKey} resilience={resilience} resilienceError={resilienceError} checkingDns={checkingDns} onCheckDns={() => void readResilience(true)} now={clock} />
               : open === "router" ? <NetworkRouter gateway={gateway?.gateway ?? null} role={role} start={start} refreshKey={refreshKey} />
                 : open === "vpn" ? <NetworkVpn role={role} start={start} refreshKey={refreshKey} now={clock} />
                   : <NetworkOverview topology={topology} networkCap={networkCap} tlsCap={tlsCap} reach={reach} role={role} start={start} />

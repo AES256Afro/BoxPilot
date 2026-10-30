@@ -4,10 +4,13 @@ compatibility_date = "2026-08-01"
 
 # Declared before [assets], because a key written after a table header belongs to that table and
 # these were silently swallowed into it once already.
-# This domain previously served a game with two save games and no activity in two months; both
-# were exported to ~/Projects/quiet-grid-backup-20260826 before it was removed.
+# Both domains serve the same demo. The Worker never reads the host: every redirect and asset
+# fetch is resolved against the request's own URL, so a visitor stays on whichever one they typed.
+# antifascist.work previously served a game with two save games and no activity in two months;
+# both were exported to ~/Projects/quiet-grid-backup-20260826 before it was removed.
 routes = [
   { pattern = "antifascist.work", custom_domain = true },
+  { pattern = "getnerp.com", custom_domain = true },
 ]
 
 [assets]
@@ -17,3 +20,6 @@ binding = "ASSETS"
 # world switcher into the page shell. Cloudflare serves assets before the Worker by default, which
 # meant "/" came back as the bare index.html with no way to reach the empty or broken worlds.
 run_worker_first = true
+# Every page is chosen by the Worker, which asks for files by their exact names (/index.html,
+# /mockups/index.html); "none" serves exactly those instead of redirecting them to a pretty path.
+html_handling = "none"

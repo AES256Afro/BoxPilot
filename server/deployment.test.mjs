@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { onWindows } from "../test/platform.mjs";
@@ -20,6 +20,10 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("Environment=BOXPILOT_VM_EXPORT_ROOT=/var/lib/boxpilot-managed/vm-exports");
     expect(helperUnit).toContain("Environment=BOXPILOT_VM_MEDIA_INBOX=/var/lib/boxpilot-managed/vm-media-inbox");
     expect(helperUnit).toContain("ExecStartPre=/usr/bin/install -d -o boxpilot -g boxpilot -m 0700 /var/lib/boxpilot-managed/vm-media-inbox");
+    // The web service reaches its upload inbox through boxpilot-managed: pass through, never list.
+    expect(helperUnit).toContain("StateDirectoryMode=0710\n");
+    // A chmod before ExecStart is undone by systemd, which sets StateDirectoryMode for every command.
+    expect(helperUnit).not.toMatch(/^ExecStartPre=.*chmod/m);
     expect(helperUnit).toContain("Environment=BOXPILOT_MIGRATION_INBOX=/var/lib/boxpilot-migration/inbox");
     expect(helperUnit).toContain("Environment=BOXPILOT_MIGRATION_STAGING_ROOT=/var/lib/boxpilot-managed/migration-staging");
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_DATABASE=/var/lib/boxpilot/boxpilot.sqlite3");
@@ -88,6 +92,9 @@ describe("native systemd network boundaries", () => {
       expect(dockerfile.indexOf(`COPY ${step}`)).toBeLessThan(dockerfile.indexOf("RUN npm run build"));
     }
     expect(build.indexOf("precompress-assets")).toBeLessThan(build.indexOf("boxpilot-web-dist-permissions"));
+    // The build copies public/ (the manifest and the home-screen icons, M25.1) into dist.
+    expect(dockerfile.indexOf("COPY public ./public")).toBeGreaterThan(-1);
+    expect(dockerfile.indexOf("COPY public ./public")).toBeLessThan(dockerfile.indexOf("RUN npm run build"));
     expect(normalizer).toContain("process.argv.length !== 2");
     expect(normalizer).toContain("metadata.isSymbolicLink()");
     expect(normalizer).toContain("metadata.nlink !== 1");
@@ -161,6 +168,27 @@ describe("native systemd network boundaries", () => {
     expect(scanner).not.toMatch(/["'](?:fsck|e2fsck|tune2fs)["']/);
     expect(scanner).not.toContain("process.argv[2]");
     expect(protocol).not.toContain("storage.smart.scan");
+  });
+
+  // M39.3: the heartbeat. Off until the owner turns it on, so nothing that installs or upgrades
+  // BoxPilot may enable it; a oneshot with no capabilities, no retries and a short budget.
+  it("ships the heartbeat as a hardened oneshot and a timer nothing enables but the owner", async () => {
+    const service = (await readFile("deploy/boxpilot-heartbeat.service", "utf8")).replaceAll("\r\n", "\n");
+    const timer = (await readFile("deploy/boxpilot-heartbeat.timer", "utf8")).replaceAll("\r\n", "\n");
+    const install = await readFile("scripts/boxpilot-install.sh", "utf8");
+    const upgrade = await readFile("scripts/boxpilot-upgrade.sh", "utf8");
+    expect(service).toMatch(/^Type=oneshot$/m);
+    expect(service).toMatch(/^ExecStart=\/usr\/local\/bin\/node \/opt\/boxpilot\/scripts\/boxpilot-heartbeat\.mjs$/m);
+    expect(service).toMatch(/^CapabilityBoundingSet=$/m);
+    expect(service).toMatch(/^ProtectSystem=strict$/m);
+    expect(service).toMatch(/^StateDirectory=boxpilot-heartbeat$/m);
+    expect(service).toMatch(/^TimeoutStartSec=30s$/m);
+    expect(service).not.toMatch(/^Restart=/m);
+    expect(service).not.toMatch(/^PrivateNetwork=true$/m);
+    expect(timer).toMatch(/^OnUnitActiveSec=5min$/m);
+    expect(timer).toMatch(/^Unit=boxpilot-heartbeat\.service$/m);
+    expect(install).not.toContain("boxpilot-heartbeat");
+    expect(upgrade).not.toMatch(/enable[^\n]*boxpilot-heartbeat/);
   });
 
   it("ships a hardened generic root-runner template unit gated on a per-run approval spec", async () => {
@@ -301,6 +329,9 @@ describe("native systemd network boundaries", () => {
     expect(service).toContain("PrivateNetwork=true");
     expect(service).toContain("CapabilityBoundingSet=\n");
     expect(service).toContain("ReadWritePaths=/var/lib/libvirt");
+    // MemoryDenyWriteExecute= refuses the mprotect(PROT_EXEC) that node's V8 needs for the JIT code it
+    // writes at start-up: with it, node aborted before the script ran and the unit failed as core-dump.
+    expect(service).not.toMatch(/^MemoryDenyWriteExecute=/m);
     expect(service).not.toContain("%i");
     expect(service).not.toContain("[Install]");
     expect(helperUnit).toContain("PrivateNetwork=true");
@@ -313,10 +344,25 @@ describe("native systemd network boundaries", () => {
     expect(initializer).toContain('["pool-undefine", libvirtFoundationSpec.poolName]');
     expect(initializer).not.toContain("process.argv[2]");
     expect(initializer).not.toContain("virt-install");
-    expect(protocol).toContain("virtualization.foundation.inspect");
+    expect(helperOperations.has("virtualization.foundation.inspect")).toBe(true);
     expect(helperOperations.has("vm.foundation.initialize")).toBe(true);
     expect(helperOperations.has("virtualization.foundation.initialize")).toBe(false);
     expect(protocol).not.toContain("virtualization.resource.execute");
+  });
+
+  it("leaves write-execute memory to every unit that runs node", async () => {
+    // V8 writes JIT code at start-up and then makes it executable with mprotect(PROT_EXEC), which
+    // MemoryDenyWriteExecute= rejects: node aborts and systemd reports the unit as core-dump. The
+    // libvirt foundation unit carried it alone, and its script never ran (October 2026).
+    const units = (await readdir("deploy")).filter((name) => name.endsWith(".service")).sort();
+    const nodeUnits = [];
+    for (const name of units) {
+      const unit = await readFile(path.join("deploy", name), "utf8");
+      if (!/^ExecStart=\/usr\/local\/bin\/node /m.test(unit)) continue;
+      nodeUnits.push(name);
+      expect(unit, name).not.toMatch(/^MemoryDenyWriteExecute=/m);
+    }
+    expect(nodeUnits).toContain("boxpilot-libvirt-foundation.service");
   });
 
   it("ships a static metadata-only APT refresh without browser package or command arguments", async () => {
@@ -379,7 +425,10 @@ describe("surviving a reboot with the backup drive still waking up", () => {
   it("creates that folder on install and moves an existing destination into it on upgrade", async () => {
     const install = (await readFile("scripts/boxpilot-install.sh", "utf8")).replaceAll("\r\n", "\n");
     const upgrade = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
-    expect(install).toContain("install -d -o root -g root -m 0755 /mnt/boxpilot /mnt/boxpilot/backup");
+    expect(install).toContain("install -d -o root -g root -m 0755 /mnt/boxpilot\n");
+    // The mount point only when it is missing: on a re-run it is the destination, and `install -d`
+    // on it woke its automount (and failed with the NAS off) or handed the NAS's folder to root.
+    expect(install).toContain("[ -e /mnt/boxpilot/backup ] || install -d -o root -g root -m 0755 /mnt/boxpilot/backup\n");
     expect(install).not.toContain("/mnt/boxpilot-backup");
     // After the new units are in place and before the helper restarts; undone by a rollback, since
     // the old helper looks for the destination where it used to be.

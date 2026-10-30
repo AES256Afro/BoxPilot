@@ -25,8 +25,6 @@ export const newsWindowMs = 14 * 24 * 60 * 60_000;
 export const outagesSetting = "powerOutages";
 export const outageFamily = "power.lost";
 export const keptOutages = 10;
-/** The catalog's DNS servers: when one runs here, the house's lookups went down with the server. */
-export const dnsAppIds = Object.freeze(["pi-hole", "adguard-home", "technitium-dns"]);
 
 const journalctl = () => process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl";
 
@@ -190,6 +188,7 @@ export function judgePreviousBoot({ boots = [], tail = [], signs = [], bootedAt 
 /**
  * Ask the journal (in the helper: it can read it, and has no network to need). Four reads, the
  * last only when the tail has no shutdown in it, which on a healthy server is never.
+ * @param {{ run?: any, now?: () => Date, uptimeSeconds?: number | null, bootId?: string | null }} [options]
  */
 export async function inspectBoots({ run, now = () => new Date(), uptimeSeconds = null, bootId = null } = {}) {
   const options = { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, env: { TZ: "UTC" } };
@@ -277,6 +276,8 @@ export const outageKey = (id) => `${outageFamily}:${String(id).slice(0, 12)}`;
  * Once per start: how did the previous boot end? An unclean end not seen before is recorded and
  * raised; one already recorded (BoxPilot restarted since, or it was acknowledged) is left alone.
  * The helper may not be up yet at start, so the read is tried again a few times.
+ * @param {{ helper?: any, store?: any, alerts?: any, hostname?: string, dnsApps?: () => Promise<string[]>, ups?: () => Promise<boolean>, now?: () => Date, timeZone?: string,
+ *   delay?: typeof setTimeout, firstDelayMs?: number, retryMs?: number, attempts?: number }} [options]
  */
 export function createPowerLossWatch({ helper, store, alerts, hostname = "The server", dnsApps = async () => [], ups = async () => false, now = () => new Date(), timeZone = undefined, delay = globalThis.setTimeout, firstDelayMs = 45_000, retryMs = 2 * 60_000, attempts = 5 } = {}) {
   async function check() {

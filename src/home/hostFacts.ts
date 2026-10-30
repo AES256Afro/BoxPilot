@@ -66,10 +66,28 @@ export function upsSummary(ups: UpsFact | null): { status: Status; label: string
 
 /** A key service's state in words: its sub-state while active, "failed", or what systemd says. */
 export function serviceState(service: ServiceFact): { status: Status; label: string } {
-  if (service.active === "active") return { status: "good", label: service.sub || "active" };
+  // "exited" is systemd's word for a one-shot unit that ran and finished (M49): "ran" says so.
+  if (service.active === "active") return { status: "good", label: service.sub === "exited" ? "ran" : service.sub || "active" };
   if (service.active === "failed") return { status: "danger", label: "failed" };
-  if (service.active === "activating" || service.active === "deactivating" || service.active === "reloading") return { status: "warning", label: service.active };
+  if (service.active === "activating") return { status: "warning", label: "starting" };
+  if (service.active === "deactivating") return { status: "warning", label: "stopping" };
+  if (service.active === "reloading") return { status: "warning", label: "reloading" };
   return { status: "neutral", label: service.sub || service.active || "unknown" };
+}
+
+/** Whether a unit starts at boot, in words: systemd's is-enabled answer ("static", "indirect") said plainly (M49). */
+export function bootWords(enabled: string | null | undefined): string {
+  switch (enabled) {
+    case "enabled": case "enabled-runtime": return "starts at boot";
+    case "disabled": return "not at boot";
+    case "static": return "started when needed";
+    case "indirect": case "alias": return "starts with another unit";
+    case "masked": case "masked-runtime": return "masked";
+    case "generated": case "transient": return "made by the system";
+    case "linked": case "linked-runtime": return "linked";
+    case "": case null: case undefined: return "—";
+    default: return enabled;
+  }
 }
 
 /** The setup checklist as a count: how many essentials are in place, and whether any could not be checked. */

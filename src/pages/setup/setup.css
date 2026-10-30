@@ -68,6 +68,8 @@
 
 /* A chosen profile: its square and words, the progress, then each step with its state and tier. */
 .setup-back { display: flex; }
+/* Where focus lands once a profile is chosen: the plan, which is a region of its own. */
+.setup-plan-focus { min-width: 0; border-radius: 4px; scroll-margin-top: 56px; }
 .setup-plan__head { display: flex; align-items: center; gap: 12px; padding: 12px; border-bottom: 1px solid var(--border); }
 .setup-plan__progress { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .setup-steps { display: grid; margin: 0; padding: 0; list-style: none; }

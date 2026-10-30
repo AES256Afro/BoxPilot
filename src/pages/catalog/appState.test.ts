@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { appStatus, offlineFor } from "./appState";
-import type { LiveState } from "./types";
+import { appStatus, compactValues, installTier, offlineFor, shortImage } from "./appState";
+import type { LiveState, Manifest, ManifestEnv } from "./types";
 
 /**
  * Backing an app up stops it. Whether that matters depends on the app and on how long, and the
@@ -39,8 +39,21 @@ describe("an app's state, as the tile, the sheet and the verdict all say it", ()
     expect(appStatus(null)).toEqual({ status: "unknown", label: "Unknown" });
   });
 
-  it("says a paused app is paused, though Docker calls it running", () => {
-    expect(appStatus(live({ container: { exists: true, running: true, status: "paused", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "Paused" });
+  it("says a paused app is paused, though Docker calls it running, and not as a problem: a person paused it (M49)", () => {
+    expect(appStatus(live({ container: { exists: true, running: true, status: "paused", health: "none", restarts: 0, image: null } }))).toEqual({ status: "neutral", label: "Paused" });
+  });
+
+  it("says an app a person stopped on purpose is stopped, not a problem, as Home does (M49)", () => {
+    const stopped = { exists: true, running: false, status: "exited", health: "none", restarts: 0, image: null };
+    expect(appStatus(live({ container: stopped, stoppedOnPurpose: { at: "2026-10-12T10:00:00Z" } }))).toEqual({ status: "neutral", label: "Stopped" });
+    expect(appStatus(live({ container: stopped }))).toEqual({ status: "warning", label: "Stopped" });
+    // Crashing over and over is a problem whatever a person meant.
+    expect(appStatus(live({ container: { ...stopped, status: "restarting" }, stoppedOnPurpose: { at: "2026-10-12T10:00:00Z" } }))).toEqual({ status: "warning", label: "Stopped" });
+  });
+
+  it("says an installed app with no container has none, as Home does, and a stopped one is stopped", () => {
+    expect(appStatus(live({ container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "No container" });
+    expect(appStatus(live({ container: { exists: true, running: false, status: "exited", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "Stopped" });
   });
 
   it("puts a leak outside the VPN and a folder it cannot write to above looking alive", () => {
@@ -52,5 +65,44 @@ describe("an app's state, as the tile, the sheet and the verdict all say it", ()
     expect(appStatus(live({ sidecars: [{ id: "vpn", running: false, status: "exited", restarts: 0 }] })).label).toBe("Running · vpn is down");
     expect(appStatus(live({ container: { exists: true, running: false, status: "exited", health: "none", restarts: 0, image: null } }))).toEqual({ status: "warning", label: "Stopped" });
     expect(appStatus(live({ installed: false, dataPresent: true }))).toEqual({ status: "neutral", label: "Not installed · data kept" });
+  });
+});
+
+describe("the tier installing an app asks for", () => {
+  it("is the manifest's own when it is higher than app.install's, as the server stages it, and never lower", () => {
+    // Pi-hole, AdGuard Home, Technitium and wg-easy say high (server/catalog installRiskLookup).
+    expect(installTier({ risk: "high" })).toBe("high");
+    expect(installTier({ risk: "medium" })).toBe("medium");
+    expect(installTier({ risk: "low" })).toBe("medium");
+  });
+});
+
+describe("what a settings change sends", () => {
+  const entry = (name: string, extra: Partial<ManifestEnv> = {}): ManifestEnv => ({ name, label: name, description: null, type: "string", default: null, required: false, secret: false, generate: false, options: null, fixed: false, ...extra });
+  const manifest = { ports: [], volumes: [], env: [entry("SERVER_URL"), entry("TZ", { default: "UTC" }), entry("ADMIN_TOKEN", { secret: true }), entry("DB_PASSWORD", { type: "password" }), entry("UNSET")] } as unknown as Manifest;
+
+  it("sends a setting cleared to empty, so the server does not keep the old value", () => {
+    // The server merges the request over what it stored ({...stored, ...request}): leaving the
+    // empty setting out kept the old address in place.
+    const stored = { ports: {}, env: { SERVER_URL: "https://old.example", TZ: "Europe/Berlin" }, volumes: {} };
+    const values = { ports: {}, env: { SERVER_URL: "", TZ: "", ADMIN_TOKEN: "", DB_PASSWORD: "", UNSET: "" }, volumes: {} };
+    expect(compactValues(manifest, values, stored).env).toEqual({ SERVER_URL: "", TZ: "" });
+  });
+
+  it("leaves an empty secret or password out: empty there means unchanged", () => {
+    const stored = { ports: {}, env: { ADMIN_TOKEN: "kept", DB_PASSWORD: "kept" }, volumes: {} };
+    expect(compactValues(manifest, { ports: {}, env: { ADMIN_TOKEN: "", DB_PASSWORD: "" }, volumes: {} }, stored).env).toEqual({});
+  });
+
+  it("sends nothing empty on install, where there is nothing stored to clear", () => {
+    expect(compactValues(manifest, { ports: {}, env: { SERVER_URL: "", TZ: "", ADMIN_TOKEN: "" }, volumes: {} }).env).toEqual({});
+  });
+});
+
+describe("an image reference for reading", () => {
+  it("cuts a pinned digest to its first 12 characters and leaves a tag alone", () => {
+    expect(shortImage(`nginx:1.27@sha256:${"0123456789ab".padEnd(64, "f")}`)).toBe("nginx:1.27@sha256:0123456789ab…");
+    expect(shortImage("nginx:1.27")).toBe("nginx:1.27");
+    expect(shortImage(null)).toBe("");
   });
 });

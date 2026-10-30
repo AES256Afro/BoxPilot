@@ -22,6 +22,8 @@ describe("samba operations", () => {
     expect(spec.fields.password.secret).toBe(true);
     expect(validateParameters(spec, { username: "sam", password: "short" }, "t")).toContain("8 characters");
     expect(validateParameters(spec, { username: "sam", password: "long enough" }, "t")).toBeNull();
+    // Refused before it is staged; the root task also refuses every other system account.
+    expect(validateParameters(spec, { username: "root", password: "long enough" }, "t")).toContain("root");
     const runUnit = { runTask: vi.fn(async () => ({ ok: true })) };
     await operations["samba.user.remove"].run({ username: "sam" }, { runUnit, jobLog: null });
     expect(runUnit.runTask).toHaveBeenCalledWith("samba.user.remove", { username: "sam" }, expect.anything());

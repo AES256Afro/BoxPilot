@@ -55,10 +55,12 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
   }, [canRead]);
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // A finished change clears the form it came from; a cancelled approval keeps it, so reopening the
-  // sheet shows what was typed.
-  const { start, dialog } = useOperation(csrfToken, () => {
-    setNewUsername(""); setNewGithub(""); setKeysGithub(""); setKeysPasted(""); setKeysTarget(null);
+  // A change that took clears the form it came from, and only that form; a cancelled approval or a
+  // failed job keeps it, so reopening the sheet shows what was typed. Any job ending (a sudo switch,
+  // a failed add with the name taken) used to clear every form on the page.
+  const { start, dialog } = useOperation(csrfToken, (job) => {
+    if (job.state === "completed" && job.type === "op:users.add") { setNewUsername(""); setNewGithub(""); }
+    if (job.state === "completed" && job.type === "op:users.keys.import") { setKeysGithub(""); setKeysPasted(""); setKeysTarget(null); }
     void refresh();
   });
 

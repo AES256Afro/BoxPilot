@@ -7,7 +7,7 @@ description: Solves the browser checks some indexers put in front of their pages
 website: https://github.com/FlareSolverr/FlareSolverr
 risk: low
 image:
-  reference: ghcr.io/flaresolverr/flaresolverr:v3.5.0
+  reference: ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47
   version: v3.5.0
 ports:
   - id: api

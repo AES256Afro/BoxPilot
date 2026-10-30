@@ -44,6 +44,29 @@ describe("Schedules panel", () => {
     expect(JSON.parse(created ?? "{}")).toEqual({ operationId: "app.backup", parameters: { id: "jellyfin" }, frequency: "daily", minute: 30, hour: 2, weekday: null });
   });
 
+  it("asks before deleting a schedule, says what stops, and deletes only on the dialog's Delete (M49)", async () => {
+    const deleted: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (init?.method === "DELETE") { deleted.push(url); return json({ deleted: true }); }
+      if (url.endsWith("/api/v1/schedules")) return json({ schedules: deleted.length ? [] : [schedule] });
+      if (url.includes("/api/v1/catalog")) return json({ applications: [], host: {} });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<SchedulesPanel csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete the schedule: Back up application data" }));
+    expect(deleted).toEqual([]);
+    const dialog = await screen.findByRole("dialog", { name: "Delete the schedule: Back up application data?" });
+    expect(dialog.textContent).toContain("To stop it for a while instead, pause it.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep it" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(deleted).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete the schedule: Back up application data" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Delete the schedule: Back up application data?" })).getByRole("button", { name: "Delete" }));
+    await vi.waitFor(() => expect(deleted).toEqual(["/api/v1/schedules/s1"]));
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("shows the approval-mode skip clearly", async () => {
     const blocked = { ...schedule, id: "s2", lastResult: "blocked-by-approval-mode", lastOutcome: "did-not-run", lastReason: "Approvals are set to always ask" };
     vi.stubGlobal("fetch", answer([blocked]));

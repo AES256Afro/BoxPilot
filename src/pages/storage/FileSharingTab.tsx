@@ -69,15 +69,24 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
   const [exportPath, setExportPath] = useState("");
   const [exportReadOnly, setExportReadOnly] = useState(false);
 
-  // A drive's "Share on network" opens Add a share with the drive's folder filled in.
+  const state = samba.state;
+  // A drive's "Share on network" opens Add a share with the drive's folder filled in. Without Samba
+  // the share went into a list this tab does not draw until Samba is installed, so nothing appeared
+  // to happen; the folder now waits, is named beside Install Samba, and the form opens once it is in.
+  const [waiting, setWaiting] = useState<{ name: string; path: string } | null>(null);
   useEffect(() => {
     if (!prefill) return;
-    setForm({ ...emptyForm, name: prefill.name, path: prefill.path });
+    if (state && !state.installed && !state.error) setWaiting(prefill);
+    else setForm({ ...emptyForm, name: prefill.name, path: prefill.path });
     onPrefillUsed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill]);
+  useEffect(() => {
+    if (!waiting || !state?.installed) return;
+    setForm({ ...emptyForm, name: waiting.name, path: waiting.path });
+    setWaiting(null);
+  }, [waiting, state?.installed]);
 
-  const state = samba.state;
   const users = state?.users ?? [];
   const live = state?.config?.shares ?? [];
 
@@ -167,11 +176,11 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
         const scheduled = samba.autoClean[share.name];
         return (
           <span className="storage-actions">
-            {bin !== null && bin > 0 && may("samba.recycle.empty") && (
+            {bin !== null && bin > 0 && role === "owner" /* emptying everything is high (escalation.mjs) */ && (
               <Button risk={riskOf("samba.recycle.empty")} aria-label={`Empty the recycle bin of ${share.name}`} onClick={() => start({ operationId: "samba.recycle.empty", title: `Empty the recycle bin for ${share.name}`, parameters: { share: share.name }, preview: <span>Permanently deletes {formatBytes(bin)} of recycled files from <code>{liveShare?.path ?? share.path}/.recycle</code>. Files deleted over the share after this are recoverable again.</span> })}>Empty bin</Button>
             )}
             {bin !== null && (scheduled
-              ? <span className="storage-dim">cleans weekly, keeps 30 days {may("samba.recycle.empty") && <Button variant="ghost" aria-label={`Stop cleaning ${share.name}'s bin weekly`} onClick={() => void samba.unscheduleAutoClean(scheduled)}>Stop</Button>}</span>
+              ? <span className="storage-dim">cleans weekly, keeps 30 days {may("samba.recycle.empty") && <Button variant="ghost" aria-label={`Stop cleaning ${share.name}'s bin weekly`} onClick={() => void samba.unscheduleAutoClean(scheduled)}>Stop the weekly clean</Button>}</span>
               : may("samba.recycle.empty") && <Button variant="ghost" title="Every week, permanently delete recycled files older than 30 days, so the bin never fills the drive." aria-label={`Clean ${share.name}'s bin weekly`} onClick={() => void samba.scheduleAutoClean(share.name)}>Clean weekly</Button>)}
             {samba.autoCleanError === share.name && <span className="storage-error" role="alert">The weekly clean could not be scheduled.</span>}
             {canApply && <Button variant="ghost" aria-label={`Remove ${share.name} from the list`} onClick={() => samba.setDraft((current) => current.filter((row) => row.name !== share.name))}>Remove</Button>}
@@ -222,6 +231,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
         {state && !sambaInstalled && (
           <EmptyState title="Samba is not installed" action={may("apt.install") ? <Button risk={riskOf("apt.install")} onClick={() => start({ operationId: "apt.install", title: "Install Samba", parameters: { packages: ["samba"] }, preview: <span><code>apt-get install --no-install-recommends samba</code>. Nothing is shared until you add a share and apply.</span> })}>Install Samba</Button> : undefined}>
             Turns this server into a file server for your other devices, bound to your tailnet: phones and laptops reach it through Tailscale while nothing is exposed on the LAN or the internet.
+            {waiting && <> Install it first to share <code>{waiting.path}</code>: Add a share opens with that folder once Samba is here.</>}
           </EmptyState>
         )}
         {state && sambaInstalled && (
@@ -353,6 +363,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
                   ? <Segmented<Scope> label="NFS reachable from" value={nfs.scope} onChange={nfs.setScope} options={scopeOptions} />
                   : <span className="storage-settings__value">{nfs.scope === "lan" ? "Tailscale + LAN" : "Tailscale only"}</span>}
                 <span className="storage-dim">{nfs.scope === "lan" ? "Also tick “NFS file sharing” on the Firewall page." : "Recommended: nothing to open on the firewall."}</span>
+                {nfs.scope === "lan" && onNavigate && <Button variant="ghost" onClick={() => onNavigate("firewall")}>Open the Firewall page</Button>}
               </div>
             </div>
             <Table

@@ -173,6 +173,18 @@ describe("role boundaries", () => {
     const noCsrf = { cookie: owner.cookie, csrfToken: "" };
     expect((await api("POST", "/api/v1/operations/apt.refresh/jobs", { session: noCsrf, body: { parameters: {} } })).status).toBe(403);
   });
+
+  it("runs none of BoxPilot's own plumbing for anyone, the owner included (sweep 3)", async () => {
+    const owner = await signIn("owner");
+    const staged = await api("POST", "/api/v1/operations/agents.runtime.cpu/jobs", { session: owner, body: { parameters: { processors: 8, background: 8, resetAfterSeconds: 7_200 } } });
+    expect(staged.status).toBe(403);
+    expect(staged.body).toMatchObject({ code: "operation_internal", error: expect.stringMatching(/BoxPilot's own/) });
+    const read = await api("POST", "/api/v1/operations/agents.zulip.events/run", { session: owner, body: { parameters: { host: "127.0.0.1", botEmail: "bot@example.test" } } });
+    expect(read.status).toBe(403);
+    expect(read.body.code).toBe("operation_internal");
+    expect((await api("GET", "/api/v1/operations/agents.zulip.poll/inspect", { session: owner })).status).toBe(403);
+    expect(state.listJobs(50).some((job) => job.type.startsWith("op:agents."))).toBe(false);
+  });
 });
 
 describe("identity linking", () => {
@@ -303,7 +315,11 @@ describe("reads that go through the system's own permissions", () => {
     for (const id of ["storage.folders", "app.backup.files", "app.data.usage", "host.snapshot.describe", // Found by a second pass over every read-only operation: each runs in the root helper and
       // answers something the caller could not have read - a journal, authorized_keys, a 0770
       // recycle bin, a query log, every mounted filesystem.
-      "system.update.status", "users.inspect", "samba.inspect", "dns.blocker.clients", "host.snapshot.discover", "host.snapshot.restores", "router.leases", "router.inspect", "storage.usb.events", "storage.unclean.events", "storage.volumes.state"]) {
+      "system.update.status", "users.inspect", "samba.inspect", "dns.blocker.clients", "host.snapshot.discover", "host.snapshot.restores", "router.leases", "router.inspect", "storage.usb.events", "storage.unclean.events", "storage.volumes.state",
+      // Sweep 1: every compose stack started outside BoxPilot, with where its files live, read as root.
+      "compose.projects.inspect",
+      // Sweep 4: what a backup's compose file mounts from this server, read inside the archive as root.
+      "app.backup.review"]) {
       expect(registry.get(id)?.minimumRole, `${id} should need an operator`).toBe("operator");
     }
   });

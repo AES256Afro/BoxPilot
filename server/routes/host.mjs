@@ -10,30 +10,19 @@ import { registry, riskTiers } from "../ops/index.mjs";
 import { approvalModes, elevationTtlMs } from "../ops/risk.mjs";
 import { findPortConflicts, listListeners } from "../ports.mjs";
 import { keepsBackupData, resolveValues } from "../catalog/schema.mjs";
+import { optionalPortsIn } from "../catalog/compose.mjs";
 import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../autoinstall.mjs";
 import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
-import { detectRemediations } from "../remediations.mjs";
-import { applyLedger, attemptsKey, dismissalFrom, dismissalsKey, findingIdPattern, jobIdPattern, withAttempt, withDismissal } from "../repair-ledger.mjs";
+import { scanRemediations } from "../remediations-scan.mjs";
+import { latestOutageCheck } from "../outage-dns.mjs";
 import { inspectNameLookups } from "../name-lookups.mjs";
-import { dnsAppIds } from "../power-loss.mjs";
+import { attemptsKey, dismissalFrom, dismissalsKey, findingIdPattern, jobIdPattern, withAttempt, withDismissal } from "../repair-ledger.mjs";
 import { callerId, readsThroughHelper, seesEveryAccount, withOwnActors } from "./access.mjs";
+import { readBounded } from "../../packages/harness/src/index.mjs";
 import { access, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-
-/**
- * The DNS app on this server the rest of the house uses, if one is installed (Pi-hole, AdGuard Home),
- * and where to ask it: the address its port 53 is published on, or this server itself (host network,
- * or published on every address). For "the home network's DNS is separate and fine" (2026-09-29).
- */
-export function dnsServerFrom(live, manifests = []) {
-  const app = (live?.applications ?? []).find((entry) => entry.installed && dnsAppIds.includes(entry.id));
-  if (!app) return null;
-  const port = (app.published ?? []).find((entry) => entry.host === 53);
-  const bound = typeof port?.bind === "string" && /^\d+\.\d+\.\d+\.\d+$/.test(port.bind) && port.bind !== "0.0.0.0" ? port.bind : "127.0.0.1";
-  return { name: manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id, address: bound, running: Boolean(app.container?.running) && app.container?.status !== "paused" };
-}
 
 /**
  * The ports an installed app is already holding, as `port/protocol`, so reconfiguring it does not
@@ -48,10 +37,28 @@ export function dnsServerFrom(live, manifests = []) {
 export function portsHeldByApp(manifest, own) {
   if (!own?.installed) return new Set();
   const stored = own.state?.values?.ports ?? {};
-  return new Set((manifest.ports ?? [])
-    .map((port) => ({ host: stored[port.id] ?? port.host, protocol: port.protocol }))
+  // On the host's own network an app holds its container ports, which its record lists as published.
+  return new Set([...(manifest.ports ?? []).map((port) => ({ host: stored[port.id] ?? port.host, protocol: port.protocol })), ...(own.published ?? [])]
     .filter((port) => Number.isInteger(port.host))
-    .map((port) => `${port.host}/${port.protocol}`));
+    .map((port) => `${port.host}/${port.protocol === "udp" ? "udp" : "tcp"}`));
+}
+
+/**
+ * The values to precheck an installed app's settings with: each required secret the form left blank
+ * stands in as given. Saved settings never hold a secret (only the app's .env does), so the Settings
+ * form for the Cloudflare Tunnel or Cloudflare DDNS sends its token blank; the change itself takes it
+ * from .env (app-helper withSavedSecrets), and the precheck refused it with "is required". For the
+ * check only: these values go nowhere else.
+ */
+export function withSavedSecretsAssumed(manifest, raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  if (raw.env !== undefined && (!raw.env || typeof raw.env !== "object" || Array.isArray(raw.env))) return raw;
+  const env = { ...(raw.env ?? {}) };
+  for (const entry of manifest.env ?? []) {
+    if (!entry.secret || !entry.required || entry.fixed || entry.generate || (entry.default !== null && entry.default !== undefined)) continue;
+    if (env[entry.name] === undefined || env[entry.name] === null || env[entry.name] === "") env[entry.name] = entry.options?.[0] ?? "saved";
+  }
+  return { ...raw, env };
 }
 
 /**
@@ -60,7 +67,7 @@ export function portsHeldByApp(manifest, own) {
  * `trusted` is whether the certificate is trusted without installing anything (loopback and the real
  * ts.net certificate are; the local-CA LAN certificate is not until the CA is installed).
  */
-export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, servePublished }) {
+export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, servePublished, serveOverLoopback = false }) {
   const onLan = webHost === "0.0.0.0";
   const ways = [
     { id: "loopback", label: "On this server", url: `http://127.0.0.1:${webPort}`, scope: "Only from the server itself", encrypted: false, trusted: true },
@@ -72,10 +79,10 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
     }
   }
   if (servePublished && dnsName) ways.push({ id: "tailnet", label: "Over Tailscale, from anywhere", url: `https://${dnsName}`, scope: "Any device on your tailnet", encrypted: true, trusted: true });
-  return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished) };
+  return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished), serveOverLoopback: Boolean(servePublished && serveOverLoopback) };
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners, inspectNames = inspectNameLookups, hostname = os.hostname() }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, dnsResilience = null, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners, inspectNames = inspectNameLookups, hostname = os.hostname() }) {
   const router = Router();
   router.get("/diagnostics/runtime", async (_request, response) => {
     const [web, worker] = await Promise.allSettled([
@@ -140,34 +147,43 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   router.post("/catalog/:id/precheck", auth.requireCsrf, async (request, response) => {
     const manifest = await catalogService.get(request.params.id);
     if (!manifest) return response.status(404).json({ error: "Application not found", code: "application_not_found" });
-    const { values, errors } = resolveValues(manifest, request.body?.values ?? {});
+    // Whether the app is installed decides what its blank secrets mean, so it is asked first.
+    const [listeners, live, docker] = await Promise.all([
+      Promise.resolve().then(() => readListeners()).catch(() => null),
+      helper.request("app.inspect", {}, { timeoutMs: 15_000 }).catch(() => null),
+      // Names the container behind a docker-proxy listener; optional, so a failure just omits it.
+      helper.request("container.docker.inventory", {}, { timeoutMs: 15_000 }).catch(() => null),
+    ]);
+    const own = live?.applications?.find((entry) => entry.id === manifest.id) ?? null;
+    const given = request.body?.values ?? {};
+    const { values, errors } = resolveValues(manifest, own?.installed ? withSavedSecretsAssumed(manifest, given) : given);
     if (errors.length) return response.status(400).json({ ok: false, errors, conflicts: [] });
-    const requested = manifest.ports.map((port) => ({ id: port.id, label: port.label, host: values.ports[port.id], protocol: port.protocol, exposure: port.exposure }));
+    // On the host's own network the app binds its container ports itself, and one its own settings
+    // let it start without (Pi-hole's admin page, `80o`) is warned about by the install, not refused.
+    const hostNetwork = (values.networkMode ?? manifest.network) === "host";
+    const optional = hostNetwork ? optionalPortsIn(Object.values(values.env ?? {})) : new Set();
+    const requested = manifest.ports
+      .filter((port) => !(hostNetwork && optional.has(port.container)))
+      .map((port) => ({ id: port.id, label: port.label, host: hostNetwork ? port.container : values.ports[port.id], protocol: port.protocol, exposure: port.exposure }));
     let conflicts = [];
     try {
-      const [listeners, live, docker] = await Promise.all([
-        listListeners(),
-        helper.request("app.inspect", {}, { timeoutMs: 15_000 }).catch(() => null),
-        // Names the container behind a docker-proxy listener; optional, so a failure just omits it.
-        helper.request("container.docker.inventory", {}, { timeoutMs: 15_000 }).catch(() => null),
-      ]);
-      const own = live?.applications?.find((entry) => entry.id === manifest.id);
       // The ports this app is already holding are not conflicts with itself.
       const ownPorts = portsHeldByApp(manifest, own);
-      conflicts = findPortConflicts(requested, listeners, docker?.containers ?? null).filter((conflict) => !ownPorts.has(`${conflict.port}/${conflict.protocol}`));
+      conflicts = findPortConflicts(requested, listeners ?? [], docker?.containers ?? null).filter((conflict) => !ownPorts.has(`${conflict.port}/${conflict.protocol}`));
     } catch { /* conflicts are advisory */ }
     return response.json({ ok: conflicts.length === 0, errors: [], conflicts: conflicts.map((conflict) => ({ ...conflict, label: requested.find((port) => port.id === conflict.id)?.label ?? conflict.id })) });
   });
 
   // Fetch a GitHub user's public SSH keys (server-side because github.com has no CORS for browsers).
-  router.get("/ssh-keys/github/:user", async (request, response) => {
+  // Operators and the owner: adding a key is theirs, and each call is a request to GitHub (M50).
+  router.get("/ssh-keys/github/:user", auth.requireRole("owner", "operator"), async (request, response) => {
     const user = request.params.user;
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(user)) return response.status(400).json({ error: "Invalid GitHub user name", code: "invalid_user" });
     try {
       const upstream = await fetch(`https://github.com/${user}.keys`, { headers: { "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(10_000) });
       if (upstream.status === 404) return response.status(404).json({ error: `GitHub user ${user} was not found`, code: "github_user_not_found" });
       if (!upstream.ok) return response.status(502).json({ error: `GitHub returned ${upstream.status}`, code: "github_unavailable" });
-      const keys = (await upstream.text()).split("\n").map((line) => line.trim()).filter((line) => /^(ssh-|ecdsa-|sk-)/.test(line)).slice(0, 20);
+      const keys = (await readBounded(upstream, 256 * 1024)).split("\n").map((line) => line.trim()).filter((line) => /^(ssh-|ecdsa-|sk-)/.test(line)).slice(0, 20);
       return response.json({ user, keys });
     } catch (error) {
       return response.status(502).json({ error: `Could not reach GitHub: ${error.message}`, code: "github_unavailable" });
@@ -182,177 +198,13 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
    * that fixes each one; nothing runs until the owner approves it.
    */
   router.get("/remediations", async (request, response) => {
-    const facts = { mounts: [], devices: [], containers: [], shares: [], sambaShares: [], apps: [], samba: null, now: Date.now() };
-    // File sharing (share folder owners, stat'd as root) and USB history (the kernel's journal) are
-    // operator reads (ADR-003). A viewer is not handed what they hold as findings: they are not read
-    // on a viewer's behalf, and the scan says which checks it left to an operator (M29.4).
-    const operatorReads = readsThroughHelper(request);
-    const reading = helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null);
-    // Whether this server can look names up (2026-09-29), read here: the helper has no network. The
-    // home network's DNS app is asked too, but only once lookups have failed.
-    const namesRead = Promise.resolve().then(() => inspectNames({
-      dnsServer: async () => dnsServerFrom(await reading, await catalogService.all().then(({ manifests }) => manifests).catch(() => [])),
-    })).catch(() => ({ available: false }));
-    const [storage, live, samba, usb, unclean, volumes, protection] = await Promise.all([
-      collect().catch(() => null),
-      reading,
-      operatorReads ? helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
-      operatorReads ? helper.request("storage.usb.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
-      operatorReads ? helper.request("storage.unclean.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
-      // What each drive's filesystem says about its last unmount (M26): the kernel's warnings are
-      // only evidence for the mount they were printed at.
-      operatorReads ? helper.request("storage.volumes.state", {}, { timeoutMs: 90_000 }).catch(() => null) : null,
-      // Which apps have a recent backup (M35), the same read Home's backup panel makes.
-      helper.request("app.backup.protection", {}, { timeoutMs: 60_000 }).catch(() => null),
-    ]);
-    facts.usb = usb;
-    facts.unclean = unclean;
-    facts.volumes = volumes;
-    facts.driveTools = null;
-    facts.driveChecks = state.getSetting("driveChecks", {}) ?? {};
-    // The boot partition's check, answering the kernel's "not properly unmounted" line (2026-09-29).
-    facts.bootChecks = state.getSetting("bootPartitionChecks", {}) ?? {};
-    facts.hostname = hostname;
-    facts.nameLookups = await namesRead;
-    if (storage) {
-      // findmnt knows what is mounted; fstab knows which of those BoxPilot manages and with what
-      // options. Only managed mounts are offered a fix, so a hand-made entry is never touched.
-      const byMountpoint = new Map((storage.fstab ?? []).map((row) => [row.mountpoint, row]));
-      facts.fstab = (storage.fstab ?? []).map((row) => ({ device: row.device, mountpoint: row.mountpoint, managedName: row.managedName ?? null, pass: row.pass ?? 0 }));
-      facts.mounts = (storage.mounts ?? []).map((mount) => {
-        const entry = byMountpoint.get(mount.target);
-        return { ...mount, managedName: entry?.managedName ?? null, options: entry?.options ?? null };
-      });
-      facts.devices = (storage.devices ?? []).filter((device) => device.path).map((device) => ({ path: device.path, transport: device.transport ?? device.tran ?? null }));
-      // Whether the exFAT checker exists here at all; asked of the filesystem, not of apt.
-      const [present, fat] = await Promise.all([
-        Promise.all(["/usr/sbin/fsck.exfat", "/sbin/fsck.exfat"].map((file) => fileExists(file))),
-        // The boot partition's checker (dosfstools), asked only when a FAT partition is mounted.
-        facts.mounts.some((mount) => ["vfat", "msdos"].includes(mount.fstype)) ? Promise.all(["/usr/sbin/fsck.fat", "/sbin/fsck.fat"].map((file) => fileExists(file))) : null,
-      ]);
-      facts.tools = { fsckExfat: present.some(Boolean), fsckFat: fat ? fat.some(Boolean) : null };
-      // The exact versions the drive-tools fix would install, asked only when a finding offers that
-      // fix: an exFAT drive and no fsck.exfat. Asked on every scan, it was eight root processes, two
-      // of them apt-cache, on every Repair load of a server that already had the checker.
-      if (!facts.tools.fsckExfat && facts.mounts.some((mount) => mount.fstype === "exfat")) {
-        facts.driveTools = await helper.request("prerequisite.drive-tools.inspect", {}, { timeoutMs: 30_000 }).catch(() => null);
-      }
-    }
-    if (samba?.configured) {
-      const shares = samba.config?.shares ?? [];
-      facts.samba = { configured: true, scope: samba.config?.scope ?? "tailscale", shareCount: shares.length, discoveryRunning: Boolean(samba.discovery?.running) };
-      // The owner uid comes from the helper, which stats the folder. Deriving it from whether a
-      // force user exists made every force-user-less read-write share look unwritable.
-      facts.shares = shares
-        .filter((share) => Number.isInteger(share.ownerUid))
-        .map((share) => ({ name: share.name, path: share.path, readOnly: Boolean(share.readOnly), forceUser: share.forceUser ?? null, ownerUid: share.ownerUid }));
-      // Every share, so a fix that unmounts a drive can say which shares it disconnects (M35).
-      facts.sambaShares = shares.filter((share) => typeof share.path === "string").map((share) => ({ name: share.name, path: share.path }));
-    }
-    const verifications = state.getSetting("appBackupVerifications", {}) ?? {};
-    const drills = state.getSetting("killSwitchDrills", {}) ?? {};
-    const catalogManifests = await catalogService.all().then(({ manifests: all }) => all).catch(() => null);
-    const manifests = catalogManifests ?? [];
-    facts.apps = (live?.applications ?? []).filter((app) => app.installed).map((app) => ({
-      id: app.id,
-      name: manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id,
-      folderProblems: app.folderProblems ?? [],
-      backupVerification: verifications[app.id] ?? null,
-      killSwitchDrill: drills[app.id] ?? null,
-      installedAt: app.state?.installedAt ?? null,
-      container: app.container ?? null,
-      // Installed, with no container at all (M35): where the record is, and what is left to rebuild from.
-      missingContainer: app.missingContainer ?? (app.container && app.container.exists === false ? { record: `the app's boxpilot.json`, project: "its compose.yaml", projectPresent: true, container: `bp-${app.id}` } : null),
-    }));
-    // ntfy on this server, for "Nothing BoxPilot notices can reach you" (M35): whether there is one to send to.
-    if (catalogManifests?.some((manifest) => manifest.id === "ntfy") && live) {
-      const ntfy = (live.applications ?? []).find((app) => app.id === "ntfy");
-      facts.ntfy = { installed: Boolean(ntfy?.installed), running: Boolean(ntfy?.container?.running) && ntfy?.container?.status !== "paused" };
-    }
-    facts.protection = protection;
-    const schedules = typeof state.listSchedules === "function" ? state.listSchedules() : [];
-    facts.schedules = schedules.map((schedule) => ({ operationId: schedule.operationId, parameters: schedule.parameters ?? {}, enabled: schedule.enabled !== false }));
-    // The jobs this caller may see, newest first: the last try at each fix, and when Docker's cleanup ran.
+    // The Repair page asks for what is true now; Home's loop takes the drive evidence the helper
+    // client holds for a few minutes (helper-client.mjs heldReadMs).
+    if (request.query?.fresh === "1") helper?.invalidate?.(["storage.usb.events", "storage.unclean.events", "storage.volumes.state"]);
+    // The scan is shared with the agents' repair.findings tool (M47): the same findings on the Repair page and in an agent's answer.
     const visibleJobs = typeof state.listJobs === "function" ? state.listJobs(200, seesEveryAccount(request) ? {} : { createdBy: callerId(request) }) : [];
-    // Each clean-up, and whether a schedule started it (its last job, or a job begun at its time),
-    // so an app it removed can be told "removed by the nightly clean-up" (M35).
-    const pruneSchedules = schedules.filter((schedule) => schedule.operationId === "docker.prune");
-    const scheduleOf = (job) => pruneSchedules.find((schedule) => schedule.lastJobId === job.id) ?? pruneSchedules.find((schedule) => {
-      const started = new Date(job.createdAt ?? "");
-      return schedule.frequency !== "hourly" && !Number.isNaN(started.getTime()) && started.getHours() === schedule.hour && started.getMinutes() - schedule.minute >= 0 && started.getMinutes() - schedule.minute <= 5;
-    }) ?? null;
-    // Only a clean-up that ran `docker system prune` removed containers. Since #312 it prunes images,
-    // the build cache and networks alone, and says so in the description each job keeps as its
-    // recovery reason; one of those is nobody's story.
-    const removedContainers = (job) => !/containers are never removed/i.test(String(job.recovery?.reason ?? ""));
-    facts.pruneRuns = visibleJobs.filter((job) => job.type === "op:docker.prune" && job.state === "completed" && (job.updatedAt ?? job.createdAt) && removedContainers(job)).map((job) => {
-      const schedule = scheduleOf(job);
-      return { at: job.updatedAt ?? job.createdAt, scheduled: Boolean(schedule), frequency: schedule?.frequency ?? null };
-    });
-    const stops = state.getSetting("appStops", {}) ?? {};
-    for (const app of facts.apps) app.stoppedAt = stops[app.id]?.at ?? null;
-    // The ports each app publishes, against the host's listeners and what Tailscale Serve publishes:
-    // Dockge could not start on 2026-09-29 because Serve held its port on the tailnet address. Asked
-    // only when an installed app publishes something; the container inventory, which names who holds
-    // a port, only when a stopped app's port is actually held.
-    for (const app of facts.apps) app.published = live?.applications?.find((entry) => entry.id === app.id)?.published ?? [];
-    if (facts.apps.some((app) => app.published.length)) {
-      const [listeners, serveState, snapshot] = await Promise.all([
-        Promise.resolve().then(() => readListeners()).catch(() => null),
-        helper.request("app.serve.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
-        inventory?.inspect ? inventory.inspect().catch(() => null) : null,
-      ]);
-      facts.listeners = Array.isArray(listeners) ? listeners : null;
-      facts.serves = serveState?.available ? serveState.serves ?? [] : [];
-      // The home-network address, to say which address a fix keeps or ends: not Docker's bridges, not
-      // Tailscale's, not a VM bridge.
-      facts.lanAddress = snapshot?.network?.addresses?.find((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address) && !/^(docker|br-|veth|tailscale|virbr|lxc|cni|flannel|wg|zt)/.test(entry.interface ?? ""))?.address ?? null;
-      const heldWhileStopped = facts.apps.some((app) => !app.container?.running && app.published.some((port) => (facts.listeners ?? []).some((listener) => listener.port === port.host && listener.protocol === port.protocol)));
-      facts.dockerContainers = heldWhileStopped ? (await helper.request("container.docker.inventory", {}, { timeoutMs: 30_000 }).catch(() => null))?.containers ?? null : null;
-    }
-    // Which folders each installed app has bound, so a remount can say what needs restarting, and
-    // which of those the owner chose, so a split across drives can be spotted. A volume with a
-    // `path` is inside the app's own managed directory and is nobody else's business.
-    for (const app of facts.apps) {
-      const manifest = manifests.find((entry) => entry.id === app.id);
-      const stored = live?.applications?.find((entry) => entry.id === app.id)?.state?.values?.volumes ?? {};
-      const chosen = (volume) => stored[volume.id] ?? volume.hostPath;
-      app.binds = (manifest?.volumes ?? []).map(chosen).filter((bind) => typeof bind === "string" && bind.startsWith("/"));
-      app.dataFolders = (manifest?.volumes ?? []).filter((volume) => !volume.path && !volume.readOnly).map(chosen).filter((folder) => typeof folder === "string" && folder.startsWith("/"));
-    }
-    facts.containers = facts.apps.filter((app) => app.binds.length > 0).map((app) => ({ name: `bp-${app.id}`, appId: app.id, appName: app.name, binds: app.binds, startedAt: app.container?.running ? app.container.startedAt ?? null : null }));
-    // A drive mounted after an app using it started: that app holds whatever was there before.
-    // Both times are known only from an operator's read of the drives (mountedAt) and Docker.
-    facts.remountedTargets = (volumes?.available && Array.isArray(volumes.drives) ? volumes.drives : [])
-      .filter((drive) => drive.mounted !== false && drive.mountedAt && facts.containers.some((container) => container.startedAt
-        && (container.binds ?? []).some((bind) => bind === drive.mountpoint || bind.startsWith(`${drive.mountpoint}/`))
-        && Date.parse(container.startedAt) < Date.parse(drive.mountedAt) - 5_000))
-      .map((drive) => drive.mountpoint);
-    // Every finding here, and every health condition the watcher tracks, ends at a notification
-    // target. Whether there is one is therefore part of whether any of this reaches anybody.
-    try { facts.notifications = { configured: notifications?.describe?.().configured === true }; } catch { facts.notifications = null; }
-    const unavailableChecks = [["Drives and mounts", storage, true], ["Applications", live, true], ["File sharing", samba, operatorReads], ["USB history", usb, operatorReads], ["Unclean unmounts", unclean, operatorReads], ["Drive filesystems", volumes, operatorReads], ["App backups", protection, true]]
-      .filter(([, value]) => !value || value.available === false)
-      .map(([name, , allowed]) => (allowed ? name : `${name} (needs an operator)`));
-    if (storage?.availability?.mounts === false) unavailableChecks.push("Current mounts");
-    if (storage?.availability?.fstab === false) unavailableChecks.push("Saved mount configuration");
-    if (!catalogManifests) unavailableChecks.push("Application definitions");
-    if (facts.nameLookups?.available === false) unavailableChecks.push("Name lookups");
-    if (facts.apps.some((app) => app.published?.length) && !Array.isArray(facts.listeners)) unavailableChecks.push("Ports in use");
-    const detected = detectRemediations(facts);
-    // Each fix carries its tier from the registry, the same the approval dialog will ask for.
-    const tiered = detected.findings.map((entry) => {
-      const fixes = entry.fixes.map((fix) => ({ ...fix, risk: registry.get(fix.operationId)?.risk ?? "high" }));
-      return { ...entry, fix: fixes[0] ?? null, fixes };
-    });
-    // What the owner set aside, and the last try at each fix (M35).
-    const ledger = applyLedger(tiered, { dismissals: state.getSetting(dismissalsKey, {}) ?? {}, attempts: state.getSetting(attemptsKey, {}) ?? {}, jobs: visibleJobs });
-    const count = (severity) => ledger.findings.filter((entry) => entry.severity === severity).length;
-    response.json(withOwnActors(request, {
-      findings: ledger.findings, dismissed: ledger.dismissed, jobs: ledger.jobs,
-      counts: { critical: count("critical"), warning: count("warning"), info: count("info") },
-      checkedAt: new Date().toISOString(), sourceStatus: unavailableChecks.length ? "partial" : "ready", unavailableChecks,
-    }));
+    const scanned = await scanRemediations({ helper, state, catalogService, inventory, collect, fileExists, readListeners, notifications, dnsResilience, inspectNames, hostname, operatorReadsWanted: readsThroughHelper(request), visibleJobsGiven: visibleJobs });
+    response.json(withOwnActors(request, scanned));
   });
 
   /**
@@ -374,6 +226,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     const key = String(request.params.id ?? "");
     const entries = state.getSetting(dismissalsKey, {}) ?? {};
     if (!Object.hasOwn(entries, key)) return response.status(404).json({ error: "Nothing is set aside under that name", code: "dismissal_not_found" });
+    // Whoever set it aside brings it back, or the owner (M50); any operator could before.
+    if ((request.boxpilotSession?.owner?.role ?? "disabled") !== "owner" && entries[key]?.by !== callerId(request)) return response.status(404).json({ error: "Nothing is set aside under that name", code: "dismissal_not_found" });
     state.updateSetting(dismissalsKey, {}, (current) => { const { [key]: _gone, ...rest } = current ?? {}; return { value: rest }; }, callerId(request));
     state.recordAudit?.("repair.restored", { actorId: callerId(request), subjectId: key });
     return response.json({ restored: key });
@@ -434,11 +288,14 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
 
   // Self-update: the running version against the latest published GitHub release (cached 15 min).
   router.get("/system/update", async (request, response) => {
-    response.json(await releaseUpdates.inspect({ refresh: request.query.refresh === "1" }));
+    // A viewer reads the kept answer (M50): the fresh look is a request to GitHub.
+    response.json(await releaseUpdates.inspect({ refresh: request.query.refresh === "1" && (request.boxpilotSession?.owner?.role ?? "disabled") !== "viewer" }));
   });
 
   // First-run setup profiles resolved against live state (M4.2).
-  router.get("/setup", async (_request, response) => {
+  router.get("/setup", async (request, response) => {
+    // Home reads only whether this server is set up (M50): that view asks the helper for the apps alone.
+    if (request.query.view === "first-run" && typeof setup.firstRun === "function") return response.json(await setup.firstRun());
     response.json(await setup.describe());
   });
 
@@ -478,23 +335,37 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     response.json(await network.tailnet());
   });
 
+  // Whether the house keeps its DNS while this server is off (M39.2): what the router hands out, each
+  // server asked directly, the last rehearsal, and the last check after a power cut. Open to every
+  // role like the topology it is read from; `?fresh=1` reads it again rather than the kept answer.
+  router.get("/network/dns-resilience", async (request, response) => {
+    if (!dnsResilience) return response.status(404).json({ error: "Not found", code: "not_found" });
+    try {
+      const verdict = await dnsResilience.check({ fresh: request.query?.fresh === "1" && (request.boxpilotSession?.owner?.role ?? "disabled") !== "viewer", counts: readsThroughHelper(request) });
+      return response.json(withOwnActors(request, { ...verdict, afterOutage: latestOutageCheck(state) }));
+    } catch (error) {
+      return response.status(500).json({ error: `The DNS check could not run: ${error.message}`, code: "dns_resilience_failed" });
+    }
+  });
+
   // Every way to reach the BoxPilot control plane, so "which URL do I use" has one honest answer
   // (M18.3). Assembled from the bind, the local certificate, and whether Tailscale Serve publishes us.
   router.get("/network/reachability", async (_request, response) => {
-    const [topology, tls, servePublished] = await Promise.all([
+    const [topology, tls, servePublished, serveOverLoopback] = await Promise.all([
       network.inspect().catch(() => ({})),
       readTlsStatus({ dir: tlsDir }),
       identity?.servePublishesControlPlane ? identity.servePublishesControlPlane().catch(() => false) : Promise.resolve(false),
+      identity?.serveOverLoopbackOnly ? identity.serveOverLoopbackOnly().catch(() => false) : Promise.resolve(false),
     ]);
     response.json(buildReachability({
       webHost, webPort,
       lanIp: topology.eligibleLanAddresses?.[0]?.address ?? null,
       dnsName: topology.tailscale?.dnsName ?? null,
-      tls, servePublished,
+      tls, servePublished, serveOverLoopback,
     }));
   });
 
-  router.post("/network/plans", async (request, response) => {
+  router.post("/network/plans", auth.requireCsrf, async (request, response) => {
     try {
       const plan = await network.plan(request.body, request.boxpilotSession.owner.id);
       response.status(201).json({ plan });

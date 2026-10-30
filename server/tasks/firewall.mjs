@@ -1,7 +1,8 @@
 import { copyFile, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
-import { buildPlan, defaultWebPort, isProtected, protectedRules } from "../firewall-profiles.mjs";
+import { webListenFromEnv } from "../env-file.mjs";
+import { buildPlan, isProtected, protectedRules } from "../firewall-profiles.mjs";
 import { syncDockerRules } from "./firewall-docker.mjs";
 
 /**
@@ -21,6 +22,7 @@ export const ruleActions = Object.freeze(["allow", "deny", "limit"]);
 export const ruleProtocols = Object.freeze(["tcp", "udp", "any"]);
 export const commentPattern = /^[A-Za-z0-9 ._-]{1,60}$/;
 
+/** @param {{ action?: string, port?: number, protocol?: string, comment?: string | null }} [rule] */
 export function validateRule({ action, port, protocol, comment = null } = {}) {
   if (!ruleActions.includes(action)) return "action must be allow, deny, or limit";
   if (!Number.isInteger(port) || port < 1 || port > 65535) return "port must be a whole number between 1 and 65535";
@@ -29,13 +31,14 @@ export function validateRule({ action, port, protocol, comment = null } = {}) {
   return null;
 }
 
-/** BOXPILOT_PORT / BOXPILOT_HOST from the service env file; defaults match server/index.mjs. */
+/**
+ * BOXPILOT_PORT / BOXPILOT_HOST from the service env file, read as systemd reads it (the last line
+ * for a key wins, blanks around "=" are allowed); defaults match server/index.mjs.
+ */
 export async function readWebEnv({ envPath = defaultEnvPath, read = (file) => readFile(file, "utf8") } = {}) {
   let content = "";
   try { content = await read(envPath); } catch { /* defaults below */ }
-  const value = (name) => content.match(new RegExp(`^${name}=["']?([^"'\\n]*)["']?\\s*$`, "m"))?.[1]?.trim();
-  const port = Number.parseInt(value("BOXPILOT_PORT") ?? "", 10);
-  return { webPort: Number.isInteger(port) && port > 0 && port <= 65535 ? port : defaultWebPort, webHost: value("BOXPILOT_HOST") || "127.0.0.1" };
+  return webListenFromEnv(content);
 }
 
 function ruleSpec({ port, protocol }) {
@@ -69,7 +72,10 @@ async function ensureProtected(run, log, { webPort, webHost }) {
   if (!tailnet.ok) log?.(`tailscale0 rule not added (${tail(tailnet.stderr)}); continuing`, "stderr");
 }
 
-/** Keep SSH, Tailscale, BoxPilot, and the tailnet reachable, then flip the firewall. Disable never needs guards. */
+/**
+ * Keep SSH, Tailscale, BoxPilot, and the tailnet reachable, then flip the firewall. Disable never needs guards.
+ * @param {{ enabled?: boolean }} [parameters]
+ */
 export async function firewallSet({ enabled } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, dockerSync = syncDockerRules } = {}) {
   if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
   if (enabled) {
@@ -83,6 +89,7 @@ export async function firewallSet({ enabled } = {}, { run = fixedRun, log = null
   return { enabled, docker, status: await statusLines(run) };
 }
 
+/** @param {{ action?: string, port?: number, protocol?: string, comment?: string | null }} [parameters] */
 export async function firewallRuleAdd({ action, port, protocol, comment = null } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, dockerSync = syncDockerRules } = {}) {
   const problem = validateRule({ action, port, protocol, comment });
   if (problem) throw new Error(`Invalid rule: ${problem}`);
@@ -100,6 +107,7 @@ export async function firewallRuleAdd({ action, port, protocol, comment = null }
   return { action, port, protocol, comment, docker, status };
 }
 
+/** @param {{ action?: string, port?: number, protocol?: string }} [parameters] */
 export async function firewallRuleDelete({ action, port, protocol } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, dockerSync = syncDockerRules } = {}) {
   const problem = validateRule({ action, port, protocol });
   if (problem) throw new Error(`Invalid rule: ${problem}`);
@@ -136,6 +144,7 @@ const keptThroughReset = new Set(["before.rules", "before6.rules", "after.rules"
  * point would otherwise leave the owner with no rules at all and the firewall off. The files the
  * reset overwrites are copied aside first and put back if anything fails. The firewall is turned
  * back on only if it was on before: on a box that ran without one, the old rules may not let SSH in.
+ * @param {{ profile?: string, services?: string[], replace?: boolean, sshRateLimit?: boolean }} [parameters]
  */
 export async function firewallProfileApply({ profile, services = [], replace = false, sshRateLimit = false } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, now = () => new Date(), dockerSync = syncDockerRules, ufwDirectory: rulesDirectory = ufwDirectory, readEnv = undefined } = {}) {
   if (!Array.isArray(services) || services.some((id) => typeof id !== "string")) throw new Error("services must be a list of service ids");

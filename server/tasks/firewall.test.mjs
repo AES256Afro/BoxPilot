@@ -27,6 +27,31 @@ describe("root firewall tasks", () => {
     expect(await readWebEnv({ read: async () => "BOXPILOT_PORT=notaport\n" })).toEqual({ webPort: 8787, webHost: "127.0.0.1" });
   });
 
+  // It took the first `^BOXPILOT_PORT=` line literally: the System page's update then health-checked
+  // 8787 on a service systemd had started on 9000, and rolled back a version already running.
+  it("reads the env file as systemd does: blanks around =, a leading blank, CRLF, the last line wins", async () => {
+    const read = (text) => readWebEnv({ read: async () => text });
+    expect(await read("BOXPILOT_PORT = 9000\n")).toEqual({ webPort: 9000, webHost: "127.0.0.1" });
+    expect(await read("  BOXPILOT_PORT=9000\n BOXPILOT_HOST = 0.0.0.0 \n")).toEqual({ webPort: 9000, webHost: "0.0.0.0" });
+    expect(await read("\nBOXPILOT_HOST=0.0.0.0\r\nBOXPILOT_PORT='9000'\r\n")).toEqual({ webPort: 9000, webHost: "0.0.0.0" });
+    expect(await read("BOXPILOT_PORT=8787\nBOXPILOT_HOST=127.0.0.1\n# moved\nBOXPILOT_PORT=9000\n")).toEqual({ webPort: 9000, webHost: "127.0.0.1" });
+    expect(await read("BOXPILOT_PORT=9000\n#BOXPILOT_PORT=8000\nBOXPILOT_PORT_TLS=9443\n")).toEqual({ webPort: 9000, webHost: "127.0.0.1" });
+  });
+
+  it("protects the port the service really listens on when the env file overrides it further down", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "boxpilot-firewall-env-"));
+    try {
+      const envPath = path.join(directory, "boxpilot.env");
+      await fs.writeFile(envPath, "BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=8787\nBOXPILOT_PORT = 9000\n");
+      const run = okRun();
+      await expect(firewallRuleAdd({ action: "deny", port: 9000, protocol: "tcp" }, { run, envPath, dockerSync: lanEnv.dockerSync })).rejects.toThrow("Port 9000 stays open");
+      await expect(firewallRuleDelete({ action: "allow", port: 9000, protocol: "tcp" }, { run, envPath, dockerSync: lanEnv.dockerSync })).rejects.toThrow("BoxPilot rule stays");
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("adds SSH, Tailscale, and tailnet rules before enabling", async () => {
     const run = okRun();
     const result = await firewallSet({ enabled: true }, { run, ...lanEnv });

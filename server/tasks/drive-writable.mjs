@@ -1,4 +1,5 @@
-import { readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { readdir, readFile, rename, stat, unlink } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { managedDriveEntries, verificationAllows, verifyFstab } from "./drive-shutdown.mjs";
 import { appUserId, hostMountAt, managedDrive, permissionlessFilesystems, remountDrive } from "./storage.mjs";
@@ -32,6 +33,7 @@ export function withOwnerOptions(options, uid = appUserId, gid = appUserId) {
 
 const defaultFiles = { readFile, writeFile, rename, unlink, stat, readable: (target) => readdir(target).then(() => true, () => false) };
 
+/** @param {{ name?: string }} [parameters] */
 export async function storageWritable({ name } = {}, { run = fixedRun, log = null, files = defaultFiles, sleep = undefined, processes = undefined, now = () => new Date(), uid = appUserId, gid = appUserId } = {}) {
   const drive = await managedDrive(name, files);
   if (!drive.readWrite) throw new Error(`${drive.mountpoint} is mounted read-only on purpose (its fstab entry says ro), so nothing was changed`);

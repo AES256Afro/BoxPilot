@@ -1,6 +1,7 @@
 export type ViewName =
   | "home"
   | "ops"
+  | "today"
   | "updates"
   | "catalog"
   | "services"
@@ -29,6 +30,7 @@ export type ViewName =
 export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "home", label: "Home", short: "HM" },
   { id: "ops", label: "Ops", short: "OP" },
+  { id: "today", label: "Today", short: "TD" },
   { id: "updates", label: "Updates & packages", short: "UP" },
   { id: "catalog", label: "App catalog", short: "AC" },
   { id: "services", label: "Services", short: "SV" },

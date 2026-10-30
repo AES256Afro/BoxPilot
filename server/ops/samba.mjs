@@ -82,7 +82,7 @@ export function sambaOperations() {
       id: "samba.user.set", title: "Add or update a file-server user", risk: "medium", timeoutMs: minutes(2),
       description: "Creates a shell-less Linux account in the sambashare group if needed and sets its Samba password. The password never touches the database or a command line.",
       parameters: { fields: {
-        username: { type: "string", maxLength: 32, pattern: sambaUsernamePattern },
+        username: { type: "string", maxLength: 32, pattern: sambaUsernamePattern, validate: (value) => (value === "root" ? "root never gets a file-server password" : null) },
         password: { type: "string", maxLength: 128, secret: true, validate: (value) => (value.length >= 8 ? null : "must be at least 8 characters") },
       } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("samba.user.set", { username: parameters.username, password: parameters.password }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),

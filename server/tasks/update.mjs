@@ -2,6 +2,7 @@ import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { productVersion } from "../version.mjs";
+import { compareVersions, parseVersion } from "../release-updates.mjs";
 
 /**
  * Self-update (root side, runs inside boxpilot-run@ with network). Re-checks that the release
@@ -22,6 +23,16 @@ export const upgradeLockPath = process.env.BOXPILOT_UPGRADE_LOCK ?? "/run/boxpil
  * it is held. Null when none is. Anything else (no flock) says nothing either way and is left to the
  * script, which takes the same lock before it changes anything.
  */
+/**
+ * The web service's health check as this machine reaches it: the port its env file gives it, on
+ * loopback unless it listens on one other address. The upgrade's check (and the doctor's) used to
+ * be 127.0.0.1:8787 whatever the port.
+ */
+export function localHealthUrl({ webHost, webPort }) {
+  const host = ["", "0.0.0.0", "::"].includes(webHost ?? "") ? "127.0.0.1" : webHost.includes(":") ? `[${webHost}]` : webHost;
+  return `http://${host}:${webPort}/api/v1/health`;
+}
+
 export async function runningUpgrade({ run = fixedRun, lockPath = upgradeLockPath, read = readFile } = {}) {
   const probe = await run("/usr/bin/flock", ["-n", lockPath, "/bin/true"], { timeout: 10_000 });
   if (probe.ok || probe.code !== 1) return null;
@@ -29,6 +40,7 @@ export async function runningUpgrade({ run = fixedRun, lockPath = upgradeLockPat
   return holder || `it holds ${lockPath}`;
 }
 
+/** @param {{ tag?: string, expectedCommit?: string }} [parameters] */
 export async function systemUpdate({ tag, expectedCommit } = {}, {
   run = fixedRun,
   log = null,
@@ -38,17 +50,22 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   nodeBinary = process.execPath,
   now = () => new Date(),
   lockPath = upgradeLockPath,
+  installedVersion = productVersion,
 } = {}) {
   if (typeof tag !== "string" || !releaseTagPattern.test(tag)) throw new Error("Release tag must look like v1.2.3");
   if (typeof expectedCommit !== "string" || !shaPattern.test(expectedCommit)) throw new Error("Expected commit must be a full SHA-1");
+  // The web side only offers a newer release, but this runs as root on whatever reaches the helper:
+  // an older tag, with its real commit, would put back an older helper and the bugs fixed since.
+  if (!parseVersion(installedVersion)) throw new Error(`The installed version ${installedVersion} is not a release number, so ${tag} cannot be compared with it; BoxPilot only updates forward. Nothing was changed.`);
+  if (compareVersions(tag.slice(1), installedVersion) <= 0) throw new Error(`${tag} is not newer than the installed ${installedVersion}; BoxPilot only updates forward. Nothing was changed.`);
 
   log?.(`Checking that ${tag} still points at ${expectedCommit.slice(0, 12)}`, "stdout");
   const response = await fetchImpl(`https://api.github.com/repos/${repository}/commits/${encodeURIComponent(tag)}`, {
     headers: { Accept: "application/vnd.github+json", "User-Agent": `BoxPilot/${productVersion}`, "X-GitHub-Api-Version": "2022-11-28" },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(15_000), redirect: "error",
   });
   if (!response.ok) throw new Error(`GitHub could not resolve ${tag} (status ${response.status})`);
-  const commit = await response.json();
+  const commit = /** @type {any} */ (await response.json()); // GitHub's payload
   if (commit?.sha !== expectedCommit) throw new Error(`${tag} now points at ${String(commit?.sha ?? "unknown").slice(0, 12)}, not the reviewed ${expectedCommit.slice(0, 12)}; check the release again`);
 
   // Two updates two seconds apart left the owner's server with two previous trees and the service
@@ -65,9 +82,16 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   await chmod(scriptCopy, 0o700);
 
   const unit = `boxpilot-update-${stamp}`;
+  // Where the new version must answer is the script's to work out: it reads the service's env file
+  // as systemd does. The copy above is always the installed tree's own script, and every script that
+  // shipped beside this task reads that file (it came in the same change that first handed the
+  // script a BOXPILOT_HEALTH_URL from here). Handing one over as well only overrode its reading
+  // with a second one that could disagree, and an update checked on the wrong port rolls back after
+  // the new version has already started on the database.
   // The script downloads by the reviewed commit, not the tag, so a moved tag cannot swap the code in.
+  // The tag goes along for a server that requires signed releases: the signature is on the tag.
   log?.(`$ systemd-run --unit ${unit} /bin/sh ${scriptCopy} ${expectedCommit}`, "stdout");
-  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, `--setenv=BOXPILOT_UPDATE_UNIT=${unit}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
+  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, `--setenv=BOXPILOT_UPDATE_UNIT=${unit}`, `--setenv=BOXPILOT_UPDATE_TAG=${tag}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
   if (!started.ok) throw new Error(`Could not start the update unit: ${started.stderr.split("\n").slice(-2).join(" ")}`);
   log?.("Update unit started. BoxPilot restarts when the build finishes and rolls back on a failed health check.", "stdout");
   return { started: true, unit, tag, expectedCommit, fromVersion: productVersion, startedAt: now().toISOString() };

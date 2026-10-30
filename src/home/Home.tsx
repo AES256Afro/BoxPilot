@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { openActivity, openNotifications } from "../activityEvents";
 import { useOperation } from "../shell/ApproveDialog";
-import { judgeProtection } from "../backupProtection";
 import { countOf, sentenceList, type ViewName } from "../data";
+import { backupGlance } from "./backupGlance";
 import { AreaIcon, BellIcon, PlusIcon, SparkIcon } from "../shell/areaIcons";
 import { TopBarSlot } from "../shell/TopBarSlot";
 import { AppIcon, Button, MetricTile, Section, StatusChip, Tile, type Status } from "../ui";
@@ -11,8 +11,10 @@ import { AppSheet } from "./AppSheet";
 import { useFacts, valuesOf } from "./facts";
 import { greeting, loadStatus, mountName, mountStatus, relativeTime, shortCpu, size, uptime } from "./format";
 import { smartSummary, upsSummary } from "./hostFacts";
+import { powerNews } from "../powerEvents";
 import { NeedRow } from "./NeedRow";
 import { AgentsGlance } from "../pages/agents/AgentsGlance";
+import { useCheckAgain } from "./useCheckAgain";
 import { useNeedActions } from "./useNeedActions";
 import { appHealth, buildNeeds, needsLabel, verdictFor, verdictSources, type Need } from "./needs";
 
@@ -31,8 +33,17 @@ import { appHealth, buildNeeds, needsLabel, verdictFor, verdictSources, type Nee
 export interface HomeProps {
   csrfToken: string;
   role: string;
-  onNavigate: (view: ViewName, options?: { app?: string }) => void;
+  onNavigate: (view: ViewName, options?: { app?: string; tab?: string }) => void;
   now?: () => number;
+}
+
+/** When a piece of power news happened: the time today, the weekday this week. */
+function newsTime(at: string, now: number): string {
+  const date = new Date(at);
+  const today = new Date(now);
+  return date.toDateString() === today.toDateString()
+    ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 /** How many of each list show before "Show all". */
@@ -46,7 +57,8 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   const needs = buildNeeds(values, { now: clock, role });
   // The app sheet's own buttons; every button in the needs goes through useNeedActions (M35).
   const { start, dialog } = useOperation(csrfToken, () => refresh());
-  const { act, runs, remembered, dialog: needDialog } = useNeedActions({ csrfToken, refresh, accept });
+  const { act, runs, remembered, dialog: needDialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
+  const again = useCheckAgain(refresh);
   const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [allUrgent, setAllUrgent] = useState(false);
   const [allWaiting, setAllWaiting] = useState(false);
@@ -87,15 +99,8 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
     : checking ? { status: "unknown" as const, label: "Checking" }
       : unread.length ? { status: "unknown" as const, label: "Not fully read" } : { status: "good" as const, label: "All clear" };
 
-  // Backups at a glance, from the same verdicts the needs list uses.
-  const verdicts = values.protection ? judgeProtection(values.protection, (values.schedules ?? []).map((schedule) => ({ ...schedule, parameters: schedule.parameters ?? undefined })), { now: clock }) : null;
-  const recent = verdicts?.filter((verdict) => verdict.state === "ok").length ?? 0;
-  const never = verdicts?.filter((verdict) => verdict.state === "never").length ?? 0;
-  const stale = verdicts?.filter((verdict) => verdict.state === "stale").length ?? 0;
-  const offBox = values.offBox?.verdict ?? null;
-  const offBoxValue = !offBox ? "—" : offBox.state === "none" ? "Nowhere" : offBox.state === "never" ? "Never copied" : offBox.state === "behind" ? "Behind" : offBox.state === "stale" ? `${offBox.ageDays} days old` : relativeTime(offBox.lastSyncAt, clock) ?? "Copied";
-  const database = values.database;
-  const databaseAge = database?.lastBackupAt ? Math.floor((clock - Date.parse(database.lastBackupAt)) / 86_400_000) : null;
+  // Backups at a glance, from the same verdicts the needs list uses; Today draws the same three.
+  const glance = backupGlance(values, { protection: facts.protection.state, offBox: facts.offBox.state, database: facts.database.state }, clock);
   const notRead = (state: string) => (state === "failed" ? "Could not be read" : "Reading…");
   // The newest restore drill any app has had, for the panel's corner.
   const lastDrill = apps.flatMap((app) => (app.drill?.checkedAt ? [app.drill] : [])).sort((a, b) => (b.checkedAt ?? "").localeCompare(a.checkedAt ?? ""))[0] ?? null;
@@ -103,6 +108,8 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
 
   const diskWords = smartSummary(inventory?.smart ?? null);
   const power = upsSummary(inventory?.ups ?? null);
+  // The last week's outages and what the server did about them, as news (M39.1).
+  const news = powerNews(inventory?.powerEvents ?? [], clock);
 
   const shownNeeds = allUrgent ? urgent : urgent.slice(0, shownUrgent);
   const shownWait = allWaiting ? waiting : waiting.slice(0, shownWaiting);
@@ -122,7 +129,8 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
       <header className="lx-hello">
         <h1>{greeting(clock)}</h1>
         <p className="lx-verdict"><StatusChip status={verdict.status}>{verdict.label}</StatusChip><span>{verdict.sentence}</span></p>
-        <Button variant="ghost" className="lx-again" onClick={() => refresh()}>Check again</Button>
+        <Button variant="ghost" className="lx-again" busy={again.checking} onClick={again.run}>{again.checking ? "Checking…" : "Check again"}</Button>
+        {again.said}
       </header>
 
       <div className="lx-side">
@@ -154,28 +162,32 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
               {/* From the Classic overview (M33.8): the drives' health and the UPS, when there is one. */}
               {inventory?.smart?.available && (
                 <MetricTile label="Drive health" value={diskWords.label} caption={inventory.smart.readAt ? `read ${relativeTime(inventory.smart.readAt, clock)}` : "not read yet"}
-                  status={diskWords.status} onSelect={() => onNavigate("ops")} />
+                  status={diskWords.status} onSelect={() => onNavigate("storage")} />
               )}
               {inventory?.ups?.configured && (
                 <MetricTile label="UPS" value={power.label} caption={inventory.ups.charge === null ? power.headline : `battery ${inventory.ups.charge}%${inventory.ups.runtimeSeconds ? ` · ${Math.round(inventory.ups.runtimeSeconds / 60)} min` : ""}`}
-                  status={power.status} bar={inventory.ups.charge === null ? undefined : { value: inventory.ups.charge }} onSelect={() => onNavigate("ops")} />
+                  status={power.status} bar={inventory.ups.charge === null ? undefined : { value: inventory.ups.charge }} onSelect={() => onNavigate("system", { tab: "power" })} />
               )}
             </div>
+            {news.length > 0 && (
+              <ul className="lx-news" aria-label="Power news">
+                {news.map((item) => (
+                  <li key={`${item.at}-${item.event}`} className="lx-news__item">
+                    <StatusChip status={item.status}>{newsTime(item.at, clock)}</StatusChip>
+                    <span>{item.title}{item.detail ? <span className="lx-news__detail">{`, ${item.detail}`}</span> : null}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
         </div>
 
         <div className="lx-panel home-backups">
           <Section title={<><AreaIcon view="backups" className="lx-title-icon" />Backups &amp; disks</>} summary={drillWords}>
             <div className="lx-metrics">
-              <MetricTile label="Apps backed up" value={verdicts ? `${recent} of ${verdicts.length}` : "—"}
-                caption={!verdicts ? notRead(facts.protection.state) : never ? `${never} never backed up` : stale ? `${stale} not backed up lately` : verdicts.length ? "Each has a recent backup" : "No app holds data to back up"}
-                status={!verdicts ? "unknown" : never || stale ? "warning" : "good"} bar={verdicts && verdicts.length ? { value: recent, max: verdicts.length } : undefined} onSelect={() => onNavigate("backups")} />
-              <MetricTile label="Off this server" value={offBoxValue}
-                caption={!offBox ? notRead(facts.offBox.state) : offBox.where.length ? sentenceList(offBox.where) : "No second copy is set up"}
-                status={!offBox ? "unknown" : offBox.state === "ok" ? "good" : "warning"} onSelect={() => onNavigate("backups")} />
-              <MetricTile label="BoxPilot's database" value={!database ? "—" : database.lastBackupAt ? relativeTime(database.lastBackupAt, clock) ?? "—" : "Never"}
-                caption={!database ? notRead(facts.database.state) : "last backed up, with a restore drill"}
-                status={!database ? "unknown" : databaseAge !== null && databaseAge <= 7 ? "good" : "warning"} onSelect={() => onNavigate("backups")} />
+              <MetricTile label="Apps backed up" {...glance.apps} onSelect={() => onNavigate("backups")} />
+              <MetricTile label="Off this server" {...glance.offBox} onSelect={() => onNavigate("backups")} />
+              <MetricTile label="BoxPilot's database" {...glance.database} onSelect={() => onNavigate("backups")} />
               {(inventory?.mounts ?? []).slice(0, 4).map((mount) => (
                 <MetricTile key={mount.target} label={mountName(mount.target)} value={mount.percent === null ? "—" : `${mount.percent}%`} caption={mount.total === null ? "Size not known" : `${size(mount.used)} of ${size(mount.total)}`}
                   status={mountStatus(mount)} bar={mount.percent === null ? undefined : { value: mount.percent }} onSelect={() => onNavigate("storage")} />

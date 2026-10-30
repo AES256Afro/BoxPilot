@@ -81,6 +81,36 @@ describe("sharing helper reads", () => {
     await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 150 })).resolves.toEqual({ ran: true });
   });
 
+  it("takes the reply when it has arrived whole, without waiting for the socket to end", async () => {
+    // The reply is complete on 'data'; the FIN can come later under load. A deadline between the two
+    // reported a finished operation as a timeout (the flake in the test below, on a busy runner).
+    const frame = (request, value) => `${JSON.stringify({ version: 1, id: request.id, ...value })}\n`;
+    const socketPath = await helperSocket(async (request, connection) => {
+      connection.write(frame(request, { ok: true, result: { ran: true } }));
+      // The end comes well past the 150 ms budget, or never: the client hangs up once it has the reply.
+      await new Promise((resolve) => { const timer = setTimeout(resolve, 600); connection.once("close", () => { clearTimeout(timer); resolve(); }); });
+      return { ran: "twice" };
+    });
+    const client = createHelperClient({ socketPath });
+    await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 150 })).resolves.toEqual({ ran: true });
+    expect(client.diagnostics()).toMatchObject({ active: 0, completed: 1, failed: 0 });
+  });
+
+  it("tells its caller once when the request queues and once when it starts", async () => {
+    const frame = (request, value) => `${JSON.stringify({ version: 1, id: request.id, ...value })}\n`;
+    const socketPath = await helperSocket(async (request, connection) => {
+      connection.write(frame(request, { queued: true, lane: "drive:media" }));
+      connection.write(frame(request, { queued: true, lane: "drive:media" })); // a heartbeat
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      connection.write(frame(request, { started: true }));
+      return { ran: true };
+    });
+    const events = [];
+    const client = createHelperClient({ socketPath });
+    await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 5_000, jobId: "job-1", onQueued: () => events.push("queued"), onStarted: () => events.push("started") })).resolves.toEqual({ ran: true });
+    expect(events).toEqual(["queued", "started"]);
+  });
+
   it("still holds a started operation to its own budget", async () => {
     const socketPath = await helperSocket(async (request, connection) => {
       connection.write(`${JSON.stringify({ version: 1, id: request.id, queued: true })}\n`);
@@ -108,6 +138,24 @@ describe("sharing helper reads", () => {
     release();
     expect(await all).toEqual([{ applications: [] }, { applications: [] }, { applications: [] }]);
     expect(calls).toBe(1);
+  });
+
+  // M50.2: the Repair scan's drive evidence was read from the kernel journal on every Home loop.
+  it("holds the Repair scan's drive evidence for minutes, until it is invalidated", async () => {
+    let calls = 0;
+    let clock = 0;
+    const socketPath = await helperSocket(async () => { calls += 1; return { calls }; });
+    const client = createHelperClient({ socketPath, now: () => clock });
+    expect(await client.request("storage.usb.events")).toEqual({ calls: 1 });
+    clock += 14 * 60_000;
+    expect(await client.request("storage.usb.events")).toEqual({ calls: 1 });
+    clock += 2 * 60_000;
+    expect(await client.request("storage.usb.events")).toEqual({ calls: 2 });
+    client.invalidate(["storage.usb.events"]);
+    expect(await client.request("storage.usb.events")).toEqual({ calls: 3 });
+    // Everything else is still shared only while in flight.
+    expect(await client.request("app.inspect")).toEqual({ calls: 4 });
+    expect(await client.request("app.inspect")).toEqual({ calls: 5 });
   });
 
   it("reads fresh once the previous read has finished", async () => {
@@ -248,5 +296,16 @@ describe("a request that runs out of time (M30.3)", () => {
     await client.request("app.install", { id: "demo" }, { timeoutMs: 5000, jobId, budgetMs: 3_000_000 });
     await client.request("app.install", { id: "demo" }, { timeoutMs: 5000 });
     expect(seen).toEqual([{ jobId }, { jobId, budgetMs: 3_000_000 }, null]);
+  });
+
+  it("says a request that never reached a helper did not start, and one cut off after it was sent may have (sweep 5)", async () => {
+    // Between a helper restart's stop and start there is no socket: nothing was sent, so nothing ran.
+    const missing = process.platform === "win32" ? "\\\\?\\pipe\\boxpilot-no-helper-here" : path.join(tmpdir(), "boxpilot-no-helper-here.sock");
+    const refused = await createHelperClient({ socketPath: missing }).request("backup.sync", {}, { timeoutMs: 5000 }).catch((caught) => caught);
+    expect(refused).toMatchObject({ code: "helper_unavailable", message: expect.stringMatching(/^Helper unavailable: /) });
+    // One the helper had read and then lost is not said to be safe to send again.
+    const socketPath = await helperSocket(async (_request, connection) => { connection.destroy(); return {}; });
+    const lost = await createHelperClient({ socketPath }).request("backup.sync", {}, { timeoutMs: 5000 }).catch((caught) => caught);
+    expect(lost.code).toBeUndefined();
   });
 });

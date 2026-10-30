@@ -302,6 +302,52 @@ describe("Virtual machines page", () => {
     expect(staged).toEqual([{ operationId: "vm.create", parameters: plan.input }]);
   });
 
+  // Both sheets closed before the approval opened, and cancelling it left nothing of what was typed.
+  it("puts the cloud-image form back as it was filled in when its approval is cancelled", async () => {
+    serve({ "/operations/vm.cloud.images/inspect": { operation: "vm.cloud.images", result: { images: [{ id: "ubuntu-24.04", label: "Ubuntu 24.04 LTS", defaultUser: "ubuntu", cached: true, digest: null }] } } });
+    render(<VmsPage csrfToken="csrf" />);
+    fireEvent.click(await screen.findByRole("button", { name: "From a cloud image" }));
+    let sheet = await screen.findByRole("dialog", { name: "From a cloud image" });
+    fireEvent.change(within(sheet).getByLabelText(/^Name/), { target: { value: "dev-1" } });
+    fireEvent.change(within(sheet).getByLabelText(/SSH public keys/), { target: { value: "ssh-ed25519 AAAAC3 me@laptop" } });
+    fireEvent.change(within(sheet).getByLabelText(/Disk \(GiB\)/), { target: { value: "60" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: /Review and create/ }));
+    expect(await screen.findByText("Create VM dev-1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    sheet = await screen.findByRole("dialog", { name: "From a cloud image" });
+    expect((within(sheet).getByLabelText(/^Name/) as HTMLInputElement).value).toBe("dev-1");
+    expect((within(sheet).getByLabelText(/SSH public keys/) as HTMLTextAreaElement).value).toBe("ssh-ed25519 AAAAC3 me@laptop");
+    expect((within(sheet).getByLabelText(/Disk \(GiB\)/) as HTMLInputElement).value).toBe("60");
+  });
+
+  it("puts the ISO plan's form back as it was planned when its approval is cancelled", async () => {
+    serve({
+      "/virtualization/planning-options": {
+        mediaRoot: "/var/lib/libvirt/boot", mediaError: null, isoImages: [{ name: "ubuntu.iso", sizeBytes: 5 * 1024 ** 3, modifiedAt: "2026-08-14T12:00:00Z" }],
+        hostCapacity: { cpuThreads: 8, memoryMiB: 32768 }, limits: { vcpus: { minimum: 1, maximum: 32 }, memoryMiB: { minimum: 1024, maximum: 131072 }, diskGiB: { minimum: 8, maximum: 4096 } },
+        profiles: [{ id: "ubuntu-24.04", label: "Ubuntu 24.04 LTS", osVariant: "ubuntu24.04", minimumMemoryMiB: 2048, minimumDiskGiB: 20 }],
+        networks: [{ name: "default", kind: "NAT", recommended: true }], firmware: ["uefi", "bios"],
+      },
+    });
+    const plan = { id: "plan-1", revision: "revision12345678", stageable: true, input: { name: "new-lab", osProfile: "ubuntu-24.04", vcpus: 6, memoryMiB: 4096, diskGiB: 40, isoFile: "ubuntu.iso", network: "default", firmware: "uefi", autostart: false }, profile: { label: "Ubuntu 24.04 LTS", osVariant: "ubuntu24.04" }, media: { name: "ubuntu.iso", sizeBytes: 1, modifiedAt: "" }, warnings: [], command: { program: "virt-install", arguments: [], display: "virt-install --name new-lab" }, gates: [] };
+    const base = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => (input.toString().endsWith("/virtualization/plans") ? json({ ok: true, plan }) : base(input, init))));
+    render(<VmsPage csrfToken="csrf" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Plan from an ISO" }));
+    let sheet = await screen.findByRole("dialog", { name: "Plan from an ISO" });
+    await within(sheet).findByText("Host CPU threads");
+    fireEvent.change(within(sheet).getByLabelText(/VM name/), { target: { value: "new-lab" } });
+    fireEvent.change(within(sheet).getByLabelText(/vCPUs/), { target: { value: "6" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Generate reviewed plan" }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: /Continue to approval/ }));
+    await screen.findByLabelText("Typed confirmation");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    sheet = await screen.findByRole("dialog", { name: "Plan from an ISO" });
+    await within(sheet).findByText("Host CPU threads");
+    expect((within(sheet).getByLabelText(/VM name/) as HTMLInputElement).value).toBe("new-lab");
+    expect((within(sheet).getByLabelText(/vCPUs/) as HTMLInputElement).value).toBe("6");
+  });
+
   it("waits for each stats sample before the next, and pauses while the tab is hidden", async () => {
     vi.useFakeTimers();
     const answers: Array<() => void> = [];

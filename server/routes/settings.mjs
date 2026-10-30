@@ -3,15 +3,19 @@
  * require the owner password. Mounted at /api/v1 behind the session.
  */
 import { Router } from "express";
+import { createRateLimit, rateLimited } from "../rate-limit.mjs";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "../ops/risk.mjs";
 import { normalizeDestination } from "../backup-destination.mjs";
 import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
 import { watchEntryFor } from "./access.mjs";
 import { createNotificationHistory } from "../notification-history.mjs";
+import { quietHoursKey, quietHoursProblem } from "../quiet-hours.mjs";
 
 export function createSettingsRouter({ state, notifications, notificationHistory = createNotificationHistory({ store: state }), weeklyReport = null, auth }) {
   const router = Router();
+  // Twelve sends a minute per account (M50): each is a request to the owner's notification target.
+  const sendLimit = createRateLimit({ count: 12, perMs: 60_000 });
   // Belt and braces with the policy middleware: only the owner changes settings, whatever the path casing.
   router.use("/settings", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireRole("owner")(request, response, next)));
 
@@ -32,12 +36,13 @@ export function createSettingsRouter({ state, notifications, notificationHistory
     // Where alerts go is the owner's to see (M29.4): an ntfy topic on a shared server, or a webhook
     // URL, works like a password - whoever knows it can read the alerts or send fake ones. Everyone
     // else learns whether a target is set, and of what kind, which is all the Overview needs.
-    if ((request.boxpilotSession?.owner?.role ?? "owner") !== "owner") return response.json({ ...described, url: null, topic: null });
+    if ((request.boxpilotSession?.owner?.role ?? "disabled") !== "owner") return response.json({ ...described, url: null, topic: null });
     response.json(described);
   });
 
   /** An entry's words as this caller may read them (M29.4); access.mjs holds the rule, which the assistant shares. */
-  const titleFor = (request, key, entry, label) => watchEntryFor(request, key, entry, label, (id) => state.getSchedule?.(id)?.createdBy ?? null).title;
+  const scheduleOwner = (id) => state.getSchedule?.(id)?.createdBy ?? null;
+  const titleFor = (request, key, entry, label) => watchEntryFor(request, key, entry, label, scheduleOwner).title;
 
   // What BoxPilot watches for on its own, and which conditions are live right now. The active set is
   // the health-alert watcher's own persisted state, grouped back to its condition families.
@@ -68,18 +73,23 @@ export function createSettingsRouter({ state, notifications, notificationHistory
    * apart from "mark seen", which is the caller's own. Every role reads it, with the words cut back
    * as the watch list cuts them (M29.4): another account's job, schedule or sign-in is its kind only.
    */
-  const labelFor = (family) => healthConditions[family] ?? noticeKinds[family] ?? (family === "job.failed" ? "A job failed" : family);
+  const labelFor = (family) => healthConditions[family] ?? noticeKinds[family] ?? (family === "job.failed" ? "A job failed" : family === "approval.waiting" ? "A job waited for approval" : family);
   function historyEntryFor(request, entry, live) {
     const family = String(entry.key).split(":")[0];
     let visible;
-    if (entry.kind === "job") {
-      const job = state.getJob?.(String(entry.key).slice("job.failed:".length));
+    if (entry.kind === "job" || entry.kind === "approval") {
+      // A failed job's push, or an approval's (M25.2): the owner's, and the job's own creator's.
+      // Several approvals said at once name no one job, so they are the owner's alone.
+      const jobId = String(entry.key).includes(":") ? String(entry.key).slice(String(entry.key).indexOf(":") + 1) : null;
+      const job = jobId ? state.getJob?.(jobId) : null;
       const theirs = request.boxpilotSession?.owner?.role === "owner" || (job && job.createdBy === request.boxpilotSession?.owner?.id);
-      visible = theirs ? { title: entry.title, key: entry.key } : { title: labelFor(family), key: family };
+      visible = theirs ? { title: entry.title, key: entry.key, full: true } : { title: labelFor(family), key: family, full: false };
     } else {
-      visible = watchEntryFor(request, entry.key, entry, labelFor(family), (id) => state.getSchedule?.(id)?.createdBy ?? null);
+      visible = watchEntryFor(request, entry.key, entry, labelFor(family), scheduleOwner);
     }
-    const masked = visible.key !== entry.key;
+    // Cut by whether the caller may read it, not by whether the key got shorter: the weekly report's
+    // key has no subject to cut, and its words were handed to every role (sweep 3).
+    const masked = !visible.full;
     return {
       id: entry.id, kind: entry.kind, key: visible.key, family, title: visible.title, message: masked ? null : entry.message ?? null,
       at: entry.at, delivered: entry.delivered === true, reason: entry.reason ?? null, deliveredAt: entry.deliveredAt ?? null,
@@ -123,7 +133,7 @@ export function createSettingsRouter({ state, notifications, notificationHistory
       return response.json(weeklyReport.setEnabled(request.body.enabled, { updatedBy: request.boxpilotSession.owner.id }));
     });
 
-    router.post("/settings/weekly-report/send", auth.requireCsrf, async (request, response) => {
+    router.post("/settings/weekly-report/send", auth.requireCsrf, rateLimited(sendLimit, "weekly-report", { message: "The report was sent several times just now; wait a minute" }), async (request, response) => {
       try {
         response.json(await weeklyReport.sendNow({ actorId: request.boxpilotSession.owner.id }));
       } catch (error) {
@@ -143,12 +153,42 @@ export function createSettingsRouter({ state, notifications, notificationHistory
     }
   });
 
-  router.post("/settings/notifications/test", auth.requireCsrf, async (_request, response) => {
+  router.post("/settings/notifications/test", auth.requireCsrf, rateLimited(sendLimit, "notification-test", { message: "Several test notifications went out just now; wait a minute" }), async (_request, response) => {
     try {
-      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, health alerts (disk space, SMART, UPS, failed services) and the weekly report arrive like this." }));
+      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, health alerts (disk space, SMART, UPS, failed services) and the weekly report arrive like this." }, { immediate: true }));
     } catch (error) {
       response.status(502).json({ error: error.message, code: "notification_test_failed" });
     }
+  });
+
+  // The weekly read of a drive that sleeps through every check (M36): the storage scan leaves a
+  // sleeping disk alone, so one that is always asleep could go months unread. With this on, a disk
+  // last read awake more than a week ago is read once even though that spins it up. Waking a drive
+  // is the owner's call; anyone may see whether it is on.
+  router.get("/settings/storage-wake", (_request, response) => {
+    response.json({ enabled: state.getSetting("storageWeeklyWake", null)?.enabled === true });
+  });
+
+  router.put("/settings/storage-wake", auth.requireCsrf, (request, response) => {
+    if (typeof request.body?.enabled !== "boolean") return response.status(400).json({ error: "enabled must be true or false", code: "invalid_setting" });
+    const owner = request.boxpilotSession.owner;
+    state.setSetting("storageWeeklyWake", { enabled: request.body.enabled }, { updatedBy: owner.id });
+    state.recordAudit?.("settings.storage-wake.changed", { actorId: owner.id, subjectId: owner.id, details: { enabled: request.body.enabled } });
+    return response.json({ enabled: request.body.enabled });
+  });
+
+  // Quiet hours for pushes (M36): when they wait, and how many are waiting for the summary.
+  router.get("/settings/quiet-hours", (_request, response) => {
+    response.json(notifications.quietHours());
+  });
+
+  router.put("/settings/quiet-hours", auth.requireCsrf, auth.requireRole("owner"), (request, response) => {
+    const problem = quietHoursProblem(request.body);
+    if (problem) return response.status(400).json({ error: problem, code: "invalid_setting" });
+    const { enabled, start, end, holdHigh = false } = request.body;
+    state.setSetting(quietHoursKey, { enabled, start, end, holdHigh }, { updatedBy: request.boxpilotSession.owner.id });
+    state.recordAudit("notifications.quiet-hours", { actorId: request.boxpilotSession.owner.id, details: { enabled, start, end, holdHigh } });
+    return response.json(notifications.quietHours());
   });
 
   router.get("/settings/approval-mode", (_request, response) => {
@@ -173,14 +213,23 @@ export function createSettingsRouter({ state, notifications, notificationHistory
     response.json({ profile: state.getSetting("vpnProfile", null), providers: vpnProviders, protocols: vpnProtocols });
   });
 
+  // Where the copies go names an account: an SSH user and host, or a cloud account, bucket and
+  // folder. An operator mirrors to it and the owner sets it; a viewer learns that one is set (Home's
+  // off-box verdict needs no more) and, for the cloud, which provider, but not where.
+  const seesDestinations = (request) => ["owner", "operator"].includes(request.boxpilotSession?.owner?.role);
+  const lastSyncFor = (request, lastSync) => (seesDestinations(request) || !lastSync || typeof lastSync !== "object" ? lastSync : { ...lastSync, destination: null });
+
   // Cloud (rclone) destination: the non-secret description saved by backup.cloud.setup, plus the last mirror.
-  router.get("/settings/cloud-destination", (_request, response) => {
-    response.json({ destination: state.getSetting("cloudDestination", null), lastSync: state.getSetting("cloudDestinationLastSync", null) });
+  router.get("/settings/cloud-destination", (request, response) => {
+    const destination = state.getSetting("cloudDestination", null);
+    const shown = destination && !seesDestinations(request) ? { provider: destination.provider ?? null } : destination;
+    response.json({ destination: shown, lastSync: lastSyncFor(request, state.getSetting("cloudDestinationLastSync", null)) });
   });
 
-  // Off-box SSH backup destination (M6.2). Not secret — the key stays root-only on the server.
-  router.get("/settings/backup-destination", (_request, response) => {
-    response.json({ destination: state.getSetting("backupDestination", null), lastSync: state.getSetting("backupDestinationLastSync", null) });
+  // Off-box SSH backup destination (M6.2). The key stays root-only on the server.
+  router.get("/settings/backup-destination", (request, response) => {
+    const destination = state.getSetting("backupDestination", null);
+    response.json({ destination: destination && !seesDestinations(request) ? { hidden: true } : destination, lastSync: lastSyncFor(request, state.getSetting("backupDestinationLastSync", null)) });
   });
 
   router.put("/settings/backup-destination", auth.requireCsrf, async (request, response) => {

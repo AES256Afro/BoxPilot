@@ -190,6 +190,29 @@ describe("fixed prerequisite helper", () => {
     expect(result).toMatchObject({ installed: true, packages: versions, serviceActive: true, connectionUri: "qemu:///system", qemuVerified: true, kvmDeviceVerified: true, boundary: { fixedPackageSet: true, aptUpdatePerformed: false, packageRemovalPerformed: false, existingProviderReplaced: false, operatorUserGroupChanged: false, networkCreated: false, storagePoolCreated: false, virtualMachineCreated: false } });
     expect(writeVirtualizationApproval).toHaveBeenCalledWith({ packages: versions, approvedAt: "2026-08-16T12:01:00.000Z" });
     expect(clearVirtualizationApproval).toHaveBeenCalledTimes(2);
+    // The helper must restart to see /var/lib/libvirt, but not on a blind eight-second timer, which
+    // killed whatever had started behind the install: it says so, and the helper restarts once its
+    // work has drained (self-restart.mjs).
+    expect(run.mock.calls.some(([binary]) => binary.endsWith("systemd-run"))).toBe(false);
+    expect(result.helperRestartNeeded).toBe(true);
+  });
+
+  it("gives the KVM install more time than the installer it waits for, and restarts the helper once its work has drained", async () => {
+    const registry = createRegistry([prerequisiteOperations]);
+    const operation = registry.get("prerequisite.virtualization.install");
+    // apt-get may take 20 minutes, the installer unit 21, and the helper waits 21 for it: a
+    // 15-minute budget failed the job while the install was still running.
+    expect(operation.timeoutMs).toBeGreaterThanOrEqual(22 * 60_000);
+    expect(operation.restartsService).toBe("drained");
+    const expectedPackages = { "libvirt-clients": "1.0", "libvirt-daemon-system": "1.0", ovmf: "1.0", "qemu-system-x86": "1.0", virtinst: "1.0" };
+    const prerequisites = { installVirtualization: vi.fn(async () => ({ installed: true, helperRestartNeeded: true })) };
+    const selfRestart = { request: vi.fn(() => true) };
+    const result = await registry.execute("prerequisite.virtualization.install", { expectedPackages }, { prerequisites, selfRestart });
+    expect(selfRestart.request).toHaveBeenCalledWith(["boxpilot-helper.service"], expect.objectContaining({ reason: expect.any(String) }));
+    expect(result).toMatchObject({ installed: true, helperRestartScheduled: true });
+    expect(result).not.toHaveProperty("helperRestartNeeded");
+    // Without a helper to restart it (an older caller), it says the restart was not arranged.
+    await expect(registry.execute("prerequisite.virtualization.install", { expectedPackages }, { prerequisites })).resolves.toMatchObject({ helperRestartScheduled: false });
   });
 
   it("does not offer virtualization installation over partial provider state or without the KVM kernel interface", async () => {

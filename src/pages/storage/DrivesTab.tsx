@@ -1,11 +1,14 @@
 import { useState, type CSSProperties } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
 import { autoReconnectRule, type AutoReconnectControl } from "../../AutoReconnect";
-import { mountpointFor } from "../../mountpoints";
+import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mountpoints";
+import { mayServe } from "../../servedFolder";
 import type { MapApp, MapSambaShare } from "../../storageMap";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Sheet, Table, Tag, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
+import { DriveHealthPanel } from "./DriveHealthPanel";
 import { ReconnectSwitch, UsageMeter } from "./parts";
 import { checkableFs, gib, managedMounts, nameValid, percentUsed, permissionlessFs, slug, type DeviceRow, type MountRow, type StorageReport } from "./types";
+import { WeeklyWakePanel } from "./WeeklyWakePanel";
 
 /*
  * Drives (M33.9): the drives BoxPilot mounted, each with its check, its unmount and whether it
@@ -37,7 +40,8 @@ const snapshotReserveBytes = 32 * 1024 ** 3;
 
 const canMount = (device: DeviceRow) => Boolean(!device.protected && device.uuid && device.fstype && device.fstype !== "swap" && device.mountpoints.length === 0 && !device.readOnly);
 const canFormat = (device: DeviceRow) => Boolean(!device.protected && device.path && !device.readOnly && ["disk", "part"].includes(device.type ?? "") && device.mountpoints.length === 0);
-const dataMountpoint = (device: DeviceRow) => device.mountpoints.find((point) => point.startsWith("/mnt/") || point.startsWith("/srv/"));
+// A folder the file servers would serve: never one under /mnt/boxpilot, the backup destination.
+const dataMountpoint = (device: DeviceRow) => device.mountpoints.find((point) => (point.startsWith("/mnt/") || point.startsWith("/srv/")) && mayServe(point));
 
 function filesystemOf(device: DeviceRow) {
   if (device.type === "lvm" && device.volumeGroup) return <>LVM volume <code>{device.volumeGroup}/{device.logicalVolume}</code>{device.fstype ? ` · ${device.fstype}` : ""}</>;
@@ -58,11 +62,16 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
 
   // The check Repair offers after a drop or an unclean unmount, on demand for any drive BoxPilot
   // mounted. The preview names the apps it pauses, since those are what the owner will notice.
-  const checkDrive = (name: string, mount: MountRow) => {
+  /** The apps whose folders are on the drive, and the shares of it: what a person will notice go. */
+  const dependents = (mount: MountRow) => {
     const on = (path: string) => path === mount.target || path.startsWith(`${mount.target}/`);
     const users = mapApps.filter((app) => app.paths.some(on)).map((app) => app.name);
     // A share of a folder on the drive, or of one above it, keeps it busy while a PC has it open.
     const shares = sambaShares.filter((share) => on(share.path) || mount.target.startsWith(`${share.path.replace(/\/+$/, "")}/`)).map((share) => share.name);
+    return { users, shares };
+  };
+  const checkDrive = (name: string, mount: MountRow) => {
+    const { users, shares } = dependents(mount);
     const checker = mount.fstype === "exfat" ? "fsck.exfat -n" : mount.fstype === "vfat" ? "fsck.fat -n" : "e2fsck -fn";
     start({
       operationId: "storage.check",
@@ -71,12 +80,17 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
       preview: <span>{users.length ? `Pauses ${users.join(", ")} while ` : "No app uses it, so nothing is paused while "}<code>{mount.target}</code> is unmounted, runs {checker} on it, then mounts it again{users.length ? " and starts them" : ""}.{shares.length ? ` Computers using the ${shares.join(", ")} share${shares.length === 1 ? "" : "s"} are disconnected for it and reconnect by themselves.` : ""} The check only reads: nothing on the drive is repaired or written.</span>,
     });
   };
-  const unmount = (name: string, mount: MountRow) => start({
-    operationId: "storage.unmount",
-    title: `Unmount ${mount.target}`,
-    parameters: { name },
-    preview: <span>Unmounts <code>{mount.target}</code> and removes its fstab entry. Data on the disk and the empty directory are kept.</span>,
-  });
+  // The preview names what loses the drive (M49): an app writing there would write to the system
+  // disk instead, and a share of it stops answering.
+  const unmount = (name: string, mount: MountRow) => {
+    const { users, shares } = dependents(mount);
+    start({
+      operationId: "storage.unmount",
+      title: `Unmount ${mount.target}`,
+      parameters: { name },
+      preview: <span>Unmounts <code>{mount.target}</code> and removes its fstab entry. Data on the disk and the empty directory are kept.{users.length ? ` ${users.join(", ")} ${users.length === 1 ? "keeps" : "keep"} data there: stop ${users.length === 1 ? "it" : "them"} first, or ${users.length === 1 ? "it" : "they"} would write to the system disk instead.` : ""}{shares.length ? ` The share${shares.length === 1 ? "" : "s"} ${shares.join(", ")} stop${shares.length === 1 ? "s" : ""} answering until it is mounted again.` : ""}</span>,
+    });
+  };
   const format = (device: DeviceRow) => start({
     operationId: "storage.format",
     title: `Erase and format ${device.path}`,
@@ -198,6 +212,8 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
         />
       </Panel>
 
+      <WeeklyWakePanel csrfToken={csrfToken} role={role} />
+
       <Panel
         title="Disks and partitions"
         count={report ? devices.filter((device) => device.type === "disk").length : undefined}
@@ -211,6 +227,8 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
           empty={!report ? (loading ? "Reading block devices…" : "The block devices could not be read.") : "No block devices were listed."}
         />
       </Panel>
+
+      <DriveHealthPanel />
 
       {form && (
         <Sheet
@@ -231,7 +249,11 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
           ]} />
           <Field
             label="Mount name"
-            hint={<>Mounts at <code>{nameValid(form.name) ? mountpointFor(form.name) : "/mnt/<name>"}</code> and again at every boot; a missing drive never blocks it.</>}
+            // The same shortcut Shares has: Backups' Off-box tab sends the owner here to mount "a NAS or
+            // a second drive" for its backups, and only the share's sheet offered the one exact name.
+            hint={form.name === BACKUP_MOUNT_NAME
+              ? <>Mounts at <code>{BACKUP_MOUNTPOINT}</code>: BoxPilot copies its backups there. A missing drive never blocks boot.</>
+              : <>Mounts at <code>{nameValid(form.name) ? mountpointFor(form.name) : "/mnt/<name>"}</code> and again at every boot; a missing drive never blocks it. <Button variant="ghost" className="storage-inline" onClick={() => setForm({ ...form, name: BACKUP_MOUNT_NAME })}>Use this for BoxPilot's backups</Button></>}
             error={form.name && !nameValid(form.name) ? (form.name === "boxpilot" ? "boxpilot is the backup destination's folder." : "Lower case letters, digits and dashes, starting with a letter or digit.") : undefined}
           >
             <TextInput mono placeholder="data" autoComplete="off" value={form.name} onValueChange={(value) => setForm({ ...form, name: value.toLowerCase() })} />

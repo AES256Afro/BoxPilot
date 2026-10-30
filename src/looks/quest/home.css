@@ -1,0 +1,200 @@
+/*
+ * Home in the Quest look (M41): the study's .qs party screen (docs/design-directions/05-looks.html),
+ * in its em, the screen's width / 74 (the skin sets --qs-em). Pixel windows: a cream frame, a dark
+ * ring and a stepped shadow, square corners; Pixelify Sans; gold headings.
+ */
+
+.quest-home {
+  --qs-pn: #2c2554;
+  --qs-bd: #f3e6c4;
+  --qs-tx: #f7f1e3;
+  --qs-dim: #bdb2e6;
+  --qs-hp: #5ee27d;
+  --qs-hpw: #ffcc4d;
+  --qs-gold: #ffd166;
+  --qs-red: #ff7a8f;
+  --qs-deep: #0e0b20;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 1em;
+  height: calc(100vh - var(--qs-top, 40px) - var(--shell-bottom-inset, 0px) - 2.4em - 0.4em);
+  min-height: 30em;
+  color: var(--qs-tx);
+  font-family: "Pixelify Sans", ui-monospace, monospace;
+  font-size: var(--qs-em, 19.46px);
+  line-height: 1.3;
+}
+.quest-home :where(h1, h2, p, ul) { margin: 0; }
+
+/* ── A window: cream frame, dark ring, a stepped shadow, no radius. ── */
+.quest-win {
+  box-sizing: border-box;
+  min-height: 0;
+  padding: 0.7em 0.9em;
+  border: 0.25em solid var(--qs-bd);
+  background: var(--qs-pn);
+  box-shadow: 0 0 0 0.25em var(--qs-deep), 0.4em 0.4em 0 0.25em var(--qs-deep);
+}
+.quest-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  margin-bottom: 0.5em;
+  color: var(--qs-gold);
+  font: 600 0.9em/1.3 "Pixelify Sans", monospace;
+  letter-spacing: 0.06em;
+}
+.quest-head span { color: var(--qs-dim); font-weight: 400; letter-spacing: 0.04em; }
+.quest-quiet { color: var(--qs-dim); font-size: 0.72em; }
+.quest-link { padding: 0; border: 0; color: var(--qs-gold); background: none; font: inherit; text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer; }
+
+/* ── The party: every app a member, the list scrolling inside its window when it is long. ── */
+.quest-party { display: flex; flex-direction: column; }
+.quest-members {
+  display: grid;
+  align-content: start;
+  gap: 0.5em;
+  min-height: 0;
+  margin: 0 -0.3em;
+  padding: 0 0.3em 0.2em;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-color: var(--qs-bd) var(--qs-deep);
+  scrollbar-width: thin;
+}
+.quest-mem {
+  display: grid;
+  grid-template-columns: 2.4em minmax(0, 1fr) 8.5em;
+  align-items: center;
+  gap: 0.1em 0.7em;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.quest-mem:hover .quest-mem__name { color: var(--qs-gold); }
+.quest-mem:focus-visible { outline: 0.15em solid var(--qs-gold); outline-offset: 0.15em; }
+.quest-av {
+  display: grid;
+  grid-row: span 2;
+  width: 2.4em;
+  height: 2.4em;
+  box-sizing: border-box;
+  place-items: center;
+  border: 0.15em solid var(--qs-bd);
+  color: #ffffff;
+  background: var(--app-a, #4b5b73);
+  font: 600 0.95em/1 "Pixelify Sans", monospace;
+  image-rendering: pixelated;
+}
+.quest-mem__name { display: flex; align-items: baseline; gap: 0.5em; min-width: 0; font-size: 0.86em; font-weight: 600; white-space: nowrap; }
+.quest-mem__name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.quest-mem__name small { color: var(--qs-dim); font-size: 0.85em; font-weight: 400; }
+.quest-mem__stat { justify-self: start; color: var(--qs-dim); font-size: 0.55em; white-space: nowrap; }
+.quest-fx { justify-self: start; padding: 0.15em 0.35em; color: var(--qs-deep); background: var(--qs-red); font-size: 0.55em; white-space: nowrap; }
+.quest-fx[data-tone="calm"] { background: var(--qs-dim); }
+.quest-hp { display: grid; grid-column: 3; grid-row: 1 / 3; gap: 0.2em; color: var(--qs-dim); font-size: 0.6em; }
+.quest-hp > span { height: 0.9em; border: 0.15em solid var(--qs-bd); background: var(--qs-deep); }
+.quest-hp i { display: block; height: 100%; background: var(--qs-hp); }
+.quest-hp[data-tone="hurt"] i { background: var(--qs-hpw); }
+.quest-hp[data-tone="low"] i { background: var(--qs-red); }
+.quest-hp[data-tone="asleep"] i { background: var(--qs-dim); }
+
+/* ── The quests and the server's stats. ── */
+.quest-right { display: grid; grid-auto-rows: max-content; align-content: start; gap: 1em; min-height: 0; overflow-y: auto; margin: -0.7em; padding: 0.7em; }
+.quest-list { display: grid; list-style: none; padding: 0; }
+.quest-quest { display: grid; justify-items: start; gap: 0.25em; padding: 0.45em 0; }
+.quest-quest + .quest-quest { border-top: 0.12em dashed rgba(243, 230, 196, 0.3); }
+.quest-quest__name { padding: 0; border: 0; color: var(--qs-tx); background: none; font: 600 0.82em/1.3 "Pixelify Sans", monospace; text-align: left; cursor: pointer; }
+.quest-quest__name:hover { color: var(--qs-gold); }
+.quest-quest[data-severity="danger"] .quest-quest__name { color: var(--qs-red); }
+.quest-quest__words { color: var(--qs-dim); font-size: 0.68em; }
+.quest-quest__reward { color: var(--qs-gold); font-size: 0.68em; }
+.quest-quest__run { color: var(--qs-hp); font-size: 0.68em; }
+.quest-quest__run[data-phase="still"] { color: var(--qs-red); }
+.quest-acts { display: flex; flex-wrap: wrap; gap: 0.5em; margin-top: 0.15em; }
+.quest-btn {
+  padding: 0.45em 0.8em;
+  border: 0;
+  border-radius: 0;
+  color: var(--qs-deep);
+  background: var(--qs-gold);
+  box-shadow: 0.15em 0.15em 0 var(--qs-deep);
+  font: 600 0.66em/1 "Pixelify Sans", monospace;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.quest-btn:hover:not(:disabled) { background: #ffe29a; }
+.quest-btn:active:not(:disabled) { box-shadow: none; transform: translate(0.15em, 0.15em); }
+.quest-btn:disabled { cursor: default; opacity: 0.55; }
+.quest-btn--plain { color: var(--qs-tx); background: var(--qs-pn); box-shadow: inset 0 0 0 0.12em var(--qs-bd), 0.15em 0.15em 0 var(--qs-deep); }
+.quest-btn--plain:hover:not(:disabled) { color: var(--qs-gold); background: var(--qs-pn); }
+.quest-btn:focus-visible,
+.quest-quest__name:focus-visible,
+.quest-link:focus-visible,
+.quest-bar:focus-visible { outline: 0.15em solid var(--qs-gold); outline-offset: 0.2em; }
+.quest-quest.quest-side { display: block; color: var(--qs-dim); font-size: 0.82em; font-weight: 600; }
+.quest-side__one { color: var(--qs-dim); text-decoration: none; }
+.quest-side__one:hover { color: var(--qs-gold); text-decoration: underline; }
+
+.quest-verdict { margin: -0.2em 0 0.55em; color: var(--qs-dim); font-size: 0.68em; }
+.quest-verdict[data-status="danger"] { color: var(--qs-red); }
+.quest-bars { display: grid; gap: 0.4em; }
+.quest-bar {
+  display: grid;
+  grid-template-columns: 3.4em minmax(0, 1fr) 5.6em;
+  align-items: center;
+  gap: 0.7em;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  font-size: 0.72em;
+  text-align: left;
+  cursor: pointer;
+}
+.quest-bar:hover .quest-bar__name { color: var(--qs-gold); }
+.quest-bar__track { height: 0.8em; border: 0.15em solid var(--qs-bd); background: var(--qs-deep); }
+.quest-bar__track i { display: block; height: 100%; background: var(--qs-c, #62a8ff); }
+.quest-bar[data-stat="bag"] .quest-bar__track i { background: #ffd166; }
+.quest-bar[data-stat="heat"] .quest-bar__track i { background: #ff7a8f; }
+.quest-bar__value { white-space: nowrap; }
+
+/* ── The dialog box, across the bottom, with its blinking cursor. ── */
+.quest-say {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 0.8em;
+  font-size: 1.05em;
+}
+.quest-say b { flex: none; color: var(--qs-gold); font-weight: 600; }
+.quest-say__text { min-width: 0; }
+.quest-say__hello { display: inline; font: inherit; }
+.quest-blink { margin-left: auto; color: var(--qs-gold); }
+@media (prefers-reduced-motion: no-preference) {
+  .quest-blink { animation: quest-blink 1.1s steps(1) infinite; }
+}
+@keyframes quest-blink {
+  50% { opacity: 0; }
+}
+
+/* A narrower screen: the windows stacked; a phone, at its own size. */
+@media (max-width: 1100px) {
+  .quest-home { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; height: auto; font-size: clamp(15px, 1.9vw, 19px); }
+  .quest-say { grid-column: auto; grid-row: 1; }
+  .quest-members { overflow: visible; }
+  .quest-right { overflow: visible; }
+}
+@media (max-width: 760px) {
+  .quest-home { font-size: 16px; }
+  .quest-mem { grid-template-columns: 2.4em minmax(0, 1fr) 6em; }
+  .quest-say { font-size: 0.95em; }
+}

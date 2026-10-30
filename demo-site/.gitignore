@@ -1,3 +1,6 @@
 # Build output: `npm run build` then `node scripts/demo-bundle.mjs` regenerate both.
 public/
 demo-data.json
+# The local password for `wrangler dev`; the deployed one is a Worker secret.
+.dev.vars
+.wrangler/

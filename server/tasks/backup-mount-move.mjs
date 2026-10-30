@@ -1,4 +1,5 @@
-import { mkdir, readFile, readdir, rmdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rmdir } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { backupMountParent, backupMountpoint, legacyBackupMountpoint } from "../backup-mount.mjs";
 import { parseManagedFstab } from "./storage.mjs";
@@ -163,6 +164,7 @@ export async function moveBackupMount(_parameters = {}, { run = fixedRun, log = 
  * Put back what one move changed, for an upgrade that is being rolled back: the old code looks for
  * the destination at the old place. Only a move is undone - fstab must still be exactly what the
  * move wrote - so a later edit is never overwritten from a stale copy.
+ * @param {{ fstabCopy?: string }} [parameters]
  */
 export async function undoBackupMountMove({ fstabCopy } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir } } = {}) {
   if (typeof fstabCopy !== "string" || !fstabCopyPattern.test(fstabCopy)) throw new Error("The fstab copy must be /etc/fstab.boxpilot-<stamp>");

@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { craftedTarGz } from "../test/crafted-tar.mjs";
 import { onWindows } from "../test/platform.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
@@ -164,6 +165,40 @@ describe.skipIf(onWindows)("machine snapshot restore", () => {
 
     await helper.discardRestore({ name: "20260821T030000Z" });
     expect((await helper.listRestores()).restores).toEqual([]);
+  });
+
+  // R3S2-T: a restore unpacks the snapshot with GNU tar as root, and a snapshot is only as trustworthy
+  // as whoever last held the file. A crafted one must stay inside the folder it is unpacked into.
+  it("keeps a crafted snapshot's links and member names inside the folder it unpacks into", async () => {
+    const crafted = [
+      ["a hard link climbing out", () => [{ name: "./hl", type: "hardlink", linkname: "../../outside/victim" }, { name: "./hl", body: "pwned" }]],
+      ["a hard link with an absolute target", ({ outside }) => [{ name: "./hl", type: "hardlink", linkname: path.join(outside, "victim") }]],
+      ["a symbolic link out, then a file through it", ({ outside }) => [{ name: "./link", type: "symlink", linkname: outside }, { name: "./link/pwn", body: "pwned" }]],
+      ["a climbing symbolic link, then a file through it", () => [{ name: "./link", type: "symlink", linkname: "../../outside" }, { name: "./link/pwn", body: "pwned" }]],
+      ["members named ../", () => [{ name: "../escape", body: "out" }, { name: "../../outside/planted", body: "out" }]],
+    ];
+    for (const [what, members] of crafted) {
+      const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-crafted-")); directories.push(root);
+      const outside = path.join(root, "outside");
+      await mkdir(outside);
+      await writeFile(path.join(outside, "victim"), "untouched");
+      const snapshotRoot = path.join(root, "snapshots");
+      await mkdir(snapshotRoot);
+      // The restore unpacks into <snapshots>/.restore-<uuid>, so ../../ from there is `root`.
+      const archive = craftedTarGz([{ name: "./manifest.json", body: JSON.stringify({ schemaVersion: 1, contents: { apps: [] }, files: [] }) }, ...members({ outside })]);
+      await writeFile(path.join(snapshotRoot, artifact), archive);
+      await writeFile(path.join(snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ artifact, checksumSha256: createHash("sha256").update(archive).digest("hex") }));
+      const helper = createMachineSnapshotHelper({ snapshotRoot, catalogRoot: path.join(root, "catalog"), applicationBackupRoot: path.join(root, "backups"), mountRoot: path.join(root, "mount"), controllerBackups: {}, requireIndependentDevice: false, now: () => new Date("2026-08-21T03:00:00.000Z") });
+      const apps = { internals: { readState: async () => null }, install: vi.fn(), restoreAppBackup: vi.fn() };
+      await helper.restore({ source: "local", artifact, apps: [] }, { apps }).catch(() => null);
+      expect(await readdir(outside), what).toEqual(["victim"]);
+      expect(await readFile(path.join(outside, "victim"), "utf8"), what).toBe("untouched");
+      expect((await stat(path.join(outside, "victim"))).nlink, what).toBe(1);
+      expect((await readdir(root)).sort(), what).toEqual(["outside", "snapshots"]);
+      // Nothing beside the snapshot but what a finished restore stages for review; no unpack folder left.
+      expect((await readdir(snapshotRoot)).filter((name) => name !== "restored").sort(), what).toEqual([artifact, `${artifact}.meta.json`]);
+      expect(apps.install).not.toHaveBeenCalled();
+    }
   });
 
   it("refuses to discard anything that is not a restore review directory", async () => {

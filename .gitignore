@@ -11,3 +11,9 @@ coverage/
 # Private, filled-in copies of the install runbook
 UBUNTU-SERVER-INSTALL-RUNBOOK.local.md
 *.local.md
+
+# Screenshots taken to compare a look with its drawing (scripts/look-check.mjs)
+look-shots/
+
+# A symlink named node_modules was committed on 2026-10-22; the directory pattern above does not catch one.
+node_modules

@@ -7,6 +7,8 @@ import { offBoxVerdict, type OffBoxInputs, type OffBoxVerdict } from "../offBox"
 import { followJobs, inspectOperation, type Job } from "../operations";
 import { scanFrom, type RepairScan } from "../repair/types";
 import type { OutageFact } from "./outage";
+import type { PowerEvent } from "../powerEvents";
+import { onRefresh } from "../shell/refresh";
 
 /*
  * What Home and Ops know about this server (M33.2, M33.3). One provider gathers it, from the
@@ -115,6 +117,8 @@ export interface InventoryFacts {
   smart: SmartFacts | null;
   /** Null when the inventory said nothing about power. */
   ups: UpsFact | null;
+  /** The power-event log, newest first (M39.1): Home tells the outages as news. */
+  powerEvents: PowerEvent[];
   /** The key services, loaded ones only. */
   services: ServiceFact[];
   addresses: Array<{ interface: string; address: string }>;
@@ -145,6 +149,11 @@ export interface ScheduleFact {
 export interface OffBoxFacts { verdict: OffBoxVerdict; inputs: OffBoxInputs }
 export interface ChecklistItem { id: string; title: string; detail: string; done: boolean; known?: boolean; optional: boolean; view: ViewName }
 export interface ChecklistFacts { items: ChecklistItem[]; done: number; total: number }
+/**
+ * The update's database copies that predate the secret scrub (M36): still on disk, still holding
+ * secrets. `removable` counts those the default rule lets go of; the newest copies always stay.
+ */
+export interface DatabaseCopyFacts { heldSecrets: number; removable: number; total: number }
 export interface VmFacts { domains: Array<{ name: string; state: string; vcpus: number | null; memoryBytes: number | null }> }
 
 export interface Facts {
@@ -163,6 +172,7 @@ export interface Facts {
   setup: Source<{ firstRun: boolean }>;
   checklist: Source<ChecklistFacts>;
   vms: Source<VmFacts>;
+  databaseCopies: Source<DatabaseCopyFacts>;
   rebuild: Source<{ count: number; source: string } | null>;
   /** Times the server went down without shutting down (2026-09-29), acknowledged or not. */
   outages: Source<OutageFact[]>;
@@ -178,7 +188,7 @@ const idle = { state: "idle", value: null, error: null } as const;
 
 export const emptyFacts: Facts = {
   catalog: idle, inventory: idle, updates: idle, unattended: idle, services: idle, watch: idle, repairs: idle, jobs: idle,
-  schedules: idle, protection: idle, offBox: idle, database: idle, setup: idle, checklist: idle, vms: idle, rebuild: idle, outages: idle,
+  schedules: idle, protection: idle, offBox: idle, database: idle, setup: idle, checklist: idle, vms: idle, databaseCopies: idle, rebuild: idle, outages: idle,
 };
 
 const getJson = async <T,>(url: string): Promise<T> => readJson<T>(await fetch(url));
@@ -266,7 +276,7 @@ type RawInventory = {
     filesystems?: { mounts?: RawMount[] };
     smart?: { available?: boolean; status?: string; reason?: string; generatedAt?: string | null; stale?: boolean; disks?: RawSmartDisk[] };
   };
-  power?: { ups?: RawUps };
+  power?: { ups?: RawUps; events?: Array<Partial<PowerEvent>> };
   services?: Array<{ unit?: string; load?: string; active?: string; sub?: string; enabled?: string }>;
   network?: { addresses?: Array<{ interface?: string; address?: string }>; tailscale?: { installed?: boolean; connected?: boolean; dnsName?: string | null } };
 };
@@ -329,6 +339,8 @@ export function inventoryFactsFrom(body: RawInventory): InventoryFacts {
     })).filter((mount) => mount.target),
     smart: smartFactsFrom(body.storage?.smart),
     ups: upsFactFrom(body.power?.ups),
+    powerEvents: list<Partial<PowerEvent>>(body.power?.events)
+      .filter((event): event is PowerEvent => typeof event?.at === "string" && typeof event.event === "string" && !Number.isNaN(Date.parse(event.at))),
     services: list<{ unit?: string; load?: string; active?: string; sub?: string; enabled?: string }>(body.services)
       .filter((service) => typeof service?.unit === "string" && service.load !== "not-found")
       .map((service) => ({ unit: service.unit as string, active: text(service.active, "unknown"), sub: text(service.sub), enabled: text(service.enabled) })),
@@ -352,10 +364,31 @@ async function loadUnattended(): Promise<{ enabled: boolean }> {
 }
 
 type ServiceAnswer = { counts?: { failed?: number } };
+/**
+ * The failed-services count from the inventory (M50), which Home reads every minute anyway and the
+ * server holds for ten seconds, instead of a second systemctl listing a minute; the full service
+ * list only when the inventory could not say.
+ */
 async function loadServices(): Promise<{ failed: number }> {
+  const inventory = await getJson<{ maintenance?: { system?: { failedServiceCount?: number | null } } }>("/api/v1/inventory").catch(() => null);
+  const counted = inventory?.maintenance?.system?.failedServiceCount;
+  if (typeof counted === "number") return { failed: counted };
   const { result } = await inspectOperation<ServiceAnswer>("service.list");
   if (typeof result?.counts?.failed !== "number") throw new Error("The service list had no counts");
   return { failed: result.counts.failed };
+}
+
+/** The backup list once for both loaders that read it (M50): the database tile and the copy off this server fetched it twice a cycle. */
+let backupsRead: { at: number; promise: Promise<Array<{ applicationId?: string; createdAt?: string }>> } | null = null;
+function backupsOnce(): Promise<Array<{ applicationId?: string; createdAt?: string }>> {
+  if (backupsRead && Date.now() - backupsRead.at < 5_000) return backupsRead.promise;
+  const promise = getJson<{ backups?: Array<{ applicationId?: string; createdAt?: string }> }>("/api/v1/backups").then((body) => {
+    if (!Array.isArray(body?.backups)) throw new Error("The backup list was missing");
+    return body.backups;
+  });
+  backupsRead = { at: Date.now(), promise };
+  promise.catch(() => { if (backupsRead?.promise === promise) backupsRead = null; });
+  return promise;
 }
 
 type RawWatch = {
@@ -378,6 +411,21 @@ export async function loadRepairs(): Promise<RepairScan> {
   return scanFrom(await getJson<unknown>("/api/v1/remediations"));
 }
 
+/**
+ * Copies of the database the update took before the secret scrub (M36). The list is an operator's
+ * read (ADR-003: file names and sizes in BoxPilot's state folder); anyone else is told of none.
+ */
+async function loadDatabaseCopies(): Promise<DatabaseCopyFacts> {
+  try {
+    const { result } = await inspectOperation<{ copies?: Array<{ heldSecrets?: boolean; goes?: boolean }> }>("housekeeping.database-copies.inspect");
+    const copies = Array.isArray(result?.copies) ? result.copies : [];
+    const held = copies.filter((copy) => copy?.heldSecrets === true);
+    return { heldSecrets: held.length, removable: held.filter((copy) => copy?.goes === true).length, total: copies.length };
+  } catch {
+    return { heldSecrets: 0, removable: 0, total: 0 };
+  }
+}
+
 type RawSchedule = { id: string; operationId: string; title?: string; parameters?: ScheduleFact["parameters"]; enabled?: boolean; overdue?: boolean; cadence?: string; lastRunAt?: string | null; lastOutcome?: string | null; lastReason?: string | null };
 async function loadSchedules(): Promise<ScheduleFact[]> {
   const body = await getJson<{ schedules?: RawSchedule[] }>("/api/v1/schedules");
@@ -396,7 +444,7 @@ async function loadProtection(): Promise<AppProtection[]> {
   return result.apps;
 }
 
-type MachineAnswer = { sync?: { mount?: { mounted?: boolean }; lastSync?: { completedAt?: string } | null } };
+type MachineAnswer = { sync?: { mount?: { mounted?: boolean }; lastSync?: { completedAt?: string; skippedCount?: number } | null } };
 type DestinationAnswer = { destination?: unknown; lastSync?: unknown };
 async function loadOffBox(): Promise<OffBoxFacts> {
   // A destination that cannot be read is unknown, not absent: if none of the three answers, the
@@ -406,28 +454,29 @@ async function loadOffBox(): Promise<OffBoxFacts> {
     destination("/api/v1/settings/cloud-destination"),
     destination("/api/v1/settings/backup-destination"),
     inspectOperation<MachineAnswer>("host.snapshot.inspect").then(({ result }) => result, () => null),
-    getJson<{ backups?: Array<{ createdAt?: string }> }>("/api/v1/backups").then((body) => list<{ createdAt?: string }>(body?.backups), () => []),
+    backupsOnce().catch(() => []),
   ]);
   if (!cloud.ok && !ssh.ok && !machine) throw new Error("None of the backup destinations answered");
   const at = (value: unknown) => (typeof value === "string" ? value : (value as { completedAt?: string } | null)?.completedAt ?? null);
   const inputs: OffBoxInputs = {
     cloud: { configured: Boolean(cloud.body?.destination), lastSyncAt: at(cloud.body?.lastSync) },
     ssh: { configured: Boolean(ssh.body?.destination), lastSyncAt: at(ssh.body?.lastSync) },
-    drive: { configured: Boolean(machine?.sync?.mount?.mounted), lastSyncAt: machine?.sync?.lastSync?.completedAt ?? null },
+    drive: { configured: Boolean(machine?.sync?.mount?.mounted), lastSyncAt: machine?.sync?.lastSync?.completedAt ?? null, skipped: machine?.sync?.lastSync?.skippedCount ?? 0 },
   };
   const newestLocalBackupAt = backups.reduce<string | null>((newest, backup) => (backup.createdAt && (newest === null || backup.createdAt > newest) ? backup.createdAt : newest), null);
   return { verdict: offBoxVerdict(inputs, { newestLocalBackupAt }), inputs };
 }
 
 async function loadDatabase(): Promise<{ lastBackupAt: string | null }> {
-  const body = await getJson<{ backups?: Array<{ applicationId?: string; createdAt?: string }> }>("/api/v1/backups");
-  if (!Array.isArray(body?.backups)) throw new Error("The backup list was missing");
-  const own = body.backups.filter((backup) => backup.applicationId === "boxpilot-controller" && backup.createdAt).map((backup) => backup.createdAt as string).sort();
+  const backups = await backupsOnce();
+  const own = backups.filter((backup) => backup.applicationId === "boxpilot-controller" && backup.createdAt).map((backup) => backup.createdAt as string).sort();
   return { lastBackupAt: own.at(-1) ?? null };
 }
 
 async function loadSetup(): Promise<{ firstRun: boolean }> {
-  const body = await getJson<{ firstRun?: boolean }>("/api/v1/setup");
+  // The one boolean Home reads (M50): the full setup answer ran every prerequisite check, about
+  // thirty root processes, every five minutes.
+  const body = await getJson<{ firstRun?: boolean }>("/api/v1/setup?view=first-run");
   if (typeof body?.firstRun !== "boolean") throw new Error("Whether this server is set up could not be read");
   return { firstRun: body.firstRun };
 }
@@ -440,7 +489,8 @@ async function loadChecklist(): Promise<ChecklistFacts> {
 
 type RawDomains = { domains?: Array<{ name?: string; state?: string; vcpus?: number; memoryKiB?: number }> };
 async function loadVms(): Promise<VmFacts> {
-  const body = await getJson<RawDomains>("/api/v1/virtualization/domains");
+  // The summary (M50): one virsh process a VM; Home shows name, state and size.
+  const body = await getJson<RawDomains>("/api/v1/virtualization/domains?view=summary");
   if (!Array.isArray(body?.domains)) throw new Error("The virtual machine list was missing");
   return { domains: body.domains.map((domain) => ({ name: text(domain.name, "unnamed"), state: text(domain.state, "unknown"), vcpus: number(domain.vcpus), memoryBytes: number(domain.memoryKiB) === null ? null : (domain.memoryKiB as number) * 1024 })) };
 }
@@ -484,6 +534,7 @@ const loaders = {
   setup: loadSetup,
   checklist: loadChecklist,
   vms: loadVms,
+  databaseCopies: loadDatabaseCopies,
   outages: async () => outagesFrom(await getJson<{ outages?: RawOutage[] }>("/api/v1/power/outages")),
 } satisfies { [K in Exclude<keyof Facts, "jobs" | "rebuild">]: () => Promise<NonNullable<Facts[K]["value"]>> };
 
@@ -501,8 +552,8 @@ function upsertJob(jobs: Job[], job: Job): Job[] {
 
 interface FactsContextValue {
   facts: Facts;
-  /** Read these sources again now (every source when none are named). */
-  refresh: (keys?: Array<keyof Facts>) => void;
+  /** Read these sources again now (every source when none are named); settles when every one has answered. */
+  refresh: (keys?: Array<keyof Facts>) => Promise<void>;
   /** Take a source's answer read elsewhere, as if its loader had read it (a fix re-reading Repair's scan). */
   accept: <K extends keyof Facts>(key: K, value: NonNullable<Facts[K]["value"]>) => void;
   /** A view that shows facts calls this while it is open; the returned function says it closed. */
@@ -515,29 +566,35 @@ export function FactsProvider({ children }: { children: ReactNode }) {
   const [facts, setFacts] = useState<Facts>(emptyFacts);
   const [viewers, setViewers] = useState(0);
   const mounted = useRef(true);
-  const inFlight = useRef(new Set<keyof Facts>());
+  const inFlight = useRef(new Map<keyof Facts, Promise<void>>());
   const lastFullLoad = useRef(0);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const set = useCallback(<K extends keyof Facts>(key: K, source: Facts[K]) => {
-    if (mounted.current) setFacts((current) => ({ ...current, [key]: source }));
+    // The same answer again is no change (M50): every loader wrote a new object, and Home, the
+    // sidebar and the dock drew again five times a minute for nothing.
+    if (mounted.current) setFacts((current) => (JSON.stringify(current[key]) === JSON.stringify(source) ? current : { ...current, [key]: source }));
   }, []);
 
-  const load = useCallback((key: LoadedKey) => {
-    if (inFlight.current.has(key)) return;
-    inFlight.current.add(key);
+  const load = useCallback((key: LoadedKey): Promise<void> => {
+    const running = inFlight.current.get(key);
+    if (running) return running;
     // Keep the last answer on screen while it is read again; only a first read shows "loading".
     setFacts((current) => (current[key].value === null ? { ...current, [key]: { state: "loading", value: null, error: null } } : current));
-    (loaders[key] as () => Promise<unknown>)()
+    const reading = (loaders[key] as () => Promise<unknown>)()
       .then((value) => set(key, { state: "ready", value, error: null } as Facts[typeof key]))
       .catch((error: unknown) => set(key, { state: "failed", value: null, error: error instanceof Error ? error.message : "Could not be read" } as Facts[typeof key]))
       .finally(() => inFlight.current.delete(key));
+    inFlight.current.set(key, reading);
+    return reading;
   }, [set]);
 
-  const refresh = useCallback((keys?: Array<keyof Facts>) => {
+  // Settles once every source asked for has answered, so a "Check again" can say it is checking and
+  // then that it has: it used to change nothing on screen when nothing had changed on the server.
+  const refresh = useCallback(async (keys?: Array<keyof Facts>) => {
     const chosen = (keys ?? allKeys).filter((key): key is LoadedKey => key in loaders);
     if (!keys) lastFullLoad.current = Date.now();
-    for (const key of chosen) load(key);
+    await Promise.all(chosen.map((key) => load(key)));
   }, [load]);
 
   const demand = useCallback(() => {
@@ -549,16 +606,21 @@ export function FactsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!active) return undefined;
     // Switching between Home and Ops within half a minute reuses what was just read.
-    if (Date.now() - lastFullLoad.current > 30_000) refresh();
+    if (Date.now() - lastFullLoad.current > 30_000) void refresh();
     const visible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
-    const quick = window.setInterval(() => { if (visible()) refresh(quickKeys); }, 60_000);
-    const slow = window.setInterval(() => { if (visible()) refresh(slowKeys); }, 300_000);
+    const quick = window.setInterval(() => { if (visible()) void refresh(quickKeys); }, 60_000);
+    // The slow reads start half a minute after the quick ones (M50): both timers fired together every
+    // five minutes, and fourteen loaders hit the helper's read gate at once.
+    let slow: number | null = null;
+    const slowStart = window.setTimeout(() => { slow = window.setInterval(() => { if (visible()) void refresh(slowKeys); }, 300_000); }, 30_000);
     const stopJobs = followJobs({
       onSnapshot: (jobs) => set("jobs", { state: "ready", value: [...jobs].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")), error: null }),
       onJob: (job) => setFacts((current) => (mounted.current ? { ...current, jobs: { state: "ready", value: upsertJob(current.jobs.value ?? [], job), error: null } } : current)),
       onStatus: (status) => { if (status === "unavailable") setFacts((current) => (current.jobs.value ? current : { ...current, jobs: { state: "failed", value: null, error: "Job history could not be read" } })); },
     });
-    return () => { window.clearInterval(quick); window.clearInterval(slow); stopJobs(); };
+    // The bar's Refresh (M25) reads every source again in place rather than loading the page again.
+    const stopRefresh = onRefresh(() => refresh());
+    return () => { window.clearInterval(quick); window.clearTimeout(slowStart); if (slow !== null) window.clearInterval(slow); stopJobs(); stopRefresh(); };
   }, [active, refresh, set]);
 
   // Only a server nobody has set up goes looking for a rebuild: an established one restoring a

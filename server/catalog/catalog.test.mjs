@@ -20,6 +20,18 @@ describe("manifest schema", () => {
     expect(rendered.envFile).toContain("private-fixture-value");
   });
 
+  it("lets a setting take its choices from the installed models, and keeps its value free text", () => {
+    const { manifest, errors } = validateManifest({ ...base, env: [{ name: "LOCAL_MODEL", optionsFrom: "ollama-models", default: "qwen3:8b" }] });
+    expect(errors).toEqual([]);
+    expect(manifest.env[0]).toMatchObject({ optionsFrom: "ollama-models", options: null });
+    // A model removed after install must not make the stored settings invalid on update or restore.
+    expect(resolveValues(manifest, { env: { LOCAL_MODEL: "a-model-no-longer-downloaded:7b" } }).errors).toEqual([]);
+    expect(validateManifest({ ...base, env: [{ name: "M", optionsFrom: "everything" }] }).errors).toContainEqual(expect.stringContaining("env[0].optionsFrom"));
+    expect(validateManifest({ ...base, env: [{ name: "M", optionsFrom: "ollama-models", options: ["a"] }] }).errors).toContainEqual(expect.stringContaining("not both"));
+    expect(validateManifest({ ...base, env: [{ name: "M", optionsFrom: "ollama-models", type: "number" }] }).errors).toContainEqual(expect.stringContaining("only string settings"));
+    expect(validateManifest({ ...base, env: [{ name: "M" }] }).manifest.env[0].optionsFrom).toBeNull();
+  });
+
   it("accepts a minimal manifest and fills defaults", () => {
     const { manifest, errors } = validateManifest(base);
     expect(errors).toEqual([]);
@@ -68,8 +80,17 @@ describe("manifest schema", () => {
     expect(resolveValues(manifest, { ports: { web: 53 }, env: { NEEDED: "y" } }).errors).toContainEqual(expect.stringContaining("collides"));
     expect(resolveValues(manifest, { env: { NEEDED: "y", MODE: "z" } }).errors).toContainEqual(expect.stringContaining("one of"));
     expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "not a tz!" } }).errors).toContainEqual(expect.stringContaining("Region/City"));
+    // Shaped like a zone is not the same as being one: `American/Chicago` passed the pattern, and
+    // the app it was saved for crashed on every start until the settings change rolled back.
+    expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "American/Chicago" } }).errors).toContainEqual(expect.stringContaining("Region/City"));
+    expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "Etc/UTC" } }).errors).toEqual([]);          // the catalog's own default
+    expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "Europe/London" } }).errors).toEqual([]);
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/etc/ssl" } }).errors).toContainEqual(expect.stringContaining("protected"));
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/srv/../etc" } }).errors).toContainEqual(expect.stringContaining("clean"));
+    // A folder above a protected one hands the app everything under it: /var holds BoxPilot's own
+    // database and every app's secrets, /opt the code root runs.
+    for (const above of ["/var", "/var/lib", "/opt"]) expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: above } }).errors).toContainEqual(expect.stringContaining("protected"));
+    expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/opt/stacks" } }).errors).toEqual([]);
     expect(resolveValues(manifest, { env: { NEEDED: "y", EXTRA: "1" } }).errors).toContainEqual(expect.stringContaining("EXTRA"));
     // Compose's short volume syntax splits on ":", so "/mnt/media:old" became "/mnt/media:old:/media"
     // - a mount of /mnt/media at "old" with "/media" as its options - and the deploy failed.
@@ -166,6 +187,27 @@ describe("catalog loader", () => {
       const required = manifest.env.filter((entry) => entry.required).map((entry) => `values.env.${entry.name}: is required`);
       expect(resolveValues(manifest, {}).errors.filter((error) => !required.includes(error))).toEqual([]);
     }
+  });
+});
+
+// R5S2-1: an app's default folder inside another app's writable one is a folder that other app can
+// swap for a link, and the next deploy of the first would mount whatever the link names (MeTube's
+// /srv/media/youtube inside the download clients' /srv/media). Each shipped default stands on its own.
+describe("default data folders", () => {
+  it("never puts one app's default folder inside another app's writable one", async () => {
+    const { manifests } = await loadCatalog();
+    const folders = manifests.flatMap((manifest) => [
+      ...manifest.volumes.map((volume) => ({ app: manifest.id, path: volume.hostPath, writable: !volume.readOnly })),
+      ...(manifest.sidecars ?? []).flatMap((sidecar) => sidecar.volumes.map((volume) => ({ app: manifest.id, path: volume.hostPath, writable: false }))),
+    ]).filter((folder) => folder.path);
+    const nested = [];
+    for (const inner of folders) {
+      for (const outer of folders) {
+        if (!outer.writable || outer.app === inner.app) continue;
+        if (inner.path.startsWith(`${outer.path.replace(/\/+$/, "")}/`)) nested.push(`${inner.app} ${inner.path} is inside ${outer.app}'s writable ${outer.path}`);
+      }
+    }
+    expect(nested).toEqual([]);
   });
 });
 
@@ -284,6 +326,38 @@ describe("config files shipped with an app", () => {
     expect(escape.errors.join(" ")).toMatch(/safe relative path/);
   });
 
+  it("refuses a secret on a command line, where every process on the server can read it", () => {
+    // /proc/<pid>/cmdline is world-readable; the environment is not. Kopia's web password sat in its
+    // command (sweep 1); the image reads it from KOPIA_SERVER_PASSWORD instead.
+    const app = {
+      id: "cmd", name: "Cmd", category: "T", description: "d", schemaVersion: 2,
+      image: { reference: "nginx:1.27" },
+      env: [{ name: "GREETING", default: "hello" }, { name: "TOKEN", type: "password" }, { name: "API_KEY", secret: true }],
+      command: ["serve", "--greeting=${GREETING}", "--port=${PORT_WEB}"],
+      ports: [{ id: "web", container: 80, host: 8080 }],
+    };
+    expect(validateManifest(app).errors).toEqual([]);
+    for (const command of [["serve", "--password=${TOKEN}"], ["serve", "--key", "$API_KEY"], ["sh", "-c", "run --token ${TOKEN:-none}"]]) {
+      const leaky = validateManifest({ ...app, command });
+      expect(leaky.manifest, command.join(" ")).toBeNull();
+      expect(leaky.errors.join(" ")).toMatch(/must not put the secret (TOKEN|API_KEY) on the command line/);
+    }
+    // An escaped $$ is a literal dollar to compose, not a reference.
+    expect(validateManifest({ ...app, command: ["sh", "-c", "echo $$TOKEN"] }).errors).toEqual([]);
+    const sidecar = validateManifest({ ...app, command: undefined, sidecars: [{ id: "db", image: "postgres:17", command: ["postgres", "-c", "password=${TOKEN}"] }] });
+    expect(sidecar.manifest).toBeNull();
+    expect(sidecar.errors.join(" ")).toMatch(/sidecars\[0\]\.command.*must not put the secret TOKEN on the command line/);
+  });
+
+  it("starts Kopia with its web password from the environment, not its command line", async () => {
+    const { manifests, problems } = await loadCatalog();
+    expect(problems).toEqual([]);
+    const manifest = manifests.find((entry) => entry.id === "kopia");
+    expect(manifest.command.join(" ")).not.toContain("KOPIA_SERVER_PASSWORD");
+    const { compose } = renderCompose(manifest, resolveValues(manifest, {}).values, { lanAddress: "0.0.0.0" });
+    expect(compose.services.kopia.environment.KOPIA_SERVER_PASSWORD).toBe("${KOPIA_SERVER_PASSWORD}");
+  });
+
   it("mounts a sidecar host bind read-only, and refuses a writable one", () => {
     const monitor = {
       id: "mon", name: "Mon", category: "T", description: "d", schemaVersion: 2,
@@ -377,6 +451,12 @@ describe("catalog freshness", () => {
 
       clock += 61_000;                                                        // past the max age
       expect((await catalog.all()).manifests[0].ports[0].host).toBe(9090);    // reloaded
+
+      // A file replaced (removed and written again) moves the directory: with a ttl of 0 that is seen
+      // at once, even in the same millisecond as the last look.
+      await rm(path.join(directory, "solo.yaml"));
+      await writeFile(path.join(directory, "solo.yaml"), manifest(7070));
+      expect((await catalog.all()).manifests[0].ports[0].host).toBe(7070);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -426,5 +506,29 @@ describe("NVIDIA GPU", () => {
     const { manifests } = await loadCatalog();
     expect(manifests.find((m) => m.id === "ollama").gpu).toBe("optional");
     expect(manifests.find((m) => m.id === "open-webui").sidecars.find((s) => s.id === "ollama").gpu).toBe("optional");
+  });
+});
+
+describe("the tier of installing an app", () => {
+  it("is the manifest's own, from the catalog as shipped", async () => {
+    const { createCatalogService, installRiskLookup } = await import("./index.mjs");
+    const lookup = installRiskLookup(createCatalogService());
+    expect(await lookup({ id: "pi-hole" })).toBe("high");
+    expect(await lookup({ id: "wg-easy" })).toBe("high");
+    expect(await lookup({ id: "jellyfin" })).toBe("medium");
+    expect(await lookup({ id: "actual" })).toBe("low");
+    expect(await lookup({ id: "no-such-app" })).toBeNull();
+    expect(await lookup({})).toBeNull();
+  });
+});
+
+describe("an app's former image repositories", () => {
+  const base = { schemaVersion: 2, id: "moved", name: "Moved", category: "T", description: "d" };
+  it("are repositories alone, at most eight, and default to none", () => {
+    expect(validateManifest({ ...base, image: { reference: "ghcr.io/neworg/app:2.0" } }).manifest.image.formerRepositories).toEqual([]);
+    expect(validateManifest({ ...base, image: { reference: "ghcr.io/neworg/app:2.0", formerRepositories: ["oldorg/app", "registry.example:5000/team/app"] } })).toMatchObject({ errors: [], manifest: { image: { formerRepositories: ["oldorg/app", "registry.example:5000/team/app"] } } });
+    for (const formerRepositories of [["oldorg/app:1.0"], ["oldorg/app@sha256:" + "a".repeat(64)], ["Oldorg/App"], "oldorg/app", Array.from({ length: 9 }, (_, index) => `org${index}/app`), [""]]) {
+      expect(validateManifest({ ...base, image: { reference: "ghcr.io/neworg/app:2.0", formerRepositories } }).errors.join(" ")).toContain("manifest.image.formerRepositories");
+    }
   });
 });

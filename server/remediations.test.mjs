@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { appsWithoutContainer, backupDestinationToMove, backupsDue, bootPartitionUnclean, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nameLookupsBroken, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, portConflicts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
 import { parseUncleanMounts } from "./ops/storage.mjs";
+import { appsWithoutContainer, backupDestinationToMove, backupsDue, bootPartitionUnclean, scheduledBackupApps, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nameLookupsBroken, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, portConflicts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
- * a 15 TB Seagate on USB dropped off the bus at 06:46, came back two seconds later as /dev/sdb,
+ * a 15 TB drive on USB dropped off the bus at 06:46, came back two seconds later as /dev/sdb,
  * and /mnt/the-dump stayed mounted from /dev/sda2 — which no longer existed. findmnt still listed
  * it, df still printed 15T with 1.9T used, and the Windows share showed "This folder is empty".
  */
@@ -86,6 +86,18 @@ describe("shares and drives nobody can write to", () => {
     expect(found.evidence).toContain("/mnt/the-dump is exfat, mounted without uid=");
   });
 
+  it("offers no fix it would refuse for a share on an exFAT drive BoxPilot did not mount, and says what to do", () => {
+    // samba.share.writable refuses a folder on a drive that keeps no owners and points at
+    // storage.writable, which changes only drives BoxPilot mounted: pressed, it failed every time.
+    const foreign = { target: "/media/usb", source: "/dev/sdc1", fstype: "exfat", options: "rw,nosuid,nodev", managedName: null };
+    const [found] = unwritableShares({ mounts: [foreign], shares: [{ name: "Stick", path: "/media/usb/share", readOnly: false, ownerUid: 0, forceUser: null }] });
+    expect(found).toMatchObject({ id: "share-unwritable:Stick", fix: null, fixes: [] });
+    expect(found.detail).toContain("add uid=1000,gid=1000 to its line in /etc/fstab");
+    // A drive BoxPilot mounted is still fixed through the drive, and a Linux folder by handing it over.
+    expect(unwritableShares({ mounts: [{ ...foreign, managedName: "stick" }], shares: [{ name: "Stick", path: "/media/usb/share", readOnly: false, ownerUid: 0, forceUser: null }] })[0].fix).toMatchObject({ operationId: "storage.writable" });
+    expect(unwritableShares({ mounts: [{ ...foreign, fstype: "ext4" }], shares: [{ name: "Stick", path: "/media/usb/share", readOnly: false, ownerUid: 0, forceUser: null }] })[0].fix).toMatchObject({ operationId: "samba.share.writable" });
+  });
+
   it("needs the real owner, not one inferred from whether a force user exists", () => {
     // Deriving ownerUid from `forceUser ? 1000 : 0` made every force-user-less read-write share
     // report "nobody can write to it", whoever actually owned the folder.
@@ -137,6 +149,16 @@ describe("things that are working but cannot be found or trusted", () => {
     // A drill that held and a rehearsal that passed are not findings.
     expect(vpnLeaks({ apps: [{ id: "q", killSwitchDrill: { leaked: false } }] })).toEqual([]);
     expect(failedRehearsals({ apps: [{ id: "j", backupVerification: { verified: true } }] })).toEqual([]);
+  });
+
+  it("asks for the new backup to be rehearsed once its fix has taken one, rather than for another backup", () => {
+    const app = { id: "jellyfin", name: "Jellyfin", backupVerification: { verified: false, backup: "x.tar.gz", reason: "The archive could not be unpacked.", checkedAt: "2026-08-29T03:30:00Z" } };
+    const protection = (newestAt) => ({ available: true, apps: [{ id: "jellyfin", name: "Jellyfin", protectable: true, backups: 3, newestAt }] });
+    const [after] = failedRehearsals({ apps: [app], protection: protection("2026-08-29T09:00:00Z") });
+    expect(after).toMatchObject({ id: "backup-rehearsal:jellyfin", severity: "warning", title: "Jellyfin's new backup has not been rehearsed yet", fix: { operationId: "app.backup.verify", parameters: { id: "jellyfin" }, label: "Rehearse the new backup" } });
+    // The newest backup is the one that failed, or older: still critical, still "take a fresh one".
+    expect(failedRehearsals({ apps: [app], protection: protection("2026-08-29T03:00:00Z") })[0]).toMatchObject({ severity: "critical", fix: { operationId: "app.backup" } });
+    expect(failedRehearsals({ apps: [app], protection: { available: false } })[0].severity).toBe("critical");
   });
 });
 
@@ -323,6 +345,17 @@ describe("a drive the kernel found not cleanly unmounted (M26)", () => {
     expect(drivesNeedingCheck({ mounts, devices, unclean, driveChecks: { "the-dump": { checkedAt: "2026-09-28T08:00:00.000Z", clean: false } } })).toHaveLength(1);
   });
 
+  it("offers no check it would refuse: an NTFS drive is said to need one elsewhere", () => {
+    // storage.check has no read-only checker for NTFS and refuses it, so "Check the drive" failed
+    // the same way every time, and the finding never cleared.
+    const ntfs = [{ ...mounts[0], fstype: "ntfs3" }];
+    const ntfsLine = { available: true, events: [{ device: "/dev/sda2", driver: "ntfs3", at: "2026-09-27T21:14:09.000Z", message: "ntfs3 (sda2): volume is dirty and \"force\" flag is not set!" }] };
+    const [found] = drivesNeedingCheck({ mounts: ntfs, devices, unclean: ntfsLine });
+    expect(found).toMatchObject({ id: "drive-check:the-dump", fix: null, fixes: [] });
+    expect(found.detail).toContain("BoxPilot has no read-only checker for ntfs3 filesystems");
+    for (const fstype of ["exfat", "vfat", "ext4"]) expect(drivesNeedingCheck({ mounts: [{ ...mounts[0], fstype }], devices, unclean })[0].fix).toMatchObject({ operationId: "storage.check" });
+  });
+
   it("matches the kernel's device to the drive mounted from it, not to any other", () => {
     expect(drivesNeedingCheck({ mounts: [{ ...mounts[0], source: "/dev/sdb2" }], devices, unclean })).toEqual([]);
   });
@@ -456,11 +489,11 @@ describe("a server that cannot check its exFAT drives", () => {
 
 
 describe("a drive that keeps dropping off USB", () => {
-  const twice = { available: true, days: 30, ports: [{ port: "6-1", product: "Expansion HDD", vendorId: "0bc2", productId: "2038", drops: ["2026-09-01T06:46:02.000Z", "2026-09-05T16:01:11.000Z"], returns: [], powerFaults: 0, resets: 0, lastDropAt: "2026-09-05T16:01:11.000Z" }] };
+  const twice = { available: true, days: 30, ports: [{ port: "6-1", product: "Portable Drive", vendorId: "1a2b", productId: "3c4d", drops: ["2026-09-01T06:46:02.000Z", "2026-09-05T16:01:11.000Z"], returns: [], powerFaults: 0, resets: 0, lastDropAt: "2026-09-05T16:01:11.000Z" }] };
 
   it("is named after the second drop, with the cable as the first suspect when no power fault was logged", () => {
     const [found] = flakyDrives({ usb: twice });
-    expect(found.title).toBe("Expansion HDD keeps dropping off USB port 6-1");
+    expect(found.title).toBe("Portable Drive keeps dropping off USB port 6-1");
     expect(found.detail).toContain("cable");
     expect(found.severity).toBe("warning");
     expect(found.fix).toBeNull();   // nothing BoxPilot can run fixes a cable
@@ -900,10 +933,28 @@ describe("the boot partition's mark (2026-09-29)", () => {
     expect(bootPartitionUnclean(facts({ bootChecks: { "/dev/nvme0n1p1": { checkedAt: "2026-09-29T23:00:00.000Z", clean: true } } }))).toEqual([]);
     // A check from before the line does not answer it.
     expect(bootPartitionUnclean(facts({ bootChecks: { "/dev/nvme0n1p1": { checkedAt: "2026-09-28T23:00:00.000Z", clean: true } } }))).toHaveLength(1);
+    // M48.4: a check since the line that found more than the mark is remembered: its evidence says what, and the fix is not offered again.
+    const [stuck] = bootPartitionUnclean(facts({ bootChecks: { "/dev/nvme0n1p1": { checkedAt: "2026-09-29T23:00:00.000Z", clean: false, beyond: ["Free cluster summary wrong (129270 vs. really 129260)"] } } }));
+    expect(stuck.evidence.at(-1)).toMatch(/\(found more than the mark: Free cluster summary wrong/);
+    expect(stuck.fixes).toEqual([]);
+    expect(stuck.manual).toMatch(/When the check finds more than the mark/);
   });
 
   it("is the only finding a power cut leaves on the system disks: root's orphan cleanup is not a drive BoxPilot manages", () => {
     const { findings } = detectRemediations(facts());
     expect(findings.map((entry) => entry.id)).toEqual(["boot-partition-mark"]);
+  });
+});
+
+describe("which apps the schedules back up (M48.4)", () => {
+  it("counts app.backup by id or its older subject, app.backup.many by ids, and nothing disabled", () => {
+    expect([...scheduledBackupApps([
+      { operationId: "app.backup", parameters: { id: "jellyfin" }, enabled: true },
+      { operationId: "app.backup", parameters: { subject: "nextcloud" } },
+      { operationId: "app.backup.many", parameters: { ids: ["immich", "vaultwarden"] } },
+      { operationId: "app.backup", parameters: { id: "paused" }, enabled: false },
+      { operationId: "docker.prune", parameters: {} },
+    ])].sort()).toEqual(["immich", "jellyfin", "nextcloud", "vaultwarden"]);
+    expect([...scheduledBackupApps(null)]).toEqual([]);
   });
 });

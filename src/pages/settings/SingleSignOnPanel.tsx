@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, CodeBlock, CopyButton, EmptyState, Field, Notice, Panel, Table, TextInput, Textarea, type TableColumn } from "../../ui";
+import { Button, CodeBlock, CopyButton, EmptyState, Field, Notice, Panel, Sheet, Table, TextInput, Textarea, type TableColumn } from "../../ui";
 
 /**
  * Settings → Single sign-on (M19.3; owner only): register the apps that may offer "Sign in with
@@ -21,6 +21,8 @@ export default function SingleSignOnPanel({ csrfToken }: { csrfToken: string }) 
   const [redirects, setRedirects] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Removing asks first (M49): the app's client id stops working for good, and registering it again gives a new one.
+  const [removing, setRemoving] = useState<OidcClient | null>(null);
   const [busy, setBusy] = useState(false);
   const headers = { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken };
 
@@ -57,7 +59,7 @@ export default function SingleSignOnPanel({ csrfToken }: { csrfToken: string }) 
       id: "action", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "settings-cell-action", cell: (client) => (
         <span className="settings-cell-buttons">
           <CopyButton value={client.id} label="Copy id" name={`${client.name}'s client id`} />
-          <Button variant="ghost" disabled={busy} onClick={() => void remove(client)} aria-label={`Remove ${client.name}`}>Remove</Button>
+          <Button variant="ghost" disabled={busy} onClick={() => setRemoving(client)} aria-label={`Remove ${client.name}`}>Remove</Button>
         </span>
       ),
     },
@@ -105,6 +107,12 @@ export default function SingleSignOnPanel({ csrfToken }: { csrfToken: string }) 
           {error && <Notice tone="danger" live>{error}</Notice>}
         </form>
       </Panel>
+      {removing && (
+        <Sheet side="center" size="sm" kicker="Single sign-on" title={`Remove ${removing.name}?`} onClose={() => setRemoving(null)}
+          footer={<><Button variant="ghost" onClick={() => setRemoving(null)}>Keep it</Button><Button variant="primary" busy={busy} onClick={() => void remove(removing).then(() => setRemoving(null))}>Remove</Button></>}>
+          <p>{removing.name} stops signing people in with BoxPilot at once, and its client id <code>{removing.id}</code> stops working for good. Registering it again gives a new id, which the app has to be configured with again.</p>
+        </Sheet>
+      )}
     </>
   );
 }

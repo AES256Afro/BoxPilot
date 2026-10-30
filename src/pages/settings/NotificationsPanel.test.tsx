@@ -1,11 +1,41 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import NotificationSettings from "./NotificationsPanel";
+import { openViewEvent } from "../../activityEvents";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 describe("Notification settings", () => {
+  it("offers to open the page a watched condition belongs to, and the weekly report's read failure says so (M49)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/notifications")) return json({ configured: false, kind: null, url: null, topic: null, hasToken: false });
+      if (url.endsWith("/settings/watch")) return json({ targetConfigured: true, activeCount: 1, conditions: [
+        { key: "schedule.failed", label: "A schedule keeps failing", active: true, details: [{ title: "Back up Jellyfin failed twice", since: null }] },
+        { key: "drive.reconnected", label: "A drive dropped and came back", active: false, details: [] },
+      ] });
+      if (url.endsWith("/settings/weekly-report")) return json({ error: "the report store is locked" }, 500);
+      if (url.includes("/api/v1/catalog")) return json({ applications: [], host: {} });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    const opened = vi.fn((event: Event) => (event as CustomEvent).detail);
+    window.addEventListener(openViewEvent, opened);
+    try {
+      render(<NotificationSettings csrfToken="csrf-token" />);
+      // The chip looked like a link and went nowhere: an active condition has Open, a clear one does not.
+      fireEvent.click(await screen.findByRole("button", { name: "Open the page for A schedule keeps failing" }));
+      expect(opened).toHaveBeenCalledTimes(1);
+      expect(opened.mock.results[0].value).toEqual({ view: "system", options: {} });
+      expect(screen.queryByRole("button", { name: "Open the page for A drive dropped and came back" })).toBeNull();
+      // The panel used to vanish when its read failed.
+      expect(await screen.findByText("The weekly report could not be read")).toBeTruthy();
+      expect(within(screen.getByRole("region", { name: "Weekly report" })).getByRole("button", { name: "Try again" })).toBeTruthy();
+    } finally {
+      window.removeEventListener(openViewEvent, opened);
+    }
+  });
+
   it("saves an ntfy target with the owner password", async () => {
     let saved: string | undefined;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -51,6 +81,29 @@ describe("Notification settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText(/Saved\./)).toBeTruthy();
     expect(JSON.parse(saved ?? "{}").target).toEqual({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" });
+  });
+
+  // "Change" cannot show the saved token, and saving without retyping it wiped it (Gotify was refused).
+  it("says an empty token keeps the saved one when the service is unchanged, and sends none", async () => {
+    let saved: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/notifications") && init?.method === "PUT") { saved = init.body as string; return json({ configured: true, kind: "gotify", url: "http://127.0.0.1:8092", topic: null, hasToken: true }); }
+      if (url.endsWith("/settings/notifications")) return json({ configured: true, kind: "gotify", url: "http://127.0.0.1:8091", topic: null, hasToken: true });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Change" }));
+    expect(screen.getByText(/Leave empty to keep the saved token/)).toBeTruthy();
+    // Another service does not keep it, so the hint is not given there.
+    fireEvent.change(screen.getByLabelText("Notification service"), { target: { value: "webhook" } });
+    expect(screen.queryByText(/Leave empty to keep the saved token/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Notification service"), { target: { value: "gotify" } });
+    fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "http://127.0.0.1:8092" } });
+    fireEvent.change(screen.getByLabelText("Owner password"), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Saved\./)).toBeTruthy();
+    expect(JSON.parse(saved ?? "{}").target).toEqual({ kind: "gotify", url: "http://127.0.0.1:8092" });
   });
 
   it("sends a test from a configured target", async () => {
@@ -113,5 +166,29 @@ describe("Notification settings", () => {
     expect(((await screen.findByRole("button", { name: "Send the report now" })) as HTMLButtonElement).disabled).toBe(true);
     // A greyed-out button says why, and what would enable it.
     expect(screen.getByText("Sending needs a notification target: set one above.")).toBeTruthy();
+  });
+
+  it("holds pushes overnight once quiet hours are on, and says how many are waiting", async () => {
+    let saved: unknown;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/quiet-hours") && init?.method === "PUT") { saved = JSON.parse(String(init.body)); return json({ ...(saved as object), held: 0, quietNow: false }); }
+      if (url.endsWith("/settings/quiet-hours")) return json({ enabled: false, start: "22:00", end: "07:00", holdHigh: false, held: 3, quietNow: false });
+      if (url.endsWith("/settings/notifications")) return json({ configured: true, kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot", hasToken: false });
+      if (url.endsWith("/settings/watch")) return json({ targetConfigured: true, activeCount: 0, conditions: [] });
+      if (url.endsWith("/settings/weekly-report")) return json({ enabled: false, cadence: "Sundays at 09:00", nextDueAt: null, lastSentAt: null, lastResult: null, targetConfigured: true });
+      return json({ applications: [], host: {} });
+    }));
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    const panel = await screen.findByRole("region", { name: "Quiet hours" });
+    expect(within(panel).getByText("3")).toBeTruthy();
+    const save = within(panel).getByRole("button", { name: "Save quiet hours" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(within(panel).getByRole("switch", { name: "Hold pushes overnight" }));
+    fireEvent.change(within(panel).getByLabelText("From"), { target: { value: "23:00" } });
+    fireEvent.change(within(panel).getByLabelText("Until"), { target: { value: "06:30" } });
+    fireEvent.click(save);
+    expect(await within(panel).findByText("Pushes wait from 23:00 to 06:30, server time.")).toBeTruthy();
+    expect(saved).toEqual({ enabled: true, start: "23:00", end: "06:30", holdHigh: false });
   });
 });

@@ -1,0 +1,203 @@
+/*
+ * Home as a blueprint (M41): the study's general arrangement drawing, measured in its own em (one
+ * em is ten units of the study's 740-unit sheet; the skin sets --bp-em from the page's width). Every
+ * selector starts with .blueprint-.
+ */
+
+.blueprint-home {
+  --ink: #f2f6ff;
+  --dim: #bccbe4;
+  --paper: #1f4f98;
+  color: var(--ink);
+  font-family: "Martian Mono", ui-monospace, monospace;
+  font-size: var(--bp-em, 16px);
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.blueprint-home :where(button) { color: inherit; font-family: inherit; font-size: inherit; font-weight: inherit; line-height: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+
+/* The drawing's title, in the top bar where the page's name goes. */
+.blueprint-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #f2f6ff;
+  font: 600 calc(var(--bp-em, 16px) * 1.3) / 1.2 "Martian Mono", ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.blueprint-sub { margin: -0.1em 0 0; color: var(--dim); font-size: 0.74em; letter-spacing: 0.02em; }
+.blueprint-quiet { margin: 0.6em 0; color: var(--dim); font-size: 0.7em; text-transform: none; }
+.blueprint-link { padding: 0; border: 0; color: var(--ink); background: none; text-decoration: underline; text-underline-offset: 0.2em; }
+
+/* The sheet: the enclosure and the drives on the left, the notes, loads and title block on the right. */
+.blueprint-sheet {
+  display: grid;
+  grid-template-columns: minmax(0, 42fr) minmax(0, 23.4fr);
+  column-gap: 2.6em;
+  max-width: 68em;
+  margin-top: 1.45em;
+}
+
+/* ── The Docker enclosure and its parts ── */
+.blueprint-enclosure {
+  min-height: 23.6em;
+  padding: 0.9em 0.8em 2em 1.4em;
+  border: 0.16em solid var(--ink);
+  background: rgba(242, 246, 255, 0.03);
+}
+.blueprint-enclosure__label { margin: 0; color: var(--dim); font-size: 0.68em; font-weight: 400; line-height: 1; letter-spacing: 0.02em; }
+.blueprint-parts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.4em 1em;
+  margin: 1.25em 0 0;
+  padding: 0;
+  list-style: none;
+}
+.blueprint-part {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 92 / 52;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.blueprint-part__drawing { display: block; width: 100%; height: 100%; overflow: visible; font-family: "Martian Mono", ui-monospace, monospace; }
+.blueprint-part__box { fill: transparent; stroke: var(--ink); stroke-width: 1; }
+.blueprint-part:hover .blueprint-part__box { fill: rgba(242, 246, 255, 0.1); }
+.blueprint-part__name { fill: var(--ink); font-size: 8.6px; font-weight: 600; letter-spacing: 0.02em; }
+.blueprint-part__fact { fill: var(--dim); font-size: 6.6px; }
+.blueprint-part[data-status="danger"] .blueprint-part__box { stroke-dasharray: 4 2; }
+.blueprint-part__marker { position: absolute; top: -0.85em; left: 77%; width: 1.8em; height: 1.6em; overflow: visible; }
+.blueprint-part__marker path,
+.blueprint-note__marker path { fill: var(--paper); stroke: var(--ink); stroke-width: 1; stroke-linejoin: miter; }
+.blueprint-part__marker text,
+.blueprint-note__marker text { fill: var(--ink); font: 600 7px "Martian Mono", ui-monospace, monospace; }
+
+/* ── The drives, dimensioned to scale ── */
+.blueprint-drive {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+  margin: 1.45em 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+.blueprint-drive__name { overflow: hidden; font-size: 0.76em; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.blueprint-drive__size { color: var(--dim); font-size: 0.7em; text-align: right; }
+.blueprint-drive__note { grid-column: 1 / -1; margin-top: 0.75em; color: var(--dim); font-size: 0.7em; }
+.blueprint-dim {
+  position: relative;
+  grid-column: 1 / -1;
+  height: 1em;
+  margin-top: 0.05em;
+  border-bottom: 0.09em solid var(--ink);
+  text-align: center;
+}
+.blueprint-dim::before,
+.blueprint-dim::after { position: absolute; bottom: -0.55em; width: 0.09em; height: 1em; background: var(--ink); content: ""; }
+.blueprint-dim::before { left: 0; }
+.blueprint-dim::after { right: 0; }
+.blueprint-dim span { position: absolute; bottom: 0.3em; left: 0; right: 0; font-size: 0.7em; line-height: 1; }
+.blueprint-bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 1.4em;
+  margin-top: 0.8em;
+  border: 0.1em solid var(--ink);
+}
+.blueprint-bar--small { height: 1em; margin-top: 0.65em; }
+.blueprint-bar i {
+  display: block;
+  height: 100%;
+  border-right: 0.1em solid var(--ink);
+  background: repeating-linear-gradient(135deg, var(--ink) 0 0.13em, transparent 0.13em 0.6em);
+}
+.blueprint-drive--system { margin-top: 1.55em; }
+.blueprint-drive:hover .blueprint-drive__name { text-decoration: underline; text-underline-offset: 0.2em; }
+
+/* ── General notes, the loads and the title block ── */
+.blueprint-right { position: relative; min-height: 26em; }
+.blueprint-right__fill { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.blueprint-notes { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.blueprint-notes__title {
+  margin: 0.55em 0 0;
+  padding-bottom: 0.3em;
+  border-bottom: 0.07em solid var(--ink);
+  font-size: 0.94em;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+}
+.blueprint-notes__count { float: right; margin-top: 0.35em; color: var(--dim); font-size: 0.64em; font-weight: 400; letter-spacing: 0.04em; }
+.blueprint-notes__list { flex: 1 1 auto; min-height: 0; margin: 0; padding: 1.3em 0 0.4em; overflow-y: auto; list-style: none; scrollbar-width: thin; scrollbar-color: var(--dim) transparent; }
+.blueprint-note { display: grid; grid-template-columns: 2.2em minmax(0, 1fr) auto; align-items: start; }
+.blueprint-note + .blueprint-note { margin-top: 1.1em; }
+.blueprint-note__marker { width: 1.6em; height: 1.4em; margin: -0.3em 0 0 -0.2em; overflow: visible; }
+.blueprint-note__words {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.74em;
+  line-height: 1.49;
+  text-align: left;
+}
+.blueprint-note__words:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+.blueprint-note__tier { padding-left: 1em; color: var(--dim); font-size: 0.6em; line-height: 1.8; }
+.blueprint-note__acts { display: flex; flex-wrap: wrap; grid-column: 2 / -1; gap: 0.5em 0.6em; margin-top: 0.4em; }
+.blueprint-note__run { grid-column: 2 / -1; margin-top: 0.4em; color: var(--dim); font-size: 0.6em; text-transform: none; }
+.blueprint-home .blueprint-act.ui-button {
+  min-width: 10.9em;
+  min-height: 0;
+  height: 2.12em;
+  padding: 0 0.9em;
+  border: 0.18em solid var(--ink);
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  font-size: 0.66em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.blueprint-home .blueprint-act.ui-button::before { display: none; }
+.blueprint-home .blueprint-act.ui-button:hover:not(:disabled) { background: rgba(242, 246, 255, 0.14); }
+
+.blueprint-loads { width: 100%; margin-top: 0.9em; border: 0.1em solid var(--ink); border-collapse: collapse; }
+.blueprint-loads td { width: 50%; height: 2.2em; padding: 0; border: 0.1em solid var(--ink); }
+.blueprint-loads button { display: block; width: 100%; height: 100%; padding: 0 0.85em; border: 0; background: none; font-size: 0.7em; text-align: left; white-space: nowrap; }
+.blueprint-loads button:hover { background: rgba(242, 246, 255, 0.1); }
+
+.blueprint-block {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 1em;
+  border: 0.14em solid var(--ink);
+}
+.blueprint-block__head { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 1em; height: 2.4em; padding: 0 0.8em; border-bottom: 0.1em solid var(--ink); }
+.blueprint-block__head b { font-size: 1.1em; font-weight: 600; letter-spacing: 0.2em; }
+.blueprint-block__head span { overflow: hidden; color: var(--dim); font-size: 0.66em; text-overflow: ellipsis; white-space: nowrap; }
+.blueprint-block > span { display: flex; align-items: center; height: 2.5em; padding: 0 0.95em; font-size: 0.64em; white-space: nowrap; }
+.blueprint-block > span:nth-of-type(odd) { border-right: 0.16em solid var(--ink); }
+.blueprint-block > span:nth-of-type(n + 3) { border-top: 0.16em solid var(--ink); }
+
+/* ── A narrow screen: the drawing folds into one column, the parts two to a row ── */
+@media (max-width: 760px) {
+  .blueprint-home { font-size: 12px; }
+  .blueprint-title { font-size: 15px; white-space: normal; }
+  .blueprint-sub { font-size: 10.5px; }
+  .blueprint-sheet { grid-template-columns: minmax(0, 1fr); row-gap: 1.6em; margin-top: 1.2em; }
+  .blueprint-enclosure { min-height: 0; padding: 0.9em 0.9em 1.4em; }
+  .blueprint-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.6em 0.9em; }
+  .blueprint-right { min-height: 0; }
+  .blueprint-right__fill { position: static; }
+  .blueprint-notes__list { overflow: visible; }
+  .blueprint-note__words { font-size: 11px; }
+  .blueprint-home .blueprint-act.ui-button { font-size: 10.5px; min-height: 36px; height: auto; }
+  .blueprint-loads button { min-height: 36px; font-size: 10.5px; }
+}

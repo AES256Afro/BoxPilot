@@ -16,7 +16,7 @@
 import { Router } from "express";
 import { createEventStream } from "../event-stream.mjs";
 
-const callerOf = (request) => ({ id: request.boxpilotSession?.owner?.id ?? null, role: request.boxpilotSession?.owner?.role ?? "owner" });
+const callerOf = (request) => ({ id: request.boxpilotSession?.owner?.id ?? null, role: request.boxpilotSession?.owner?.role ?? "disabled" });
 
 function refuse(response, error) {
   if (error?.expose) return response.status(error.status).json({ error: error.message, code: error.code });

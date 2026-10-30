@@ -10,6 +10,12 @@ describe("apps stopped on purpose", () => {
     expect(foldAppStop({}, job("app.action", { id: "plex", action: "stop" }), { now })).toEqual({ plex: { at: "2026-09-28T22:10:20.000Z", by: "owner-1" } });
   });
 
+  it("forgets each app a job updated several of", () => {
+    const stopped = { plex: { at: "2026-09-28T22:10:20.000Z", by: "owner-1" }, farspace: { at: "2026-09-28T22:02:06.000Z", by: "owner-1" } };
+    expect(foldAppStop(stopped, job("app.update.many", { ids: ["plex", "jellyfin"] }))).toEqual({ farspace: stopped.farspace });
+    expect(foldAppStop(stopped, job("app.update.many", { ids: ["jellyfin"] }))).toBe(stopped);
+  });
+
   it("forgets it when the app is brought back or replaced", () => {
     const stopped = { plex: { at: "2026-09-28T22:10:20.000Z", by: "owner-1" }, farspace: { at: "2026-09-28T22:02:06.000Z", by: "owner-1" } };
     for (const action of ["start", "restart", "unpause"]) {

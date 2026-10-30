@@ -16,6 +16,7 @@ import { mkdir, readlink, rename, rm, stat, statfs, symlink, unlink, writeFile }
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { readBounded } from "../../packages/harness/src/index.mjs";
 import { cacheDirectory, cachedFile, readModelParameters } from "./host.mjs";
 
 const trustedHosts = /(^|\.)(huggingface\.co|hf\.co)$/;
@@ -60,9 +61,14 @@ async function downloadVerified(url, target, { size, sha256, fetcher, log, label
   }
 }
 
+/**
+ * @param {{ repo: string, file: string, projector?: string | null }} parameters
+ * @param {{ stateDir: string, fetcher?: typeof fetch, log?: (line: string) => void }} options
+ */
 export async function downloadModel(parameters, { stateDir, fetcher = fetch, log = () => {} }) {
   const model = readModelParameters(parameters);
-  const info = await (await fetchFromHub(`https://huggingface.co/api/models/${model.repo}/revision/main?blobs=true`, { fetcher })).json();
+  // The model list bounded (M50): the files are checked by size and hash, the list was read whole.
+  const info = JSON.parse(await readBounded(await fetchFromHub(`https://huggingface.co/api/models/${model.repo}/revision/main?blobs=true`, { fetcher }), 8 * 1024 * 1024));
   const commit = typeof info?.sha === "string" && /^[a-f0-9]{40}$/.test(info.sha) ? info.sha : null;
   if (!commit) throw new Error("Hugging Face did not say which revision is current");
   const siblings = new Map((Array.isArray(info.siblings) ? info.siblings : []).map((entry) => [entry?.rfilename, entry]));

@@ -1,4 +1,4 @@
-import { rm, stat } from "node:fs/promises";
+import { lstat, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -14,9 +14,9 @@ import path from "node:path";
  * the install root, be a directory, match a naming scheme BoxPilot's own updater has used, and not
  * be the running install.
  */
-const leftoverPattern = /^boxpilot(?:\.prev\.|\.rollback-|-prev-|-live-before-|-candidate-|\.failed\.)/;
+const leftoverPattern = /^boxpilot(?:\.prev\.|\.rollback-|-prev-|-live-before-|-candidate-|\.failed\.|\.staging\.)/;
 
-export async function housekeepingRemoveTrees({ paths = [], installRoot = "/opt", currentTree = "/opt/boxpilot" } = {}, { log = null, files = { rm, stat } } = {}) {
+export async function housekeepingRemoveTrees({ paths = [], installRoot = "/opt", currentTree = "/opt/boxpilot" } = {}, { log = null, files = { rm, stat, lstat } } = {}) {
   if (!Array.isArray(paths)) throw new Error("paths must be a list");
   if (paths.length > 500) throw new Error("too many paths in one request");
   const root = path.resolve(installRoot);
@@ -30,7 +30,8 @@ export async function housekeepingRemoveTrees({ paths = [], installRoot = "/opt"
     if (path.dirname(resolved) !== root) { refused.push({ path: resolved, reason: "not directly in the install root" }); continue; }
     if (resolved === current) { refused.push({ path: resolved, reason: "this is the running install" }); continue; }
     if (!leftoverPattern.test(path.basename(resolved))) { refused.push({ path: resolved, reason: "not a name a BoxPilot update leaves behind" }); continue; }
-    const info = await files.stat(resolved).catch(() => null);
+    // lstat, so a link is seen as one (M50): stat followed it, and the link test below never held.
+    const info = await (files.lstat ?? files.stat)(resolved).catch(() => null);
     if (!info) { refused.push({ path: resolved, reason: "no longer there" }); continue; }
     if (!info.isDirectory() || info.isSymbolicLink()) { refused.push({ path: resolved, reason: "not a directory" }); continue; }
     try {

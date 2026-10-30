@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import type { AutoReconnectControl } from "../../AutoReconnect";
 import { mountpointFor } from "../../mountpoints";
-import { CopyButton, Switch } from "../../ui";
+import { Button, CopyButton, Switch } from "../../ui";
 import type { Status } from "../../ui";
+import { openView } from "../../activityEvents";
 import { gib, percentUsed, type DiagnosticCheck } from "./types";
 
 /*
@@ -81,11 +82,13 @@ export function ReconnectSwitch({ drive, control, canChange }: { drive: string; 
   const armed = status.drives[drive] ?? null;
   const mountpoint = mountpointFor(drive);
   const period = status.limits.windowHours === 24 ? "day" : `${status.limits.windowHours} hours`;
-  // Where "by hand" is: this row has no Reconnect button; Repair's finding does.
-  const waiting = armed && !armed.enabled
-    ? "Paused on Automations."
-    : armed?.held ? `Waiting for you: ${armed.heldBecause ?? "the last automatic reconnect did not work"}. Reconnect it from Repair Center to start again.`
-      : armed?.lastCheckFoundErrors ? "Waiting for you: its last check found errors." : null;
+  // Where "by hand" is: this row has no Reconnect button; Repair's finding does. The page it is
+  // on is a button away (M49): the words alone sent people looking.
+  const paused = Boolean(armed && !armed.enabled);
+  const waiting: { text: string; open: { view: string; label: string } } | null = paused
+    ? { text: "Paused on Automations: nothing reconnects until it is resumed there.", open: { view: "automations", label: "Open Automations" } }
+    : armed?.held ? { text: `Waiting for you: ${armed.heldBecause ?? "the last automatic reconnect did not work"}. Reconnect it from Repair Center to start again.`, open: { view: "repairs", label: "Open Repair Center" } }
+      : armed?.lastCheckFoundErrors ? { text: "Waiting for you: its last check found errors.", open: { view: "repairs", label: "Open Repair Center" } } : null;
   return (
     <div className="storage-reconnect">
       <Switch
@@ -94,9 +97,14 @@ export function ReconnectSwitch({ drive, control, canChange }: { drive: string; 
         disabled={!canChange}
         onChange={(on) => void (on ? control.arm(drive) : control.disarm(drive))}
         label={<>Reconnect if it drops<span className="ui-visually-hidden">{`: ${mountpoint}`}</span></>}
-        description={armed ? `Reconnects automatically${armed.attempts ? `; ${armed.attempts} of ${status.limits.maxAttempts} used in the last ${period}` : ""}.` : undefined}
+        description={armed ? (paused ? "Set, but paused on Automations." : `Reconnects automatically${armed.attempts ? `; ${armed.attempts} of ${status.limits.maxAttempts} used in the last ${period}` : ""}.`) : undefined}
       />
-      {waiting && <p className="storage-reconnect__waiting ui-marked" data-status="warning"><span className="ui-mark" aria-hidden="true" />{waiting}</p>}
+      {waiting && (
+        <p className="storage-reconnect__waiting ui-marked" data-status="warning">
+          <span className="ui-mark" aria-hidden="true" />{waiting.text}{" "}
+          <Button variant="ghost" onClick={() => openView(waiting.open.view)}>{waiting.open.label}</Button>
+        </p>
+      )}
       {error?.drive === drive && <p className="storage-reconnect__error" role="alert">{error.message}</p>}
     </div>
   );

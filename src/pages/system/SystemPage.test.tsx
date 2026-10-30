@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { DatabaseCopies, type DatabaseCopiesReport } from "./DatabaseCopies";
-import { SystemHardware } from "./SystemHardware";
 import SystemPage from "./SystemPage";
+import { SystemPower, thresholdWords, watchdogWords, type SystemPowerProps } from "./SystemPower";
+import type { PowerHardware, PowerOverview } from "./systemTypes";
 import { updateLogFacts } from "./SystemUpdates";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
@@ -29,6 +30,33 @@ const housekeeping = {
   ],
 };
 
+const guidance = {
+  id: "power-on-after-outage", title: "Make the server start by itself when the power comes back",
+  summary: "Most boards stay off after a power cut until someone presses the button.",
+  why: ["\"Last State\" is not enough: after a clean shutdown, the last state is off, so the server stays off.", "With the UPS, BoxPilot shuts the server down when the battery runs low and the UPS then switches its outlets off."],
+  board: { vendor: "ASUSTeK COMPUTER INC.", maker: "asus" },
+  steps: [
+    { maker: "ASUS", id: "asus", key: "Del or F2", path: ["Advanced", "APM Configuration", "Restore AC Power Loss"], value: "Power On", text: "", thisBoard: true },
+    { maker: "Gigabyte", id: "gigabyte", key: "Del", path: ["Settings", "Platform Power", "AC BACK"], value: "Always On", text: "", thisBoard: false },
+  ],
+  other: "Another maker: look for \"AC power loss\".", alsoHelps: "Wake-on-LAN lets another device start the server after a clean shutdown.",
+};
+const overview: PowerOverview = {
+  ups: { installed: true, configured: true, available: true, state: "online", reason: "ok", batteryChargePercent: 100, estimatedRuntimeSeconds: 1260, loadPercent: 18, lowBatteryPercent: 20, lowRuntimeSeconds: 300 },
+  events: [
+    { at: "2026-09-29T18:44:40Z", event: "on-mains", charge: 96, runtime: 1180 },
+    { at: "2026-09-29T18:41:02Z", event: "on-battery", charge: 100, runtime: 1260 },
+  ],
+  eventsAvailable: "yes",
+  policy: { shutdownAtLowBattery: true, lowBatteryPercent: 20, lowRuntimeSeconds: 300, preparationSeconds: 60, configuredAt: "2026-09-29T10:00:00Z" },
+  guidance,
+};
+const hardware: PowerHardware = {
+  watchdog: { state: "loadable", usable: true, virtualization: "none", devices: [], driver: { name: "sp5100_tco", available: "module", loaded: false, blacklisted: true }, runtimeSeconds: 0, rebootSeconds: 600, managedByBoxPilot: false },
+  wakeOnLan: { ethtool: true, ports: [{ name: "enp5s0", mac: "02:00:00:00:00:01", driver: "r8169", up: true, supports: "pumbg", current: "d", supportsMagic: true, magicOn: false, linkFile: "/usr/lib/systemd/network/99-default.link", keptByBoxPilot: false }] },
+  boardVendor: "ASUSTeK COMPUTER INC.",
+};
+
 /** The page's reads, and any job it stages, recorded. */
 function serve(overrides: Record<string, (init?: RequestInit) => Response> = {}) {
   const staged: Record<string, unknown> = {};
@@ -36,11 +64,13 @@ function serve(overrides: Record<string, (init?: RequestInit) => Response> = {})
     const url = input.toString();
     for (const [suffix, answer] of Object.entries(overrides)) if (url.endsWith(suffix)) return answer(init);
     const job = url.match(/\/operations\/([^/]+)\/jobs$/);
-    if (job) { staged[job[1]] = JSON.parse(String(init?.body)); return stagedJob(job[1], job[1] === "system.update" ? "high" : "medium"); }
+    if (job) { staged[job[1]] = JSON.parse(String(init?.body)); return stagedJob(job[1], ["system.update", "system.update.signer.set"].includes(job[1]) ? "high" : "medium"); }
     if (url.endsWith("/operations/system.settings.inspect/inspect")) return json({ operation: "system.settings.inspect", result: settings });
     if (url.endsWith("/operations/housekeeping.inspect/inspect")) return json({ operation: "housekeeping.inspect", result: housekeeping });
     if (url.endsWith("/api/v1/system/update")) return json({ ...release, updateAvailable: false, latest: { ...release.latest, tag: "v0.61.0", version: "0.61.0" } });
     if (url.endsWith("/api/v1/power/ups/detect")) return json({ devices: [], nutInstalled: false });
+    if (url.endsWith("/api/v1/power/overview")) return json(overview);
+    if (url.endsWith("/operations/power.hardware.inspect/inspect")) return json({ operation: "power.hardware.inspect", result: hardware });
     return json({ error: `unexpected ${url}` }, 500);
   }));
   return staged;
@@ -60,6 +90,14 @@ describe("System page", () => {
     expect(screen.getByRole("tab", { name: "Time & name" }).getAttribute("aria-selected")).toBe("true");
   });
 
+  it("says the look is in Settings, and opens Appearance from here", async () => {
+    serve();
+    const onOpenAppearance = vi.fn();
+    render(<SystemPage csrfToken="csrf-token" onOpenAppearance={onOpenAppearance} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Appearance" }));
+    expect(onOpenAppearance).toHaveBeenCalledTimes(1);
+  });
+
   it("stages a time zone change through the dialog, and keeps what was typed when the page reads again", async () => {
     const staged = serve();
     window.history.replaceState(null, "", "/?tab=time");
@@ -72,12 +110,79 @@ describe("System page", () => {
     expect((change as HTMLButtonElement).disabled).toBe(true);
     expect(change.getAttribute("data-risk")).toBe("medium");
     fireEvent.change(zone, { target: { value: "Europe/Berlin" } });
-    fireEvent.click(screen.getByRole("button", { name: "Read again" }));
-    await waitFor(() => expect((screen.getByRole("button", { name: "Read again" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Check again" }) as HTMLButtonElement).disabled).toBe(false));
     expect((screen.getByLabelText("Set the time zone") as HTMLSelectElement).value).toBe("Europe/Berlin");
     fireEvent.click(screen.getByRole("button", { name: "Change time zone" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(staged["system.timezone.set"]).toEqual({ parameters: { timezone: "Europe/Berlin" } });
+  });
+
+  it("keeps a typed value through a read that changes nothing, and shows a new value in force once it changes", async () => {
+    let current = { ...settings };
+    serve({ "/operations/system.settings.inspect/inspect": () => json({ operation: "system.settings.inspect", result: current }) });
+    window.history.replaceState(null, "", "/?tab=hardware");
+    render(<SystemPage csrfToken="csrf-token" />);
+    const field = () => screen.getByLabelText("Swappiness") as HTMLInputElement;
+    await waitFor(() => expect(field().value).toBe("60"));
+    fireEvent.change(field(), { target: { value: "15" } });
+    const readAgain = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect((screen.getByRole("button", { name: "Check again" }) as HTMLButtonElement).disabled).toBe(false));
+    };
+    await readAgain();
+    expect(field().value).toBe("15");
+    // Set to 10 elsewhere (another tab, the command line): the form starts over from what is in force,
+    // rather than keeping an old draft whose Apply would undo that change.
+    current = { ...settings, swappiness: 10 };
+    await readAgain();
+    await waitFor(() => expect(field().value).toBe("10"));
+  });
+
+  it("keeps a half-typed hostname through a time zone change, and shows a rename done elsewhere", async () => {
+    let current = { ...settings };
+    serve({ "/operations/system.settings.inspect/inspect": () => json({ operation: "system.settings.inspect", result: current }) });
+    window.history.replaceState(null, "", "/?tab=time");
+    render(<SystemPage csrfToken="csrf-token" />);
+    const name = () => screen.getByLabelText("Rename this server") as HTMLInputElement;
+    await waitFor(() => expect(name().value).toBe("shiny-box"));
+    fireEvent.change(name(), { target: { value: "new-na" } });
+    const readAgain = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+      await waitFor(() => expect((screen.getByRole("button", { name: "Check again" }) as HTMLButtonElement).disabled).toBe(false));
+    };
+    current = { ...settings, timezone: "Europe/Berlin" };
+    await readAgain();
+    await waitFor(() => expect((screen.getByLabelText("Set the time zone") as HTMLSelectElement).value).toBe("Europe/Berlin"));
+    expect(name().value).toBe("new-na");
+    current = { ...current, hostname: { static: "renamed-box", live: "renamed-box" } };
+    await readAgain();
+    await waitFor(() => expect(name().value).toBe("renamed-box"));
+  });
+
+  // The update restarts BoxPilot, and approving it while a job runs is refused (server/jobs.mjs):
+  // the button says so first, naming the jobs (runningJobs.test.ts: and offers itself again).
+  it("holds the update button while jobs run, and says which", async () => {
+    const jobs = [
+      { id: "j1", type: "op:app.backup", title: "Back up Jellyfin", state: "applying", risk: "low", error: null, result: null, steps: [], approvals: [] },
+      { id: "j2", type: "op:system.update", title: "Update BoxPilot to v0.62.0", state: "awaiting_approval", risk: "high", error: null, result: null, steps: [], approvals: [] },
+      { id: "j3", type: "op:apt.upgrade", title: "Install updates", state: "completed", risk: "medium", error: null, result: null, steps: [], approvals: [] },
+    ];
+    serve({
+      "/api/v1/system/update": () => json(release),
+      "/api/v1/jobs?limit=30": () => json({ jobs }),
+      "/operations/system.update.status/inspect": () => json({ operation: "system.update.status", result: { units: [], log: [], outcome: "live" } }),
+    });
+    render(<SystemPage csrfToken="csrf-token" />);
+    expect(await screen.findByText("Update available")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /BoxPilot update/ }));
+    const go = await screen.findByRole("button", { name: /Update to v0.62.0/ });
+    await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(true));
+    const why = "Wait for a running job to finish first: Back up Jellyfin. The update restarts BoxPilot and would interrupt it.";
+    expect(document.querySelector(".system-asks")?.textContent).toBe(why);
+    // The button carries the same reason, read out with it (ui/Button.tsx).
+    expect(go.getAttribute("title")).toBe(why);
+    expect(screen.queryByText(/Updating asks for your password/)).toBeNull();
   });
 
   it("offers the newer GitHub release and stages the high-risk update with only the tag, the tag typed out", async () => {
@@ -87,7 +192,7 @@ describe("System page", () => {
     });
     render(<SystemPage csrfToken="csrf-token" />);
     expect(await screen.findByText("Update available")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: /Updates/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /BoxPilot update/ }));
     expect(screen.getByText(/Updating asks for your password, then the tag/)).toBeTruthy();
     const go = screen.getByRole("button", { name: /Update to v0.62.0/ });
     expect(go.getAttribute("data-risk")).toBe("high");
@@ -96,6 +201,77 @@ describe("System page", () => {
     expect(screen.getByLabelText("Typed confirmation")).toBeTruthy();
     expect(staged["system.update"]).toEqual({ parameters: { tag: "v0.62.0" } });
     expect(screen.getByText("Last update log, live")).toBeTruthy();
+  });
+
+  it("shows whether releases must be signed and stages the release key as high risk, typed out", async () => {
+    const fingerprint = "SHA256:abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
+    let signer: { type: string; fingerprint: string } | null = null;
+    const staged = serve({
+      "/api/v1/system/update": () => json(release),
+      "/operations/system.update.status/inspect": () => json({ operation: "system.update.status", result: { units: [], log: [], outcome: null, signer } }),
+    });
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /BoxPilot update/ }));
+    expect(await screen.findByText("not required")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Release key…" }));
+    const require = screen.getByRole("button", { name: "Require this key" }) as HTMLButtonElement;
+    expect(require.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("SSH public key"), { target: { value: "  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl owner@laptop\n" } });
+    expect(require.getAttribute("data-risk")).toBe("high");
+    fireEvent.click(require);
+    expect(await screen.findByText("High risk")).toBeTruthy();
+    expect(screen.getByLabelText("Typed confirmation")).toBeTruthy();
+    expect(staged["system.update.signer.set"]).toEqual({ parameters: { publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl owner@laptop" } });
+    cleanup();
+    signer = { type: "ssh-ed25519", fingerprint };
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("tab", { name: /BoxPilot update/ }));
+    expect(await screen.findByText(`required, key ${fingerprint}`)).toBeTruthy();
+  });
+
+  // "Updating to X" was never cleared when the update stopped or ran past ten minutes: the verdict
+  // said it was updating for good, and the Update button stayed hidden.
+  describe("an update that does not go live", () => {
+    afterEach(() => { vi.useRealTimers(); });
+    /** Approves the update and waits until the page follows it; `outcome` is what its log says. */
+    async function runUpdate(outcome: () => string) {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      serve({
+        "/api/v1/system/update": () => json(release),
+        "/api/v1/health": () => json({ status: "ok", version: "0.61.0" }),
+        "/operations/system.update.status/inspect": () => json({ operation: "system.update.status", result: { units: [], outcome: outcome(), log: outcome() === "failed" ? ["[boxpilot-upgrade] ERROR: the build failed. Nothing was changed."] : ["[boxpilot-upgrade] building"] } }),
+        "/jobs/job-system.update/approve": () => json({ job: { id: "job-system.update", state: "applying" }, elevatedUntil: null }, 202),
+        "/jobs/job-system.update/output": () => json({ jobId: "job-system.update", state: "completed", output: "", live: false }),
+        "/jobs/job-system.update": () => json({ job: { id: "job-system.update", type: "op:system.update", title: "Update", state: "completed", risk: "high", error: null, result: {}, steps: [], approvals: [] } }),
+      });
+      render(<SystemPage csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("tab", { name: /BoxPilot update/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /Update to v0.62.0/ }));
+      fireEvent.change(await screen.findByLabelText("Typed confirmation"), { target: { value: "v0.62.0" } });
+      fireEvent.change(screen.getByLabelText("Approval password"), { target: { value: "correct horse battery" } });
+      fireEvent.click(screen.getByRole("button", { name: "Approve and run" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+      await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Updating to 0.62.0"));
+      expect(screen.queryByRole("button", { name: /Update to v0.62.0/ })).toBeNull();
+    }
+
+    it("stops saying it is updating once the update's log says it stopped, and offers it again", async () => {
+      let outcome = "running";
+      await runUpdate(() => outcome);
+      outcome = "failed";
+      await act(async () => { vi.advanceTimersByTime(6500); });
+      await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Last update failed"));
+      expect(screen.getByText("The last update stopped")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Update to v0.62.0/ })).toBeTruthy();
+    });
+
+    it("stops saying it is updating after ten minutes without the new version, says so, and offers it again", async () => {
+      await runUpdate(() => "running");
+      await act(async () => { vi.advanceTimersByTime(10 * 60 * 1000 + 6000); });
+      await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).not.toBe("Updating to 0.62.0"));
+      expect(screen.getByText("The update is taking longer than ten minutes")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Update to v0.62.0/ })).toBeTruthy();
+    });
   });
 
   it("says the last update stopped, and why, in the verdict and on its tab", async () => {
@@ -107,7 +283,7 @@ describe("System page", () => {
     render(<SystemPage csrfToken="csrf-token" />);
     await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Last update failed"));
     expect(document.querySelector(".ui-page-header__verdict")?.getAttribute("data-status")).toBe("danger");
-    fireEvent.click(screen.getByRole("tab", { name: /Updates/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /BoxPilot update/ }));
     const notice = screen.getByText("The last update stopped").closest(".ui-notice");
     expect(notice?.getAttribute("data-status")).toBe("danger");
     expect(notice?.textContent).toMatch(/database or disk is full\. Nothing was changed/);
@@ -127,13 +303,56 @@ describe("System page", () => {
     expect(staged["housekeeping.reclaim"]).toEqual({ parameters: { targets: ["docker-unused"] } });
   });
 
+  // R4B3-5: a machine snapshot that cannot be read stops every app's older backups from being pruned,
+  // and nothing could remove it. Housekeeping names it, and the owner removes it by name.
+  it("offers the owner the removal of each unreadable machine snapshot, by name", async () => {
+    const damaged = "machine-snapshot-20260811T000000Z-abcdef01.tar.gz";
+    const unreadable = { id: "unreadable-snapshots", title: "Unreadable machine snapshots", summary: "Machine snapshots BoxPilot cannot open.", items: 1, bytes: 8, humanBytes: "8 B", detail: [damaged], keeping: [], safe: false, unavailable: "The owner removes these one at a time." };
+    const report = { ...housekeeping, categories: [...housekeeping.categories, unreadable] };
+    const staged = serve({ "/operations/housekeeping.inspect/inspect": () => json({ operation: "housekeeping.inspect", result: report }) });
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    expect((await screen.findByRole("checkbox", { name: /Unreadable machine snapshots/ }) as HTMLInputElement).disabled).toBe(true);
+    const remove = screen.getByRole("button", { name: `Remove ${damaged}` });
+    expect(remove.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(remove);
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(staged["housekeeping.unreadable-snapshot.remove"]).toEqual({ parameters: { name: damaged } });
+    cleanup();
+
+    // An operator sees the name, and no way to remove it.
+    serve({ "/operations/housekeeping.inspect/inspect": () => json({ operation: "housekeeping.inspect", result: report }) });
+    render(<SystemPage csrfToken="csrf-token" role="operator" />);
+    expect(await screen.findByRole("checkbox", { name: /Unreadable machine snapshots/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull();
+  });
+
+  // R5B4-3: Housekeeping read itself again only after a reclaim; a snapshot removed by name stayed
+  // listed, with its Remove button, until the page was read again by hand.
+  it("reads Housekeeping again once an unreadable snapshot has been removed", async () => {
+    const damaged = "machine-snapshot-20260811T000000Z-abcdef01.tar.gz";
+    const unreadable = { id: "unreadable-snapshots", title: "Unreadable machine snapshots", summary: "Machine snapshots BoxPilot cannot open.", items: 1, bytes: 8, humanBytes: "8 B", detail: [damaged], keeping: [], safe: false, unavailable: "The owner removes these one at a time." };
+    let removed = false;
+    const jobId = "job-housekeeping.unreadable-snapshot.remove";
+    serve({
+      "/operations/housekeeping.inspect/inspect": () => json({ operation: "housekeeping.inspect", result: removed ? housekeeping : { ...housekeeping, categories: [...housekeeping.categories, unreadable] } }),
+      [`/jobs/${jobId}/approve`]: () => json({ job: { id: jobId, state: "applying" }, elevatedUntil: null }, 202),
+      [`/jobs/${jobId}`]: () => { removed = true; return json({ job: { id: jobId, type: "op:housekeeping.unreadable-snapshot.remove", title: "Remove", state: "completed", risk: "medium", error: null, result: { removed: damaged }, steps: [], approvals: [] } }); },
+    });
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: `Remove ${damaged}` }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: `Remove ${damaged}` })).toBeNull());
+  });
+
   it("switches the weekly trim through its own tiered switch", async () => {
     const staged = serve({ "/operations/system.settings.inspect/inspect": () => json({ operation: "system.settings.inspect", result: { ...settings, fstrim: { active: "inactive", enabled: "disabled", nextRun: null } } }) });
     window.history.replaceState(null, "", "/?tab=hardware");
     render(<SystemPage csrfToken="csrf-token" />);
     const trim = await screen.findByRole("switch", { name: "Weekly trim" });
     expect(trim.getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByText(/Weekly trim keeps SSDs/)).toBeTruthy();
+    expect(screen.getByText(/Weekly trim is off\. It keeps SSDs/)).toBeTruthy();
     fireEvent.click(trim);
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(staged["service.action"]).toEqual({ parameters: { unit: "fstrim.timer", action: "enable" } });
@@ -156,7 +375,7 @@ describe("System page", () => {
     serve({ "/api/v1/system/update": () => json({ status: "ok", mode: "host-aware" }) });
     render(<SystemPage csrfToken="csrf-token" />);
     await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Not checked"));
-    fireEvent.click(screen.getByRole("tab", { name: /Updates/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /BoxPilot update/ }));
     expect(screen.getByText("The release check did not answer")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Update to/ })).toBeNull();
   });
@@ -167,6 +386,145 @@ describe("System page", () => {
     expect(await screen.findByText("System settings could not be read")).toBeTruthy();
     expect(screen.getByText("Not read").closest(".ui-chip")?.getAttribute("data-status")).toBe("unknown");
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+});
+
+// M30.8: the journal, job logs, APT's cache and dangling images, measured when asked, previewed
+// with the chosen bounds, and cleaned with exactly the parameters the preview was made for.
+describe("logs and caches", () => {
+  const MiB = 1024 ** 2;
+  const spaceReport = {
+    generatedAt: "2026-10-18T09:00:00.000Z",
+    categories: [
+      { id: "journal", title: "System journal", path: "/var/log/journal", bytes: 1288 * MiB, inodes: 26, available: true, unavailable: null, humanBytes: "1.3 GiB", filesystem: "2049",
+        detail: { journaldReportedBytes: 1288 * MiB, folders: 1, activeFiles: 2, activeBytes: 96 * MiB, archivedFiles: 23, archivedBytes: 1192 * MiB } },
+      { id: "job-logs", title: "BoxPilot job logs", path: "/run/boxpilot/job-logs", bytes: 22_000, inodes: 6, available: true, unavailable: null, humanBytes: "21.5 KiB", filesystem: "25",
+        detail: { retentionDays: 14, active: { count: 2, bytes: 9000 }, "past-retention": { count: 1, bytes: 2000 }, completed: { count: 1, bytes: 4000 }, failed: { count: 1, bytes: 5000 }, unlisted: { count: 1, bytes: 2000 } } },
+      { id: "apt-cache", title: "APT download cache", path: "/var/cache/apt", bytes: 312 * MiB, inodes: 91, available: true, unavailable: null, humanBytes: "312.0 MiB", filesystem: "2049",
+        detail: { cleanableFiles: 84, cleanableBytes: 300 * MiB, packages: 82 } },
+      { id: "docker", title: "Docker", available: false, unavailable: "Docker did not answer", bytes: null, inodes: null, humanBytes: null, detail: null },
+      { id: "backups", title: "Local backups", path: "/var/lib/boxpilot-managed/backups/catalog", bytes: 5020, inodes: 12, available: true, unavailable: null, humanBytes: "4.9 KiB", filesystem: "2049",
+        detail: { roots: [
+          { id: "application", title: "Application backups", path: "/var/lib/boxpilot-managed/backups/catalog", bytes: 5020, inodes: 12, files: 10, retention: "Each backup keeps the newest copies of its own kind.", beyondNewest: { count: 2, bytes: 2001, keepsPerKind: 3 } },
+          { id: "machine-snapshots", title: "Machine snapshots", path: "/var/lib/boxpilot-managed/machine-snapshots", bytes: null, inodes: null, files: null, retention: "Each new snapshot keeps the newest 3.", unavailable: "Not created yet" },
+        ] } },
+    ],
+    filesystems: [
+      { key: "2049", path: "/var/log/journal", freeBytes: 3 * 1024 ** 3, totalBytes: 100 * 1024 ** 3, freeInodes: 6_000_000, totalInodes: 6_553_600, categories: ["journal", "apt-cache", "backups"] },
+      { key: "25", path: "/run/boxpilot/job-logs", freeBytes: 1600 * MiB, totalBytes: 1600 * MiB, freeInodes: 400_000, totalInodes: 400_100, categories: ["job-logs"] },
+    ],
+  };
+  const plan = (parameters: { categories: string[]; journalMaxBytes?: number; journalMaxAgeDays?: number; jobLogRetentionDays?: number }) => ({
+    generatedAt: "2026-10-18T09:01:00.000Z",
+    bounds: { journalMaxBytes: parameters.journalMaxBytes ?? null, journalMaxAgeDays: parameters.journalMaxAgeDays ?? null, jobLogRetentionDays: parameters.jobLogRetentionDays ?? 14 },
+    categories: [
+      { id: "journal", title: "System journal", available: true, unavailable: null, bound: "Archived journal files, oldest first, until no archived file starts more than 30 days ago (journalctl --vacuum-time=30d).", bytes: 256 * MiB, inodes: 2,
+        items: [{ what: "/var/log/journal/0123456789abcdef0123456789abcdef/system@aaaa-0001.journal", bytes: 128 * MiB, at: "2026-09-01T00:00:00.000Z" }, { what: "/var/log/journal/0123456789abcdef0123456789abcdef/system@aaaa-0002.journal", bytes: 128 * MiB, at: "2026-09-10T00:00:00.000Z" }],
+        more: 0, keeping: ["2 active journal files (96.0 MiB), which journald is writing and never deletes"], humanBytes: "256.0 MiB" },
+      { id: "job-logs", title: "BoxPilot job logs", available: true, unavailable: null, bound: "Logs of completed jobs last written more than 14 days ago.", bytes: 2000, inodes: 1,
+        items: [{ what: "job-0001.log", bytes: 2000, at: "2026-09-20T00:00:00.000Z", detail: "Activity keeps its output" }], more: 0, keeping: ["1 log of failed or cancelled jobs, the record of what went wrong (4.9 KiB)"], humanBytes: "2.0 KiB" },
+      ...(parameters.categories.includes("apt-cache") ? [{ id: "apt-cache", title: "APT download cache", available: true, unavailable: null, bound: "Downloaded package files and APT's rebuildable package cache (apt-get clean).", bytes: 300 * MiB, inodes: 84, items: [], more: 84, keeping: ["The package lists, so the next install only downloads its own packages"], humanBytes: "300.0 MiB" }] : []),
+    ].filter((category) => parameters.categories.includes(category.id)),
+    totalBytes: 556 * MiB + 2000, totalHumanBytes: "556.0 MiB", totalInodes: 87,
+  });
+
+  function serveSpace() {
+    const previews: unknown[] = [];
+    const staged = serve({
+      "/operations/space.inspect/inspect": () => json({ operation: "space.inspect", result: spaceReport }),
+      "/operations/space.cleanup.preview/run": (init) => {
+        const { parameters } = JSON.parse(String(init?.body));
+        previews.push(parameters);
+        return json({ operation: "space.cleanup.preview", result: plan(parameters) });
+      },
+    });
+    return { staged, previews };
+  }
+  const asked = () => (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => String(url));
+
+  it("measures only when asked, and shows a category it could not read as unavailable, never zero", async () => {
+    serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    expect(await screen.findByText("Not measured")).toBeTruthy();
+    expect(asked().filter((url) => url.includes("space."))).toEqual([]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Measure" })[0]);
+    const table = await screen.findByRole("table", { name: "Where the disk space went" });
+    const row = (name: string) => within(table).getByText(name).closest("tr")!;
+    expect(within(row("System journal")).getByText("1.3 GiB")).toBeTruthy();
+    expect(within(row("System journal")).getByText(/23 archived files/)).toBeTruthy();
+    expect(within(row("APT download cache")).getByText("91")).toBeTruthy();
+    expect(within(row("Docker")).getByText("Unavailable")).toBeTruthy();
+    expect(within(row("Docker")).getByText("Docker did not answer")).toBeTruthy();
+    expect(within(row("Docker")).queryByText(/^0/)).toBeNull();
+    expect(screen.getByText("3.0 GiB free of 100.0 GiB")).toBeTruthy();
+    expect(asked().filter((url) => url.includes("space.inspect"))).toHaveLength(1);
+  });
+
+  it("previews the chosen bounds, then stages the cleanup with exactly the parameters previewed", async () => {
+    const { staged, previews } = serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Measure" }))[0]);
+    await screen.findByRole("table", { name: "Where the disk space went" });
+    const free = () => screen.getByRole("button", { name: /^Free/ }) as HTMLButtonElement;
+    expect(free().disabled).toBe(true);
+    expect(free().getAttribute("data-risk")).toBe("medium");
+
+    // The defaults: journal 30 days, job logs 14 days, the APT cache.
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(previews).toEqual([{ categories: ["journal", "job-logs", "apt-cache"], journalMaxAgeDays: 30, jobLogRetentionDays: 14 }]));
+    expect(await screen.findByRole("list", { name: "What the cleanup removes" })).toBeTruthy();
+    expect(screen.getByText(/journalctl --vacuum-time=30d/)).toBeTruthy();
+
+    // A change makes the preview stale: nothing can be freed until it is made again.
+    fireEvent.click(screen.getByRole("checkbox", { name: "APT download cache" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Size" }));
+    fireEvent.change(screen.getByLabelText(/Journal: keep at most/), { target: { value: "2048" } });
+    fireEvent.change(screen.getByLabelText(/Job logs: keep the last/), { target: { value: "30" } });
+    expect(free().disabled).toBe(true);
+    expect(screen.getByText("The choices changed. Preview again.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const exact = { categories: ["journal", "job-logs"], journalMaxBytes: 2048 * MiB, jobLogRetentionDays: 30 };
+    await waitFor(() => expect(previews.at(-1)).toEqual(exact));
+    await waitFor(() => expect(free().disabled).toBe(false));
+    fireEvent.click(free());
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Medium risk")).toBeTruthy();
+    expect(within(dialog).getByText(/Removes what the preview listed/)).toBeTruthy();
+    expect(staged["space.cleanup"]).toEqual({ parameters: exact });
+  });
+
+  it("refuses a journal bound below the server's floor before asking", async () => {
+    const { previews } = serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Measure" }))[0]);
+    await screen.findByRole("table", { name: "Where the disk space went" });
+    fireEvent.click(screen.getByRole("radio", { name: "Size" }));
+    fireEvent.change(screen.getByLabelText(/Journal: keep at most/), { target: { value: "32" } });
+    expect(screen.getByText("64 to 1048576 MiB")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(previews).toEqual([]);
+  });
+
+  it("gives an operator the cleanup, and a viewer neither the measurement nor the cleanup", async () => {
+    serveSpace();
+    window.history.replaceState(null, "", "/?tab=housekeeping");
+    render(<SystemPage csrfToken="csrf-token" role="operator" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Measure" }))[0]);
+    await screen.findByRole("table", { name: "Where the disk space went" });
+    expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+    cleanup();
+
+    serveSpace();
+    render(<SystemPage csrfToken="csrf-token" role="viewer" />);
+    expect(await screen.findByText("Housekeeping is for an operator")).toBeTruthy();
+    expect(screen.queryByText("Logs and caches")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Measure" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Free/ })).toBeNull();
+    expect(asked().filter((url) => url.includes("space."))).toEqual([]);
   });
 });
 
@@ -228,6 +586,36 @@ describe("the database copies updates took", () => {
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { keep: 3, keepDays: 30, names: copies.goes } });
   });
 
+  it("puts a copy back as a high-risk job with its name typed out", async () => {
+    let staged: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/housekeeping.database-copies.inspect/inspect")) return json({ operation: "housekeeping.database-copies.inspect", result: copies });
+      if (url.endsWith("/operations/housekeeping.database-copies.restore/jobs")) { staged = init?.body as string; return stagedJob("housekeeping.database-copies.restore", "high"); }
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<DatabaseCopies csrfToken="csrf-token" role="owner" />);
+    const putBack = await screen.findByRole("button", { name: /^Put back the copy from 1\.138\.0/ });
+    expect(putBack.getAttribute("data-risk")).toBe("high");
+    fireEvent.click(putBack);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("High risk")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Typed confirmation")).toBeTruthy();
+    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { name: "boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3" } });
+  });
+
+  it("says how the last restore ended", async () => {
+    const lastRestore = { at: "2026-10-19T13:00:00.000Z", copy: "boxpilot-rollback-1.138.0-20260929T101500Z.sqlite3", outcome: "rolled-back", message: "BoxPilot did not answer on it", saved: null };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/housekeeping.database-copies.inspect/inspect")) return json({ operation: "housekeeping.database-copies.inspect", result: { ...copies, lastRestore } });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<DatabaseCopies csrfToken="csrf-token" role="owner" />);
+    expect(await screen.findByText(/boxpilot-rollback-1\.138\.0-20260929T101500Z\.sqlite3 did not work, so the database it had was put back/)).toBeTruthy();
+    expect(screen.getByText("BoxPilot did not answer on it")).toBeTruthy();
+  });
+
   it("asks again when the rule changes, and offers nothing until the answer matches it", async () => {
     const asked: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -252,32 +640,120 @@ describe("the database copies updates took", () => {
     render(<DatabaseCopies csrfToken="csrf-token" role="operator" />);
     expect(await screen.findByRole("table", { name: "Database copies, newest first" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Put back/ })).toBeNull();
   });
 });
 
-describe("the UPS", () => {
+describe("power", () => {
   const apc = { vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id" as const, sysfs: "1-2" };
-  const props = { settings, loading: false, role: "owner", upsError: null, onLookAgain: vi.fn() };
-
-  it("explains when nothing is found", () => {
-    render(<SystemHardware {...props} start={vi.fn()} ups={{ devices: [], nutInstalled: false }} />);
-    expect(screen.getByText("No UPS found on USB")).toBeTruthy();
+  const notSetUp: PowerOverview = { ...overview, ups: { installed: false, configured: false, available: false, state: "unavailable", reason: "nut-client-not-installed", batteryChargePercent: null, estimatedRuntimeSeconds: null, loadPercent: null }, events: [], policy: null };
+  const props = (overrides: Partial<SystemPowerProps> = {}): SystemPowerProps => ({
+    role: "owner", start: vi.fn(), ups: { devices: [], nutInstalled: false }, upsError: null, onLookAgain: vi.fn(),
+    overview: notSetUp, overviewError: null, hardware, hardwareError: null, hardwareLoading: false, onReadHardware: vi.fn(), ...overrides,
   });
 
-  it("offers to install NUT, then sets up the detected UPS with the chosen shutdown behaviour", () => {
+  it("explains when nothing is found, and what is still to do", () => {
+    render(<SystemPower {...props()} />);
+    expect(screen.getByText("No UPS found on USB")).toBeTruthy();
+    expect(screen.getByText("No UPS found on USB yet")).toBeTruthy();
+    expect(screen.getByText("Not set up")).toBeTruthy();
+    expect(screen.getByText("No power events yet")).toBeTruthy();
+  });
+
+  it("offers to install NUT, then sets up the detected UPS with the chosen shutdown and thresholds", () => {
     const start = vi.fn<(operation: PendingOperation) => void>();
-    const { unmount } = render(<SystemHardware {...props} start={start} ups={{ devices: [apc], nutInstalled: false }} />);
+    const { unmount } = render(<SystemPower {...props({ start, ups: { devices: [apc], nutInstalled: false } })} />);
     fireEvent.click(screen.getByRole("button", { name: /Install NUT first/ }));
     expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "apt.install", parameters: { packages: ["nut"] } }));
     unmount();
 
     const setUp = vi.fn<(operation: PendingOperation) => void>();
-    render(<SystemHardware {...props} start={setUp} ups={{ devices: [apc], nutInstalled: true }} />);
-    expect(screen.getByText("American Power Conversion Back-UPS ES 700G")).toBeTruthy();
+    render(<SystemPower {...props({ start: setUp, ups: { devices: [apc], nutInstalled: true } })} />);
+    expect(screen.getByText("Found: American Power Conversion Back-UPS ES 700G")).toBeTruthy();
     fireEvent.click(screen.getByLabelText(/Shut this server down/));
+    fireEvent.change(screen.getByLabelText(/Low below/), { target: { value: "95" } });
+    expect(screen.getByText("A whole number from 10 to 90")).toBeTruthy();
     const button = screen.getByRole("button", { name: /Set up monitoring/ });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Low below/), { target: { value: "30" } });
+    fireEvent.change(screen.getByLabelText(/Or under/), { target: { value: "5" } });
     expect(button.getAttribute("data-risk")).toBe("medium");
     fireEvent.click(button);
-    expect(setUp).toHaveBeenCalledWith(expect.objectContaining({ operationId: "ups.setup", parameters: { driver: "usbhid-ups", vendorId: "051d", productId: "0002", description: "American Power Conversion Back-UPS ES 700G", shutdownAtLowBattery: false } }));
+    expect(setUp).toHaveBeenCalledWith(expect.objectContaining({ operationId: "ups.setup", parameters: { driver: "usbhid-ups", vendorId: "051d", productId: "0002", description: "American Power Conversion Back-UPS ES 700G", shutdownAtLowBattery: false, lowBatteryPercent: 30, lowRuntimeSeconds: 300 } }));
+  });
+
+  it("with the UPS watched, says its state, when the shutdown starts, what it does, and the events in words", () => {
+    render(<SystemPower {...props({ overview, ups: { devices: [apc], nutInstalled: true } })} />);
+    expect(screen.getByText("Watching; shuts down on a low battery")).toBeTruthy();
+    expect(screen.getByText("below 20% or under 5 min left")).toBeTruthy();
+    expect(screen.getByText("Apps stop, drives unmount, power off")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Apply/ })).toBeTruthy();
+    const table = screen.getByRole("table", { name: "Power events, newest first" });
+    expect(within(table).getByText("The power came back after 4 min")).toBeTruthy();
+    expect(within(table).getByText("The power went out; the UPS took over")).toBeTruthy();
+    expect(thresholdWords(20, 300)).toBe("below 20% or under 5 min left");
+    expect(thresholdWords(null, null)).toBeNull();
+  });
+
+  it("turns the watchdog on with a preview that says a hang now reboots the server", () => {
+    const start = vi.fn<(operation: PendingOperation) => void>();
+    render(<SystemPower {...props({ start })} />);
+    expect(screen.getByText(/Ubuntu does not load its driver \(sp5100_tco\) by itself/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Restart after the server is silent for/), { target: { value: "120" } });
+    const button = screen.getByRole("button", { name: /Turn on/ });
+    expect(button.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(button);
+    const staged = start.mock.calls[0][0];
+    expect(staged).toMatchObject({ operationId: "power.watchdog.enable", parameters: { runtimeSeconds: 120 } });
+    render(<>{staged.preview}</>);
+    expect(screen.getByText("From now on a hang causes an automatic reboot.")).toBeTruthy();
+  });
+
+  it("offers the watchdog's off switch when it is on, and says why it cannot be used elsewhere", () => {
+    const start = vi.fn<(operation: PendingOperation) => void>();
+    const on: PowerHardware = { ...hardware, watchdog: { ...hardware.watchdog, state: "on", runtimeSeconds: 60, devices: [{ device: "/dev/watchdog0", identity: "SP5100 TCO timer", software: false, state: "active", timeoutSeconds: 60, nowayout: false }] } };
+    render(<SystemPower {...props({ start, hardware: on })} />);
+    const off = screen.getByRole("button", { name: /Turn off/ });
+    expect(off.getAttribute("data-risk")).toBe("low");
+    fireEvent.click(off);
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "power.watchdog.disable", parameters: {} }));
+    expect(watchdogWords({ state: "virtual-machine", usable: false, virtualization: "kvm" }).sentence).toContain("virtual machine (kvm)");
+    expect(watchdogWords({ state: "software-only", usable: false }).sentence).toContain("cannot restart a kernel that has frozen");
+    expect(watchdogWords(null).status).toBe("unknown");
+  });
+
+  it("puts this board's firmware setting first, and offers Wake-on-LAN with its address", () => {
+    const start = vi.fn<(operation: PendingOperation) => void>();
+    render(<SystemPower {...props({ start, overview })} />);
+    const panel = screen.getByRole("region", { name: "Power back on after an outage" });
+    expect(panel.id).toBe("power-on");
+    expect(within(panel).getByText("This board: ASUSTeK COMPUTER INC.")).toBeTruthy();
+    expect(within(panel).getByText("Advanced › APM Configuration › Restore AC Power Loss")).toBeTruthy();
+    expect(within(panel).getByText("02:00:00:00:00:01")).toBeTruthy();
+    const wake = within(panel).getByRole("switch", { name: /Wake-on-LAN for enp5s0/ });
+    fireEvent.click(wake);
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "power.wake-on-lan.set", parameters: { interface: "enp5s0", enabled: true } }));
+  });
+
+  it("keeps the root reads from a viewer and offers them nothing to start", () => {
+    render(<SystemPower {...props({ role: "viewer", hardware: null, overview, ups: { devices: [apc], nutInstalled: true } })} />);
+    expect(screen.getByText("Reading the watchdog is for an operator")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Turn on|Apply|Set up monitoring/ })).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+    // The firmware guidance is for everyone.
+    expect(screen.getByText("This board: ASUSTeK COMPUTER INC.")).toBeTruthy();
+  });
+
+  it("opens on the Power tab with the UPS, the watchdog read as an operator, and the Overview's Power figure", async () => {
+    serve();
+    window.history.replaceState(null, "", "/?tab=power");
+    render(<SystemPage csrfToken="csrf-token" role="operator" />);
+    expect(await screen.findByText("below 20% or under 5 min left")).toBeTruthy();
+    expect(await screen.findByText(/Ubuntu does not load its driver/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    const tile = await screen.findByRole("button", { name: /^Power/ });
+    expect(tile.textContent).toContain("On mains");
+    fireEvent.click(tile);
+    expect(window.location.search).toBe("?tab=power");
   });
 });

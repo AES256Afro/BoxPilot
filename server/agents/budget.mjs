@@ -39,6 +39,16 @@ export function nextQuietStart(now, quiet = defaultQuietHours) {
   return next;
 }
 
+/** When the quiet hours `now` falls in began, or null outside them. */
+export function quietHoursStart(now, quiet = defaultQuietHours) {
+  if (!inQuietHours(now, quiet)) return null;
+  const start = parseClock(quiet.start) ?? parseClock(defaultQuietHours.start);
+  const began = new Date(now);
+  began.setHours(Math.floor(start / 60), start % 60, 0, 0);
+  if (began > now) began.setDate(began.getDate() - 1);
+  return began;
+}
+
 /** Local midnight at the start of `now`'s day: where "today" begins for a budget. */
 export function startOfLocalDay(now) {
   const day = new Date(now);
@@ -68,8 +78,9 @@ export function nextScheduledRun(schedule, after) {
   const candidate = new Date(at);
   if (schedule.every === "hourly") {
     candidate.setMinutes(schedule.minute);
-    if (candidate <= after) candidate.setHours(candidate.getHours() + 1);
-    return candidate;
+    // By elapsed time, as the scheduler does: adding one to the local hour skips the hour the
+    // clocks repeat in autumn.
+    return candidate <= after ? new Date(candidate.getTime() + 60 * 60_000) : candidate;
   }
   if (schedule.every === "every-6-hours") {
     candidate.setMinutes(schedule.minute);
@@ -77,16 +88,24 @@ export function nextScheduledRun(schedule, after) {
     while (candidate <= after) candidate.setHours(candidate.getHours() + 6);
     return candidate;
   }
-  candidate.setHours(schedule.hour ?? 0, schedule.minute, 0, 0);
+  // The day first, from noon, which no daylight-saving change reaches, then the time on it (as
+  // server/scheduler.mjs does). Setting the time and then moving the date carried the 03:30 that a
+  // 02:30 becomes on the day the clocks go forward into the next day's run.
+  const onDay = (days) => {
+    const next = new Date(at);
+    next.setHours(12, 0, 0, 0);
+    next.setDate(next.getDate() + days);
+    next.setHours(schedule.hour ?? 0, schedule.minute, 0, 0);
+    return next;
+  };
   if (schedule.every === "daily") {
-    if (candidate <= after) candidate.setDate(candidate.getDate() + 1);
-    return candidate;
+    const today = onDay(0);
+    return today > after ? today : onDay(1);
   }
   if (schedule.every === "weekly") {
-    const ahead = ((schedule.weekday ?? 0) - candidate.getDay() + 7) % 7;
-    candidate.setDate(candidate.getDate() + ahead);
-    if (candidate <= after) candidate.setDate(candidate.getDate() + 7);
-    return candidate;
+    const ahead = ((schedule.weekday ?? 0) - at.getDay() + 7) % 7;
+    const next = onDay(ahead);
+    return next > after ? next : onDay(ahead + 7);
   }
   return null;
 }

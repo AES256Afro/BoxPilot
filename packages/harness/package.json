@@ -1,0 +1,21 @@
+{
+  "name": "@boxpilot/harness",
+  "version": "0.0.0",
+  "private": true,
+  "description": "An agent harness: one model contract, local and remote providers, a router, the run loop, the checks and the safety around them, and a command line host. BoxPilot is its first host.",
+  "type": "module",
+  "bin": {
+    "boxpilot-harness": "./src/cli/bin.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./anthropic": "./src/providers/anthropic.mjs",
+    "./anthropic/fake": "./src/providers/anthropic-fake.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.128.0"
+  }
+}

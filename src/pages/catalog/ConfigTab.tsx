@@ -14,17 +14,24 @@ interface Effective { directory: string; env: Array<{ name: string; value: strin
 
 export function ConfigTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) {
   const { manifest } = entry;
-  const { csrfToken, act, role } = ctx;
+  const { csrfToken, act, role, takeComposeDraft } = ctx;
   const [effective, setEffective] = useState<Effective | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compose, setCompose] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
+  // An edit whose Apply was cancelled or failed comes back here rather than being lost with the sheet.
+  useEffect(() => {
+    const kept = takeComposeDraft(manifest.id);
+    if (kept !== null) setDraft(kept);
+  }, [takeComposeDraft, manifest.id]);
   const [access, setAccess] = useState({ needsPassword: false, password: "", busy: false, error: null as string | null });
   const composeRead = useRef<AbortController | null>(null);
   const owner = role === "owner";
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let live = true;
+    setError(null);
     runRead<{ directory?: string; env?: Effective["env"] }>(csrfToken, "app.config.inspect", { id: manifest.id })
       .then(({ response, body }) => {
         if (!live) return;
@@ -35,7 +42,7 @@ export function ConfigTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
       })
       .catch((requestError: unknown) => { if (live) setError(requestError instanceof Error ? requestError.message : "Could not read the configuration"); });
     return () => { live = false; };
-  }, [csrfToken, manifest.id]);
+  }, [csrfToken, manifest.id, attempt]);
   // Leaving the tab (or closing the sheet) abandons a raw read still under way. Only on leaving:
   // a cleanup keyed on the app ran after the commit that showed the button and aborted a read
   // clicked in between, which left "Reading…" up for good.
@@ -73,7 +80,7 @@ export function ConfigTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
 
   return (
     <div className="catalog-tab">
-      {error && <Notice tone="danger" live title="The configuration could not be read">{error}</Notice>}
+      {error && <Notice tone="danger" live title="The configuration could not be read" action={<Button onClick={() => setAttempt((count) => count + 1)}>Try again</Button>}>{error}</Notice>}
       <KeyValue layout="rows" className="catalog-facts" items={[
         { id: "directory", label: "Directory", mono: true, value: effective ? (effective.directory || "—") : "Reading…" },
         { id: "masked", label: "Private values", value: "Masked here; the raw Compose file shows them to the owner" },
@@ -112,7 +119,7 @@ export function ConfigTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
             </Field>
             <div className="catalog-inline">
               <Button onClick={() => setDraft(null)}>Cancel</Button>
-              <Button variant="primary" risk={riskOf("app.compose.edit")} disabled={!draft.trim() || draft === compose} onClick={() => act({ operationId: "app.compose.edit", title: `Apply edited compose file to ${manifest.name}`, parameters: { id: manifest.id, compose: draft }, preview: <span>Replaces <code>compose.yaml</code> verbatim and recreates the containers. Rolled back if {manifest.name} does not come up.</span> })}>Apply</Button>
+              <Button variant="primary" risk={riskOf("app.compose.edit")} disabled={!draft.trim() || draft === compose} onClick={() => act({ operationId: "app.compose.edit", title: `Apply edited compose file to ${manifest.name}`, parameters: { id: manifest.id, compose: draft }, preview: <span>Replaces <code>compose.yaml</code> verbatim and recreates the containers. Rolled back if {manifest.name} does not come up.</span> }, { composeDraft: draft })}>Apply</Button>
             </div>
           </>
         )}

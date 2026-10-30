@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createHelperResponseReader, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
+import { createHelperResponseReader, helperErrorReply, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
+import { restartRefusalError } from "./self-restart.mjs";
 const reply = (data) => `${JSON.stringify({ version: 1, id: "request", ...data })}\n`;
 
 describe("bounded helper response parsing", () => {
@@ -59,5 +60,27 @@ describe("bounded helper response parsing", () => {
     const older = caught(reply({ ok: false, error: "docker compose pull failed: timed out after 1800000 ms", code: "operation_failed" }));
     expect(older.timeout).toBeUndefined();
     expect(older.code).toBe("operation_failed");
+  });
+
+  it("carries whether a failed operation's own rollback worked, from the helper's reply onto the error", () => {
+    const caught = (error) => { try { createHelperResponseReader("request").push(`${JSON.stringify(helperErrorReply("request", error))}\n`); } catch (thrown) { return thrown; } return null; };
+    for (const rolledBack of [true, false]) {
+      const error = caught(Object.assign(new Error("Demo update failed"), { rolledBack }));
+      expect(error).toMatchObject({ message: "Demo update failed", code: "operation_failed", rolledBack });
+    }
+    // An operation that does not say claims nothing either way.
+    expect(caught(new Error("Demo update failed")).rolledBack).toBeUndefined();
+    // A step's timeout still rides along beside it.
+    const ranOut = caught(Object.assign(new Error("Downloading did not finish within 30 minutes"), { timeout: { scope: "step", budgetMs: 1_800_000, step: "Downloading" }, rolledBack: true }));
+    expect(ranOut).toMatchObject({ code: "timeout", timeout: { scope: "step", budgetMs: 1_800_000, step: "Downloading" }, rolledBack: true });
+  });
+
+  it("says a request turned away because BoxPilot is restarting did not start, in its code (sweep 5)", () => {
+    // The web side sends it again once BoxPilot is back, which it can do only for one that never ran.
+    const caught = (error) => { try { createHelperResponseReader("request").push(`${JSON.stringify(helperErrorReply("request", error))}\n`); } catch (thrown) { return thrown; } return null; };
+    expect(caught(restartRefusalError())).toMatchObject({ code: "helper_restarting", message: expect.stringMatching(/^BoxPilot is restarting.*did not start and nothing was changed/) });
+    expect(caught(restartRefusalError("The helper stopped before this began, so nothing was changed."))).toMatchObject({ code: "helper_restarting" });
+    // Any other code an operation sets is not passed on as one: it is a failure.
+    expect(caught(Object.assign(new Error("EACCES"), { code: "EACCES" })).code).toBe("operation_failed");
   });
 });

@@ -21,3 +21,21 @@ describe("the request's abort timer", () => {
     expect(pendingTimeouts()).toBe(before);
   });
 });
+
+describe("the credentials BoxPilot keeps for itself", () => {
+  it("are refused inside the task, before the store is read or anything is sent", async () => {
+    // The parameter check refuses them first; this is the root task holding the same line on its own.
+    const read = [];
+    const sent = [];
+    const credentials = { read: async (name) => { read.push(name); return "secret-value"; } };
+    const fetcher = async (url, options) => { sent.push({ url, options }); return new Response("ok"); };
+    for (const name of ["cloudflare-api-token", "cloudflare-tunnel-token", "heartbeat-url", "zulip-agents-bot"]) {
+      await expect(httpRequest({ url: "https://collector.example/x", credentialName: name, credentialHeader: "X-Token" }, { credentials, fetcher }), name).rejects.toThrow(/BoxPilot keeps .* for itself/);
+    }
+    expect(read).toEqual([]);
+    expect(sent).toEqual([]);
+    // A credential the owner saved for requests still rides along.
+    await httpRequest({ url: "https://ntfy.example/topic", credentialName: "ntfy-token" }, { credentials, fetcher });
+    expect(sent[0].options.headers.Authorization).toBe("Bearer secret-value");
+  });
+});

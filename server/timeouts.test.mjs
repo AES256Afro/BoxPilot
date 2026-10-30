@@ -44,4 +44,14 @@ describe("the job record's timeout", () => {
     expect(timeoutMessage("Install application", { scope: "operation", budgetMs: 1_500_000 })).toBe("Install application did not finish within 25 minutes. It may still be running on the server; Activity shows how far it got.");
     expect(timeoutMessage("Install application", { scope: "operation", budgetMs: 86_400_000, phase: "queued" })).toMatch(/^Install application waited 24 hours behind other work/);
   });
+
+  it("keeps saying a step that carries on after its limit may still be running", () => {
+    const error = timedOut("Root task storage.check did not finish within 33 minutes", { budgetMs: 33 * 60_000, step: "Root task storage.check", stillRunning: true });
+    expect(timeoutOf(error)).toEqual({ scope: "step", budgetMs: 33 * 60_000, step: "Root task storage.check", stillRunning: true });
+    // Across the socket only `true` survives.
+    expect(timeoutOf({ timeout: { scope: "step", budgetMs: 1000, stillRunning: "yes" } })).toEqual({ scope: "step", budgetMs: 1000 });
+    expect(jobTimeoutRecord(timeoutOf(error), { elapsedMs: 34 * 60_000 })).toMatchObject({ scope: "step", stillRunning: true, moreTimeMs: null });
+    expect(jobTimeoutRecord({ scope: "step", budgetMs: 1000 }, { elapsedMs: 5 })).not.toHaveProperty("stillRunning");
+    expect(timeoutMessage("Check a drive", timeoutOf(error))).toBe("Check a drive stopped waiting: Root task storage.check did not finish within 33 minutes. It may still be running on the server; Activity shows how far it got.");
+  });
 });

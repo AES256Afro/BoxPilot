@@ -42,6 +42,8 @@ describe("the Network page's Tailnet tab", () => {
     });
     render(<NetworkPage csrfToken="csrf" now={now} />);
     expect(await screen.findByText("Not on a tailnet")).toBeTruthy();
+    // It says how to join, rather than sending the owner to Ops, whose checklist sends them back here.
+    expect(screen.getByLabelText("Join a tailnet").textContent).toContain("sudo tailscale up");
     expect((screen.getByLabelText(/exit node/) as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText("Tailscale is not on this server")).toBeTruthy();
   });

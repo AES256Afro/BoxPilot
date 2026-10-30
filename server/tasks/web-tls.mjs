@@ -15,7 +15,8 @@
  * The restart is deferred like web.bind.set so this task can report success before the web process
  * it belongs to picks up the new listener.
  */
-import { readFile, writeFile, mkdir, chmod, rm } from "node:fs/promises";
+import { readFile, mkdir, chmod, rm } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { setEnvValue } from "./web-bind.mjs";
 

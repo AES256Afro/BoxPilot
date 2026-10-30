@@ -28,6 +28,41 @@ export function isCriticalUnit(unit) {
   return criticalUnitPatterns.some((pattern) => pattern.test(unit));
 }
 
+/**
+ * Whether a service.action job restarts BoxPilot itself (its web or helper unit). The job layer
+ * guards it as it guards an operation marked restartsService: not while another job is running,
+ * which the restart would cut off and leave marked interrupted.
+ */
+export function restartsBoxPilot(operationId, parameters) {
+  return operationId === "service.action" && parameters?.action === "restart" && /^boxpilot(-helper)?\.service$/.test(String(parameters?.unit ?? ""));
+}
+
+/**
+ * Units that change the state of the whole machine rather than one service. Starting
+ * poweroff.target or systemd-reboot.service is system.reboot, which is high risk; stopping
+ * sysinit.target, or starting shutdown.target, stops SSH, BoxPilot and Tailscale with everything
+ * else, which the protected-unit guard refuses one unit at a time. debug-shell, emergency and rescue
+ * put a root shell on the console with no password, and modprobe@ loads a kernel module. No page
+ * controls any of them, so none is accepted here, whatever the action.
+ */
+const machineStateUnit = /\.target$|^systemd-(poweroff|reboot|halt|kexec|soft-reboot|suspend|hibernate|hybrid-sleep|suspend-then-hibernate)\.service$|^(debug-shell|emergency|rescue)\.service$|^modprobe@/;
+
+export function changesWholeMachine(unit) {
+  return typeof unit === "string" && machineStateUnit.test(unit);
+}
+
+/**
+ * BoxPilot's root tasks (boxpilot-run@<id>) run what a person approved, from a spec only the helper
+ * writes. Stopping one cuts that work off part way; starting one again inside its approval window runs
+ * it a second time. Viewers see them in the unit list; nobody controls them from here.
+ */
+export function boxPilotOwnUnit(unit) {
+  return typeof unit === "string" && /^boxpilot-run@/.test(unit);
+}
+
+const machineStateRefusal = (unit) => (changesWholeMachine(unit) ? "changes the whole machine (its power, every service at once, a root console or the kernel), so it is not controlled from here; reboot from Updates"
+  : boxPilotOwnUnit(unit) ? "is one of BoxPilot's root tasks, which runs what was approved and is stopped from its job" : null);
+
 /** Parse `systemctl list-units --output=json` and `list-unit-files --output=json`. */
 export function mergeUnitLists(unitsJson, filesJson) {
   let units = []; let files = [];
@@ -78,18 +113,32 @@ export function serviceOperations() {
     defineOperation({
       id: "service.action", title: "Control a system service", risk: "medium", timeoutMs: 5 * 60_000,
       description: "Start, stop, restart, reload, enable, or disable a systemd unit. BoxPilot, SSH, systemd, D-Bus, and Tailscale units cannot be stopped or disabled from here.",
-      parameters: { fields: { unit: { type: "string", pattern: unitPattern }, action: { type: "string", enum: [...serviceActions] } } },
+      parameters: { fields: { unit: { type: "string", pattern: unitPattern, validate: machineStateRefusal }, action: { type: "string", enum: [...serviceActions] } } },
       run: async (parameters, { run, progress }) => {
         const { unit, action } = parameters;
+        if (changesWholeMachine(unit) || boxPilotOwnUnit(unit)) throw new Error(`${unit} ${machineStateRefusal(unit)}`);
         if (isCriticalUnit(unit) && ["stop", "disable"].includes(action)) throw new Error(`${unit} is protected: stopping or disabling it would cut off access to this server or to BoxPilot`);
         if (guardedUnits[unit] && ["stop", "disable"].includes(action)) throw new Error(`${unit} is not turned off from here. ${guardedUnits[unit]}`);
-        const args = action === "enable" || action === "disable" ? [action, unit] : [action, unit];
+        // BoxPilot's drives and shares live under /mnt, and their own operations stop the apps using
+        // them and prove the mount from the host's table. A bare systemctl start or stop of the unit
+        // does neither: after an unmount systemd has not caught up with it does nothing and exits 0,
+        // and a stop leaves apps bound to the folder writing to a drive that reads as unmounted.
+        if (/^mnt-.+\.mount$/.test(unit) && action !== "enable" && action !== "disable") {
+          throw new Error(`${unit} is a drive or share under /mnt. Reconnect or unmount it from Storage or Repair, which stop and start the apps using it and check the mount itself.`);
+        }
+        // "--" before the unit (M50): a unit's name may start with "-" ("-.mount" is one), which systemctl would read as an option.
+        const args = [action, "--", unit];
         progress?.(`$ systemctl ${args.join(" ")}`, "stdout");
         const result = await run(systemctl, args, { timeout: 4 * 60_000, onLine: progress ?? undefined });
         if (["restart", "reload"].includes(action)) needrestartScanner.forget();
         if (!result.ok) throw new Error(`systemctl ${action} ${unit} failed: ${result.stderr.split("\n").slice(-3).join(" ") || "see the unit journal"}`);
-        const show = await run(systemctl, ["show", unit, "--property=ActiveState,SubState,UnitFileState,Result"], { timeout: 15_000 });
+        const show = await run(systemctl, ["show", "--property=ActiveState,SubState,UnitFileState,Result", "--", unit], { timeout: 15_000 });
         const state = Object.fromEntries(show.stdout.split("\n").map((line) => line.split("=", 2)).filter((pair) => pair.length === 2));
+        // `systemctl start` of a simple service returns once it has forked: one that dies straight
+        // away exited 0 here and the job said done. Its state says otherwise.
+        if (["start", "restart"].includes(action) && state.ActiveState === "failed") {
+          throw new Error(`${unit} did not stay up after the ${action}: systemd reports it failed (${state.Result ?? "no result"}). Its journal says why.`);
+        }
         return { unit, action, activeState: state.ActiveState ?? null, subState: state.SubState ?? null, enabled: state.UnitFileState ?? null, result: state.Result ?? null };
       },
     }),

@@ -118,7 +118,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - ✅ **M0.5** Write `docs/DECISIONS.md` ADR-001: "Risk tiers replace universal password approval" so future Codex runs stop re-adding ceremony. Add a `CLAUDE.md`/`AGENTS.md` that states the product goal in one paragraph.
 
 ### Phase 1. Registry + risk tiers (2 weeks)
-- ✅ **M1.1** `server/ops/registry.mjs` (declarative param spec; JSON Schema can replace it later). **The port is complete: every mutation is a registry operation.** `jobs.mjs` executes only `op:` jobs; the helper's hand-declared list (`legacyHelperOperations`) holds 14 read-only inspections, and each mutating service revalidates its own typed input at execution time. The final batch moved the seven VM workflows (media import, create, export, protection, retention, restore drill, recovery) to ops `vm.media.import`, `vm.create`, `vm.export.create`, `vm.export.protect`, `vm.backup.retention.apply`, `vm.backup.restore-drill`, `vm.recovery.create`: the plan/stage ceremony is gone. The browser names only the subject (a domain name, an export id, a backup id), `operationPrepareHooks` pin the recorded evidence and live revisions server-side at staging time, `operationRecordHooks` turn results into durable evidence rows, and the helper services keep their full TOCTOU revalidation. The VM pages stage everything through the shared risk-tiered ApproveDialog; VmPlanner keeps its host-checked preview and hands the validated input to `vm.create` approval.
+- ✅ **M1.1** `server/ops/registry.mjs` (declarative param spec; JSON Schema can replace it later). **The port is complete: every mutation is a registry operation.** `jobs.mjs` executes only `op:` jobs; the helper's allowlist and read-only set are the registry alone: the 14 hand-declared inspections it kept became 12 internal read-only operations (`server/ops/internal-reads.mjs`) and two that nothing called were removed. Each mutating service revalidates its own typed input at execution time. The final batch moved the seven VM workflows (media import, create, export, protection, retention, restore drill, recovery) to ops `vm.media.import`, `vm.create`, `vm.export.create`, `vm.export.protect`, `vm.backup.retention.apply`, `vm.backup.restore-drill`, `vm.recovery.create`: the plan/stage ceremony is gone. The browser names only the subject (a domain name, an export id, a backup id), `operationPrepareHooks` pin the recorded evidence and live revisions server-side at staging time, `operationRecordHooks` turn results into durable evidence rows, and the helper services keep their full TOCTOU revalidation. The VM pages stage everything through the shared risk-tiered ApproveDialog; VmPlanner keeps its host-checked preview and hands the validated input to `vm.create` approval.
 - ✅ (foundation) **M1.2** `deploy/boxpilot-run@.service` template unit + `scripts/boxpilot-run.mjs` + root task table `server/tasks/` + helper client `server/run-unit.mjs`. New networked root work needs zero new unit files. Remaining: migrate the 13 named install/Keel units onto it.
 - ✅ (server + Repair Center) **M1.3** Risk tiers (`server/ops/risk.mjs`: per-job-type tier, unknown → high), approval policy (low/medium = no password, high = password unless session elevated ≤10 min, `always-password` setting), `POST/DELETE /api/v1/auth/elevate`, `GET /api/v1/jobs/:id/approval`, `GET/PUT /api/v1/settings/approval-mode`, approvals record `method`+`tier`. Repair Center desk is tier-aware ("Run" one-click for low). Shared `ApproveDialog` + `useOperation` hook (`src/ApproveDialog.tsx`) used by Updates and App catalog: stage → tier-aware approve → live output → result. Settings page has the Tiered / Always-ask toggle. `elevatedOnly` read-only ops (e.g. `app.secrets`) require a recent password and are audited. Remaining: adopt the dialog in the legacy Applications/VM centers.
 - ✅ **M1.4** Generic job path is the only path: `POST /api/v1/operations/:id/jobs` stages any registered mutating op as `op:<id>`; approval/execution are generic (`jobs.createOperationJob`), `GET /api/v1/operations/:id/inspect` runs read-only ops directly; the legacy executor branch is deleted. `index.mjs` is a ~190-line composition root; routes live in `server/routes/` (operations, jobs+schedules+events, virtualization, settings, host+catalog+evidence, identity). Every approved job runs in the background (202) since all jobs are registry ops.
@@ -163,7 +163,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - ✅ (v1) **M4.2** First-run wizard: `GET /api/v1/setup` resolves five profiles (Home server, DNS appliance, Hypervisor, Dev box, Essentials) against live state. Prerequisite installs with the exact candidate version pinned, automatic security updates, catalog installs, the libvirt foundation, and backup/snapshot/refresh schedules. Marking each step done, ready, or blocked. The Set up this server view shows the plan, then runs the remaining steps in order through ordinary jobs (one confirmation for the batch; a password prompt appears only under Always-ask), with retry/skip on failure. The Overview offers it prominently on a fresh box and as a link afterwards.
 - ✅ (v1) **M4.3** Ubuntu autoinstall generator: *Set up → Prepare a new server* renders a NoCloud `user-data`/`meta-data` pair (hostname, user with an openssl sha512-crypt password hash computed on the spot and never stored, SSH keys with password login off when a key is given, DHCP or static IPv4, direct or LVM whole-disk layout, time zone, locale) whose first-boot `runcmd` installs the chosen BoxPilot release. Copy or download, then boot the Ubuntu Server ISO with it as NoCloud data. Remaining: a ready-to-flash ISO/USB builder.
 - **M4.4** `boxpilot` CLI (`boxpilot install jellyfin`, `boxpilot backup now`, `boxpilot doctor`) sharing the registry, same ops, scriptable.
-- ✅ (v1) **M4.5** Self-update from GitHub Releases: `GET /api/v1/system/update` compares the running version with the latest published release (`server/release-updates.mjs`, 15-min cache); the System page shows a **BoxPilot updates** card with *Update to vX.Y.Z*. The high-risk `system.update` op pins the release's commit at staging time; the `system.update` root task re-checks that the tag still points at it, copies the upgrade script out of the tree, and launches it in a detached `boxpilot-update-<stamp>` transient unit, so the job finishes before BoxPilot restarts. The script's own health check rolls back a bad build; the page polls `/health` and reloads when the new version answers; `system.update.status` shows the last update's unit and log. A web-side notifier checks GitHub every six hours and sends one push per newer release to the configured notification target (`server/update-notifier.mjs`). ✅ (v1.63.0) **An update refuses to start while another job is running**, because the restart would cut that job off and leave it half-done: operations that restart or reboot BoxPilot carry a `restartsService` flag (`system.update`, `system.reboot`, `system.web.lan.set`, `system.web.tls.provision`), and the job service blocks their approval while any job is `applying`/`verifying`, naming what to wait for. Remaining: signed releases; unattended auto-apply (deliberately not offered. Updates restart BoxPilot and are high risk); disable the update button in the UI while a job runs, not only refuse at approval.
+- ✅ (v1) **M4.5** Self-update from GitHub Releases: `GET /api/v1/system/update` compares the running version with the latest published release (`server/release-updates.mjs`, 15-min cache); the System page shows a **BoxPilot updates** card with *Update to vX.Y.Z*. The high-risk `system.update` op pins the release's commit at staging time; the `system.update` root task re-checks that the tag still points at it, copies the upgrade script out of the tree, and launches it in a detached `boxpilot-update-<stamp>` transient unit, so the job finishes before BoxPilot restarts. The script's own health check rolls back a bad build; the page polls `/health` and reloads when the new version answers; `system.update.status` shows the last update's unit and log. A web-side notifier checks GitHub every six hours and sends one push per newer release to the configured notification target (`server/update-notifier.mjs`). ✅ (v1.63.0) **An update refuses to start while another job is running**, because the restart would cut that job off and leave it half-done: operations that restart or reboot BoxPilot carry a `restartsService` flag (`system.update`, `system.reboot`, `system.web.lan.set`, `system.web.tls.provision`), and the job service blocks their approval while any job is `applying`/`verifying`, naming what to wait for. ✅ **Signed releases** (opt-in): with a release key set (System → BoxPilot update → Release key, the high-risk owner-only `system.update.signer.set`), the upgrade script fetches the tag with git, refuses unless `git verify-tag` (SSH format) says that key signed it and it points at the reviewed commit, and builds that tree; the catalog ships in the release, so this signs the catalog too (docs/GITHUB.md). Remaining: unattended auto-apply (deliberately not offered. Updates restart BoxPilot and are high risk); disable the update button in the UI while a job runs, not only refuse at approval.
 
 ### Phase 5, Identity (1–2 weeks)
 - ✅ **M5.1** Tailscale identity: `tailscale whois` on the tailnet source (direct, or X-Forwarded-For from Tailscale Serve trusted only from loopback); owner links the login once in Settings (password); sign-in screen then offers "Continue as …". Audited.
@@ -233,9 +233,9 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M11.3** Fleet-wide updates and backup policy.
 
 ### Phase 12. Quality & project hygiene (continuous)
-- ✅ (v1) **M12.1** Install smoke test (`.github/workflows/install-smoke.yml`): every push installs BoxPilot on a throwaway Ubuntu runner with the production installer at that commit, then checks both systemd units, the health version, owner bootstrap, an authenticated operations listing, a canary round trip through the root helper socket, and the setup profiles. Remaining: KVM/Docker-backed scenarios (nested virtualization or a self-hosted runner).
+- ✅ (v1) **M12.1** Install smoke test (`.github/workflows/install-smoke.yml`): every push to main installs BoxPilot on throwaway Ubuntu 24.04 and 26.04 runners with the production installer at that commit, then checks both systemd units, the health version, owner bootstrap, an authenticated operations listing, a canary round trip through the root helper socket, and the setup profiles. Remaining: KVM/Docker-backed scenarios (nested virtualization or a self-hosted runner).
 - ✅ (lint) **M12.2** ESLint 10 flat config over `server/` and `scripts/` (recommended rules, unused-vars, no-undef) runs inside `npm run check`; the first pass caught a real regression (a helper lost `parseJsonLines` during the log-viewer cleanup, which would have broken Docker inventory). The UI is type-checked by `tsc -b` in the build. Remaining: Prettier, a pre-commit hook, server typecheck via JSDoc.
-- ✅ **M12.3** Release workflow (`.github/workflows/release.yml`): pushing a `vX.Y.Z` tag runs `npm run check`, verifies the tag matches `package.json`, and publishes a GitHub Release with generated notes and the update instructions; self-update picks it up.
+- ✅ **M12.3** Release workflow (`.github/workflows/release.yml`): pushing a `vX.Y.Z` tag runs `npm run check`, verifies the tag matches `package.json`, waits (up to 75 minutes) for the install smoke test of the same commit to pass and refuses to publish when it failed or never ran, and publishes a GitHub Release with generated notes and the update instructions; self-update picks it up.
 - ✅ **M12.4** README rewritten (6 KB): what it does, the one-line install, self-update, a per-page capability table, how it works in six bullets, docs index. The 76 KB version-by-version narrative, the mockups, and the docs for removed features (Keel, fleet, migrations, routers, legacy adapters) moved to `docs/legacy/`. Remaining: real UI screenshots.
 - ✅ (code) **M12.5** Deleted: the entire Keel machinery (never installed on the host), the legacy Uptime Kuma/Pi-hole adapters and Applications page (superseded by the catalog), Migration Center, Fleet, Router checkpoints, and the DNS-acceptance flows. 108 files. Generic Docker/journal inspection was extracted to `server/host-inspect-helper.mjs`. Controller database backup was ported to registry op `controller.backup.create` with a new `operationRecordHooks` mechanism; the Backups page was rebuilt around it. The sixteen retired-feature state tables (legacy application recovery/protection/retention, migrations, fleet, router checkpoints, DNS acceptance) and their store functions are dropped, including DROP TABLE on upgrade, and the recovery kit reads live catalog evidence instead.
 - ✅ **M12.6** Documentation matches the product: Architecture, Backups, Network and the Recovery kit rewritten around what BoxPilot does today; the pre-pivot roadmap, Operations Core, virtualization milestones and Action Center moved to `docs/legacy/`; every internal link resolves; the last "sanitized"/"immutable plan"/"boundary" copy is out of the UI.
@@ -926,12 +926,71 @@ not just execute.
 BoxPilot is a desktop web app that happens to work on a phone. This arc makes the phone a
 first-class place to approve, glance, and act.
 
-- **M25.1** **A proper PWA.** Installable, offline-aware for reads, laid out for a thumb — the
-  dashboard and approvals designed for the small screen, not shrunk to it.
-- **M25.2** **Push approvals.** "Update available for Jellyfin — approve?" as a push you tap, tied to
-  the passkey (M19.1), so approving a medium action from bed is a touch, not a login.
-- **M25.3** **A today view.** What ran overnight, what needs attention, what is off-box and current —
-  the morning glance, on the lock screen.
+- ✅ **M25.1** (unreleased) **A proper PWA.** Installable, offline-aware for reads, laid out for a thumb — the
+  dashboard and approvals designed for the small screen, not shrunk to it. A manifest (`start_url`
+  `/?launch=pwa`, standalone, the console's colours) and icons drawn by `scripts/make-app-icons.mjs`
+  (the rail's BP mark; a maskable one and Apple's 180 px), with `apple-touch-icon`, the
+  `apple-mobile-web-app-*` tags and `viewport-fit=cover`, so the page keeps clear of the notch and
+  the home indicator (`env(safe-area-inset-*)` on the bar, the rail, the dock and every sheet). A
+  service worker (`/sw.js`, scope `/`, only over HTTPS and never in the demo) keeps the app itself -
+  the shell, the entry bundle, the fonts, the icons, and each hashed chunk once used - and never an
+  API answer: it does not even look at `/api/`, `/oidc/`, `/.well-known/` or `/ca.crt`, refuses to
+  keep JSON, an event stream, `no-store` or `private`, and the build refuses a precache list naming
+  any of them. Its rules are in `src/pwa/swRules.js`, and the tests run the worker exactly as built
+  against a stand-in network. The one exception is the "last known state": Today's summary, saved by
+  the page for the account that saw it, kept a day, and cleared on sign-out or whenever BoxPilot says
+  the session is gone (`src/pwa/lastKnown.ts`). The installed app opened with no network opens as the
+  account this device remembers (its id, name and role; never a token) to read it, marked Not live
+  with no buttons. A banner under the bar says when the phone is offline or BoxPilot is not answering
+  (checked against `/api/v1/health`: a phone off the tailnet is online, but cannot reach it), when it
+  last answered, and that approvals and actions wait. The CSP already allowed all of it; `worker-src`
+  and `manifest-src 'self'` now say so, and `/sw.js` and the manifest are sent `no-cache`.
+  **Phone polish across the shell:** on a touch screen the bar's controls, the dock, sheet and dialog
+  close buttons, the kit's buttons and fields are at least 44 px (fields at 16 px, so iOS does not
+  zoom), a bottom sheet shows a grip, the approval dialog's buttons clear the home indicator, the
+  theme switch leaves the phone's bar (Settings keeps it), and the bar has a Refresh - the
+  pull-to-refresh the installed app otherwise lacks: Home, Ops and Today read their facts again in
+  place, any other page loads again. The phone screenshots emulate touch, so they show all of this.
+- ✅ **M25.2** (unreleased) **Push approvals.** "Update available for Jellyfin — approve?" as a push you tap, tied to
+  the passkey (M19.1), so approving a medium action from bed is a touch, not a login. **Channel
+  (September 2026):** Web Push, with ntfy as the fallback. iOS and iPadOS have delivered Web Push to
+  Home Screen web apps since 16.4, and since 18.4 in the declarative form, which Safari shows with no
+  service worker woken at all; Chrome, Firefox and Edge take the same standard. It needs no app, no
+  account and no ntfy, only HTTPS with a real certificate (the tailnet's `*.ts.net`) and the server
+  reaching `*.push.apple.com` (or Google's or Mozilla's service) outbound. So: `server/web-push.mjs`
+  does VAPID (RFC 8292) and aes128gcm (RFC 8291) with node:crypto alone - checked against the RFC's
+  own worked example - and the push service carries only ciphertext; the VAPID key is a 0600 file
+  beside the OIDC key, never in the database. `server/push-approvals.mjs` pushes a job that has
+  waited two minutes for a person (so approving in the dialog that staged it never pushes) to the
+  devices of whoever may approve it - the owner always; an operator for the medium and low jobs they
+  staged - and to the notification target (ntfy, with a `Click` to the approval) when no device of
+  the owner's took it, or always, or never. **A push approves nothing:** it carries the operation's
+  title (with the app's name from the catalog), one sentence per tier, and `/?approve=<job id>`;
+  tapping it opens BoxPilot, which reads the job again as the signed-in account and opens the
+  ordinary dialog at its tier - the confirmation, or the password and typed text, exactly as
+  before. The service worker opens only this app at an approval or at Today, whatever a push names.
+  Quiet: once per job; several at once as "3 approvals waiting"; identical jobs as one; nothing in
+  the owner's quiet hours (what still waits is said once after); two minutes between pushes and ten
+  an hour at most; nothing staged over a day ago. The owner chooses the tiers (medium and high by
+  default), the quiet hours and ntfy's part in the notification centre, where each account also
+  turns pushes on per device, sees its devices and sends a test; signing out on a device turns its
+  pushes off. Each push is in the notification centre's record. The tests decrypt what each push
+  carried and find no parameter, password, path or error in it, or in ntfy's request. The catalog's
+  ntfy gains `NTFY_UPSTREAM_BASE_URL` for the iPhone app's instant delivery. **Not done:** approving
+  with a passkey instead of the password (the tier's step-up is unchanged; M19.1's passkey signs in,
+  it does not yet elevate), and action buttons on the push itself, which would approve from outside
+  the app.
+- ✅ **M25.3** (unreleased) **A today view.** What ran overnight, what needs attention, what is off-box and current —
+  the morning glance, on the lock screen. `?view=today`, first in the dock and on the rail, and the
+  installed app's start page on a phone (anything wider starts on Home). Top to bottom: the jobs
+  waiting for approval, each with Review opening the ordinary dialog at its own tier; what else needs
+  a look, worst first (what can wait stays on Home); the agents' morning digest and cards; what ran
+  since 18:00 yesterday (since 06:00 after the evening turns), as backups, updates and other jobs,
+  failures first, each opening in Activity; and the backups at a glance - off this server, apps
+  backed up, BoxPilot's database - drawn by the same `backupGlance` as Home's panel. It reads nothing
+  new: the facts Home and Ops read, `buildNeeds`, and the job history Ops' matrix reads
+  (`src/home/jobHistory.ts`, now shared). The dock's Today carries the count of approvals waiting,
+  from Activity's live feed, so an approval is one tap from any page.
 
 
 ---
@@ -1193,10 +1252,14 @@ clear until v1.112.0. The lesson generalises.
 
 - **M31.1** btrfs/ZFS snapshot rollback and browse-and-restore, still deliberately gated on a real
   filesystem to verify against.
-- **M31.2** Per-disk SMART trend chart in the UI (the sampler and alert exist).
+- ✅ **M31.2** Per-disk SMART trend chart in the UI (the sampler and alert exist). Storage → Drives
+  has "Drive health over time": each drive's temperature as a line over the 45 days kept, its wear
+  and media errors with how far they moved (`GET /storage/smart-history`, `smartTrendsByDisk`).
 - **M31.3** Guided array/mount setup from bare disk to mounted-and-backed-up (M23.4).
-- **M31.4** "Where the space went" over time: the app-data sampler's history as a chart, so a
-  download folder growing 240 GB a week is a slope the owner can see, not only a sentence.
+- ✅ **M31.4** "Where the space went" over time: the app-data sampler's history as a chart, so a
+  download folder growing 240 GB a week is a slope the owner can see, not only a sentence. Storage
+  → Mounts lists the folders that grew most over the 30 days kept, each as a line, with what it grew
+  and holds (`growthByApp(..., { series: true })` in `/storage/forecast`).
 
 ## Review follow-through: 2026-09-07
 
@@ -1223,7 +1286,7 @@ Evidence, implemented fixes, live measurements, limitations and alternative repa
 - **M30.5 Independent doctor and known-good recovery (P1).** First local slice: independent text/JSON CLI plus manual operator UI inspector; service/account state, socket/log/state metadata, free bytes/inodes and required release assets. CLI probes bounded web/helper responses and version agreement. Live ordinary-account inspection passed 15 checks with 2 protected-path unknowns. Next: exact repair plans, last-known-good release metadata and database-compatible rollback. Acceptance: disposable Ubuntu VM recovers with Express stopped; preserves configuration/secrets and original release; requires database compatibility before rollback; verifies both HTTP and helper afterward.
 - **M30.6 Interrupted APT recovery (P1).** First local slice: manual operator diagnosis with dpkg audit, dependency simulation and kernel lock ownership; reviewed no-remove repair through the existing task runner; execution-time diagnosis and fresh final verification. Live Linux read-only diagnosis passed. Disposable Ubuntu 24.04 package-interruption and real-lock refusal tests passed locally and are wired into CI. Remaining: bind the displayed dependency plan to execution and active BoxPilot job context. Acceptance: active upgrade is left alone; stale job metadata never authorizes deleting locks; interruption fixture returns a clean audit and recorded repair result.
 - **M30.7 Database recovery and rehearsal (P1).** First slice: manual operator SQLite health inspection and independent doctor `--database`, using an isolated process with a deadline and omitted record contents. Corruption/WAL/foreign-key/missing-table fixtures pass; a real Ubuntu ownership test preserves bytes and permits reopening by the web identity. Hosted native installation verifies the helper inspector and independent database checks with both services stopped. Remaining: preserve an offline recovery copy, validate a chosen backup/schema, stop the writer, restore and verify. Reuse M20 backup primitives. Acceptance: disposable corruption fixture restores service; original database and WAL remain recoverable; never delete a live WAL or replace an unverified database.
-- ◐ **M30.8 Low-space recovery (P2).** First slice: completed-job runtime logs are released by the helper only after a full saved-copy comparison; failed, active, changed and oversized logs are retained. Real Ubuntu file-permission fixture passed. Second slice (unreleased): `space.inspect` (operator, ADR-003) attributes bytes and inodes to the journal (journald's own `--disk-usage` figure beside a file-by-file count), BoxPilot's job logs by the state of their jobs, the APT cache (`du` bytes and inodes), Docker (`docker system df`, volumes included, and the dangling images), and each local backup folder with the retention it already has, plus the free bytes and inodes of every filesystem involved; a category that cannot be read is unavailable, never zero. `space.cleanup.preview` (operator) takes the cleanup's own parameters and lists exactly what goes, what that frees and what stays; the journal half models journald's own vacuum order so it can name the files. `space.cleanup` (medium) works the plan out again and carries it out: `journalctl --vacuum-size`/`--vacuum-time` to the chosen bound (at least 64 MiB, at least one day) and `apt-get clean`, both as root tasks because the helper sees /var read-only; `docker image prune` for dangling images no container uses, never `--all`, a volume or a system prune; and completed jobs' logs older than a retention of at least one day, each checked again as it goes (root's alone, unchanged, still a completed job). It measures each category and its filesystem before and after, reports a planned item still there instead of claiming it, and fails the job, after doing the rest, when a chosen category could not be read. Never touched: the journal file being written, logs of running, failed, cancelled or recently written jobs, volumes, tagged images and every backup. Parsers and the bounds are tested against captured output with placeholders. Reuses the Reclaim disk space service's dangling-image listing, Docker size parsing and backup keep count, and the root task runner. Remaining: a panel on the System page over these three operations; running the journal and APT halves on a real Ubuntu host; and the backup-history half, not attempted in this slice: reconcile recorded backup history with current local and independent-copy availability; keep unavailable and unknown distinct and preserve audit history. Acceptance: gain measured free space without deleting active logs, application volumes, or last good backup. Reuse existing housekeeping and retention operations.
+- ◐ **M30.8 Low-space recovery (P2).** First slice: completed-job runtime logs are released by the helper only after a full saved-copy comparison; failed, active, changed and oversized logs are retained. Real Ubuntu file-permission fixture passed. Second slice (unreleased): `space.inspect` (operator, ADR-003) attributes bytes and inodes to the journal (journald's own `--disk-usage` figure beside a file-by-file count), BoxPilot's job logs by the state of their jobs, the APT cache (`du` bytes and inodes), Docker (`docker system df`, volumes included, and the dangling images), and each local backup folder with the retention it already has, plus the free bytes and inodes of every filesystem involved; a category that cannot be read is unavailable, never zero. `space.cleanup.preview` (operator) takes the cleanup's own parameters and lists exactly what goes, what that frees and what stays; the journal half models journald's own vacuum order so it can name the files. `space.cleanup` (medium) works the plan out again and carries it out: `journalctl --vacuum-size`/`--vacuum-time` to the chosen bound (at least 64 MiB, at least one day) and `apt-get clean`, both as root tasks because the helper sees /var read-only; `docker image prune` for dangling images no container uses, never `--all`, a volume or a system prune; and completed jobs' logs older than a retention of at least one day, each checked again as it goes (root's alone, unchanged, still a completed job). It measures each category and its filesystem before and after, reports a planned item still there instead of claiming it, and fails the job, after doing the rest, when a chosen category could not be read. Never touched: the journal file being written, logs of running, failed, cancelled or recently written jobs, volumes, tagged images and every backup. Parsers and the bounds are tested against captured output with placeholders. Reuses the Reclaim disk space service's dangling-image listing, Docker size parsing and backup keep count, and the root task runner. System → Housekeeping has a Logs and caches panel over the three (unreleased): it measures only when asked, previews the categories and bounds chosen (journal by age or size, job-log retention, at the server's floors), and stages the cleanup with exactly the parameters previewed; viewers see neither. Remaining: running the journal and APT halves on a real Ubuntu host; and the backup-history half, not attempted in this slice: reconcile recorded backup history with current local and independent-copy availability; keep unavailable and unknown distinct and preserve audit history. Acceptance: gain measured free space without deleting active logs, application volumes, or last good backup. Reuse existing housekeeping and retention operations.
 - **M30.9 Repair recipes and bounded automation (P2).** Add declarative detect/precondition/action/verify/recovery recipes over the operation registry. Link existing M22 app repair, M20 restore, M26 mount recovery and M31 browse/restore instead of reimplementing them. Acceptance: one root-cause card groups related symptoms; opt-in automatic recipes have cooldown, maximum attempts, stop conditions and notification; destructive recipes retain existing approval tiers. Depends on M27.5 and individually validated M30.5-8 tools.
 
 Implementation note, 2026-09-07: the tested source slices described above and below are included in 1.115.0. "Implemented locally" in the dated entries describes their initial validation stage; it does not claim they are deployed. See the [outcome review](reviews/2026-09-07-final-review.md) for publication and remaining verification.
@@ -1748,15 +1811,10 @@ the owner does. Approvals and tiers are unchanged: every fix is an ordinary job 
     reason). Both halves are needed, so a reboot is never an outage. Said once, in the owner's time,
     with what went down with it and what would help (BIOS "Restore on AC power loss", a UPS, a
     second DNS on the router), raised in the health ledger (`power.lost`) and cleared by "Got it".
-  - **"The boot partition was not cleanly unmounted"** (warning), from the kernel's line about the
-    FAT partition at /boot/efi: **Check and clear the boot partition's mark**
-    (`storage.boot-mark.clear`, medium): refused while packages or the bootloader are being
-    updated or anything has a file open there; unmounts it, `fsck.fat -n`, and only if the mark is
-    all it finds (the backup boot sector differing at 65:01/00 is the mark too) `fsck.fat -a`,
-    checks again, mounts it back. dosfstools is installed first when missing.
-  `tests/ubuntu/name-lookups.sh` and `tests/ubuntu/boot-partition-mark.sh` prove the two fixes on
-  the runner (CI, both LTS releases); `tests/ubuntu/power-loss-vm.sh` reboots a KVM guest and cuts
-  its power (install smoke test).
+  - **"The boot partition was not cleanly unmounted"**: landed separately, as M39.5 (#428).
+  The power-cut record here is the `powerOutages` setting M39.2's after-outage DNS check reads.
+  `tests/ubuntu/name-lookups.sh` proves the name-lookup fix on the runner (CI, both LTS releases);
+  `tests/ubuntu/power-loss-vm.sh` reboots a KVM guest and cuts its power (install smoke test).
 
 ## M36 — Value and quality of life
 
@@ -1835,23 +1893,38 @@ phone width. Repair itself (its findings and fixes) is M35's, and stays out of t
 
 Proposed, value to the owner against effort:
 
-- **Say before the twelve hours are up** - medium, small: a notice ten minutes before a session ends,
-  so a half-typed form is not lost to the sign-in page.
-- **A weekly read of a drive that is always asleep** - medium, small: wake it once a week so its SMART
-  health is not unknown for months. Wakes the drive, so the owner's call.
-- **Suggest actions in an empty command bar** - medium, small: what is waiting for approval, the
-  failed job to retry, the update ready.
-- **Activity filters** (failed, waiting, running) and search - medium, small to medium.
-- **A Home item when old database copies pile up** - medium, small: points at the copies panel when
-  copies from before the secret scrub are still on disk.
-- **Restore a database copy as an operation** (high risk, stops BoxPilot) - medium, medium to large;
-  today it is the three manual steps the rollback prints.
-- **Hold the update button while jobs run** - low to medium, small: the approval already refuses;
-  the button could say so first.
+- ✅ **Say before the twelve hours are up** - medium, small: a notice ten minutes before a session ends,
+  so a half-typed form is not lost to the sign-in page (`shell/SessionEndingBanner.tsx`, counting down
+  by the minute; put away, it stays away for that session).
+- ✅ **A weekly read of a drive that is always asleep** - medium, small: wake it once a week so its SMART
+  health is not unknown for months. Wakes the drive, so the owner's call: off until the owner turns it
+  on (Storage → Drives, the `storageWeeklyWake` setting the root storage scan reads).
+- ✅ **Suggest actions in an empty command bar** - medium, small: what is waiting for approval, the
+  failed job to retry, the update ready. A "Suggested" group above the pages: the approvals open
+  Today, the newest failure nobody has dealt with opens Activity at it, each app update is its action.
+- ✅ **Activity filters** (failed, waiting, running) and search - medium, small to medium. The counts
+  above the list are the filter, with a search over the title and the operation; a job opened from
+  elsewhere is shown whatever the filter was left at.
+- ✅ **A Home item when old database copies pile up** - medium, small: points at the copies panel when
+  copies from before the secret scrub are still on disk (Home's `databaseCopies` fact, an operator's
+  read; "Review copies" opens System → Housekeeping).
+- ✅ **Restore a database copy as an operation** (high risk, stops BoxPilot) - medium, medium to large.
+  System → Housekeeping → Database copies → *Put back* (`housekeeping.database-copies.restore`, owner,
+  the copy's name typed out): a unit of its own checks the copy's integrity, stops BoxPilot, saves the
+  database as it is as a new copy, puts the copy in with the live file's owner and mode, drops the old
+  -wal/-shm, starts BoxPilot and, if it does not answer, puts the saved database back
+  (`server/db-restore.mjs`). A copy from a newer release than the one running is refused.
+- ✅ **Hold the update button while jobs run** - low to medium, small: the approval already refuses;
+  the button says so first, naming the running jobs (`src/pages/system/runningJobs.ts`).
 - **Fold "What you can do" into the page header** - low to medium, small: the strip on every Classic
   page explains rather than does. A design call for the owner.
-- **Quiet hours or a daily digest for pushes** - medium, medium.
-- **Update every app with an update ready, in one approval** - medium, medium.
+- ✅ **Quiet hours for pushes** - medium, medium. Settings → Notifications → Quiet hours: between two
+  server times, pushes wait (`notificationHeld`, at most a hundred) and go as one summary when the
+  quiet ends, kept until the target accepts it. Urgent ones (failing disk, drive gone, UPS low, a
+  failed job) still go unless held too; the test button and "Send the report now" always go at once.
+- ✅ **Update every app with an update ready, in one approval** - medium, medium. `app.update.many`
+  (one app at a time, each with its checkpoint and its own devices; one that fails does not stop the
+  others), offered as "Update all" on the App catalog once two apps have updates.
 
 ## M37 — Agents
 
@@ -1876,7 +1949,7 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   `normalizeSpec` refuses anything it does not know rather than guessing. Stored in BoxPilot's own
   database (`server/agents/store.mjs`), so a controller backup carries it; every edit that changes
   something is a new version with a field-by-field diff (the instructions line by line), and a roll
-  back is a new version too. Five templates (`templates.mjs`): **Server Keeper** (the resident agent
+  back is a new version too. Five templates (`templates.mjs`; M43 brought them to ten): **Server Keeper** (the resident agent
   that learns the server, answers questions and writes a digest at 05:30 in quiet hours), **Pi-hole
   Watcher**, **Backup Auditor**, **IT Support helper** (viewer-level tools only, no notes, no plans,
   anyone signed in may ask it) and a blank one, each with golden questions for its evaluation.
@@ -2114,6 +2187,1364 @@ Left, and why:
 - **The command bar's assistant as the Server Keeper**: the bar still asks M34's assistant.
 - **Per-device Pi-hole numbers**: only if the owner opts in, as a separate owner-only read.
 - **Learning on its own schedule**: a learning pass runs when asked ("Re-learn"), in quiet hours.
+
+## M38 — Agents in Zulip
+
+Asked for 2026-09-29: "Install Zulip... Setup the rooms for the agents so all future agents know
+they can report their findings, detail logs, knowledge, a channel for dumping images, documents,
+files for training." Zulip over Mattermost and Matrix: fully open source, no cap on history, and
+channel plus topic fits agents (ADR-007). The owner's rules stand: agents propose and never act,
+nothing leaves the server unless the owner says so, and no account is made with a password.
+
+- ✅ **M38.1 Zulip in the catalog** (unreleased). `catalog/zulip.yaml`: Zulip Server 12.3 from
+  docker-zulip's image with its PostgreSQL 14, memcached, RabbitMQ 4.2 and Redis as sidecars, every
+  image pinned, every internal secret generated and passed by reference, the database and uploads
+  in app backups, a health check, Zulip's own nightly dump off, threaded queue workers.
+  - **Tailnet only by default.** Manifests can say `defaultExposure: tailnet`: installed without a
+    choice, the web port binds 127.0.0.1 (never every address, #323) and `app.install` publishes it
+    with Tailscale Serve; if Serve fails, the install stands and says so, and the Reach tab offers
+    "Publish on the tailnet". Zulip's port is 8543.
+  - **Its address is the Serve address.** Env values may name `${TAILNET_HOST}`, this server's
+    tailnet name, filled in at every deploy (Zulip's `EXTERNAL_HOST` is `${TAILNET_HOST}:${PORT_WEB}`),
+    so the phone apps get a valid certificate; an app that needs it is refused, unchanged, when
+    Tailscale gives no name. Zulip trusts Serve's forwarded headers from Docker's gateway only.
+  - **Create your organization.** Manifests can put `actions` on an app's sheet, each a registered
+    operation run with the app's id. Zulip's is `app.zulip.organization.link` (medium, owner): Zulip's
+    own `manage.py generate_realm_creation_link`, as the zulip user; refused once an organization
+    exists. The registry's new `oneTimeFields` keep the link out of the job's record and log: the
+    approval dialog asks `POST /jobs/:id/once` for it, once, and shows it with Copy and Open.
+  - **Email and push**: without SMTP nothing is emailed, which the install form and the notes say;
+    the SMTP server, user, password, port and sender are optional settings. Phone push is a setting
+    that is off, with the steps to register with Zulip's push service; BoxPilot never registers.
+  - The demo shows Zulip installed and served; the screenshots take its sheet, the approval for
+    Create your organization, and its install form on a new server.
+  - **On a real host** (`zulip-host.yml`, run when Zulip's files change or by hand): BoxPilot's own
+    deployer and install operation bring it up healthy in about two and a half minutes on a GitHub
+    runner, its port on 127.0.0.1 only, answering through Serve's headers as Zulip 12.3; Create your
+    organization's link opens the organization form. A minute later it used about 2.6 GB of memory
+    (Zulip 2.4 GB, RabbitMQ 150 MB, PostgreSQL 60 MB, Redis and memcached 17 MB) and 3.5 GB of disk
+    for its images.
+- ✅ **M38.2 Agents talk to Zulip** (unreleased).
+  - **Connect** (`agents.zulip.connect`, medium, owner, the approval dialog from the Agents tab's
+    Team chat panel): one fixed script (`server/agents/zulip-connect.py`) through `manage.py shell`
+    as the zulip user makes a generic bot with Zulip's own `do_create_user`, owned by the
+    organization's owner, and four private channels only the owner and the bot are in -
+    #agent-findings, #agent-logs, #agent-knowledge, #agent-files - and is safe to run again (it
+    reuses the bot, reactivates it if needed, keeps channels that exist and says which are public).
+    Chosen over a key the owner pastes: the key never passes through a browser or the web process,
+    nothing is made by hand, and running it again repairs. The key goes straight into the
+    credential store (`zulip-agents-bot`); a root task checks it with Zulip and says hello in
+    #agent-findings. `agents.zulip.disconnect` (low) removes the key; nothing in Zulip is deleted.
+  - **Every agent has chat outputs**: findings, logs and knowledge, each on by default, to the
+    connection's channel under the agent's name, overridable per agent (channel, topic, on or off)
+    on the Build tab's guardrails; templates, new agents and agents saved before M38 all get them.
+    Once connected, the system prompt says where each goes, that BoxPilot posts and the agent
+    cannot, that approvals never happen in chat, and that #agent-files is data (`chatParagraph`).
+  - **The runtime posts, never the model** (`server/agents/chat.mjs`): after a run, its answer or
+    digest and its cards (at most two, each linking back to BoxPilot, where it is decided) go to
+    #agent-findings, its trace to #agent-logs (a summary; a long trace as an attached Markdown
+    file, 48,000 characters at most), and the notes it kept to #agent-knowledge. Every word is
+    redacted as the runner's are, stripped of template tokens, and has its @-mentions broken, so an
+    agent pages nobody; BoxPilot's own links are added after redaction. An outbox table
+    (`agent_chat_posts`) holds at most 200 waiting posts, sends batches of ten through the root task
+    (`agents.zulip.post`, low, run by BoxPilot itself like the TLS renewal, on a helper lane of its
+    own), sixty posts an hour for all agents, three tries each, and waits while Agents are off,
+    paused or killed.
+  - **#agent-files into Knowledge**: every three minutes while Agents run (or "Check #agent-files
+    now"), the read `agents.zulip.poll` (owner) reads the messages after the last one seen, twenty
+    at most, and downloads the files they link: PDFs, Markdown and text through the uploads' own
+    reader, images kept as they came (60 at most) - at most 5 MB each, ten files and 12 MB a poll. A
+    message of words alone becomes a note. Each is redacted, is data, and is answered in its topic
+    ("Added to Knowledge as ..." or why not). An image is described by the model in quiet hours (a
+    `describe` run like the memory index's: one image, 320 tokens, within the day's model time),
+    and the description becomes the document's text.
+  - **The Team chat panel** (Agents tab): installed, connected, the channels and what goes where,
+    the last post or error, what came in from #agent-files, counts and, for the owner, the last
+    posts; Connect, Connect again, Disconnect, Check now. Links from chat open the run
+    (`?view=agents&tab=test&agent=..&run=..`).
+  - Tests: the connect operation (key only in the store, safe to run again, what to do first), the
+    script parses (Python), channel names and posts validated, lanes; the root tasks against a
+    stand-in Zulip API (`test/fake-zulip.mjs`: loopback only, Serve's headers, attachments, the
+    poll's limits); the words (redaction, mentions, cards, traces as files); the service end to end
+    with the real runner (nothing before Connect, outputs per agent, the outbox's limits, pause,
+    failures, disconnect, ingest and acks, an image described in quiet hours); the panel and the
+    Builder. `zulip-host.yml` runs Connect twice, posts, and reads back a file the owner dropped, on
+    a real Zulip.
+- **M38.3 Two-way chat** (specified, not built): a DM or an @-mention of the bot asks an agent, and
+  the answer goes to the thread. The owner maps each Zulip user to a BoxPilot account in the Team
+  chat panel; a message from anyone unmapped is answered with "you are not set up to ask" and never
+  reaches a model. The question runs as that person, read-only, exactly as the Test tab's Ask does
+  (their role's tools, their rate limit, their conversation), against the agent named in the
+  message or the owner's default (the Server Keeper). The poll that reads #agent-files would also
+  read `is:dm` and `is:mentioned` after the last seen id; the reply is an ordinary queued post.
+  Cards it proposes still link back to BoxPilot; nothing is approved in chat.
+
+## M39 — Keep the house running when the server doesn't
+
+On 2026-09-29 the owner's server lost power at 18:41 UTC. The journal simply stops; the next boot's
+reset reason was an ACPI power-state transition. The firmware leaves the board off after AC loss,
+so it stayed off for 3 h 37 min until someone pressed the button, and there was no UPS. Pi-hole on
+it was the house's only DNS, so every device lost the internet, and nothing said so because ntfy
+was on the same server. Approved by the owner the same day; the network half is decided in ADR-008.
+Three parts: the hardware (a UPS, a watchdog, powering back on, `feat/m39-power`), the network (DNS
+that survives the server, being told when it is down, `feat/m39-network`), and a report of what an
+outage did (`feat/repair-dns-power`).
+
+- ✅ **M39.1 The UPS, finished** (unreleased, `feat/m39-power`). BoxPilot read a UPS and had a
+  one-shot setup that had never met a real NUT. Measured on NUT 2.8.1 (Ubuntu 24.04) and 2.8.4
+  (26.04) by `tests/ubuntu/ups-power-events.sh`, a CI job on both, with NUT's `dummy-ups` in place
+  of a UPS on USB, BoxPilot's own setup and shutdown code, a Docker app, and only the power-off
+  stubbed:
+  - *Setup that works on NUT 2.8.* Drivers there are systemd units (`nut-driver@<name>`, made by
+    `nut-driver-enumerator` from ups.conf). The old setup ran `upsdrvctl start` beside them; each
+    kills the other's copy, and upsmon, seeing an on-battery UPS stop answering, shuts the server
+    down. And on 2.8.4 the package starts upsd at install with no UPS defined, until systemd's
+    start limit refuses every later start. `ups.setup` (medium) now stops the monitor first,
+    holds `nut-driver-enumerator.path` while it writes and writes ups.conf last (so the
+    enumerator runs once, on the finished configuration), restarts the driver through the
+    enumerator (2.7's single unit, or upsdrvctl only where neither exists), clears the start
+    limit, waits past 2.8.4's `WAIT` for a real status, and proves the monitor logged in
+    (`upsc -c`). NUT's files are 0640 root:nut, as the package ships them. The guided setup on
+    System › Power is three steps: the USB cable (found from sysfs; `nut-scanner` needs libusb,
+    which the package does not pull in), NUT (`apt.install`), monitoring.
+  - *A clean shutdown the way BoxPilot's reboot does it.* upsmon's `SHUTDOWNCMD` is
+    `/etc/nut/boxpilot-shutdown`, which runs `scripts/boxpilot-ups-shutdown.mjs`: M26's
+    `prepareDrivesForReboot` with every app (a database on the system disk is as much at risk as
+    one on a drive), bounded at 60 s, then powers off whatever happened. Docker is stopped as a
+    shutdown stops it, so every app comes back by its restart policy (checked). upsmon leaves
+    `/etc/killpower`, so the UPS switches its outlets off after the power-off and on again when the
+    mains returns. With shutdown off, the script only notes it and no killpower flag is set.
+  - *The owner's thresholds.* Optional low-battery percent (10–90) and minutes left (2–30) become
+    `ignorelb` with `override.battery.charge.low`/`override.battery.runtime.low`: the driver
+    raises low battery itself (checked: a charge of 40 under a threshold of 50, with no LB from
+    the UPS). System shows when the shutdown starts, whichever decides it.
+  - *The power-event log.* `NOTIFYCMD /etc/nut/boxpilot-notify` (run by upsmon as `nut`) writes
+    on battery, back on mains, low battery, the shutdown, lost contact and a battery to replace to
+    `/var/lib/boxpilot-power/events.log`, with charge and runtime; the shutdown adds how many apps
+    stopped and drives unmounted, then the power-off. `server/power-events.mjs` reads it (known
+    names and numeric fields only) and adds "started again" when this boot came after a
+    power-off. System › Power lists it; Home tells the last week's outages as short news under
+    the system figures ("The power came back after 4 min").
+- ✅ **M39.2 DNS that survives the server** (unreleased, `feat/m39-network`). The router becomes the
+  one DNS server devices are given, asks Pi-hole here first and a public resolver only when it does
+  not answer (ADR-008 weighs a second DHCP server and a synced second Pi-hole). BoxPilot does not sign in
+  to the router; it shows the steps and proves the result. `server/dns-resilience.mjs` reads what the
+  router hands out from this server's own DHCP lease (networkd's JSON or lease file, NetworkManager,
+  dhclient), or, on a server with a hand-set address like the owner's, from who asks Pi-hole
+  (`dns.blocker.askers`: its own query database read-only, counts only), asks every other server on
+  the list directly with node's resolver (no dig, ping or
+  tcpdump), sends a canary through the router and looks for it in Pi-hole's query log
+  (`dns.blocker.canary`), and reads the last rehearsal. **Rehearse** (`dns.fallback.rehearse`, medium)
+  stops the DNS app for about half a minute behind a three-minute safety timer, asks the router three
+  uncached names, starts the app and waits until it answers on the LAN. "If <server> goes down, every
+  device on your network loses the internet" is said only on evidence (a lease naming nothing else,
+  a failed rehearsal, second servers that do not answer), on Network (a notice, the strip, the
+  panel) and on Home and Ops through Repair; an unrehearsed router is "not known yet", with the
+  rehearsal as its fix. **Router steps** for GL.iNet 4.x, OpenWrt and any router, addresses filled
+  in (`docs/NETWORK.md` too). After a boot that followed an unclean end, the DNS app is asked on the
+  LAN and the host through NSS, and both lines go on the outage's record
+  (`server/outage-dns.mjs`, plugged into feat/repair-dns-power's `previousBootEndedUncleanly()`).
+  `tests/ubuntu/dns-fallback.sh` runs it all against real dnsmasq routers with and without a
+  fallback and the runner's own lease, on both LTS releases; `tests/ubuntu/pihole-askers.sh` runs
+  the catalog's Pi-hole image asked by eight devices and reads its database as the helper does.
+- ✅ **M39.5 The boot partition's mark** (v1.173.0, `feat/boot-partition-mark`; lifted from #334,
+  the rest of which M39.2, M39.3 and #336 had shipped another way). After the 2026-09-29 power cut
+  the kernel said "FAT-fs (nvme0n1p1): Volume was not properly unmounted" about /boot/efi at every
+  boot: Linux never clears a FAT mark it found set, and Ubuntu's boot-time check needs fsck.fat.
+  Repair's finding `boot-partition-mark` (warning) reads the kernel's line, the FAT boot partition
+  and whether a clean check came after it; its fix `storage.boot-mark.clear` (medium) refuses while
+  packages or the bootloader are being written, unmounts the partition (refused if anything holds
+  a file open), reads it with `fsck.fat -n`, repairs with `-a` only when the mark is all it finds,
+  mounts it again and records the check (`bootPartitionChecks`); without dosfstools it offers the
+  install first. `server/tasks/boot-partition.mjs`; the scan reads `fstab`'s pass column and whether
+  fsck.fat exists; CI runs `tests/ubuntu/boot-partition-mark.sh` on a real FAT32 loop device on both
+  LTS releases. Tests: `remediations.test.mjs`, `boot-partition.test.mjs`.
+- ✅ **M39.3 Told when the server is down** (unreleased, `feat/m39-network`). An opt-in heartbeat
+  (Settings, Notifications): a bare `GET` every few minutes (five unless changed) to a dead man's switch the
+  owner picks (healthchecks.io's free plan, or Healthchecks or Uptime Kuma push on another machine),
+  which alerts their phone when the pings stop. No body, no header of BoxPilot's, nothing about the
+  server. The address is a credential in the root-only store (`heartbeat-url`); the pinging is
+  `deploy/boxpilot-heartbeat.timer` and a capability-less oneshot, so a BoxPilot restart does not
+  trip the alarm; never retried in a loop. `heartbeat.set` (medium, owner), `heartbeat.test` (low,
+  owner), the last ping and the host on the panel. Tailscale has no device-offline alert (its webhooks
+  have no such event); a router cron script is documented, not built. `tests/ubuntu/heartbeat.sh`
+  runs the units as shipped on real systemd.
+- ✅ **M39.4 A frozen server restarts itself** (unreleased, `feat/m39-power`). Ubuntu's kernel
+  packages blacklist every watchdog driver (`sp5100_tco`, `iTCO_wdt`, `softdog`), so a board with
+  a watchdog usually shows no `/dev/watchdog`. `power.hardware.inspect` (operator, root: it reads
+  the kernel's module list) says what is there: on, off, loadable (the chipset's driver is on disk
+  but not loaded), off in the firmware, a virtual machine (its host decides), or only softdog
+  (which cannot restart a frozen kernel). `power.watchdog.enable` (medium, off by default; its
+  preview says a hang now reboots the server) loads the driver by name if needed, writes
+  `/etc/systemd/system.conf.d/90-boxpilot-watchdog.conf` (`RuntimeWatchdogSec=60s`, 2 or 5 min if
+  chosen, and `RebootWatchdogSec=10min`), reloads systemd and checks `systemctl show` and `wdctl`;
+  anything that does not check out is undone. A watchdog that can never be stopped (nowayout) is
+  refused. `power.watchdog.disable` (low) removes BoxPilot's files and proves it stopped.
+  Measured by `tests/ubuntu/watchdog-softdog.sh` on both releases, softdog standing in for the
+  board: a daemon-reload is enough for systemd to take the drop-in; systemd-modules-load honours
+  the blacklist ("Module 'softdog' is deny-listed"), so a modules-load.d line alone loads nothing,
+  and the drop-in BoxPilot gives `systemd-modules-load.service` (`ExecStartPost=-modprobe <driver>`)
+  does. No hang is simulated.
+- **M39.5 The after-outage report** (with #334, `feat/repair-dns-power`): what a power cut left
+  behind, from the power-loss notice, the power-event log and what came back.
+- ✅ **M39.6 Power back on after an outage** (unreleased, `feat/m39-power`). BoxPilot cannot change
+  the firmware, so `powerOnGuidance()` in `server/power-on-guidance.mjs` (the hook the power-loss
+  notice calls) says where "Restore on AC power loss → Power On" is on ASUS, MSI, Gigabyte
+  ("AC BACK → Always On"), ASRock, Dell, HP, Lenovo and Intel NUC boards, this board's maker first
+  (from DMI), and why "Last State" is not enough after a clean shutdown. It is on System › Power
+  (`?tab=power`, `#power-on`). Wake-on-LAN, where a wired port supports magic-packet wake:
+  `power.wake-on-lan.set` (medium) writes `/etc/systemd/network/50-boxpilot-wake-on-lan-<port>.link`
+  with the naming rules of the file that applied before and `WakeOnLan=magic`, asks udev
+  (`udevadm test-builtin net_setup_link`) that it is the file that applies, and turns wake-on on
+  with ethtool; a netplan-generated file that outranks it (as on the CI runners) is refused and
+  undone, with what to add to netplan instead. Measured on real udev by
+  `tests/ubuntu/wake-on-lan-link.sh` with a stand-in ethtool, since no runner port can wake.
+  Physical steps stay the owner's: the firmware setting, and Wake-on-LAN ("Power On By PCI-E")
+  on with ErP off.
+- **Later**: sync a second Pi-hole over Pi-hole v6's teleporter API once there is a second always-on
+  box; read the router's DNS settings through the existing GL.iNet connection.
+
+## M40 — Agents you can rely on
+
+Asked for 2026-09-29, after the owner's Server Keeper ("Steve", Unsloth with Qwen 3.5 4B at four
+threads under `CPUQuota=400%` on a Ryzen 7 7800X3D: 52 tokens a second read, 10 written) answered
+"List the drives connected to BoxPilot" in 99 s with "**/dev/sda** (primary drive): 528 GB total, 31%
+used". The 528 GB root was on NVMe through LVM; /dev/sda was a 15 TB exFAT drive on USB.
+storage.health had said "Root disk: 31% used, 366 GB free of 528 GB. /boot … " and named no device,
+so the model filled one in. Asked where Pi-hole runs, it planned `apps.list` over `where.runs`,
+twice. The hard caps and "agents propose, never act" stay as they are.
+
+- ✅ **M40.1 Tools that leave nothing to guess** (unreleased, `feat/m40-agents`). Every read tool's
+  words are in `server/agents/tool-text.mjs`, one line a thing, its facts on its own line.
+  **storage.health** says first which drives are connected - "2 drives connected: /dev/nvme0n1 (NVMe
+  SSD, 1.02 TB, the system disk) and /dev/sda (USB drive (spinning disk), 16.0 TB)" - then the root
+  filesystem on its drive ("/ (the root filesystem): on /dev/nvme0n1 (NVMe SSD, the system disk)
+  through LVM volume … on /dev/nvme0n1p3, ext4, 528 GB in total, 162 GB used (31%), 366 GB free"),
+  then each drive (device, attachment, size, model, "The system disk" or "Not the system disk", what
+  it holds, SMART) and each other real filesystem (mountpoint, drive and partition under it, type,
+  size, used, free). It joins what BoxPilot already reads: lsblk's devices and parents, the root
+  scan's mounts, statfs of /, and SMART. lsblk in the web service's sandbox (`PrivateDevices=yes`)
+  lists no device-mapper volume, so a mapper root is placed on its LVM2_member (or crypto_LUKS)
+  partition; what cannot be worked out is said ("Which drive holds / could not be worked out"),
+  never guessed. **apps.list** leads with "BoxPilot apps installed: 12. Running: 10. Stopped or not
+  running: 2 (…). Unhealthy: …"; **server.facts** names the OS and its version ("Ubuntu 24.04.3 LTS
+  (Ubuntu, version 24.04.3)"); **where.runs** says where in its first line, and that a BoxPilot app is
+  not on the host. Descriptions say what each tool is for, and the planner lists that beside each
+  tool ("- where_runs: Where does it run?. For: where does X run; is X a container, a BoxPilot app or
+  on the host; is X installed"). **The request's own words point at tools** (`toolsForQuestion`,
+  patterns in the catalog): "where does X run" is where.runs, "which drives" is storage.health. The
+  planner is told after the request (so its system message stays the same bytes for the cache), the
+  calls that act carry those tools beside the plan's, and the plan names them when it left them out.
+  The demo world's lsblk now lists partitions as the sandbox does.
+- ✅ **M40.2 The agent checks itself before answering** (unreleased, `feat/m40-agents`). After the
+  model drafts its answer, `server/agents/verify.mjs` holds every claim to the tool output it cites,
+  with no model: the devices and paths it names must be in that output, and its sizes and
+  percentages must be ones the output gives *for those things* - on the lines whose subject they are,
+  on the stretch of a line after they are named, and for a drive on the lines of what it holds -
+  within the claim's own rounding (GB read as GiB too). What a claim calls a thing is checked the
+  same way: the system disk, USB/NVMe/SATA, ext4/exFAT and the rest, running or stopped. An uncited
+  claim is held to every output. A mismatch is corrected by the model once, in a small conversation
+  of its own (a fixed system message, the failing claims, only the output's lines about them), when
+  that fits in what the run and the day have left (`optional` calls never degrade a run); the
+  correction is checked the same way and kept only if better; whatever still does not match is said
+  plainly under the answer ("Checked against the tools, some of this does not match what they said,
+  so I am not sure of it: …"). A JSON answer is only checked. The trace has a "check" step, the run a
+  `check` flag (claims, mismatches, corrected, unsure) the service works out again from what it kept,
+  and the Test tab a line under the answer. **Measured**: the text check takes 1 to 3 ms; the
+  owner's wrong answer about the drives was corrected in one call of 504 tokens read and 51 written,
+  14.8 s at the owner's 52 and 10 tokens a second (`check.test.mjs`), in an 80 s run.
+- ✅ **M40.3 An accuracy score that means something** (unreleased, `feat/m40-agents`). **Built-in
+  questions** (`templates.mjs`, `builtInEvaluation`), each asked only of an agent whose own tools
+  answer it: which drives are connected (graded by `grade.mjs`: every drive named, none called the
+  system disk that is not, none given the wrong attachment), how full the root filesystem is, where
+  Pi-hole runs (from where.runs' own reading), which apps are stopped, the OS and its version. The
+  owner's own questions and expected answers (a fact, or words a right answer holds) join them, and
+  one of the owner's about the same fact takes a built-in's place. **Nightly in quiet hours**: one
+  agent at a time, at most once in 20 hours, as the person who made it, as background work nobody
+  waits on (after learning and indexing in the queue, waiting for quiet hours, stepping aside when
+  the server is busy), only when its budget and every agent's have room for its questions at two
+  minutes each and still keep half of the day's model time for people; otherwise skipped, and the
+  audit says so once a night. An evaluation now plans as a person's question does, since the plan is
+  where a tool is chosen. **The Evaluation tab** shows the built-in questions, the owner's, the
+  latest result (nightly or asked), accuracy over time (a bar an evaluation, and the table), the
+  people's verdicts by day, and **flags a drop** - the latest score more than 20 points under the
+  average of the five before, or 25 under the one before - with whether the instructions or the
+  model changed in between; the agent list shows "accuracy down to 60%". Sixty evaluations are kept
+  per agent. **Thumbs feed it**: a "Wrong" with the words a right answer holds, from whoever may
+  change the agent, makes the question one of its golden questions. **Measured on the stand-in**
+  (`test/agents-eval.mjs`: the five built-in questions and the owner's own "List the drives
+  connected to BoxPilot", each asked of a fresh Server Keeper on a server laid out like the owner's):
+  2 of 6 before M40, 6 of 6 after; CI holds it (`evaluation.test.mjs`). **Measured on the real
+  model** (`agents-bench.yml`, `mode: eval`, `baseline: main`: Qwen 3.5 4B UD-Q4_K_XL under Unsloth
+  2026.9.12, four threads under `CPUQuota=400%` on a GitHub runner's Xeon Platinum 8370C, the same
+  questions and graders for both): **2 of 6 before M40 (33%), 6 of 6 after (100%)**. Before, it
+  answered the drives question as the owner's server did ("/dev/sda: 528 GB total, 31% used", no
+  NVMe), and for Pi-hole and the stopped apps it never called where.runs or apps.list and said it
+  could not know. After, each question used the tool made for it, and the check found no mismatch;
+  each answer took 100 to 230 s there (run 36656892146).
+- ✅ **M40.4 Faster while someone waits** (unreleased, `feat/m40-burst`; ADR-009). The owner's
+  decision: **eight processors while a person waits** (their question, the Test tab, a Zulip
+  message, and the hand-offs and follow-ups made for one), **four for everything else**. The shipped
+  unit keeps `CPUQuota=400%`; when a person's run is handed out the root helper raises the running
+  unit's quota (`agents.runtime.cpu`, low, owner, BoxPilot's own: `systemctl set-property --runtime`,
+  its own helper lane) and arms a transient timer that puts the background quota back after the
+  run's longest time plus two minutes; the web service lowers it as soon as nobody waits (after the
+  run, on the tick, after the kill switch, at start). A raise whose timer cannot be set is taken
+  back and refused. The model runs a thread per processor, never more than the physical cores, so a
+  class change restarts it (a few seconds) instead of oversubscribing the quota; speeds are kept per
+  thread count. **Usage** shows the quota set now, and the owner's "Processors while you wait" and
+  "Processors in the background", 2 to 8 and never more than the machine's processors less two,
+  checked in the web service and again in the helper. Idle priority, idle I/O, the memory cap and
+  "no process when idle" are untouched. `agents-caps` raises and lowers the quota with the helper's
+  own code on real systemd, with the fake model busy, and watches the timer take it back. **Measured**
+  on the real model (`agents-bench.yml`, a four-processor runner on two cores): four threads under a
+  200% quota ran at half the speed of two (7.5 against 14.4 tokens a second read, the owner's
+  question 436 s against 257 s), which is why threads follow the processors; four under 400% gained
+  little over two on that runner's two cores. The gain at eight on the owner's eight cores shows in
+  their Usage tab, which keeps speeds per thread count.
+- ✅ **M40.5 Talk to agents in Zulip** (M38.3; unreleased, `feat/m40-zulip`, stacked on M40.4). A
+  direct message to the bot, or an @-mention of it in any channel it is in, is a question; the answer
+  comes back in the same thread (the DM, or the channel and topic), with "open the run in BoxPilot"
+  under it. **Nothing listens**: once a minute (and on "Check Zulip now") the registered read
+  `agents.zulip.events` (owner, a root task beside `agents.zulip.poll`, since only a task may reach
+  the tailnet) reads the bot's own event queue without waiting (`dont_block`), narrowed to DMs and
+  mentions; a queue Zulip let expire is registered again and the last 15 minutes are read from the
+  message history, so nothing asked while BoxPilot was down is lost or answered twice (at most ten
+  a read, the rest at the next). **Who asks is who they are in BoxPilot**: the owner maps Zulip people
+  to BoxPilot accounts in the Team chat panel ("Asking in Zulip", with the password, at most 50) and
+  picks the agent asked when a message names none ("Steve, which drives …" names one). A run starts
+  exactly as the Test tab's Ask does, as that account: its role's tools and reads, its rate limit,
+  its conversation, the eight processors of M40.4 while they wait. Anyone not on the list is told
+  politely, at most once an hour, that they are not set up, and listed for the owner to add.
+  **Chat never approves**: a plan or question card an answer made is posted in the thread as a card
+  linking to BoxPilot's Agents page, where it is staged at its tier as always; a question asked back
+  is in the reply. Every word the model wrote goes through the same `chatText` as findings (#344:
+  links and images as code, no mentions, redacted); BoxPilot's own link is added after. Replies go
+  through the outbox and its limits; a direct reply is `type: direct` to the asker's id (1 to 8
+  ids, validated in `agents.zulip.post`). Tests: the events task against `test/fake-zulip.mjs` (the
+  queue read once, DMs and mentions and nothing else, bots and the bot itself skipped, an expired
+  queue opened again with what was asked since read back, what is too old left out), the service
+  end to end with the real runner (`chat-ask.test.mjs`: someone not set up told once an hour and
+  never reaching a model; a mapped person asking as their account and answered in the DM; a named
+  agent answered in the channel's thread; a card sent back as a link; nothing asked while paused),
+  the panel; and **on a real Zulip** (`zulip-host.yml`, docker-zulip as BoxPilot installs it) a
+  person DMs the bot and the answer comes back in the DM.
+- ✅ **M40.6 Pictures** (with M40.5). **Checked on the real model** (`agents-bench.yml`, `mode:
+  image`: Unsloth 2026.9.12 started by BoxPilot's runtime, offline, four threads under
+  `CPUQuota=400%`): `unsloth run` finds `mmproj-F16.gguf` beside the model in the Hugging Face cache
+  (BoxPilot downloads it with the model, checksummed) and starts llama-server with `--mmproj`
+  ("Using mmproj for vision"); Qwen 3.5 4B described a picture made on the spot as "a red circle on
+  a white background, with a blue horizontal bar below it", in 27 s (20 s of model time) through
+  the real describe run (run 36661268748). **What was wrong**: nothing checked that the projector
+  loaded. A server without one refuses every image, each refusal spent one of the image's three
+  tries, and three minutes into quiet hours the image was never described again. Now the runner
+  asks the server it started whether it can see - Unsloth's `GET /api/inference/status`
+  (`is_vision`, `mmproj_fallback_reason`), llama-server's `GET /props` (`modalities.vision`) - and
+  sends no image to one that says it cannot; an image refused with "image input is not supported"
+  counts the same. That costs the image no try, and describing waits a day (or until the model or
+  runtime changes) instead of starting the model every minute to fail. **Found by the benchmark**:
+  Studio answers its status before the model it is loading is listed, with `is_vision: false` for
+  no model at all; only a status that names a loaded model counts, else the image is tried. The
+  reason kept carries the server's own last line about a projector. The Knowledge tab says whether
+  the model can see images, and which wait and why. llama-server, skipped for images since M38,
+  describes when the model has a projector. Tests: a stand-in `unsloth run` (the start's key, the
+  fallback reason, the status before the model is listed), the fake model answering both endpoints
+  and refusing an image with `--vision off` as llama-server does, the service waiting a day and
+  then describing (`chat.test.mjs`), the bench's image path on the stand-in, the tab's notice.
+
+## M41 — Looks
+
+Asked for 2026-09-30: the owner liked both of ADR-004's views and wanted to see either cover the
+whole site; the study (`docs/design-directions/05-looks.html`) drew three ways and ten more, and the
+owner chose all thirteen, each built to match its drawing (ADR-010).
+
+- ✅ **M41.1 The ground the looks stand on** (unreleased, `feature/looks`). The registry
+  (`src/looks/looks.ts`), the choice kept per browser and applied before first paint, `data-look`
+  on the root, a Home per look, the sidebar and the soft-key and top-line docks, Storage's lead
+  slot, the typefaces, and Settings → Appearance with a card per look, "Where it applies", accent,
+  density, wallpaper and solid panels. `scripts/look-check.mjs` draws the reference pictures and
+  scores screenshots against them.
+- ✅ **M41.2 The thirteen looks** (unreleased, `feature/looks`), each with its skin on every page,
+  its way around and its Home, matched to its drawing and checked light and dark where it has both.
+  An account menu stands in for the bar's controls where a drawing keeps its bar bare; the shell
+  says Home's verdict on every page. The README shows each look's Home.
+- ✅ **M41.3 Checked by eye as well as by score** (unreleased, `feature/looks`): two rounds of two
+  checkers put every look's Home (and Home + Ops' and the Launcher's Storage, and Appearance) side
+  by side with its drawing and read every other page in every look, on a phone too; what they
+  found was fixed. Every reference now scores 80 or more. Left as drawn differently on purpose:
+  Command Center's rail has no Home stop, Phosphor and Quest keep their rail beside the screen,
+  Glass Cockpit's unlit lamps are brighter than drawn so their names can be read, and the
+  Launcher's Storage keeps status chips where a switch would promise what it cannot do.
+
+## M42 — Publish an app to the internet
+
+Asked for 2026-10-03: the owner wants to share files with people outside the tailnet through Pingvin
+Share, without the Cloudflare dashboard and without opening a port on the router. Decided in ADR-011.
+
+- ✅ **M42.1 Cloudflare Tunnel from BoxPilot** (unreleased, `feat/cloudflare-tunnel-manager`). A
+  **Tunnel** tab on the Cloudflare Tunnel app's sheet in the App catalog, owner only, installed or
+  not. **Connect** (`cloudflare.connect`, high): paste an API token with Account · Cloudflare Tunnel
+  · Edit, Zone · DNS · Edit and Zone · Zone · Read; BoxPilot checks it, finds or makes the tunnel
+  `boxpilot-<server>` (routes kept at Cloudflare), saves the tunnel's key and installs the Cloudflare
+  Tunnel app with it, or gives an installed one the new key. **Publish** (`cloudflare.publish`, high,
+  the full name typed): an installed app, its port, a domain and a name, previewed as
+  `https://<name>.<domain>`, with an "it speaks HTTPS" box; the route and the CNAME are added, every
+  route BoxPilot did not make is kept, and a name that already points elsewhere is refused. The
+  preview says plainly that anyone can open it and the app's own sign-in is the only lock, and, for
+  Pingvin Share, which two settings to change. **Published apps** lists each with its link and
+  **Unpublish** (`cloudflare.unpublish`, medium), which removes only what BoxPilot made. **Check
+  with Cloudflare** (`cloudflare.tunnel.check`) shows the tunnel's health and connectors, a name
+  missing at Cloudflare and one added in the dashboard. **Disconnect** (`cloudflare.disconnect`,
+  medium) forgets the API token and leaves everything running. The API calls are root tasks
+  (`server/tasks/cloudflare.mjs`, `server/cloudflare-api.mjs`); the two tokens live in the credential
+  store; BoxPilot's record is `/var/lib/boxpilot-managed/cloudflare-tunnel.json`. The Cloudflare
+  Tunnel app now shares the host's network, so every app is `http://127.0.0.1:<port>` to it. The
+  runbook lists what BoxPilot published. The demo shows Pingvin Share at `share.example.com`, and a
+  new server not connected. Steps for the owner in `docs/NETWORK.md`.
+- **Next: a login in front.** Cloudflare Access on a published name (one-time PIN to an email
+  address, or a Google or GitHub login), chosen per app on the same form, so an app without a good
+  sign-in of its own can still be shared.
+- **Next: say what is public where it is looked for.** A public app marked on Home and on the
+  Network page, and its public address on that app's Reach tab beside the home network and tailnet
+  ones, with Unpublish there too.
+
+## M43 — Agent templates
+
+Asked for 2026-10-04: an agent that surveys the whole server and says where to focus, and more
+ready-made agents that use the read tools agents already have. Nothing here adds a tool: a template
+that would need one is under Next, not faked.
+
+- ✅ **M43.1 Environment Scout** (unreleased, `feat/agent-templates`). The owner's ask. Its job:
+  "Survey this server and rank its problem areas, most important first, each with its evidence and
+  a next step." Once a week (Sunday 04:20, in quiet hours) and whenever someone asks, it reads five
+  tools - live alerts (failed services and schedules, unhealthy or crash-looping apps, a reboot
+  waiting, disks filling), the drives and their SMART health, the apps and their updates, the
+  backups (BoxPilot's own, the copies off the server, which apps' backups were test-restored) and
+  the machine (load, memory, uptime) - and writes a numbered "Where to focus" list ranked by harm:
+  data that could be lost, then what is down, then what will go wrong soon, then tidying. Each item
+  says what it is, why it matters, the tool output it came from, and the next step; for the top two,
+  a card proposing the matching operation (it may propose app.action, app.backup, app.backup.many,
+  app.backup.verify, app.update, backup.sync, service.action, storage.check, storage.remount).
+  Then "Fine:" and "Not checked:": the firewall, open ports, SSH settings, waiting system package
+  updates and Repair's findings, which its tools cannot see, with the page to open; and when the
+  Cloudflare Tunnel app is installed, that some apps may be open to the internet and its Tunnel tab
+  lists them. Asked about one area it also reads services.status and jobs.recent. It keeps no notes:
+  each survey is remembered as it ran, and the next recalls it to say what changed. Budget: 4 runs
+  and 1,800 s of model time a day, 8 steps, 16,000 tokens and 15 minutes a run; it never notifies.
+  Its golden questions: which apps are unhealthy, which services failed, how full / is, and which
+  parts of the server its tools cannot check (a right answer names the firewall), with the built-in
+  drives, stopped apps and OS ones.
+- ✅ **M43.2 Four more templates** (unreleased, `feat/agent-templates`), each in plain words, each
+  propose-only, each with golden questions its own tools answer:
+  - **App Doctor**: finds apps that are stopped, unhealthy or restarting, reads their last log lines
+    (a day back) for the reason, and proposes the simplest fix: a restart, the previous version, a
+    rebuilt container, an update when the log points at a fault; any card that changes the app's
+    version or container starts with a backup. Daily at 04:10 in quiet hours, on a health alert and
+    on a failed job. 8 runs and 1,800 s a day.
+  - **Storage Watch**: each night at 02:50, how full each filesystem is and how fast it grows (one
+    "Readings" note it compares with and rewrites, the sums with calc and time.calc), drive health
+    and wear, a sleeping drive's last reading, and a dropped drive at once. Tells the owner about a
+    filesystem full within 14 days or a drive warning, critical or read-only. 4 runs, 1,200 s.
+  - **Update Planner**: Fridays at 03:30, which apps have an update, whether the live alerts call for
+    a reboot or tell of a BoxPilot release, what already installs updates (schedules and automations) and which
+    update jobs failed; one card with a backup of the apps that hold data and then their updates, to
+    approve when nobody is using them; system packages only when nothing installs them already, and
+    a reboot only when an alert says one is required, as its own card. 4 runs, 1,200 s.
+  - **House Guide**: for the people the owner adds. Says what this server runs, what each app is for
+    (from the catalog) and where to open it; anyone signed in may ask; viewer tools only, no notes,
+    no cards. 60 runs, 1,800 s.
+- ✅ **M43.3 What the templates had to fit.** A plan holds five steps and a call that acts carries
+  only the plan's tools and the always-on ones, so each new template's routine work names at most
+  five tools in its steps; its own notes come with every request, so none spends a step on
+  notes.read. A nightly evaluation runs only when it leaves half the day's model time free (240 s a
+  question), so every budget now holds its own: the **Backup Auditor** goes from 600 to 1,200 s and
+  the **IT Support helper** from 1,200 to 1,800 s, whose nightly evaluations were always skipped.
+  The Backup Auditor also gets apps.list: without it, it could not see which apps are installed,
+  nor answer its own golden question. Three new evaluation facts, read as apps.list and
+  services.status read them and graded like the stopped apps: **which apps are unhealthy**, **which
+  apps have an update** and **which services failed**; the Evaluation tab offers them.
+- **Demo**: every world's catalog offers the ten templates; the default world has an Environment
+  Scout made this morning, its survey (Vaultwarden, Immich and Nextcloud with no test-restored
+  backup; Jellyfin's update; the Cloudflare Tunnel app installed; then what is fine and what was not
+  checked) checked against its tools with no mismatch, and its two cards. The agents' world now has
+  Jellyfin's update and the Cloudflare Tunnel app as the Apps page does, and BoxPilot's database
+  backup, the cloud copy and Jellyfin's restore rehearsal.
+- **Tests**: every template is a spec BoxPilot accepts as it is, uses only tools the runtime runs,
+  names in its prompt only tools it has on and operations it may propose, keeps its budget under the
+  ceilings with room for its own nightly evaluation, schedules quiet-hours work inside the default
+  quiet hours, may propose only registered operations that change something and none that deletes,
+  and a viewer-borrowable one has viewer tools only; the golden questions are well formed and ask
+  facts the template's own tools read (`templates.test.mjs`); the catalog route serves them and each
+  makes its agent; the Scout's evaluation reads the new facts and its weekly survey runs end to end
+  on the stand-in model, five reads and two cards, the step it may not propose dropped, nothing
+  run; the Build tab lists every template and fills the form from each (`templates.test.tsx`); the
+  demo's survey (`demo-agents.test.mjs`).
+- **Done since (M47.1, M47.6): templates that needed a read tool first.** Each read existed as a registered operation; what
+  is missing is the agent tool that reads it, with its words in `tool-text.mjs`:
+  - **Security Reviewer**: firewall rules and default policy, listening ports, SSH password and root
+    sign-in, fail2ban's bans, admin accounts, apps reachable from the internet. A `security.posture`
+    read over `firewall.inspect`, `fail2ban.inspect`, `users.inspect` (operator),
+    `app.reachability.inspect` and `cloudflare.tunnel.inspect` (owner). Today an agent sees none of
+    it, so a security review would be a guess; the Scout says so under Not checked.
+  - **Resource Tuner**: which apps use the most processor and memory, swap pressure, what to pause.
+    An `apps.usage` read over `app.stats.inspect` and `system.performance.inspect`; server.facts has
+    only the whole machine's load and memory.
+  - **System updates waiting**, for the Update Planner and the Scout: an `updates.pending` read over
+    `apt.upgradable.inspect` and `apt.unattended.inspect`.
+  - **Backup coverage per app**, for the Backup Auditor and the Scout to say "never backed up": a
+    `backups.coverage` read over `app.backup.protection` and `app.backups.counts`. backups.status
+    lists only BoxPilot's own database backups, the copies off the server and the rehearsals.
+  - **Reclaimable space and snapshot age**, for Storage Watch: over `housekeeping.inspect`,
+    `docker.disk.inspect` and `storage.fs-snapshots.inspect`.
+  - **Repair's findings**, for the Scout: a read of what the Repair Center detects.
+  - **A longer survey**: a plan of more than five steps for an agent that asks for one, so the
+    Scout can read services and failed jobs in the same weekly run instead of through alerts.
+
+## M44 — Agents share what they learn
+
+Asked for 2026-10-04: "When Steve (or any agent) needs certain data, check with the other agents
+first. We shouldn't have agents wasting compute to reach out if we already have an agent that
+already gathered that information." Decided in ADR-012: a permission on each agent, on by default.
+With it, the fixes from the Environment Scout's first survey on the owner's server, the digest's
+markdown, and the Server Keeper's budget.
+
+- ✅ **M44.1 Findings** (unreleased, `feat/agents-share-findings`). When an agent that shares
+  finishes its routine run (its schedule, or the console's run without a question), or an answer it
+  checked against its tools, its answer is kept as its finding: one shared note per agent and kind
+  ("routine" or "answer"), replaced each time; its words without the run's [T] citations, shortened
+  past a note's 2,000 characters and said to be. Fresh for about as long as the agent takes to look
+  again, in one helper (`findingFreshMs`): weekly a week, daily 26 hours, every six hours 7, hourly 2,
+  an agent only asked 24 hours, an answer never more than a day. It carries the role of the run that
+  found it, and where it came from: agent, run, when, its confidence and its check's mismatches.
+  Never one from a run that read something that looked like an instruction, ended degraded or asked
+  back; one its check was not sure of is kept and marked unsure, one cut short by a limit partial.
+  No evaluation, learning run, event or webhook leaves one. They are not notes: they do not count
+  against an agent's notes, nor are they recalled with them.
+- ✅ **M44.2 Using findings before working.** An agent that uses findings is offered, before it
+  plans, the other agents' fresh findings its run may read that share words with the request (or
+  its job, for routine work): at most three, 900 characters each, boxed and marked untrusted like
+  tool output (`<finding id="F1" from="Environment Scout" age="3 hours ago" trust="untrusted">`),
+  each a step of the trace. It cites them as [F1]; the check before answering holds such a claim to
+  the finding's words, and an [F] it was never given is counted as unknown. The planner and the
+  system message say, the same words every run: if a finding answers, answer from it, say how old it
+  is, and do not read the same facts again or hand the question on; read live facts with a tool only
+  before proposing a card, when asked for a fresh check, or when no finding answers. "Check now",
+  "check again", "a fresh look", "right now" and the like are offered no findings, and the trace says so.
+- ✅ **M44.3 Hand-offs answered from a finding.** When the Server Keeper (any supervisor) hands a
+  subtask to a specialist that shares, and that specialist's fresh finding answers it (never an
+  unsure or partial one), the finding is its answer at once - "Used Backup Auditor's finding from 3
+  hours ago instead of running it again" - with no specialist run and no follow-up run. A follow-up,
+  when some other specialist did run, gets the finding beside that one's answer, in the order they
+  were handed over. Each run counts the runs it saved; the Usage tab says how many this week, and how
+  many answers used another agent's findings.
+- ✅ **M44.4 The switches.** "Shares its findings with the other agents" and "Uses the other agents'
+  findings" on each agent's Build tab (Team), each with a line of what it does; both on for every
+  template but the IT Support helper and the House Guide, which answer people and only use them (as
+  far as the person asking may read). Turning sharing off forgets what the agent shared. Agents saved
+  before get the switches once, as their template would give them, as a version BoxPilot made. The
+  Memory tab lists "Findings this agent shared" and "Findings it can use", with their age and how
+  long they stay fresh, and forgets one.
+- ✅ **M44.5 The Environment Scout's first real survey.** On the owner's server it took 204 s at
+  eight threads (10 model calls, 3 tool calls, 38,734 prompt and 2,242 written tokens), read three
+  of the five tools its plan named - not the drives, the backups or the jobs - and left "It reached a
+  limit before it finished". The limit was its **8 steps**: one plan, eight calls that act (the
+  eighth may only answer) and a correction make the ten calls; every step before the last called a
+  tool, and with three reads among them the other four can only have gone on proposing cards, its
+  one other tool. Its tokens stood at about 12,300 of the 13,600 that end a run early (from its
+  speeds: some 114 s reading at 88 tokens a second, 90 s writing 2,242 at 25). A survey
+  that reads one tool a step needs five steps to read, two to propose and one to answer, so its
+  template now has **10 steps, 24,000 tokens, 20 minutes and 2,400 s a day** (the background's four
+  threads go at about half the speed of eight), its rules say to read every planned tool before
+  proposing anything, and a third card is refused with words that say to read and answer instead. A
+  run's tool calls may now reach twelve steps' worth (36, from 24). A limit's card says which limit
+  and what to raise: "It reached its limit of 8 steps a run before it finished. If that keeps
+  happening, raise "Steps a run" on its Build tab, under Guardrails." Tokens running out is a limit
+  reached too, and said so.
+- ✅ **M44.6 Stopped on purpose.** The survey called the apps the owner had stopped problems.
+  apps.list now reads BoxPilot's own record of the owner's stops (`appStops`, M33.2: the app's Stop
+  button, app.action stop; kept per app because jobs are pruned) and says, apart from the apps down
+  for no recorded reason, which were "Stopped on purpose: the owner stopped it from BoxPilot on
+  2026-09-28; not a fault", or never started since their container was made. The Scout lists those
+  under Fine and proposes nothing for them; the App Doctor names them apart and proposes starting one
+  only when the person asking says it should run. An app that keeps restarting is never on purpose.
+- ✅ **M44.7 Markdown in answers.** The Agents tab's latest digest showed `**Daily digest complete.**`
+  with its stars. Every place an agent's words are shown as prose - the digest on the Agents tab,
+  the glance on Home, Ops and Today, a run's answer, a finding, the agent's side of a conversation -
+  draws the part of markdown a small model writes (bold, italics, bullet and numbered lists, line
+  breaks, `code`; a heading as a bold line, a link as its words alone) with a renderer of its own,
+  no dependency. HTML and `<script>` stay text and never run; [T1] and [F1] are drawn as marks.
+- ✅ **M44.8 The Server Keeper's budget.** It left two "It ran out of time before it finished" cards
+  on the owner's server. Its morning digest runs in the background on four threads, about half the
+  speed of a question someone waits on (ADR-009 measured 52 tokens a second read and 10 written), and
+  reads more than any agent - its notes, what it recalls, the others' findings, four tools, about
+  14,000 tokens - which 15 minutes and 12,000 tokens did not hold. The template now has **20 minutes
+  and 20,000 tokens a run**. An agent made before keeps its own budget: raise "Longest run" and
+  "Tokens a run" on its Build tab, under Guardrails, which now says so.
+- **Tests**: a finding written, replaced, fresh for its schedule, at its run's role, never a note;
+  an answer kept only once checked, marked unsure, never after an instruction-like read or a
+  degraded run; findings offered boxed and untrusted, cited and checked as [F1], not to a run that
+  reads less, not once stale; a supervisor taking a fresh finding instead of a run and counting it,
+  and running the specialist when the finding is stale or the owner says "check now"; a follow-up
+  with a taken finding beside a ran specialist's answer; each switch off; the Memory tab's lists;
+  the migration; the Scout's survey reading all five tools one a step within its budget, and
+  reaching its limit on the M43 budget as on the owner's server; the owner-stopped apps
+  (`findings.test.mjs`, `tool-text.test.mjs`); the renderer, with `<script>` and HTML inert
+  (`Prose.test.tsx`); the Build tab's switches, the Memory tab's findings, Usage's runs saved and the
+  digest as prose (`AgentsPage.test.tsx`, `AgentsGlance.test.tsx`); the demo's Keeper taking the
+  Backup Auditor's finding (`demo-agents.test.mjs`).
+- **Next: learning from what the owner approves.** Collect the runs the owner approved (a card
+  staged, a thumbs up, an answer kept as a finding and reused) as examples: the request, the
+  findings and tool output it was given, and the answer and plan it gave. Then, only if it beats the
+  base model on the agents' evaluations, a GPU fine-tune of a small "BoxPilot skills" adapter for the
+  model agents run; on a CPU-only server agents keep the base model. Also: matching findings by
+  meaning (the memory's embeddings) when words fall short, and findings from event runs.
+
+## M45: An agent harness, with Claude beside the local model and agents that act
+
+Asked for 2026-10-08: "build an AI harness", usable on its own later but tailored to BoxPilot
+first; agents that carry out multi-step jobs on the server through the approval tiers, not only
+propose them; the local model and Claude, routed per task. The design is `docs/HARNESS.md`; the
+decisions are ADR-013. Each item is its own pull request, and every one keeps the local model's
+evaluation at 6/6 and every M37 to M44 agent test passing.
+
+- ✅ **M45.1 The core** (1.166.0). `packages/harness/`: the message
+  contract (the chat shape, plus `providerBlocks` kept only for the provider and model that wrote
+  them), the provider interface (`defineProvider`, `readChatResult` holding every answer to one
+  shape and its limits), the local OpenAI-compatible provider wrapping the host's own client so the
+  host keeps its address rules, a scripted fake provider, and a test that the package imports
+  nothing but Node, its own files and declared dependencies. The runner's calls to plan and act go
+  through it; image descriptions and embeddings stay on the local client. Lint, the syntax check and
+  the Docker image include `packages/`. Tests: the contract and the boundary
+  (`packages/harness/test/`); every agent test unchanged, the stand-in evaluation still 6/6.
+- ✅ **M45.2 Claude as a provider** (1.166.0).
+  `packages/harness/src/providers/anthropic.mjs`, imported on its own
+  (`@boxpilot/harness/anthropic`) so a host that never calls Claude never loads the SDK. The
+  official `@anthropic-ai/sdk` (pinned 0.128.0), streamed. Messages and tools translated both ways:
+  leading system messages become the cached system prompt, tool results ride in the next user turn,
+  and a call the loop chose not to run is answered "not run" so Claude's turn goes back unchanged.
+  Thinking is adaptive at the request's `effort`, its blocks kept in `providerBlocks` and replayed
+  verbatim; a block the conversation no longer matches is dropped, not a failed request. Tools are
+  strict where `strictSchema` can rewrite the schema without changing it, `tool_choice` is `auto` or
+  `none`; a structured answer becomes `output_config.format`; a long job may set a task budget.
+  Declines are retried server-side (`fallbacks: "default"`, not on Haiku); a decline that survives
+  ends as `refusal`; a turn cut off at its token limit runs no tools. Cost is priced per attempt
+  from `anthropic-prices.mjs`. The client takes its key, address and log level only from the
+  caller, never the environment, and refuses redirects. Errors carry a code (`auth`,
+  `rate-limited`, `overloaded`, `timeout`, `unreachable`, …) for the router. Contract tests run the
+  same conversations through both providers (`packages/harness/test/contract.test.mjs`), Claude's
+  through the real SDK with a scripted `fetch`; the response fixtures follow the documented shape,
+  since no key was at hand to record them. CI never calls a real model. Nothing in BoxPilot calls
+  Claude yet: that is the gateway (M45.3) and the router (M45.4).
+- **M45.3 The gateway and what may leave the box.** In two parts.
+  - ✅ The gateway (1.166.0). `boxpilot-model-gateway.service`, the
+    only process that holds the Claude key (`LoadCredential` from a root-owned file), one
+    destination host, a Unix socket only the web service's group opens, the monthly cap enforced
+    again from its own ledger, at most four calls at once, nothing asked or answered in its log.
+    `agents.cloud.connect` (high, the cap typed), `agents.cloud.cap` and `agents.cloud.disconnect`
+    (medium), as root tasks; connecting proves the key with Claude at no cost and keeps no key
+    Claude refuses. `GET /agents/cloud` and the Claude panel on the Agents page: connected or not,
+    the model, the month against the cap. Anthropic keys are redacted wherever they turn up.
+  - ✅ The run path (1.166.0). Each agent runs on the local model or on
+    Claude (Builder → Model); on Claude, names replaced with stand-ins or sent as they are, viewers'
+    questions only when allowed, the owner's documents only when named. The claim for a run on
+    Claude names no model server; the runner sends each call to `POST /agent-runner/runs/:id/model`,
+    where the web service redacts the asker's words, replaces the names, holds the call to its own
+    count of the month (the first cap), sends it to the gateway (the second), and turns the answer
+    back. A run that may not use Claude, or a month spent, runs locally and says why. The run's
+    usage carries the route, the model, the cost and how many names were replaced; Claude's speed
+    never teaches the local model's. The demo's IT Support helper answers on Claude, through the
+    real gateway and SDK with the stand-in model behind a fake wire
+    (`packages/harness/src/providers/anthropic-fake.mjs`).
+- ✅ **M45.4 The router** (1.166.0). Each agent local, Claude or auto (Builder
+  → Model); new agents are auto once Claude is connected. An auto run plans on the local model and
+  moves to Claude for the acting when the local model could not plan, the plan is unreadable, under
+  0.5 confidence or proposes a change, or the conversation passes 80% of the local context (checked
+  before each step). A run of an auto agent that stayed local and ended cut short or not matching
+  its tools gets a second opinion on Claude, once, as its own run. A run on Claude whose call fails
+  for want of Claude (gateway down, cap spent, unreachable, overloaded, key refused) goes on with
+  the local model from the same conversation, and new runs stay local for a minute after the
+  gateway stops answering. The rules are pure functions in `packages/harness/src/router.mjs`; the
+  run view shows which model answered, why it moved, and the cost. Tool call ids from the local
+  model are made safe for Claude when a conversation moves.
+- ✅ **M45.5 Agents that act** (1.167.0). Grants per operation on the Build
+  tab: Propose (a card), Ask (the agent stages the job and a person approves it at its tier; low and
+  medium), Run (low only, under the maker's delegated consent as schedules and flows have it). The
+  tool `operations.run` is offered only to an agent with a grant. The run that acts ends; when its
+  jobs end, a follow-up run reads what became of each, checks the effect with a read, and answers.
+  High risk is always a card; a tainted run only proposes; a viewer's run never acts; the approval
+  mode wins; nothing that changes how agents run is ever granted; only the owner gives or raises a
+  grant, and a definition file never carries one; 3 operations a run, 20 a day, an hour's wait on an
+  approval; the kill switch withdraws what is staged; a run reads the server before it acts. The
+  job's person is the maker, and the job and the audit name the agent. Rules in
+  `server/agents/grants.mjs`, end to end in `server/agents/act-run.test.mjs`.
+- ✅ **M45.6 Plans** (1.167.0). `operations.plan`: up to 10 steps, each an
+  operation the agent has leave for or a check, kept in `agent_plans` with a checkpoint after each
+  and carried out by BoxPilot one step at a time. Operations go through the M45.5 fences again as
+  each is staged and may wait the plan's day on a person; checks are runs of the agent answering
+  `passed` or `failed`; the plan stops at the first failing step, after 24 hours, or when a person
+  (the run view's "Stop the plan", `POST /agents/plans/:id/cancel`) or the kill switch stops it,
+  withdrawing what waits on a person, and a report run answers the original request. It goes on
+  after a restart from its last checkpoint. An auto agent's checks and report run on Claude with a
+  40,000-token task budget. One open plan per agent. `server/agents/plan-run.test.mjs`: a three-step
+  plan survives a restart in the middle of its check and finishes.
+- ✅ **M45.7 Evaluation** (1.167.0). **Routes compared:** the owner's "Compare
+  with Claude" asks every evaluation question on both models (a pair of evaluations, each held to its
+  route), with right answers, seconds a question and dollars side by side; optionally every night.
+  **Acting graded without a model** (`act-grade.mjs`): tasks in the test world graded on what a run
+  staged; every task on both routes in CI. **The red-team set** (`redteam.mjs`): instructions hidden
+  in app names, logs, other agents' notes and findings, and the owner's documents; with a model
+  scripted to obey, on both routes, nothing is staged and the owner is told. It found two gaps, both
+  closed: detection now covers instructions that reach for acting (a tool that acts named in data,
+  an agent told what to change, a sweeping change demanded at once, skipping the approver), and
+  instruction-like words in the owner's own documents or notes hold a run from acting without marking
+  it. All of it on recorded responses; CI never calls a real model.
+- ✅ **M45.8 Standalone** (1.167.0). Into the core: the run loop (act,
+  the JSON rewrite, the check with one correction), the model session that paces each call, the
+  answer check and citations, injection defence, the redactor, the local endpoint rules and the
+  OpenAI-compatible client. BoxPilot's runner is now a host built from them, with its planner, its
+  router moves and its tools over the web API; every agent test passed unchanged. New in the core:
+  a toolbox for tools that run in-process (input checked against the schema, output redacted and
+  boxed, taint, approvals) and `runTask`, a whole run with the router's start, move and fallback.
+  The second host is the CLI, `boxpilot-harness` (`npm run harness --`): a working folder, files,
+  an allowlisted shell without a shell, public web pages when asked, notes, approvals at the
+  terminal, every run and note in a SQLite file, and an evaluation runner on folder copies.
+  `packages/harness/test/cli.test.mjs` runs tasks on scripted turns and on a model server over
+  HTTP, without BoxPilot. Published to npm at 0.x once its interface holds still through two
+  BoxPilot releases.
+
+## M46: Agents learn from what the owner approves, by geometry rather than volume
+
+Asked for 2026-10-09: "improve quality of training outcomes" and "look into applying geometric
+training options instead of focusing on brute force", after M45. The decision is ADR-014; the design
+is `docs/HARNESS.md` → Examples. This is the end of M44's "Next: learning from what the owner
+approves", built so the local model improves on the box, where nothing trains, and so the owner's
+approvals become training data for a GPU machine without any of the house's names leaving with
+them. Each item is its own pull request, every one keeping the local model's evaluation at 6/6 and
+every M37 to M45 agent test passing.
+
+- ✅ **M46.1 The example book and demonstrations** (v1.170.0, `feat/m46-examples`).
+  `agent_examples`: a request and the plan that served it, kept when a person approved the work (a
+  card staged, a thumbs up, an answer kept as a finding, an evaluation question answered right; a
+  thumbs down takes it back), redacted, never from a run that read something like an instruction
+  or a request that reads like one, at most 300 an agent besides its seeds. Every template ships
+  with examples chosen to sit where a small model slips (`templateExamples`: "where does Pi-hole
+  run" is `where.runs`, "is Pi-hole blocking" is `pihole.stats`, "which apps are stopped" is
+  `apps.list`); agents made before get them once (`migrateDefaults`). The memory index embeds the
+  requests like notes and episodes. **The pick is geometry in the harness core**
+  (`packages/harness/src/core/examples.mjs`, `selectExamples`): the nearest example (cosine when
+  both sides have vectors, else the share of words, stop words out), one from the other side of its
+  decision (a different tool, relevant enough), the rest by maximal marginal relevance (λ 0.7), a
+  near-copy (cosine 0.95, the same words) never twice; `coverExamples` (k-center greedy) picks a set
+  that covers a collection, for exports and reviews. The runner embeds the request on the local
+  model, picks three from the pool the web service sent (every example while there are at most 24;
+  past that the nearest by words and every seed), and puts them in the planner's user message under
+  "Plans that worked for requests like this one:", one line each, after the request and the hints
+  and never in the system message (its bytes stay cached). On Claude the pick goes by words. The
+  intent step says "planned with 3 examples" and keeps which and why. `GET /agents/:id/examples` and
+  `DELETE /agents/:id/examples/:exampleId` for the owner and the maker. The stand-in model follows
+  the nearest demonstration where the words alone name no tool, as a model shown examples does.
+  Tests: the rules (`packages/harness/test/examples.test.mjs`); seeds held to each template's
+  tools, the planner shown the nearest and one of another tool with the trace saying so, a model
+  following them, the thumbs up and down, the instruction-like request, the index embedding them
+  and the pick going by meaning after, the book's readers (`server/agents/examples.test.mjs`).
+- ✅ **M46.2 Diversity in recall** (v1.170.0, `feat/m46-recall`). Memory recall and
+  `memory.search` ranked by reciprocal-rank fusion of words and meaning, then took the top k: the
+  same fact as a note, an episode and a finding filled three of four places. `hybridSearch` now
+  takes the best few (three times the limit, at least twelve) and spreads them with the same
+  maximal marginal relevance (`diversify`, λ 0.7): a near-copy of a pick (cosine 0.95 when both
+  have vectors, else the shorter one's words all shared) is never returned. Still open from M44's
+  "Next": matching findings by meaning when words fall short, which needs the request embedded at
+  claim time (the runner has the embedder; the web service, which offers findings, does not).
+  Tests: `brain.test.mjs` (the three copies, the vectors, the spread on scores alone).
+- ✅ **M46.3 Training data and the recipe** (v1.170.0, `feat/m46-training`). The example book
+  exported as chat-shaped JSON Lines (`server/agents/examples-export.mjs`): the planner's own system
+  message for the agent and its tools, the request as the planner is asked it, and the model's own
+  understanding (goal, subject, constraints, confidence, plan; kept with each example since this
+  item, `intent_json`) as the assistant turn; `meta` with the signal, the tools, the route and the
+  answer. Every text through the stand-ins a Claude run uses (`createStandIns(houseNames())`), so no
+  host, account, domain, address or MAC leaves. `GET /agents/:id/examples/export` (the owner's
+  alone: it leaves the box; `?cover=N` a k-center covering subset, `?seeds=false` without the
+  template's own) and `scripts/boxpilot-agents-examples.mjs list|export <db>` read-only against the
+  database for a server without the API at hand. `docs/TRAINING.md`: why geometry over brute force
+  (DoRA's magnitude-direction split, OFT's rotations that keep the angles between neurons, PiSSA
+  initialisation; with sources), the Unsloth recipe for a GPU machine (Qwen 3.5 4B bf16, r=16 α=16
+  all linear layers, `use_dora` first, OFT second, one epoch, no QLoRA, transformers v5, the 75%
+  reasoning-mix caveat, GGUF export) and the gate: the adapter ships only if the real-model
+  evaluation, the acting tasks and the red-team set are no worse than the base, and then only
+  through the model library's checksum and an approval card. Nothing in BoxPilot calls a trainer.
+  Tests: `examples-export.test.mjs` (the records, the stand-ins, the cover, seeds out, the owner's
+  export and the script against the same database).
+- ✅ **M46.4 The Memory tab shows the book** (v1.170.0, `feat/m46-training`). "Examples it plans
+  from": each request with the tools its plan reads, whether it is indexed, what it was kept after
+  (the template, a card staged, a thumbs up, an answer kept as a finding, an evaluation question
+  answered right) and when; Forget; and, for the owner, "Export as training data" (M46.3). An older
+  server without the book shows no panel. Test: `AgentsPage.test.tsx` (memory).
+- ✅ **Measured on the real model** (`agents-bench.yml` run 37915276524, mode `eval`, `baseline:
+  main`, Qwen 3.5 4B at four threads under 400%, 2026-10-09): main and M46.1 both 6 of 6, the same
+  tool chosen for every question. The three demonstration lines cost 318 more prompt tokens over
+  the six questions (about 53 a question) and 394 s against 387 s of wall time, inside the noise
+  between two runs. The six questions never made the base model slip, so the set shows the cost of
+  the demonstrations and not their gain; the gain shows where the planner chose wrong before
+  (`apps.list` for "where does Pi-hole run", M40), which the owner's own approvals, not this set,
+  will keep measuring through the nightly evaluation's accuracy history.
+
+- ✅ **M46.5 The boundary set** (v1.171.0, `feat/boundary-eval`). The built-in six never trip
+  the base model, so they measure the demonstrations' cost, not their gain. `boundarySet` in
+  `test/agents-eval.mjs`: eight questions worded between two plausible tools ("Is Pi-hole a BoxPilot
+  app, another container, or running on the host?", "Did Pi-hole block anything today?", "Is
+  anything on this server not running that should be?", "Has any service on the box died?", "Is the
+  main disk close to full?", "What's the name of this machine, and what does it run?", "Which of my
+  apps need a restart?", "Which drive holds the media, and is it the system disk?"), each graded on
+  the fact and on whether the plan named the right tool, with how many examples were shown. `node
+  test/agents-eval.mjs --set boundary`; `tests/bench/agents-real.mjs --eval --set boundary`; the
+  bench workflow's `set` input, with `baseline` for a before and after. On the stand-in: 8 of 8,
+  the right tool 8 of 8 (`evaluation.test.mjs`). **On the real model** (run 37936411358, Qwen 3.5
+  4B at four threads, `baseline: v1.167.0` against the example book): the right tool 8 of 8 on
+  both; facts 8 of 8 before and 7 of 8 after, the one miss a grader's fault (both models said
+  nextcloud, the stopped app, "needs a restart"; the question asked for "none is unhealthy", so it
+  now grades the stopped apps). What the demonstrations changed: fewer tools read for the same
+  answers (where.runs alone for the Pi-hole question, not where.runs and apps.list; 48,700 prompt
+  tokens against 54,900, 1,099 s against 1,166 s over the eight), with one to three examples shown
+  on seven of the eight questions.
+
+- ✅ **M46.6 Preference pairs from the thumbs** (v1.175.0, `feat/m46-pairs`). M46.3 left it: "a
+  thumbs down deletes the example rather than keeping it as a negative", so the thumbs could not
+  train. Now a thumbed-down run is paired with the approved example nearest its request (the same
+  words; by meaning when both have vectors, at least 0.85; else at least 60% of the shorter
+  request's words shared) when the two plans differ: the example's understanding chosen, the run's
+  rejected (its intent step and its plan step), in TRL's conversational preference shape (`prompt`,
+  `chosen`, `rejected`, with `meta`: the run, the example, how they matched, the tools each named,
+  the person's note). The same plan makes no pair (the answer was wrong, not the plan: the planner
+  is what is trained), and a thumbs down with no approved neighbour waits for one: nothing is made
+  up for the chosen side. `preferencePairs` and `nearestExample` in `examples-export.mjs`; the Memory
+  tab counts them (`counts.pairs`) and offers "Export N preference pairs" beside the book's export;
+  `GET .../examples/export?pairs=true`; `boxpilot-agents-examples.mjs pairs <db>`. The house's names
+  go through the same stand-ins. `docs/TRAINING.md` section 5: a short ORPO stage on the pairs after
+  the fine-tune, small beta, one epoch, the same gate. Tests: `examples-export.test.mjs` (the pair,
+  the skips, the match by meaning and by words, the API's count and file, the script).
+- ✅ **M46.7 The acting conversation as training data** (v1.175.0, `feat/m46-acting`). M46.3 left
+  it: "records for the acting conversation (request, tool output, answer) are not exported yet".
+  For every approved run behind an example, the conversation it held is rebuilt from its steps
+  (`acting-export.mjs`: the system message as `prompt.mjs` words it, the task with the plan it
+  carried, each model turn with its tool calls, each tool's output boxed as the model read it, T1,
+  T2 ..., the answer) as one chat-shaped record with `tool` turns, for the answer to be learned
+  beside the plan. A run that would not be faithful makes none (a follow-up run, part of a
+  conversation, a JSON answer, an answer the check doubted or that cites a finding, a run that read
+  something that looked like an instruction, steps whose calls and outputs do not pair), and what
+  the prompt held beside the task - notes, memories, findings, specialists - is left out and said
+  so (`meta.context`): a run does not keep them. The Memory tab counts them (`counts.acting`) and
+  offers "Export N answers with their tool output"; `?acting=true`; the script's `acting`.
+  `docs/TRAINING.md` section 6: train them with the book, loss on the assistant turns only. Tests:
+  `acting-export.test.mjs` (the rebuilt conversation, each skip, the pairing, the API's count and
+  file, the script).
+- ✅ **M46.8 The prompt kept with the run** (unreleased, `feat/prompt-step`). M46.7's records had to
+  rebuild the task from the question alone: a run did not keep the notes, memories and findings it
+  was shown around it. The web service now keeps that first message as a step of the run (`prompt`,
+  once per run, 16,000 characters at most, redacted like every other step) with how much went around
+  the task (notes, memories, findings, specialists' answers, the conversation). The trace shows it
+  ("Was shown the task, 1 memory, 2 findings", the text under it), so "what did the model actually
+  see?" has an answer when an answer is odd; and the acting export carries the prompt itself
+  (`meta.context: kept`), rebuilding only for runs from before (`omitted`). Tests:
+  `acting-export.test.mjs`, the run view in `AgentsPage.test.tsx`.
+- ✅ **M47.4 Feedback from Zulip** (v1.172.0, `feat/zulip-feedback`). Nobody on the owner's
+  server had ever pressed the Test tab's thumbs, so the example book grew only from cards and
+  evaluations. A reply under an agent's answer in Zulip - `+1`, `-1`, a thumb, `right`, `wrong`,
+  `wrong: what was expected` - from someone the owner mapped is now that run's feedback
+  (`feedbackIn` in zulip.mjs, `feedbackFromChat` in the service, the answer found as the newest
+  sent reply or finding in that topic or direct conversation, `latestAnsweredPost`), as the account
+  they are mapped to, never a question for a model. A thumbs up keeps the run as an example, a
+  thumbs down takes it back, and the bot says what it noted. Someone not set up gets the usual word.
+  Test: `chat-ask.test.mjs`.
+
+- ✅ **M47.5 The CLI's example book** (v1.172.0, `feat/cli-examples`). The standalone host had no
+  book. `boxpilot-harness good <run>` keeps a finished run as an example (its task, the tools it ran,
+  its answer), `bad <run>` takes it back, `examples` lists the book, and an evaluation case graded
+  right is kept by itself. Before a task, the nearest three by words (`selectExamples`; the CLI
+  embeds nothing) go above it as "Tasks that went well in this folder, and the tools each used",
+  and the trace says how many were shown and why. Test: `cli.test.mjs`.
+- ✅ **M47.8 The CLI's book as training data** (v1.177.0, `feat/cli-export`). The standalone host
+  kept a book (M47.5) with no way off the machine. `boxpilot-harness export` writes each good run's
+  whole conversation as the server's acting export does (M46.7): the rules it was given, the task,
+  each model turn with its tool calls, each tool's output boxed as the model read it, the answer;
+  JSON Lines on stdout, this machine's names through the same stand-ins Claude is given. A run whose
+  calls and outputs do not pair makes none; the demonstrations shown before the task are not kept
+  and are left out, and `meta.context` says so. Test: `cli.test.mjs`.
+- ✅ **M47.9 Resource Watch** (v1.178.0, `feat/resource-watch`). The Resource Tuner M43 wished for,
+  now that `apps.usage` reads each app's share of the machine: a template that looks every evening
+  (19:40, when the house uses the server; a night reading would show it idle) at the processor,
+  memory and swap and which apps use the most, keeps a Readings note to say what changed, tells an
+  app busy because it is working from one looping hot, and proposes at most one card: `app.action`
+  restart for an app above a core that apps.list says is restarting, a pause only for an app the
+  owner's instructions say may pause. Four seeds; one golden question ("Which app is using the most
+  processor right now?") on the new fact `busiestApp`, read from `system.performance.inspect` as the
+  Performance page reads it. Twelve templates. Tests: `resource-watch.test.mjs`, the template and
+  route counts.
+- **Fixed on the way (2026-10-09, from the owner's server):** the Environment Scout raised an
+  "Environment Scout needs you to look" card every night its evaluation question ("Which parts of
+  this server can your tools not check?") ran into its step limit, though the answer passed: the
+  limit rule in `escalate` held every run kind. An evaluation, a learning run, a hand-off or a
+  follow-up now leaves no card for a limit it reached, as the rule for low confidence already had
+  it; evaluations are read on their tab. Test: `findings.test.mjs`.
+
+## M47: Eyes on what the agents could not see
+
+Asked for 2026-10-09 ("keep working until you cannot find any quality to add"), from the owner's
+server: every night the Environment Scout's top findings were "my tools cannot check the firewall,
+system updates or Repair's findings". M43 had left the Security Reviewer unbuilt for the same want.
+Each item is its own pull request, released and deployed when green.
+
+- ✅ **M47.1 Six read tools, the Security Reviewer, the firewall fact** (v1.171.0,
+  `feat/m47-eyes`). `firewall.status` (ufw: on or off, default policy, every rule; Docker's own
+  rules named), `updates.status` (packages waiting, how many security, a reboot required, services on
+  old libraries), `repair.findings` (the Repair page's own scan, worst first, each with its fix or
+  its manual step; `server/remediations-scan.mjs`, one function the page and the tool share),
+  `protection.status` (fail2ban and its bans), `users.access` (accounts, sudo, key counts, SSH's
+  port, password and root login; operator), `tunnel.exposure` (what the Cloudflare tunnel publishes;
+  owner). Each the registered read the matching page makes, held to the run's role by `read()`
+  (ADR-003); the words one fact a line in `tool-text.mjs`. The Keeper gets the firewall, updates,
+  Repair and fail2ban (the accounts and the tunnel are the Reviewer's: each tool line is read by the
+  planner on every run), IT Support the firewall, updates and Repair, the Scout the firewall and
+  Repair (ten tools is what a call that acts carries; package updates stay named under Not checked
+  with the Updates page). **The Security
+  Reviewer** template: a weekly Monday review of the firewall, fail2ban, SSH and accounts, the
+  tunnel and the apps that listen, ranked by exposure, two cards at most, with its seeds and golden
+  questions. Seeds for the new tools on every template that has them. `firewallEnabled` joins the
+  evaluation's facts (on, off, absent; read as the Firewall page reads it), the Scout's blind-spot
+  golden question becomes "Is the firewall turned on?". Agents made before get the template's new
+  tools once (`migrateDefaults`, "BoxPilot gave it eyes on ..."), and the Scout's old rule is
+  replaced. Tests: `tools-eyes.test.mjs` (the words, the roles, the hints, the templates, the
+  grader, a Keeper answering from the firewall, the migration), the Repair route's tests unchanged
+  through the shared scan.
+- ✅ **M47.2 A wider plan** (v1.171.0, `feat/m47-wider-plan`). A plan held five steps, so the
+  Scout's survey read five tools and the firewall and Repair stayed on request. The planner's plan
+  now holds eight (`understandingSchema`, "name only the tools the request needs: one or two for a
+  plain question"), the Scout's survey reads seven one a step (alerts, Repair's findings, the
+  drives, the apps, the backups, the firewall, the machine) with the budget that takes (12 steps,
+  32,000 tokens, 25 minutes, 3,000 s a day), and the Security Reviewer reads updates too. A Scout
+  still on the five-read survey, or on M47.1's on-request rule, is widened once (`migrateDefaults`,
+  "BoxPilot widened its weekly survey"); one whose maker rewrote its steps keeps them. On the
+  owner's server the first try widened nothing: its Scout, made in M43, worded step two differently
+  from the template of the day, and the migration matched words. It now matches the tools the steps
+  name (the five reads and neither new one), and seeds every templated agent's examples for the new
+  tools, which the examples migration had run before. Tests: the
+  survey reading all seven within its steps and tokens, the M43 budget still reaching its limit at
+  eight steps, the schema (`findings.test.mjs`, `templates.test.mjs`, `brain.test.mjs`). To measure
+  on bigbox: the first widened survey's model time against its 25 minutes (Usage tab; the first is
+  due Sunday 2026-10-11 04:20 UTC). Measured in CI (2026-10-09, main against `baseline: v1.171.0`,
+  Qwen3.5-4B at four threads, bench runs 37955857245 and 37955860701): the eight-step plan did not
+  widen a Keeper's reads; the built-in set 6 of 6 on both trees in the same time (687 s against
+  686 s over the six), the boundary set 8 of 8 with the right tool 8 of 8 on both, ten tool reads
+  over the eight questions against the baseline's eleven.
+- ✅ **M47.3 Findings by meaning** (v1.171.0, `feat/m47-findings-by-meaning`; M44's and M46's
+  last open item). Findings were offered before the plan by word overlap alone, and the memory
+  index never embedded them (they are notes kept apart from the notes list). Now the index embeds
+  each agent's findings, and once the runner has embedded the request (M46) it asks
+  `POST /agent-runner/runs/:id/findings` with the vector; the web service ranks the other agents'
+  fresh findings it may read by cosine (at least 0.55), leaves out the ones words already offered,
+  fills the places left (three in all), and offers each as the next F through the same box, trace
+  step (`by: "meaning"`) and instruction check as before. The runner adds them to the prompt the
+  calls that act read and to what the check holds citations to; the trace says "2 more findings
+  offered by meaning: F2, F3". None for an agent that does not use findings, a run that does not
+  read them, or a person who asked for a fresh check. Test: `findings-meaning.test.mjs`.
+
+- ✅ **M47.6 Three more eyes, and the Planner's** (v1.174.0, `feat/m47-more-eyes`). Three
+  templates still said what their tools could not see. Storage Watch: "what takes up the space, what
+  Docker could free"; the Update Planner: "how many system packages are waiting" (M47.1 had made
+  `updates.status` for the Keeper and left the Planner's rule); the Backup Auditor's own success
+  criterion, "each app never backed up", which `backups.status` (recent backups, the copies off the
+  server, the rehearsals) cannot answer. Now `apps.usage` (the Performance page's read: the
+  machine's processor, load, memory and swap, then each running app's share of a core and its
+  memory, busiest first), `backups.coverage` (the Backups page's read plus the schedules: every
+  installed app, whether it holds data worth keeping, how many backups, how old the newest, whether
+  a schedule backs it up; never backed up first; the apps of caches named as needing none) and
+  `space.reclaimable` (the Storage page's clean-up read, an operator's under ADR-003, with what it
+  would free and what it leaves and why, and `docker system df` with the log cap). The Keeper gets
+  all three, IT Support resource use ("why is it slow"), the Backup Auditor coverage (a step and a
+  rule: an app of caches needs no backup; 7 steps, 12,000 tokens, 1,500 s a day for its fifth
+  golden question, "Which apps have never been backed up?", graded on the fact `neverBackedUp`),
+  Storage Watch the clean-up's read (a step when a filesystem is above 80% or fills within 30 days,
+  proposing `housekeeping.reclaim` or `docker.prune`), the Update Planner `updates.status` (its
+  step, its two rules, a sixth golden question "Does the server need a reboot?" on the fact
+  `rebootRequired`, 1,800 s a day). The Scout keeps its ten tools: a call that acts carries ten and
+  its survey fills them. Agents made before get the tools their template gained, the template's
+  wording for a rule or step of the old wording (a maker's own wording is kept), the Auditor's new
+  rule, the budget the longer work takes, and the new seeds (`migrateDefaults`, "BoxPilot gave it
+  eyes on ..."). The stand-in model knows the words. 34 tools. Tests: `tools-more-eyes.test.mjs`
+  (the words, the roles, the hints, the templates, the two graders, a Keeper answering from
+  coverage, the Auditor's and the Planner's facts, the migration); the planner's prompt grew by
+  about 45 tokens (`bench.test.mjs`). The boundary set gains four questions where a new read and an
+  older one share their words ("Which of my apps have never been backed up?" against
+  backups.status, "Which app is eating the most memory?" against server.facts, "How much space
+  would a clean-up free?" against storage.health, "Do I need to reboot the server?" against
+  alerts.active), graded on the fact and the tool; twelve in all, which the Monday bench measures on
+  the real model. The Keeper's nightly evaluation asks the two new facts too ("Which apps have never
+  been backed up?", "Does the server need a reboot?"): nine questions, within its hour a day; the
+  budget tests count its questions instead of naming seven. First real-model run (2026-10-09, main
+  at 1.174.0, run 37967892445): 11 of 12
+  right, the right tool 12 of 12; the miss was the grader's ("No reboot is currently required ...
+  does not need a reboot" read as yes for "need a reboot"), fixed to take the words of no out
+  before looking for yes.
+- ✅ **M47.7 The weekly bench** (v1.174.0, `feat/weekly-bench`, #432). The real-model bench was
+  manual, so its numbers were a memory. Every Monday at 05:20 UTC `agents-bench.yml` runs the
+  built-in and the boundary sets on main at the shipped four threads, the job summary the week's
+  record (no baseline: the week before is the previous run). Proved by a dispatch from the branch:
+  the built-in set 6 of 6 on Qwen3.5-4B.
+
+## M48: Runs that finish
+
+Asked for 2026-10-12 ("bug sweep, security sweep, performance sweep, code audit; a new robust
+milestone; quality of life; usability"). The first weekend of the wider survey on the owner's server
+showed where the agents still fail: the Scout's first eight-step survey degraded with a model error
+at 41,000 prompt tokens; its nightly blind-spot question did the same every night at 57,000 to
+63,000, the model asking memory_search for the same answer eight times until the 8,192-token context
+overflowed; Resource Watch's evaluation called apps.usage five times running; the Scout's survey also
+died on a tool call whose JSON the model server could not parse; Steve's digest and Resource Watch's
+first evening reading ran out of tokens; Steve's seventh evaluation question was refused for budget
+every night. None of these is the model being wrong about the server. Each is the runtime letting a
+run fail instead of finishing. Each item is its own pull request, released and deployed when green.
+
+- ✅ **M48.1 The loop respects the context, and a repeated call is not run again** (1.180.0). The act loop (`packages/harness/src/core/loop.mjs`) now knows the local
+  model's context (`limits.contextTokens`, the runtime's setting, passed by the runner; none for
+  Claude): a step whose prompt plus the room an answer needs would not fit is the last, told to
+  answer with what it has (limit `context`, a trace note with the count), and each tool's output is
+  clipped to what the context still holds as well as to what the model reads in the time. A tool
+  call identical to one already answered in the run (same name, same arguments however spelled) is
+  not run: the model is told the output is above as T<n> and to use it; the third such ask ends the
+  run with an answer (limit `repeat`). The owner's words for both on the run's card and in the trace;
+  the context's words say where to raise it (the Usage tab). Tests: `run.test.mjs` (the repeat
+  pointed at T1 and the third ending the run; the context clipping and the last call; nothing
+  changed without a context).
+
+The four sweeps the same day (bugs, security, performance, usability; read-only, over the agents
+platform, the harness package, the routes, the M39 tasks and the Agents pages) found what follows,
+ranked by what the owner would feel first. The rest of the milestone works through them.
+
+- ✅ **M48.2 The planner reads a slim request** (1.180.0). The planner was
+  asked the whole task message - the agent's notes, what it recalled, the other agents' findings in
+  full, the folded conversation - and the acting calls then read the same text again behind another
+  prefix: 1,700 to 3,400 tokens a run read twice, 25 to 80 s on the owner's processor. The claim now
+  carries the planner its own request (`plannerTaskMessage`, prompt.mjs): what started the run and
+  the question if any, the other agents' findings by title alone ("F1: Backups that restore (Backup
+  Auditor's finding)", so a plan can still lean on one), and the conversation so far in one line.
+  The acting calls keep the whole. A runner given a claim without it reads the task as before. Tests:
+  `planner-task.test.mjs` (the request's words; a run whose planner sees the question and the
+  finding's title but not the note's or the finding's body, while the acting call sees both).
+- ✅ **M48.3 What a run shows and sends** (1.180.0; the security sweep's
+  findings). The example book shows a maker who is an operator only the examples kept from runs
+  that read as an operator or a viewer, as the planner's pool and the memory already did: an
+  example kept from the owner's question holds the owner's answer; the run behind an example is the
+  owner's to open, and what a person cannot see they cannot forget. The stand-ins hide the house's
+  public names too: the tunnel's hostnames (recorded whenever `tunnel.exposure` reads them, since
+  the tunnel's state file is root's) and the Zulip site, each with its registrable domain. A run on
+  Claude is offered no finding from an agent kept on the local model (its findings were written on
+  the promise that nothing of its leaves; the trace says how many were held back). The acting export
+  makes no record of a run that read the owner's documents unless the agent may send them
+  (`claudeReadsDocuments`). The CLI keeps the task, the model's words and its calls' arguments
+  redacted as it keeps tool output, keeps no tainted run as an example or a record, and exports
+  completed runs only. `backups.coverage` tells a run's person of their own schedules unless they
+  see every account's; `apps.usage` and `backups.coverage` keep to the agent's app allowlist as
+  `apps.list` does. Tests: `examples.test.mjs` (the maker's book), `cloud-run.test.mjs` (the finding
+  held back and the trace note), `acting-export.test.mjs` (the documents), `tools-more-eyes.test.mjs`
+  (the schedules, the allowlist), `cli.test.mjs` (the redacted task, the tainted run).
+- ✅ **M48.4 Defects** (1.180.0; the bug sweep's findings). A Zulip reply is a
+  rating only when it is one: +1, -1, a thumb, right or wrong, alone or with a note after a colon or
+  a dash ("No, I meant the USB drive" and "Right, and the backups?" go on talking to the agent). An
+  example keeps eight plan steps, as a plan holds (six cut a seven-read survey short and made a false
+  preference pair). The M47.6 migration leaves a maker's edits alone: a Storage Watch gets the new
+  step only while its steps are the template's old ones word for word, and a budget rises only from
+  the old template's default, never from a cut the owner made. The weekly bench's two piped steps
+  set pipefail, so a crashed evaluation fails the run. A fact this server could not read when the
+  evaluation started is not graded (left out of the score) rather than counted wrong. The boundary
+  question for `busiestApp` asks about the processor, which is what the fact ranks; the hints and the
+  stand-in know "working the processor hardest". "free" alone no longer hints the clean-up. The acting
+  export boxes a refused tool's words as the model saw them and calls a prompt kept only when no
+  finding was added by meaning after it. The stand-ins replace a name inside a hyphenated or
+  underscored identifier ("chris-laptop") and private IPv6 addresses (unique local, a tailnet's,
+  link-local) with RFC 3849 stand-ins. A boot-partition check that stopped at more than the mark is
+  remembered from its failed job's own words: Repair's evidence says what it found and the fix is not
+  offered again (the manual step remains). Repair and `backups.coverage` share one answer to which
+  apps a schedule backs up (`scheduledBackupApps`: app.backup by id or its older subject,
+  app.backup.many by ids, nothing disabled). The newest answered Zulip post is the topic's own, not
+  one of the newest hundred across every channel. The watchdog's undo unloads a driver the run
+  loaded. Tests: `zulip.test.mjs`, `examples.test.mjs`, `tools-more-eyes.test.mjs`,
+  `acting-export.test.mjs`, `stand-ins.test.mjs`, `remediations.test.mjs`, `resource-watch.test.mjs`.
+- ✅ **M48.5 Quick wins on the web process** (1.180.0; the performance sweep's
+  findings). Both SQLite stores run `synchronous = NORMAL` under WAL: durable at every checkpoint, no
+  fsync for each of the twenty to fifty steps a run writes, and a power cut can lose only the last
+  moments' steps, never leave a file inconsistent. Indexes for the queries that scanned whole tables:
+  a run's tree (`root_run_id`) on every open, every agent's day of usage (`started_at`, `agent_id,
+  started_at`) on every overview, the staged jobs every minute (partial indexes on action steps and
+  on the job id they hold), an agent's evaluations, a run's cards. The overview reads every agent's
+  day once, not once per agent. The T number a tool output gets is a count, not the whole trace read
+  on every tool call. The Memory tab's preference-pair and acting-record counts, which built every
+  record to count them on every open and after every change, are cached on a stamp of the book and
+  the thumbs. "Has a vector" and "is the vector current" read the vectors' keys, not the blobs. An
+  evaluation reads only the facts its questions ask about (nine reads, seven through the root helper,
+  ran for every evaluation whatever it asked). The k-center cover keeps each candidate's nearest pick
+  and updates it against the newest pick alone (pool × limit, not pool × limit²), and a text's words
+  are computed once. Left for later: a slimmer request for the planner (M48.2), `listRuns`
+  over-fetching, `memoryItems` reading every document's text for the pinned ones. Tests:
+  `resource-watch.test.mjs` (the evaluation's reads), the existing cover and book tests unchanged.
+- ✅ **M48.6 Budgets that follow the work** (1.180.0). The runtime's context
+  (8,192 tokens on the owner's server, in 30 GB of memory) had no control on any page: the Usage tab's
+  Settings gain "Model context" (8,192, 16,384, 32,768, with the memory each takes while the model is
+  loaded), and a notice when runs this week answered early because what they read filled it. A
+  scheduled run that ran out of tokens, steps or time, as the one before it did, has a budget its
+  work has outgrown: the field rises to its template's when lower, once, with a version note ("BoxPilot
+  raised its tokens a run from 12000 to 20000, the template's: its last two scheduled runs ran out");
+  a budget at or above the template's is left to the owner, and a person's question that ran out
+  raises nothing. Resource Watch's tokens a run are 20,000 (its first evening on the owner's 18-app
+  server ran out at 18,800). The nightly evaluation reckons a question at what this agent's recent
+  ones took here (the median, never below the 120 s estimate; the owner's Keeper takes 135) and asks
+  only as many as the night holds above the half kept for people, marking the rest "Not asked
+  tonight" instead of queuing them to be refused one by one; none fitting still waits a night. Tests:
+  `budgets.test.mjs` (the raise after two, not after one or above the template's, time as well as
+  tokens, never for a person's question; the Usage tab's count), the gate in `background.test.mjs`
+  and `evaluation.test.mjs` (five of nine asked with ten runs a day; one of nine at 300 s; none at
+  200 s).
+- ✅ **M48.7 Quality of life** (1.181.0; the usability sweep's findings).
+  The Evaluation tab knew eleven facts of fifteen and showed the raw id for the rest: it knows
+  whether the firewall is on, which apps were never backed up, whether a reboot is needed and
+  which app is using the most processor, says "no firewall installed" for the server's `absent`,
+  and names a built-in question's tool by its title. A paused agent was a dead end: the Test and
+  Evaluation tabs said "Agents are off" for off, paused and stopped alike, and let a paused agent
+  be asked only for the server to refuse; `PausedNotice` (Paused.tsx) says which it is, until
+  when, and offers Resume all or Resume <name> to whoever may, the owner alone after the kill
+  switch. The kill switch acted on one tap: it asks first (`ConfirmSheet`, Confirm.tsx), saying
+  what is cancelled, what is withdrawn, what stays, and that only the owner undoes it; "Until
+  tomorrow" beside "Pause all" reads "Pause until tomorrow". Budgets were raw seconds everywhere:
+  `duration()` says "42 s of 30 min" in the table, "3 h" in the Usage tab's bars, and "· 10 min"
+  beside the seconds on the Build tab. Tool ids where names belong: `toolTitle()` names a tool by
+  its catalog title in the trace (its id beside it), a plan's steps, the intent, a fact's source
+  and an example's tools, and the dotted id where the catalog does not know it. A [T1] in an
+  answer can be followed: in the run view it is a button (`CiteContext`, Prose.tsx) that opens the
+  step and scrolls to it; elsewhere a mark as before. The Build tab lost the templates once an
+  agent was open: its header gains the agent picker and "New agent", and leaving with unsaved
+  changes offers to save, drop them or stay. Forget and Remove acted on one tap: each asks first,
+  saying what goes and what stays (the fact and its embedding; the finding, which the other agents
+  then look for themselves; the line a run left, never the run; the example; your conversation,
+  nobody else's; the document's text). Three export buttons in one panel header sent the browser to
+  the file's address, so an error replaced the page with a line of JSON: one "Export training
+  data" dialog (ExportSheet.tsx) fetches each file and saves it from the page, the error shown
+  where it was pressed. The cards lead the table while any wait. The accuracy chip opens the
+  evaluation. The Ops page's UPS status said "CHRG OL": `upsTokenWords` says "charging, on mains".
+  The Usage tab's context control marks 16,384 recommended. Tests: `format.test.ts`,
+  `Paused.test.tsx`, the trace's titles and citations in `Trace.test.tsx`, the page's new block in
+  `AgentsPage.test.tsx` (cards first, the chip, the two paused notices and every fact's words, the
+  picker, the hint, the kill switch's dialog, each Forget's dialog, the export dialog), Ops.test.
+- ✅ **M48.8 The reads M48.5 left for later** (1.181.0). A list of
+  thirty runs read two hundred for everyone, to filter by who may see them: the owner sees every
+  run, so no more are read than asked for; anyone else has twice the list read, and the rest only
+  when those do not fill it. A run that wanted the pinned documents, the embeddings index that wanted
+  the enabled ones, and the three limit checks that counted them, each read every document's text:
+  `store.listDocuments({ enabled, pinned })` narrows in the query and `countDocuments()` counts. The
+  Knowledge tab's "when each agent last learned" read fifty runs an agent to find the learning one:
+  `listRuns` takes a `kind`. Tests: `perf-leftovers.test.mjs` (the filters and the count; the owner's
+  one read of two, an operator's four then two hundred, and four alone once the first page fills;
+  the learning run by kind, as the Knowledge tab says it).
+- ✅ **M48.9 One more try after the model server's 5xx** (1.181.0). The
+  Scout's eight-step survey died on a tool call whose JSON llama-server could not parse: a 500 from
+  the model server ended the call, and the run, with "The model stopped". The next sample is
+  nearly always JSON it can parse, so the session asks once more after a 5xx (`session.mjs`; the
+  client now carries the status on its error), says so in the trace ("The model server answered
+  500 during the next step: asking once more"), and ends the call as before on a second. Never for a
+  timeout, a cancel or a 4xx: those are the run's own limits or the request's own fault. The fake
+  model's script may answer `{ status, error }` to play one. Tests: `packages/harness/test/
+  retry.test.mjs` (the retry, the second failure, never for a timeout or a 400),
+  `model-retry.test.mjs` (through the runner: one 500 and the run still answers, with the retry in
+  its trace; every call a 500 and the run degrades as before).
+
+
+## M49: Quality of life across the house
+
+The usability sweep of everything outside the Agents section (2026-10-12, thirty findings, ranked by
+how often a person meets each times how much it hurts): pages that disagree about the same thing,
+machine vocabulary where words belong, removals that go on one tap, pointers in prose where a
+button belongs, and errors swallowed so a panel vanishes or an empty state lies.
+
+- ✅ **M49.1 The first twenty** (1.182.0). The App catalog counted
+  paused apps and apps a person stopped on purpose as "need a look" and drew them amber, while
+  Home called the same apps grey: both are neutral now (`appState.ts` reads `stoppedOnPurpose`).
+  Deleting a schedule went on one tap beside Pause: it asks first, says what stops and what is not
+  undone, and offers Pause instead; so do removing a single sign-on app (its client id stops for
+  good) and signing out every other device (the devices listed). Stop and Restart in an app's sheet
+  opened an approval with no words: each says what happens to the app and its data; Unmount names
+  the apps and shares that lose the drive. The approval dialog led every title with the operation
+  id and a job id: the job's short id stays (Activity lists it by that), the operation id moves in
+  with its parameters. Ops listed jobs by `app.backup` where "Back up Vaultwarden" belongs, said
+  "Boot static" and "activating": the job's title, "started when needed", "starting", "ran" for a
+  one-shot that exited. The database tile said "Never" under "last backed up, with a restore
+  drill". One refresh had three names and Today's gave no feedback: "Check again" everywhere, with
+  the busy state and the status line Home has. Repair told the owner "the owner can" of a finding
+  with no fix at all. Restore said "No machine snapshots" when the scan of the mounted drives had
+  failed: the failure is said with Try again. The UPS tile and Ops' button land on the Power tab;
+  Drive health on Storage. Home's most-pressed confirmations led with `apt-get upgrade
+  --with-new-pkgs`, `APT::Periodic::Unattended-Upgrade "1"` and `VACUUM INTO`: plain words. The
+  trim switch quoted systemd's "Mon 2026-10-19 00:23:12 UTC": "on Monday at 00:23"
+  (`nextRunWords`). The Weekly report panel vanished when its read failed: it says so with Try
+  again. The Backups tab named archives "20260815T030000Z.tar.gz" where a date belongs; its "Stop"
+  beside Restore reads "Stop the weekly rehearsal", the Samba bin's "Stop the weekly clean", and a
+  refused unschedule is said rather than swallowed. The Power tab's ethtool dead end has an Install
+  button; NFS on the LAN gets the same "Open the Firewall page" button Samba's notice has; the
+  restic dead end names Repair's Prerequisites. On a phone, Ops puts the alerts and the inbox
+  before the tables. Today's "Off this server" panel, which held the database tile too, is
+  "Backups". The Network page's "stale", "probe", "wildcard" and "host-address" are "seen
+  recently", "checking", "every address", "this server's address"; the staging-gate sentence is
+  gone. Removing a passkey sent people to a password field under Recovery codes and then went
+  with no confirmation: the row opens its own form, with the password and what removal means. The
+  System page's "Read again" is "Check again" too.
+- ✅ **M49.2 A page from anywhere** (1.183.0). Two pointers in prose had no
+  button because the Settings panels have no way to change the page: `openView` (activityEvents.ts)
+  asks the app to, as a tile on Home would. "What BoxPilot watches" gains Open on each active
+  condition, to the page it belongs to (`watchView`); the heartbeat panel's "arrives with the next
+  upgrade" gains Open Updates. Test: the Open button's event and its view, none for a clear
+  condition, and the Weekly report's read failure said with Try again.
+- ✅ **M49.3 The rest of the sweep** (1.183.0). The restore sheet listed app ids
+  in code font where a person chooses what to bring back: it names them from the catalog's summary
+  (the id where the catalog has gone). The drive Reconnect switch read on while its automation was
+  paused and pointed at pages in prose: "Set, but paused on Automations", with Open Automations, and
+  Open Repair Center where a reconnect waits for a person. Repair's approval desk comes before the
+  Prerequisites table on a phone.
+- ✅ **M49.4 One name for the copy off this server** (1.183.0). Home
+  said "Off this server", the Backups tab "Off-box", Ops "off-box 20 hours ago", the warnings "the
+  off-box copy", a retry's button "Open Off-box": one thing under three names. It is "off this
+  server" everywhere: the tab, Ops' line, the header's "Copy off this server behind" and
+  "incomplete", the warnings' "the copy off this server", the transit look's stop.
+- ✅ **M49.5 FinancialAuthority in the catalog, its restore points on its sheet** (unreleased,
+  `catalog/financialauthority`). The self-hosted money app joins Finance with its Proton Mail Bridge
+  sidecar. Its data and the Bridge's sign-in are archived by the ordinary app backup; its own restore
+  points (a copy of its database before every import, daily and on request, each read back) get a
+  folder of their own left out of that archive. Two actions on its sheet run the app's own command
+  in its container: *Take a restore point* and *Check the database and its copies* (SQLite checks the
+  live database and the three newest copies; fails when the database does not pass). Both low tier,
+  in the app's lane behind its backups. Restoring a copy stays in the app, behind its owner's sign-in.
+
+
+## M50: The second sweeps
+
+Asked for 2026-10-12 ("another performance, security, and quality of life sweep"), run as three
+read-only sweeps over what M48 and M49 had not covered. The usability sweep found thirty more
+things; the performance sweep found that most of the box's cost is child processes spawned on
+timers, not SQLite; the security sweep is run as three checklists (routes and CSRF, inputs that
+reach the filesystem and processes, outbound requests and secrets).
+
+- ✅ **M50.1 Quality of life, the second thirty** (shipped in 1.184.0). A stray click
+  outside a sheet with a form in it threw the typing away, and outside the approval dialog it
+  withdrew the staged job with the password typed: the backdrop closes only a sheet with nothing
+  typed, and the approval dialog only on Escape or Close. The top bar said "Tiered approvals",
+  which explained nothing and led nowhere: it says "Password for high risk" ("No password until
+  14:30 · Lock" while elevated) and opens Settings' Approvals. The bell opened on the phone
+  set-up: the list leads, the set-up folds under it. Activity showed the server's step names
+  ("preflight completed"): "Checked the request · done". "Check Activity" is a button wherever it
+  was words (an approval that lost track of its job, a push's approval that is gone, Today's "more
+  jobs"). Services' Stop and Disable previews were the systemctl command: they say every app stops
+  with Docker, the tailnet goes quiet with tailscaled, and whether it starts again at boot; the
+  table says "ran", "starting" and "starts at boot" where it said systemd's words. Firewall
+  previews say who loses or gains the port, with the rule's note. The command bar says when the
+  apps could not be listed instead of "Nothing matches". The app sheet's "Config" tab, beside a
+  "Settings" button, is "Compose". Notifications open the Power, Schedules and BoxPilot update
+  tabs rather than System's overview. Removing an automation's webhook asks first, as regenerating
+  does. The sign-in page no longer prefills "operator" nor sends viewers to a Settings panel they
+  cannot see. Changing a password asks for it twice. The passkeys panel and the watch list say
+  when their read failed, with Try again; the tailnet's empty state says what to do; "Copied"
+  clears after two seconds. System's "Updates" tab, beside the Updates page, is "BoxPilot update".
+- ✅ **M50.2 Fewer processes on the timers** (shipped in 1.184.0; the performance sweep's
+  first six). Most of the box's cost was child processes spawned on timers, not SQLite. Home read
+  the whole setup answer every five minutes for one boolean, about thirty root processes
+  (apt-cache, dpkg-query, virsh): `/api/v1/setup?view=first-run` asks the helper for the apps alone.
+  Home ran a second systemctl listing a minute for the failed-services count the inventory already
+  carries, and fetched the backup list twice a cycle: once each now. Four reads several callers ask
+  for at the same moment (`app.backup.protection`, `app.serve.inspect`, `apt.upgradable.inspect`,
+  `service.list`) are shared like the rest, and Home's five-minute timer starts half a minute after
+  its one-minute timer instead of landing fourteen loaders on the helper's read gate together. The
+  performance poll, asked every 5 s by Ops and every 3 s by Performance, read and YAML-parsed every
+  installed app's state and compose file each time: the apps' inspection is held ten seconds (the
+  live CPU and memory still come from docker stats each time), and the compose file's published
+  ports are parsed once per change of the file (`publishedPortsOf`, by mtime and size). The
+  inventory awaited Docker before its nine other reads: all go together. Home's facts provider
+  wrote a new state for an identical answer, so Home, the sidebar and the dock drew five times a
+  minute for nothing. The Agents page polled three reads every five seconds in a hidden tab. The
+  Zulip link started a root Node task a minute around the clock to read nothing: the wait doubles
+  after a quiet read up to ten minutes, and is a minute again after a message, "Check now" or a
+  read with more waiting. The exec tail joined and re-split its whole text on every line a long
+  command printed: it keeps the last lines as a list. The secret scrub at boot read every job row
+  ever written: it starts after the last row it checked (`secretsScrubbed.jobRow`). A flow step
+  waiting on its job read the record every second for as long as the job took, hours for a sync:
+  it is woken by the store's own job event, with a five-second poll as the fallback. Tests: the
+  back-off in `chat-ask.test.mjs`, `firstRun` in `setup-profiles.test.mjs`; the existing home,
+  agents, inventory, setup, app-helper, ops, flows and routes suites unchanged. Left for later: the
+  Repair scan's thirty-day journal grep on Home's loop, `/catalog` reading the inventory for two
+  strings (it is held ten seconds, so this is small), Home's per-VM virsh calls, the agent vectors
+  loaded whole per search, two job-event streams a tab, and failed job logs kept in RAM until a
+  reboot. Done since: the 200 jobs Home, Ops and Today read come from `/jobs?view=summary`, without
+  their results and step logs, which none of them shows.
+- ✅ **M50.3 Security, the three checklists** (shipped in 1.184.0). What the three
+  read-only checklists found, fixed where a fix fits in a day. *Outbound.* http.request, the
+  heartbeat and notifications refused the link-local metadata range by matching the hostname's
+  text, so an IPv4-mapped literal, a name resolving there and a redirect there got through (the
+  first two run as root with full network): `outbound-guard.mjs` reads a literal as an address,
+  resolves a name and checks every address, and follows redirects by hand checking each hop; a
+  request carrying a token follows none. The router's certificate pin was compared on the response,
+  after the request with the password in it had been sent: it is checked when the handshake ends,
+  before a byte is written, and no certificate at all is refused. The update check, GitHub sign-in
+  and the cloud-image checksum list no longer follow redirects; GitHub key pages, the Hugging Face
+  model list and the checksum list are read bounded; the image download is `--proto =https` with a
+  size cap. The model's web search words are redacted before they leave. *Routes.* Five change
+  routes (network plans, VM uploads and plans, sign-in clients) name the CSRF check like every
+  other; the GitHub link poll, a change to the signed-in account, requires it, and the browser
+  sends it; the route matrix now sends every change, question and ask without the token and
+  expects 403. Passkey options and verify had no limit, and a flood of options could push a real
+  sign-in's challenge out of the bounded map: thirty per caller, then a growing wait, and a caller
+  holds at most ten live challenges. The approval password was verified in the job service with
+  its own per-account count, no caller key and no audit row, before the job was even looked up: the
+  route checks it through the sign-in throttle, and the service checks the job first. A password
+  over 256 characters is wrong before scrypt sees it. Over HTTPS only the host-pinned session
+  cookie is read: a plain-name one there was set over HTTP, and reading it let one planted on the
+  plain port ride into the secure one. A session with no role was treated as the
+  owner in eight places (impossible today, the column defaults): it is treated as disabled, and a
+  schedule's vanished creator manages nothing. A set-aside Repair finding comes back by whoever set
+  it aside or the owner. The knowledge upload checked the owner after buffering 11 MB: before. A
+  run's live stream counts against the same budget as job streams. A card's job ids went to
+  operators unmasked and were taken on their shape: only one's own, or the owner's all. The runner's
+  2 MiB body is parsed only from loopback with no proxy headers, where the runner's door opens. A
+  viewer could sweep the LAN for shares, ask GitHub for anyone's keys and force fresh update and DNS
+  checks: discovery and keys are an operator's, and a viewer reads the kept answers. *Inputs.*
+  systemctl and tar take `--` before a name that may start with `-` (`-.mount` is one); the
+  router's password hash type becomes an openssl flag only for crypt's 1, 5 and 6, and its salt is
+  checked; a Zulip upload path is checked decoded as well as raw (`%2e%2e`); housekeeping judges a
+  link with lstat, which stat followed; the UPS description is limited to the page's characters; a
+  share's credential name may not start with `-` nor hold `%` (smbclient's option and password
+  separators); rclone secrets are one line; the agents' folder refuses every `/var/lib/boxpilot*`;
+  a device path has no `.` or `..` segment. Tests: `outbound-guard.test.mjs` (the spellings, the
+  hops, a token that never travels), the matrix's CSRF loop, the encoded traversal in
+  `zulip.test.mjs`, `--` in `services.test.mjs`; every existing suite green. Left for later, from
+  the audits: job logs and outputs are not redacted (every root command line, the http.request
+  body); the cloud mirror copies machine snapshots (every app's `.env`, the controller database)
+  with no encryption layer, which wants an rclone `crypt` remote; the Unsloth installer and the
+  install and upgrade tarballs are unpinned; HSTS is not sent, on purpose, since the plain-HTTP
+  port on the same host would be upgraded too; registering a sign-in client asks for no password; the endpoint guards resolve, then fetch
+  resolves again; notification tokens live in settings, not the credential store; `/auth/bootstrap`,
+  `/oidc/token`, `/oidc/userinfo`, the webhooks before their token matches, and the outbound sends
+  (notification test, weekly report, push test, share listing) have no limit; a VM upload has no
+  per-account concurrency limit; `/health` says the version to anyone (the upgrade script and the
+  install smoke test read it, so it stays).
+- ✅ **M50.4 Limits where there were none** (shipped in 1.184.0; the audit's leftovers
+  that fit the same day). `rate-limit.mjs`, a sliding window per key with a bounded number of keys,
+  and `rateLimited`, the middleware that answers 429 with Retry-After. The set-up call takes twenty
+  a minute per address; the sign-in clients' token endpoint thirty and userinfo a hundred and
+  twenty; a webhook's source sixty a minute before any token is compared, where the per-flow and
+  per-agent counts began only after a match, so wrong guesses were free; the test notification,
+  the weekly report, the test push and a share listing twelve a minute per account, each being a
+  request to another host or a process run; and one VM image upload at a time per account, since
+  each holds a connection for hours. Tests: `rate-limit.test.mjs`; the routes, OIDC, settings,
+  flows and matrix suites unchanged.
+- ✅ **M50.5 Home's VM list by dominfo alone** (shipped in 1.185.0; the last of the three
+  hours). Home read the full virtual machine list every five minutes, six virsh processes a VM and
+  one more per snapshot, to show each VM's name, state and size: `/virtualization/domains?view=summary`
+  runs `list --all` and one `dominfo` per VM, and Home reads that; the VMs page keeps the whole
+  record. The Cloudflare API's answers are read bounded (4 MiB), the last of the outbound audit's
+  unbounded reads that cost nothing to bound. Tests: the summary in `libvirt.test.mjs`; the home,
+  VMs page and Cloudflare suites unchanged.
 
 ## App catalogue candidates
 

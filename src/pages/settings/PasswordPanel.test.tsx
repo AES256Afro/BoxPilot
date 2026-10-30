@@ -11,6 +11,7 @@ describe("password settings", () => {
     render(<PasswordSettings csrfToken="csrf" />);
     fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "old password here" } });
     fireEvent.change(screen.getByLabelText("New password"), { target: { value: "new password here!" } });
+    fireEvent.change(screen.getByLabelText("New password again"), { target: { value: "new password here!" } });
     fireEvent.click(screen.getByRole("button", { name: "Change password" }));
     expect(await screen.findByText(/Password changed/)).toBeTruthy();
     expect(JSON.parse(posted ?? "{}")).toEqual({ currentPassword: "old password here", newPassword: "new password here!" });
@@ -22,6 +23,7 @@ describe("password settings", () => {
     render(<PasswordSettings csrfToken="csrf" />);
     fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "wrong password!!" } });
     fireEvent.change(screen.getByLabelText("New password"), { target: { value: "new password here!" } });
+    fireEvent.change(screen.getByLabelText("New password again"), { target: { value: "new password here!" } });
     fireEvent.click(screen.getByRole("button", { name: "Change password" }));
     expect(await screen.findByText("Current password is wrong")).toBeTruthy();
   });

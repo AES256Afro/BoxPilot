@@ -1,0 +1,72 @@
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { openActivityEvent } from "../activityEvents";
+import { DrawnLookProvider } from "../looks/drawnLook";
+import { AccountMenu } from "./AccountMenu";
+
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+const authStatus = { bootstrapRequired: false, authenticated: true, owner: { id: "owner-one", username: "alex", role: "owner" }, csrfToken: "csrf" } as never;
+
+describe("the account menu (M41)", () => {
+  it("opens Activity, goes to Settings, and signs out, with the keyboard as a menu has it", async () => {
+    const onNavigate = vi.fn();
+    const onSignedOut = vi.fn();
+    const opened = vi.fn();
+    window.addEventListener(openActivityEvent, opened);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }))));
+    // The menu is hidden until a look shows it (account.css: display none); here it is shown as a
+    // look would, since jsdom 30.1.2 and later focus nothing that is not rendered.
+    const shown = document.createElement("style");
+    shown.textContent = ".account-menu { display: flex; }";
+    document.head.appendChild(shown);
+    render(<AccountMenu authStatus={authStatus} csrfToken="csrf" onNavigate={onNavigate} onSignedOut={onSignedOut} />);
+    const button = document.querySelector<HTMLButtonElement>(".account-menu__button")!;
+    expect(button.getAttribute("aria-label")).toBe("Account: alex");
+    fireEvent.click(button);
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(document.activeElement?.textContent).toBe("Activity");
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement?.textContent).toBe("Notifications");
+    fireEvent.click(within(menu).getByText("Activity"));
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    fireEvent.click(button);
+    fireEvent.keyDown(document.querySelector('[role="menu"]')!, { key: "Escape" });
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    fireEvent.click(within(document.querySelector<HTMLElement>('[role="menu"]')!).getByText("Settings"));
+    expect(onNavigate).toHaveBeenCalledWith("settings");
+    fireEvent.click(button);
+    fireEvent.click(within(document.querySelector<HTMLElement>('[role="menu"]')!).getByText("Sign out"));
+    await vi.waitFor(() => expect(onSignedOut).toHaveBeenCalledWith(null));
+    window.removeEventListener(openActivityEvent, opened);
+    void screen;
+  });
+
+  it("opens Settings at Appearance, and stands under the person's name in the looks that show the name", () => {
+    const onNavigate = vi.fn();
+    render(<AccountMenu variant="name" authStatus={authStatus} csrfToken="csrf" onNavigate={onNavigate} onSignedOut={vi.fn()} />);
+    // The name the bar showed as plain text is now the menu's button, with the same classes for each look.
+    const button = screen.getByRole("button", { name: "Account: alex" });
+    expect(button.classList.contains("signed-in-user")).toBe(true);
+    expect(button.querySelector(".signed-in-user__name")?.textContent).toBe("alex");
+    fireEvent.click(button);
+    fireEvent.click(within(screen.getByRole("menu")).getByText("Appearance"));
+    expect(onNavigate).toHaveBeenCalledWith("settings", { tab: "appearance" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("offers light or dark only in a look that has both", () => {
+    const open = (look: "blend" | "blueprint") => {
+      render(<DrawnLookProvider value={look}><AccountMenu authStatus={authStatus} csrfToken="csrf" onNavigate={vi.fn()} onSignedOut={vi.fn()} /></DrawnLookProvider>);
+      fireEvent.click(document.querySelector<HTMLButtonElement>(".account-menu__button")!);
+      const group = document.querySelector('[role="group"][aria-label="Light or dark"]');
+      cleanup();
+      return group;
+    };
+    expect(open("blend")).not.toBeNull();
+    expect(open("blueprint")).toBeNull();
+  });
+});

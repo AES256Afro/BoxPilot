@@ -47,7 +47,7 @@ describe("cloud image task", () => {
     expect(cloudImageInternals.expectedDigest(`${digest}  ./debian-12-genericcloud-amd64.qcow2\n`, "debian-12-genericcloud-amd64.qcow2")).toBe(digest);
     expect(cloudImageInternals.expectedDigest("short *noble-server-cloudimg-amd64.img\n", "noble-server-cloudimg-amd64.img")).toBeNull();
     const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cloudimg-")); directories.push(root);
-    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, text: async () => `${digest} *noble-server-cloudimg-amd64.img\n` }));
+    const fetchImpl = vi.fn(async () => new Response(`${digest} *noble-server-cloudimg-amd64.img\n`, { status: 200 }));
     const run = vi.fn(async (_binary, args) => { await writeFile(args[args.indexOf("-o") + 1], "x"); return { ok: true, stdout: "", stderr: "" }; });
     const first = await ensureCloudImage({ image: "ubuntu-24.04" }, { run, fetchImpl, root });
     expect(first).toMatchObject({ downloaded: true, digest });

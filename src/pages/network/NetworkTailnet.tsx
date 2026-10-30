@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
-import { Button, Checkbox, EmptyState, KeyValue, Notice, Panel, Table, Tag, mayStart, riskOf, type TableColumn } from "../../ui";
+import { Button, Checkbox, CodeBlock, EmptyState, KeyValue, Notice, Panel, Table, Tag, mayStart, riskOf, type TableColumn } from "../../ui";
 import type { Tailnet, TailnetNode, TailscaleFacts } from "./types";
 
 /*
@@ -88,8 +88,12 @@ export function NetworkTailnet({ tailscale, tailnet, tailnetError, role, start, 
         meta={tailscale?.connected ? (tailscale.dnsName ?? tailscale.address ?? undefined) : undefined}
       >
         {!tailscale ? <p className="network-dim">Reading…</p> : !tailscale.connected ? (
+          // This page said "the setup checklist on Ops starts it", and that checklist's Open came back
+          // here: a loop with no way to join. BoxPilot has no join of its own yet, so say how.
           <Notice tone="info" title="Not on a tailnet">
-            Joining one is how this page, your apps and your shares reach your phone and laptop away from home, with nothing opened on your router. The setup checklist on Ops starts it.
+            <p>Joining one is how this page, your apps and your shares reach your phone and laptop away from home, with nothing opened on your router.</p>
+            <p>To join, run this on the server (over SSH, or at its keyboard) and open the link it prints to sign in to Tailscale. The first line installs Tailscale; skip it if it is already installed. This page shows the tailnet once it has joined.</p>
+            <CodeBlock label="Join a tailnet">{"curl -fsSL https://tailscale.com/install.sh | sh\nsudo tailscale up"}</CodeBlock>
           </Notice>
         ) : (
           <KeyValue layout="columns" items={[
@@ -129,7 +133,7 @@ export function NetworkTailnet({ tailscale, tailnet, tailnetError, role, start, 
         count={tailnet?.available ? { status: online > 0 ? "good" : "neutral", label: `${online} of ${nodes.length} online` } : undefined}
         meta={tailnet?.available ? "new devices appear as they join" : undefined}
       >
-        {tailnetError ? <EmptyState title="The tailnet could not be read" />
+        {tailnetError ? <EmptyState title="The tailnet could not be read">Tailscale did not answer. Check again from the top of the page; if it keeps failing, the Services page shows whether tailscaled is running.</EmptyState>
           : !tailnet ? <p className="network-dim network-pad">Reading…</p>
             : !tailnet.available ? <EmptyState title="Tailscale is not on this server">Its devices show here once this server joins a tailnet.</EmptyState>
               : (

@@ -16,6 +16,9 @@ describe("fixed restic package installer", () => {
       throw new Error(`unexpected ${binary}`);
     });
     await expect(installApprovedRestic({ run, loadApproval: async () => approval(), now: () => new Date("2026-08-16T12:01:00.000Z") })).resolves.toEqual({ installed: true, version: "0.18.1-1", packageChanged: true, binaryVerified: true });
+    // needrestart's hook stays off for the install, as for every package change (server/tasks/apt.mjs):
+    // in automatic mode it restarted BoxPilot and its helper mid-install when libc or openssl moved.
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", expect.any(Array), expect.objectContaining({ env: expect.objectContaining({ NEEDRESTART_SUSPEND: "1" }) }));
   });
 
   it("fails before APT when metadata changes or the approval is stale", async () => {

@@ -38,7 +38,10 @@ export function NetworkRouter({ gateway, role, start, refreshKey }: NetworkRoute
   const [leases, setLeases] = useState<Lease[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [host, setHost] = useState("");
+  // The gateway until the owner types their own; a box emptied on purpose stays empty rather than
+  // refilling with the gateway the moment it is cleared.
+  const [hostDraft, setHost] = useState<string | null>(null);
+  const host = hostDraft ?? gateway ?? "";
   // The router's own login page asks for a password and nothing else, so this does too. The
   // account is root; the field is there for a router that genuinely asks for a different one.
   const [username, setUsername] = useState("");
@@ -60,7 +63,6 @@ export function NetworkRouter({ gateway, role, start, refreshKey }: NetworkRoute
     }
   }, [canRead]);
   useEffect(() => { void refresh(); }, [refresh, refreshKey]);
-  useEffect(() => { if (gateway && !host) setHost(gateway); }, [gateway, host]);
 
   if (!canRead) return <Notice tone="info" title="Reading the router needs an operator">Its device list names everything on your network, so an owner or operator reads it.</Notice>;
 

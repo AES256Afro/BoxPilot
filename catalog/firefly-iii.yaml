@@ -7,7 +7,7 @@ description: "Personal finance manager: accounts, budgets, bills, rules that cat
 website: https://www.firefly-iii.org
 risk: low
 image:
-  reference: fireflyiii/core:version-6.6.6
+  reference: fireflyiii/core:version-6.6.6@sha256:ae69fdd95cdef9038cd7a460a5aec731f14813973e4f096511d5a4ea9ff0e972
   version: "6.6.6"
 ports:
   - id: web
@@ -58,7 +58,7 @@ env:
     default: Etc/UTC
 sidecars:
   - id: database
-    image: mariadb:11.8.8
+    image: mariadb:11.8.8@sha256:24e76fcec8c003a0362d0dd53f4806e7e79458d7fdeaf47437760e19496f5a9c
     env:
       MARIADB_DATABASE: firefly
       MARIADB_USER: firefly

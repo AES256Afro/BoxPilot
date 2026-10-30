@@ -16,9 +16,9 @@
  * through the ordinary job path, where it is approved at its own tier.
  */
 import express, { Router } from "express";
-import { createEventStream } from "../event-stream.mjs";
+import { createEventStream, createStreamBudget, endWhenSessionEnds } from "../event-stream.mjs";
 
-const callerOf = (request) => ({ id: request.boxpilotSession?.owner?.id ?? null, role: request.boxpilotSession?.owner?.role ?? "owner" });
+const callerOf = (request) => ({ id: request.boxpilotSession?.owner?.id ?? null, role: request.boxpilotSession?.owner?.role ?? "disabled" });
 
 function refuse(response, error) {
   if (error?.expose) return response.status(error.status).json({ error: error.message, code: error.code });
@@ -35,7 +35,11 @@ const handle = (fn) => async (request, response) => {
   }
 };
 
-export function createAgentsRouter({ agents, state, auth }) {
+/** Claude when no gateway is wired in (tests that do not ask about it): not connected. */
+const noCloud = { state: async () => ({ connected: false, model: null, models: [], capUsd: null, connectedAt: null, gateway: "off", month: null, spentUsd: null, calls: null, problem: null }) };
+
+/** @param {{ agents: any, state: any, auth: any, cloud?: { state: () => Promise<object> }, streamBudget?: ReturnType<typeof createStreamBudget> }} services */
+export function createAgentsRouter({ agents, state, auth, cloud = noCloud, streamBudget = createStreamBudget() }) {
   const router = Router();
 
   // ---- the module ----
@@ -46,6 +50,11 @@ export function createAgentsRouter({ agents, state, auth }) {
   router.get("/agents/glance", handle((request) => agents.glance(callerOf(request))));
   router.get("/agents/proposals", handle((request) => ({ proposals: agents.listProposals(callerOf(request)) })));
   router.get("/agents/knowledge", handle((request) => agents.knowledgeState(callerOf(request))));
+  // M38: the team chat's panel, and "Check #agent-files now".
+  router.get("/agents/zulip", handle((request) => agents.zulipState(callerOf(request))));
+  // M45.3: Claude - connected or not, the cap, the month so far. Never the key, which only the gateway holds.
+  router.get("/agents/cloud", handle(() => cloud.state()));
+  router.post("/agents/zulip/poll", auth.requireCsrf, handle((request) => agents.zulipPollNow(callerOf(request))));
   router.post("/agents/module/pause", auth.requireCsrf, handle((request) => agents.pauseModule(callerOf(request), { until: request.body?.until ?? null })));
   router.post("/agents/module/resume", auth.requireCsrf, handle((request) => agents.resumeModule(callerOf(request))));
   router.post("/agents/module/kill", auth.requireCsrf, handle((request) => agents.killSwitch(callerOf(request))));
@@ -57,7 +66,8 @@ export function createAgentsRouter({ agents, state, auth }) {
   router.post("/agents/knowledge/relearn", auth.requireCsrf, handle((request) => agents.relearn(callerOf(request), request.body?.agentId ?? null)));
   router.put("/agents/knowledge/documents/:documentId/pin", auth.requireCsrf, handle((request) => agents.pinDocument(callerOf(request), request.params.documentId, request.body?.pinned)));
   // A PDF, Markdown or text file, sent as the request's body (up to 10 MB); its name in ?name=.
-  router.post("/agents/knowledge/upload", auth.requireCsrf, express.raw({ type: () => true, limit: "11mb" }), handle((request) => agents.uploadDocument(callerOf(request), {
+  // The owner check before the body is read (M50): the service refused anyone else, after 11 MB had been buffered.
+  router.post("/agents/knowledge/upload", auth.requireCsrf, auth.requireRole("owner"), express.raw({ type: () => true, limit: "11mb" }), handle((request) => agents.uploadDocument(callerOf(request), {
     name: typeof request.query.name === "string" ? request.query.name.slice(0, 200) : "upload", title: typeof request.query.title === "string" ? request.query.title.slice(0, 120) : null,
     buffer: Buffer.isBuffer(request.body) ? request.body : null,
   })));
@@ -67,11 +77,16 @@ export function createAgentsRouter({ agents, state, auth }) {
   router.post("/agents/import", auth.requireCsrf, handle((request, response) => { response.status(201); return agents.importAgent(callerOf(request), request.body ?? {}); }));
 
   // ---- cards ----
+  router.get("/agents/proposals/:proposalId", handle((request) => agents.getProposal(callerOf(request), request.params.proposalId)));
   router.post("/agents/proposals/:proposalId/decide", auth.requireCsrf, handle((request) => agents.decideProposal(callerOf(request), request.params.proposalId, request.body ?? {})));
+  // Which job a step was staged as: kept on the card, which is decided once every step's job is approved.
+  router.post("/agents/proposals/:proposalId/steps/:step/job", auth.requireCsrf, handle((request) => agents.stageProposalStep(callerOf(request), request.params.proposalId, request.params.step, request.body ?? {})));
 
   // ---- runs ----
   router.get("/agents/runs/:runId", handle((request) => agents.getRun(callerOf(request), request.params.runId)));
   router.post("/agents/runs/:runId/cancel", auth.requireCsrf, handle((request) => agents.cancelRun(callerOf(request), request.params.runId)));
+  // M45.6: a person stops a plan an agent is carrying out.
+  router.post("/agents/plans/:planId/cancel", auth.requireCsrf, handle((request) => agents.cancelPlan(callerOf(request), request.params.planId)));
   // "Was this right?": anyone who may see the run says so, and it feeds the evaluation.
   router.post("/agents/runs/:runId/feedback", auth.requireCsrf, handle((request) => agents.giveFeedback(callerOf(request), request.params.runId, request.body ?? {})));
   // A run's trace as it happens: each step, then its end. A page closed mid-run just unsubscribes.
@@ -82,8 +97,16 @@ export function createAgentsRouter({ agents, state, auth }) {
     } catch (error) {
       return refuse(response, error);
     }
+    // The same budget as job streams (M50): eight per account, thirty-two in all.
+    const release = streamBudget.acquire(request.boxpilotSession?.owner?.id ?? "anonymous");
+    if (!release) {
+      response.setHeader("Retry-After", "10");
+      return response.status(429).json({ error: "Too many live streams are open. Close an unused tab and try again.", code: "stream_limit" });
+    }
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     const stream = createEventStream(response);
+    stream.onClose(release);
+    endWhenSessionEnds(stream, { session: request.boxpilotSession, lookup: (token) => state.getSession(token) });
     stream.send("snapshot", first);
     const done = new Set(["completed", "degraded", "failed", "cancelled", "killed", "interrupted", "refused", "timeout"]);
     if (done.has(first.state)) { stream.end(); return undefined; }
@@ -117,6 +140,21 @@ export function createAgentsRouter({ agents, state, auth }) {
   router.get("/agents/:id/notes", handle((request) => ({ notes: agents.listNotes(callerOf(request), request.params.id) })));
   // What it remembers, by tier; the owner edits a fact or makes it forget one, an episode or the conversation.
   router.get("/agents/:id/memory", handle((request) => agents.memoryOf(callerOf(request), request.params.id)));
+  // M46: the example book, the work a person approved that the planner is shown.
+  router.get("/agents/:id/examples", handle((request) => agents.examplesOf(callerOf(request), request.params.id)));
+  router.delete("/agents/:id/examples/:exampleId", auth.requireCsrf, handle((request) => agents.forgetExample(callerOf(request), request.params.id, request.params.exampleId)));
+  // M46.3: the book as training data, JSON Lines with the house's names as stand-ins (the owner's: it leaves the box).
+  router.get("/agents/:id/examples/export", (request, response) => {
+    try {
+      const exported = agents.exportExamples(callerOf(request), request.params.id, { cover: typeof request.query.cover === "string" ? request.query.cover : null, seeds: request.query.seeds !== "false", pairs: request.query.pairs === "true", acting: request.query.acting === "true" });
+      response.setHeader("Cache-Control", "no-store");
+      response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      response.setHeader("Content-Disposition", `attachment; filename="${exported.filename}"`);
+      response.send(exported.jsonl);
+    } catch (error) {
+      refuse(response, error);
+    }
+  });
   router.put("/agents/:id/memory/notes/:noteId", auth.requireCsrf, handle((request) => agents.editMemory(callerOf(request), request.params.id, request.params.noteId, request.body ?? {})));
   router.delete("/agents/:id/memory/notes/:noteId", auth.requireCsrf, handle((request) => agents.forgetMemory(callerOf(request), request.params.id, { kind: "note", id: request.params.noteId })));
   router.delete("/agents/:id/memory/episodes/:episodeId", auth.requireCsrf, handle((request) => agents.forgetMemory(callerOf(request), request.params.id, { kind: "episode", id: request.params.episodeId })));
@@ -133,7 +171,7 @@ export function createAgentsRouter({ agents, state, auth }) {
   router.delete("/agents/:id/notes/:noteId", auth.requireCsrf, handle((request) => agents.deleteNote(callerOf(request), request.params.id, request.params.noteId)));
   router.get("/agents/:id/evaluation", handle((request) => agents.getEvaluation(callerOf(request), request.params.id)));
   router.put("/agents/:id/evaluation", auth.requireCsrf, handle((request) => agents.setEvaluation(callerOf(request), request.params.id, request.body ?? {})));
-  router.post("/agents/:id/evaluation/run", auth.requireCsrf, handle((request, response) => { response.status(202); return agents.runEvaluation(callerOf(request), request.params.id); }));
+  router.post("/agents/:id/evaluation/run", auth.requireCsrf, handle((request, response) => { response.status(202); return agents.runEvaluation(callerOf(request), request.params.id, { compare: request.body?.compare === true }); }));
 
   // ---- the owner's settings: on or off, quiet hours, the runtime ----
   // Owner only, whatever the casing: the role policy refuses /settings changes to anyone else, and
@@ -146,6 +184,21 @@ export function createAgentsRouter({ agents, state, auth }) {
     try {
       const { password: _password, ...input } = request.body ?? {};
       return response.json(agents.saveModule(callerOf(request), input));
+    } catch (error) {
+      return refuse(response, error);
+    }
+  });
+
+  // M40.5: who in Zulip may ask the agents, as which BoxPilot account. It lets a chat account ask as
+  // a BoxPilot one, so it takes the owner's password like the settings above.
+  router.put("/agents/zulip/people", auth.requireCsrf, auth.requireRole("owner"), async (request, response) => {
+    const owner = state.findOwnerById(request.boxpilotSession.owner.id);
+    const verdict = await auth.checkPassword(request, owner, request.body?.password);
+    if (verdict.blocked) return auth.rejectThrottled(response, verdict);
+    if (!verdict.ok) return response.status(401).json({ error: "Owner password required to say who may ask in Zulip", code: "reauthentication_required" });
+    try {
+      const { people, defaultAgentId = null, twoWay = true } = request.body ?? {};
+      return response.json(await agents.setZulipPeople(callerOf(request), { people, defaultAgentId, twoWay }));
     } catch (error) {
       return refuse(response, error);
     }

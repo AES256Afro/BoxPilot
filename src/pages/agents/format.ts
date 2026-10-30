@@ -32,7 +32,7 @@ const agentWords: Record<AgentStatus, { status: Status; label: string }> = {
 };
 export const agentState = (status: AgentStatus) => agentWords[status] ?? { status: "unknown" as Status, label: status };
 
-export const kindWords: Record<RunKind, string> = { ask: "asked", manual: "test", schedule: "schedule", event: "event", learn: "learning", eval: "evaluation", webhook: "webhook", handoff: "hand-off", continue: "follow-up", index: "indexing" };
+export const kindWords: Record<RunKind, string> = { ask: "asked", manual: "test", schedule: "schedule", event: "event", learn: "learning", eval: "evaluation", webhook: "webhook", handoff: "hand-off", continue: "follow-up", index: "indexing", describe: "describing an image" };
 
 const cadenceWords: Record<Schedule["every"], string> = { hourly: "hourly", "every-6-hours": "every 6 hours", daily: "daily", weekly: "weekly" };
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -106,11 +106,13 @@ export function processorWords(quotaPercent: number): string {
 
 /**
  * The runner's caps in words, from what the server reports ("four processors at most, idle
- * priority, 8 GiB"), or in general terms while they have not been read.
+ * priority, 8 GiB"; since M40 "four processors at most, eight while you wait, ..."), or in general
+ * terms while they have not been read.
  */
-export function capsWords(caps: { cpuQuotaPercent?: number | null; memoryMaxBytes?: number | null } | null | undefined): string {
+export function capsWords(caps: { cpuQuotaPercent?: number | null; waitingQuotaPercent?: number | null; memoryMaxBytes?: number | null } | null | undefined): string {
   if (!caps?.cpuQuotaPercent) return "capped processors and memory, idle priority";
-  return `${processorWords(caps.cpuQuotaPercent)} at most, idle priority${caps.memoryMaxBytes ? `, ${gibibytes(caps.memoryMaxBytes)}` : ""}`;
+  const waiting = caps.waitingQuotaPercent && caps.waitingQuotaPercent > caps.cpuQuotaPercent ? `, ${processorWords(caps.waitingQuotaPercent).replace(/ processors?$/, "")} while you wait` : "";
+  return `${processorWords(caps.cpuQuotaPercent)} at most${waiting}, idle priority${caps.memoryMaxBytes ? `, ${gibibytes(caps.memoryMaxBytes)}` : ""}`;
 }
 
 /** "8 GB", "650 MB": sizes as the owner reads them, in powers of 1000 like a disk's label. */
@@ -128,6 +130,12 @@ export function gibibytes(value: number | null | undefined): string {
   return gib >= 1 ? `${Number.isInteger(gib) ? gib : gib.toFixed(1)} GiB` : `${Math.round(value / 1024 ** 2)} MiB`;
 }
 
+/** What a run cost on Claude: "$0.0042" under a dime, "$1.25" above (M45.4). */
+export function usd(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `$${value < 0.1 ? value.toFixed(4) : value.toFixed(2)}`;
+}
+
 /** "42 s", "3 min 5 s". */
 export function seconds(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return "—";
@@ -135,6 +143,36 @@ export function seconds(ms: number | null | undefined): string {
   if (total < 60) return `${total} s`;
   const minutes = Math.floor(total / 60);
   return total % 60 ? `${minutes} min ${total % 60} s` : `${minutes} min`;
+}
+
+/**
+ * A budget's seconds as a person reads them (M48.7): "45 s", "30 min", "1 h 30 min", "24 h". A
+ * budget is set in whole minutes or hours nearly always, so the seconds are dropped past ten
+ * minutes, where "1800 s" said nothing to anyone.
+ */
+export function duration(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const total = Math.max(0, Math.round(value));
+  if (total < 60) return `${total} s`;
+  if (total < 3600) {
+    const minutes = Math.floor(total / 60);
+    return total % 60 && total < 600 ? `${minutes} min ${total % 60} s` : `${Math.round(total / 60)} min`;
+  }
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.round((total % 3600) / 60);
+  if (minutes === 60) return `${hours + 1} h`;
+  return minutes ? `${hours} h ${minutes} min` : `${hours} h`;
+}
+
+/**
+ * A tool as the page names it (M48.7): its title from the catalog ("App usage") where the trace,
+ * the memory and the evaluation used to show its id ("apps.usage"), which the model also spells
+ * "apps_usage". The id when the catalog has not arrived or does not know it.
+ */
+export function toolTitle(tools: ReadonlyArray<{ id: string; title: string }> | null | undefined, id: string | null | undefined): string {
+  if (!id) return "";
+  const dotted = id.replace(/_/g, ".");
+  return tools?.find((tool) => tool.id === dotted || tool.id === id)?.title ?? dotted;
 }
 
 export const errorText = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);

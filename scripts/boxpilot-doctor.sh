@@ -26,11 +26,75 @@ case "${1:-}" in
 esac
 
 boxpilot_failures=0
-boxpilot_uri="${BOXPILOT_LIBVIRT_URI:-qemu:///system}"
-boxpilot_iso_directory="${BOXPILOT_ISO_DIRECTORY:-/var/lib/libvirt/boot}"
-boxpilot_state_directory="${BOXPILOT_STATE_DIRECTORY:-/var/lib/boxpilot}"
-boxpilot_port="${BOXPILOT_PORT:-8787}"
-boxpilot_helper_socket="${BOXPILOT_HELPER_SOCKET:-/run/boxpilot/helper.sock}"
+# Run with sudo, this shell has none of the service's environment: what the service was given is in
+# its env file (readable by root). This shell's own environment still wins.
+boxpilot_env_file=/etc/boxpilot/boxpilot.env
+# boxpilot_env_file_value FILE KEY: the value systemd gives KEY when FILE is an EnvironmentFile=
+# (nothing when it gives none), by systemd's own rules (src/basic/env-file.c; server/env-file.mjs is
+# the same in JavaScript, and tests/ubuntu/env-file-parity.sh holds both to systemd). CR and LF end
+# a line; # and ; start a comment only where a key could start, so `9000   # moved` is all value;
+# blanks around the key, "=" and an unquoted value go; a quote runs to its match, over lines if need
+# be, and what follows it runs on into the value (`"9000" # web` is `9000# web`); outside quotes a
+# backslash keeps the next character and joins lines; the last assignment wins; `export KEY=1`
+# assigns nothing.
+boxpilot_env_file_value() {
+  awk -v want="$2" '
+    function add(s) { val = val s; kept = length(val) }
+    function push() {
+      sub(/[ \t]+$/, "", key)
+      if (key == want) { found = 1; out = substr(val, 1, kept) }
+      key = ""; val = ""; kept = 0
+    }
+    { text = text $0 "\n" }
+    END {
+      st = "prekey"; n = length(text)
+      for (i = 1; i <= n; i++) {
+        c = substr(text, i, 1); eol = c == "\n" || c == "\r"; blank = eol || c == " " || c == "\t"
+        if (st == "prekey") { if (c == "#" || c == ";") st = "comment"; else if (!blank) { st = "key"; key = c } }
+        else if (st == "key") { if (eol) st = "prekey"; else if (c == "=") { st = "pre"; val = ""; kept = 0 } else key = key c }
+        else if ((st == "pre" || st == "value") && eol) { push(); st = "prekey" }
+        else if (st == "pre") { if (c == "\047") st = "single"; else if (c == "\"") st = "double"; else if (c == "\\") st = "escape"; else if (!blank) { st = "value"; add(c) } }
+        else if (st == "value") { if (c == "\\") { st = "escape"; kept = length(val) } else if (blank) val = val c; else add(c) }
+        else if (st == "escape") { st = "value"; if (!eol) add(c) }
+        else if (st == "single") { if (c == "\047") st = "pre"; else add(c) }
+        else if (st == "double") { if (c == "\"") st = "pre"; else if (c == "\\") st = "dqescape"; else add(c) }
+        else if (st == "dqescape") { st = "double"; if (index("\"\\`$", c)) add(c); else if (c != "\n") add("\\" c) }
+        else if (st == "comment") { if (c == "\\") st = "cescape"; else if (eol) st = "prekey" }
+        else if (st == "cescape") st = eol ? "prekey" : "comment"
+      }
+      if (st != "prekey" && st != "key" && st != "comment" && st != "cescape") push()
+      if (found) printf "%s", out
+    }' "$1"
+}
+boxpilot_env_value() {
+  [ -r "$boxpilot_env_file" ] || return 0
+  boxpilot_env_file_value "$boxpilot_env_file" "$1"
+}
+# boxpilot_port_of VALUE: the port the web service listens on for a BOXPILOT_PORT value. It takes it
+# with parseInt (server/env-file.mjs webPortOf): the leading digits after blanks and a "+", so
+# `9000   # moved off 8787` is 9000; 8787 when there are none or they are no port.
+boxpilot_port_of() {
+  set -- "$(printf '%s' "$1" | tr '\n' ' ' | sed -n 's/^[[:space:]]*+\{0,1\}0*\([0-9][0-9]*\).*/\1/p')"
+  case "$1" in
+    ''|??????*) echo 8787 ;;
+    *) if [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; then echo "$1"; else echo 8787; fi ;;
+  esac
+}
+boxpilot_uri="${BOXPILOT_LIBVIRT_URI:-$(boxpilot_env_value BOXPILOT_LIBVIRT_URI)}"
+boxpilot_uri="${boxpilot_uri:-qemu:///system}"
+boxpilot_iso_directory="${BOXPILOT_ISO_DIRECTORY:-$(boxpilot_env_value BOXPILOT_ISO_DIRECTORY)}"
+boxpilot_iso_directory="${boxpilot_iso_directory:-/var/lib/libvirt/boot}"
+boxpilot_state_directory="${BOXPILOT_STATE_DIRECTORY:-$(boxpilot_env_value BOXPILOT_STATE_DIRECTORY)}"
+boxpilot_state_directory="${boxpilot_state_directory:-/var/lib/boxpilot}"
+boxpilot_port="$(boxpilot_port_of "${BOXPILOT_PORT:-$(boxpilot_env_value BOXPILOT_PORT)}")"
+# Loopback answers when the service listens on loopback or on every address; otherwise its one address.
+boxpilot_host="${BOXPILOT_HOST:-$(boxpilot_env_value BOXPILOT_HOST)}"
+case "$boxpilot_host" in
+  ''|0.0.0.0|::) boxpilot_host=127.0.0.1 ;;
+  *:*) boxpilot_host="[${boxpilot_host}]" ;;
+esac
+boxpilot_helper_socket="${BOXPILOT_HELPER_SOCKET:-$(boxpilot_env_value BOXPILOT_HELPER_SOCKET)}"
+boxpilot_helper_socket="${boxpilot_helper_socket:-/run/boxpilot/helper.sock}"
 
 boxpilot_pass() {
   printf '[PASS] %s\n' "$1"
@@ -166,12 +230,13 @@ else
   boxpilot_warn "state directory is missing or not writable: $boxpilot_state_directory"
 fi
 
-if boxpilot_has_command curl && curl --max-time 3 --fail --silent "http://127.0.0.1:${boxpilot_port}/api/v1/health" >/dev/null 2>&1; then
-  boxpilot_pass "BoxPilot health endpoint responds on loopback port $boxpilot_port"
-elif boxpilot_has_command wget && wget --timeout=3 --tries=1 -qO- "http://127.0.0.1:${boxpilot_port}/api/v1/health" >/dev/null 2>&1; then
-  boxpilot_pass "BoxPilot health endpoint responds on loopback port $boxpilot_port"
+boxpilot_health_url="http://${boxpilot_host}:${boxpilot_port}/api/v1/health"
+if boxpilot_has_command curl && curl --max-time 3 --fail --silent "$boxpilot_health_url" >/dev/null 2>&1; then
+  boxpilot_pass "BoxPilot health endpoint responds at ${boxpilot_host}:${boxpilot_port}"
+elif boxpilot_has_command wget && wget --timeout=3 --tries=1 -qO- "$boxpilot_health_url" >/dev/null 2>&1; then
+  boxpilot_pass "BoxPilot health endpoint responds at ${boxpilot_host}:${boxpilot_port}"
 else
-  boxpilot_warn "BoxPilot health endpoint is not responding on loopback port $boxpilot_port"
+  boxpilot_warn "BoxPilot health endpoint is not responding at ${boxpilot_host}:${boxpilot_port}"
 fi
 
 if boxpilot_has_command tailscale; then

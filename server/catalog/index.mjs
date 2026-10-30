@@ -66,7 +66,8 @@ export function createCatalogService({ directory = defaultCatalogDirectory, ttlM
   }
 
   async function all() {
-    if (cache && now() - checkedAt <= ttlMs) return cache;
+    // Strictly less: a ttl of 0 means look every time, even twice in the same millisecond.
+    if (cache && now() - checkedAt < ttlMs) return cache;
     if (inFlight) return inFlight;
     inFlight = (async () => {
       const current = await directorySignature();
@@ -89,6 +90,19 @@ export function createCatalogService({ directory = defaultCatalogDirectory, ttlM
     return manifests.find((manifest) => manifest.id === id) ?? null;
   }
   return { all, get, directory };
+}
+
+/**
+ * The tier installing an app asks for, from its manifest (`risk`): the DNS servers the house leans
+ * on and the VPN say high, as ADR-001 counts DNS cutovers and network-critical deploys. The job
+ * layer stages app.install at the higher of this and the operation's own medium (jobs.mjs,
+ * operationRiskHooks). Null when the catalog does not have the app, which the install refuses anyway.
+ */
+export function installRiskLookup(catalog) {
+  return async (parameters) => {
+    const manifest = typeof parameters?.id === "string" ? await catalog.get(parameters.id).catch(() => null) : null;
+    return manifest?.risk ?? null;
+  };
 }
 
 /**

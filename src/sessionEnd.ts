@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { fetchAuthStatus, sessionEndedEvent, signedOutReason, type SignedOutReason } from "./auth";
+import { fetchAuthStatus, sessionEndedEvent, signedOutReasonFor, type SignedOutReason } from "./auth";
 
 /**
  * A request found no session (M36): make sure, then hand the reason to `onEnded`, so the page goes
@@ -15,7 +15,7 @@ export function useSessionEnded(onEnded: (reason: SignedOutReason) => void): voi
       if (checking) return;
       checking = true;
       void fetchAuthStatus()
-        .then((status) => { if (!status.authenticated) latest.current(signedOutReason() ?? "ended"); })
+        .then((status) => { if (!status.authenticated) latest.current(signedOutReasonFor(status) ?? "ended"); })
         .catch(() => undefined)
         .finally(() => { checking = false; });
     };
