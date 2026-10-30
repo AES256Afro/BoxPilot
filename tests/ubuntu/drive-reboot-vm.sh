@@ -62,6 +62,17 @@ users:
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     ssh_authorized_keys: [ "$(cat "${WORK}/id.pub")" ]
+# The guest pulls about 220 MB from archive.ubuntu.com before the test can start, and apt will
+# sit on a connection that has gone quiet for far longer than this test has to live in. A mirror
+# that stalls mid-transfer is the one failure we have actually seen (2026-10-22, v1.215.0's
+# release gate, twice): the guest was healthy, SSH answered throughout, and one fetch simply never
+# finished. Thirty seconds of silence is a dead connection; archive.ubuntu.com is round-robin, so
+# a retry usually lands somewhere else.
+apt:
+  conf: |
+    Acquire::Retries "3";
+    Acquire::http::Timeout "30";
+    Acquire::https::Timeout "30";
 package_update: true
 packages: [docker.io, exfatprogs, psmisc]
 runcmd:

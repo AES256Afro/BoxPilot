@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { onWindows } from "../test/platform.mjs";
+import { onLinux, onWindows } from "../test/platform.mjs";
 import { copyFileExclusively, mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing, writeFileDurably } from "./durable-file.mjs";
 
 const directories = [];
@@ -59,7 +59,9 @@ describe("writing a boot-critical file", () => {
     expect(readFileSync(file, "utf8")).toBe("UUID=0000-");
   });
 
-  it("puts the data on disk before the rename, and the rename on disk before it returns", async () => {
+  // The ordering is observable through Linux's own fsync on a directory handle; macOS does not
+  // give the same sequence back.
+  it.skipIf(!onLinux)("puts the data on disk before the rename, and the rename on disk before it returns", async () => {
     const directory = await folder();
     const file = path.join(directory, "daemon.json");
     await writeFile(file, "{}\n");
