@@ -5,8 +5,8 @@ import YAML from "yaml";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { craftedTarGz } from "../test/crafted-tar.mjs";
-import { onWindows, testTar } from "../test/platform.mjs";
-import { catalogImagePin, createAppHelper, isCatalogUpdate, keepsBackupData } from "./app-helper.mjs";
+import { onLinux, onWindows, testTar } from "../test/platform.mjs";
+import { catalogImagePin, createAppHelper, isCatalogUpdate, keepsBackupData, logTail } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
@@ -246,7 +246,8 @@ sidecars:
   });
 
   // Linux only: host folders must be POSIX absolute paths.
-  it.skipIf(onWindows)("creates the folder layout a manifest promises inside a data volume, only where missing", async () => {
+  // Ownership of a created folder: a chown to the app's uid, which only Linux grants here.
+  it.skipIf(!onLinux)("creates the folder layout a manifest promises inside a data volume, only where missing", async () => {
     // Sonarr's first act is to look for /data/tv; qBittorrent's is to write /data/torrents.
     // The manifest promises the layout, the install delivers it, and folders that already
     // exist stay exactly as the owner had them, ownership included.
@@ -275,7 +276,7 @@ sidecars:
   });
 
   // Linux only: host folders must be POSIX absolute paths.
-  it.skipIf(onWindows)("hands an existing but root-owned data folder to the app so it can write", async () => {
+  it.skipIf(!onLinux)("hands an existing but root-owned data folder to the app so it can write", async () => {
     // The qBittorrent case: the download folder already exists but is root-owned (Docker or a default
     // made it), so the app running as PUID 1000 cannot write and every torrent errors. The deployer
     // should claim a root-owned read-write folder for the app; a folder owned by a real user is left.
@@ -416,7 +417,7 @@ sidecars:
   });
 
   // Linux only: host folders must be POSIX absolute paths.
-  it.skipIf(onWindows)("reports a data folder the installed app cannot write to, and clears once ownership is right", async () => {
+  it.skipIf(!onLinux)("reports a data folder the installed app cannot write to, and clears once ownership is right", async () => {
     // The silent qBittorrent failure: every torrent errored at 0% because /data was root-owned.
     // The catalog listing should say so on the card instead of leaving the app to fail quietly.
     const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-ro-media-")); directories.push(mediaRoot);
@@ -654,6 +655,79 @@ sidecars:
     const apps = createAppHelper({ catalogRoot, runDocker, catalog: createCatalogService({ directory: catalogDirectory, ttlMs: 0 }), wait: async (ms) => { nowMs += ms; }, clock: () => new Date(nowMs), chownDirectory: async (target, uid, gid) => { chowns.push([path.basename(target), uid, gid]); } });
     await apps.install({ id: "rooty" });
     expect(chowns).toEqual([]); // nothing guessed
+  });
+
+  it("asks the image again after a probe it could not run, instead of remembering the silence", async () => {
+    // A failed `docker run ... id` was cached as "this image has no owner". Every later deploy took
+    // that cache hit, left the data folders root-owned, and the container crash-looped on its first
+    // mkdir: four installs in a row, cleared only by restarting the helper.
+    const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
+    const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
+    await writeFile(path.join(catalogDirectory, "flaky.yaml"), "schemaVersion: 2\nid: flaky\nname: Flaky\ncategory: T\ndescription: d\nimage:\n  reference: x/flaky:1\nvolumes:\n  - id: store\n    container: /store\n    path: store\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    const chowns = [];
+    let probeWorks = false;
+    const runDocker = vi.fn(async (_binary, args) => {
+      if (args[0] === "inspect") return { ok: true, stdout: JSON.stringify({ running: true, status: "running", health: "none", restarts: 0, image: "sha256:1", startedAt: "x", exitCode: 0 }), stderr: "" };
+      if (args[0] === "image" && args[1] === "inspect") return { ok: true, stdout: "appuser\n", stderr: "" };
+      if (args[0] === "run" && args.includes("id")) return probeWorks ? { ok: true, stdout: args.includes("-g") ? "2000\n" : "1500\n", stderr: "" } : { ok: false, stdout: "", stderr: "cannot start" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    let nowMs = Date.parse("2026-10-23T12:00:00Z");
+    const apps = createAppHelper({ catalogRoot, runDocker, catalog: createCatalogService({ directory: catalogDirectory, ttlMs: 0 }), wait: async (ms) => { nowMs += ms; }, clock: () => new Date(nowMs), chownDirectory: async (target, uid, gid) => { chowns.push([path.basename(target), uid, gid]); } });
+    await apps.install({ id: "flaky" });
+    expect(chowns).toEqual([]); // nothing known, nothing guessed
+    probeWorks = true;
+    await apps.reconfigure({ id: "flaky", values: {} }, { checkpoint: false });
+    expect(chowns).toEqual([["store", 1500, 2000]]); // asked again rather than reading back the silence
+  });
+
+  it("pulls before it writes the project, so an image that names its user can be asked", async () => {
+    // writeProject hands the data folders to the user the image declares, and `up` downloads a step
+    // too late: on a first install the image is not there to be asked.
+    const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
+    const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
+    await writeFile(path.join(catalogDirectory, "fresh.yaml"), "schemaVersion: 2\nid: fresh\nname: Fresh\ncategory: T\ndescription: d\nimage:\n  reference: x/fresh:1\nvolumes:\n  - id: store\n    container: /store\n    path: store\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    const chowns = [];
+    const order = [];
+    let pulled = false;
+    const runDocker = vi.fn(async (_binary, args) => {
+      if (args[0] === "inspect") return { ok: true, stdout: JSON.stringify({ running: true, status: "running", health: "none", restarts: 0, image: "sha256:1", startedAt: "x", exitCode: 0 }), stderr: "" };
+      if (args[0] === "pull") { pulled = true; order.push("pull"); return { ok: true, stdout: "", stderr: "" }; }
+      // Absent until something pulls it, as a first install finds it.
+      if (args[0] === "image" && args[1] === "inspect") return pulled ? { ok: true, stdout: "appuser\n", stderr: "" } : { ok: false, stdout: "", stderr: "No such image" };
+      if (args[0] === "run" && args.includes("id")) return { ok: true, stdout: args.includes("-g") ? "3000\n" : "3000\n", stderr: "" };
+      if (args[0] === "compose" && args.includes("up")) order.push("up");
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    let nowMs = Date.parse("2026-10-23T12:00:00Z");
+    const apps = createAppHelper({ catalogRoot, runDocker, catalog: createCatalogService({ directory: catalogDirectory, ttlMs: 0 }), wait: async (ms) => { nowMs += ms; }, clock: () => new Date(nowMs), chownDirectory: async (target, uid, gid) => { chowns.push([path.basename(target), uid, gid]); } });
+    await apps.install({ id: "fresh" });
+    expect(order[0]).toBe("pull");
+    expect(order).toContain("up");
+    expect(chowns).toEqual([["store", 3000, 3000]]);
+  });
+
+  describe("logTail", () => {
+    it("leads with the line that says what went wrong, not the frame above it", () => {
+      const traceback = [
+        "Traceback (most recent call last):",
+        '  File "/app/backend/app/main.py", line 15, in <module>',
+        "    from . import auth",
+        '  File "/app/backend/app/config.py", line 102, in ensure_dirs',
+        "    (self.import_root / \"paystubs\").mkdir(parents=True, exist_ok=True)",
+        "PermissionError: [Errno 13] Permission denied: '/imports/paystubs'",
+      ].join("\n");
+      expect(logTail(traceback)).toMatch(/^PermissionError: \[Errno 13\]/);
+      expect(logTail(traceback)).toContain("Last log lines:");
+    });
+
+    it("keeps the tail alone when the end of the log already says it", () => {
+      expect(logTail("starting\nlistening on 8000")).toBe("Last log lines: starting\nlistening on 8000");
+    });
+
+    it("says so when there is nothing to show", () => {
+      expect(logTail("   ")).toBe("Last log lines: (none)");
+    });
   });
 
   it("runs the chosen setup commands inside the container after install and settings changes", async () => {
@@ -1553,7 +1627,7 @@ sidecars:
 
 // Linux only: host folders must be POSIX absolute paths.
 describe.skipIf(onWindows)("folders an app is pointed at", () => {
-  it("creates a missing data folder and gives it to the user the app runs as", async () => {
+  it.skipIf(!onLinux)("creates a missing data folder and gives it to the user the app runs as", async () => {
     const chowns = [];
     const { apps, catalogDirectory } = await setup({ chownDirectory: async (target, uid, gid) => { chowns.push(`${target}:${uid}:${gid}`); } });
     const media = path.join(await mkdtemp(path.join(os.tmpdir(), "boxpilot-media-")), "srv", "media");
@@ -1571,7 +1645,7 @@ describe.skipIf(onWindows)("folders an app is pointed at", () => {
     expect(chowns.some((entry) => entry.startsWith(`${media}:1000:1000`))).toBe(true);
   });
 
-  it("leaves a folder that already exists alone, whatever owns it", async () => {
+  it.skipIf(!onLinux)("leaves a folder that already exists alone, whatever owns it", async () => {
     const chowns = [];
     const { apps, catalogDirectory } = await setup({ chownDirectory: async (target) => { chowns.push(target); } });
     const library = await mkdtemp(path.join(os.tmpdir(), "boxpilot-library-"));
@@ -3423,7 +3497,8 @@ describe("a backup's compose file started as it was archived", () => {
 
   // Linux only: links, named pipes and GNU tar's listing, which the single-path restore reads.
   describe.skipIf(onWindows)("on Linux", () => {
-    it("refuses a data folder reached through a link", async () => {
+    // Resolves the link against the host and compares ownership, which needs Linux's own chown.
+    it.skipIf(!onLinux)("refuses a data folder reached through a link", async () => {
       const harness = await setup({ runCommand: withRealTar });
       await writeFile(path.join(harness.catalogDirectory, "library.yaml"), libraryManifest);
       const real = await mkdtemp(path.join(os.tmpdir(), "boxpilot-films-")); directories.push(real);
@@ -3454,7 +3529,7 @@ describe("a backup's compose file started as it was archived", () => {
       await expect(lstat(path.join(harness.live, "data", "queue"))).rejects.toMatchObject({ code: "ENOENT" });
     });
 
-    it("checks a compose file or settings restored on their own as a whole restore would", async () => {
+    it.skipIf(!onLinux)("checks a compose file or settings restored on their own as a whole restore would", async () => {
       const harness = await installedDemo();
       const backup = await craftedBackup(harness);
       await expect(harness.apps.restoreAppBackupPath({ id: "demo", backup, path: "compose.yaml" })).rejects.toThrow(/^compose\.yaml was not restored; nothing was changed\. Demo would be started with it exactly as it is, and it gives Demo more than the catalog does: demo: runs privileged/);
@@ -3649,7 +3724,7 @@ describe("an owner's link at a folder backups leave out", () => {
     expect(await readdir(catalogRoot)).toEqual(["keep"]);
   });
 
-  it("leaves behind a link into BoxPilot's own folders, and says so", async () => {
+  it.skipIf(!onLinux)("leaves behind a link into BoxPilot's own folders, and says so", async () => {
     const harness = await setup({ runCommand: withRealTar });
     const other = path.join(harness.catalogRoot, "other-app-data");
     await mkdir(other);

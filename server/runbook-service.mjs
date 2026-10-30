@@ -360,8 +360,12 @@ export function createRunbookService({
       destinations.push({
         kind: "cloud", label: `Cloud storage (${cloudProviders[cloud.provider]?.label ?? cloud.provider})`, configured: true, where: cloudWhere(cloud), whereReason: "the destination names no bucket or path",
         lastSync: store.getSetting("cloudDestinationLastSync", null)?.completedAt ?? null,
-        note: "A plain mirror of the local backups, copied with rclone; not encrypted",
-        credential: "Its keys are in /etc/boxpilot/secrets/rclone.conf on this server (root only); keep a copy of them off this server",
+        note: cloud.sealed === true
+          ? "A mirror of the local backups, copied with rclone and encrypted with your passphrase (rclone crypt) before it leaves; the copies are in the sealed folder"
+          : "A plain mirror of the local backups, copied with rclone; not encrypted. Set the destination again with a passphrase: mirroring stops until then",
+        credential: cloud.sealed === true
+          ? "Its keys and the obscured passphrase are in /etc/boxpilot/secrets/rclone.conf on this server (root only); keep the passphrase off this server, or the copies cannot be read after losing it"
+          : "Its keys are in /etc/boxpilot/secrets/rclone.conf on this server (root only); keep a copy of them off this server",
       });
     }
     const backups = {

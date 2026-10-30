@@ -29,7 +29,9 @@ RestrictNamespaces=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
-MemoryDenyWriteExecute=true
+# No MemoryDenyWriteExecute here: it makes every mprotect() that adds PROT_EXEC fail with EPERM, and
+# node's V8 needs exactly that for the JIT code it writes at start-up, so node aborts before this
+# script runs and systemd reports the unit failed with Result: core-dump. No node unit sets it.
 SystemCallArchitectures=native
 ReadWritePaths=/run/boxpilot
 ReadWritePaths=/var/lib/libvirt
