@@ -17,7 +17,7 @@
  *   temperature?: number,
  *   effort?: "low" | "medium" | "high" | "xhigh" | "max",
  *   taskBudget?: number,
- *   extra?: Record<string, unknown>,
+ *   extra?: Record<string, any>,
  * }} ChatRequest
  *
  * `effort` and `taskBudget` are for providers that think (Claude): how hard to think on this call,

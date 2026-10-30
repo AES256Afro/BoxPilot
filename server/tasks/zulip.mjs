@@ -37,15 +37,22 @@ function exchange({ port, host, method = "GET", path, headers = {}, body = null,
       response.on("error", reject);
     });
     request.on("timeout", () => request.destroy(new ZulipError("Zulip did not answer in time")));
-    request.on("error", (error) => reject(error instanceof ZulipError ? error : new ZulipError(`Zulip could not be reached on this server: ${error.code ?? error.message}`)));
+    request.on("error", (/** @type {NodeJS.ErrnoException} */ error) => reject(error instanceof ZulipError ? error : new ZulipError(`Zulip could not be reached on this server: ${error.code ?? error.message}`)));
     if (body) request.write(body);
     request.end();
   });
 }
 
 /**
+ * @typedef {{ base?: string, host?: string, botEmail?: string, credentialName?: string }} ZulipTarget
+ * @typedef {{ log?: (line: string, stream?: string) => void, credentials?: ReturnType<typeof createCredentialStore>, transport?: typeof exchange }} ZulipTaskOptions
+ */
+
+/**
  * A client for one bot on one Zulip. `read` gives the credential's value; `transport` is the HTTP
  * exchange (a test hands in its own).
+ * @param {ZulipTarget} target
+ * @param {{ credentials?: ReturnType<typeof createCredentialStore>, transport?: typeof exchange }} [options]
  */
 export async function zulipClient({ base, host, botEmail, credentialName }, { credentials = createCredentialStore(), transport = exchange } = {}) {
   const port = Number(basePattern.exec(String(base ?? ""))?.[1]);
@@ -63,7 +70,8 @@ export async function zulipClient({ base, host, botEmail, credentialName }, { cr
     if (response.status >= 400 || body?.result !== "success") throw new ZulipError(`${what}: Zulip said ${String(body?.msg ?? `HTTP ${response.status}`).slice(0, 200)}`, { status: response.status });
     return body;
   };
-  const form = (fields) => new URLSearchParams(Object.entries(fields).map(([name, value]) => [name, String(value)])).toString();
+  const form = (fields) => new URLSearchParams(Object.entries(fields).map(([name, value]) => /** @type {[string, string]} */ ([name, String(value)]))).toString();
+  /** @type {(method: string, path: string, options?: { fields?: Record<string, unknown> | null, query?: Record<string, string> | null, what?: string, maxBytes?: number }) => Promise<any>} */
   const call = async (method, path, { fields = null, query = null, what, maxBytes } = {}) => readJson(await transport({
     port, host, method, maxBytes,
     path: `/api/v1/${path}${query ? `?${new URLSearchParams(query).toString()}` : ""}`,
@@ -129,7 +137,11 @@ export async function zulipClient({ base, host, botEmail, credentialName }, { cr
   };
 }
 
-/** agents.zulip.check: the key works and belongs to the bot; with `hello`, it says so in #agent-findings. */
+/**
+ * agents.zulip.check: the key works and belongs to the bot; with `hello`, it says so in #agent-findings.
+ * @param {ZulipTarget & { hello?: { channel?: string, topic?: string, content?: string } }} [parameters]
+ * @param {ZulipTaskOptions} [options]
+ */
 export async function zulipCheck(parameters = {}, { log = () => {}, credentials, transport } = {}) {
   const client = await zulipClient(parameters, { credentials, transport });
   const me = await client.me();
@@ -146,6 +158,8 @@ export async function zulipCheck(parameters = {}, { log = () => {}, credentials,
 /**
  * agents.zulip.post: each queued post in turn; one that fails is reported and the rest still go,
  * unless Zulip refused the key, which stops the batch.
+ * @param {ZulipTarget & { posts?: Array<{ id?: string, content?: string, attachment?: { name?: string, text?: string }, to?: number[], channel?: string, topic?: string }> }} [parameters]
+ * @param {ZulipTaskOptions} [options]
  */
 export async function zulipPost(parameters = {}, { log = () => {}, credentials, transport } = {}) {
   const client = await zulipClient(parameters, { credentials, transport });
@@ -179,6 +193,8 @@ export async function zulipPost(parameters = {}, { log = () => {}, credentials, 
  * What was asked of the bot, from Zulip's own message (M40.5): a direct message to it, or a message
  * in a channel that mentions it. Its own messages and other bots' are not questions. The words are
  * data; who sent it is what the service maps to a BoxPilot account.
+ * @param {any} message Zulip's message payload
+ * @param {{ botEmail?: string, flags?: string[] }} [options]
  */
 export function askedOf(message, { botEmail, flags = [] } = {}) {
   if (!message || !Number.isInteger(message.id)) return null;
@@ -207,6 +223,8 @@ export function askedOf(message, { botEmail, flags = [] } = {}) {
  * opened again, and what was asked since the last message handled is read back from the message
  * history, so nothing asked while it was gone is lost; only what was asked within `catchUpMinutes`
  * is taken, since an answer hours late helps nobody.
+ * @param {ZulipTarget & { queueId?: string, lastEventId?: number, after?: number, catchUpMinutes?: number }} [parameters]
+ * @param {ZulipTaskOptions & { now?: () => Date }} [options]
  */
 export async function zulipEvents(parameters = {}, { log = () => {}, credentials, transport, now = () => new Date() } = {}) {
   const client = await zulipClient(parameters, { credentials, transport });
@@ -253,6 +271,8 @@ export async function zulipEvents(parameters = {}, { log = () => {}, credentials
  * agents.zulip.poll: the messages in the files channel after the last one seen, and the files they
  * link to - PDFs, Markdown and text, and images - each within the connectors' size limit and all
  * within one poll's. What people wrote comes back as data; the bot's own messages are skipped.
+ * @param {ZulipTarget & { channel?: string, after?: number }} [parameters]
+ * @param {ZulipTaskOptions} [options]
  */
 export async function zulipPoll(parameters = {}, { log = () => {}, credentials, transport } = {}) {
   const client = await zulipClient(parameters, { credentials, transport });

@@ -11,8 +11,10 @@ function settled(result) {
  * `inspect({ actorId })` is the bundle for an account that is not the owner (M29.4): its audit trail
  * is what that account did, and its failed-job count is of that account's jobs. The owner's bundle
  * (no actorId) has every account's.
+ * @param {{ inventory?: any, prerequisites?: any, actionCenter?: any, audit?: any, helper?: any, store?: any, loadPolicy?: typeof loadRedactionPolicy, now?: () => Date, version?: string }} [options]
  */
 export function createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper, store = null, loadPolicy = loadRedactionPolicy, now = () => new Date(), version = productVersion } = {}) {
+  /** @param {{ actorId?: string }} [scope] */
   async function inspect({ actorId } = {}) {
     const policy = await loadPolicy().catch(() => ({ status: "unavailable", additionalLiterals: [], additionalPathPrefixes: [] }));
     const redactor = createRedactor(policy);

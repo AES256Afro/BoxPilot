@@ -134,3 +134,8 @@ export async function runRead<T>(csrfToken: string, operationId: string, paramet
   const body = (await response.json().catch(() => ({}))) as { result?: T; error?: string; code?: string };
   return { response, body };
 }
+
+/** An image reference for reading: a pinned digest is cut to its first 12 characters, as Docker shows image ids. */
+export function shortImage(reference: string | null | undefined): string {
+  return String(reference ?? "").replace(/@sha256:([a-f0-9]{12})[a-f0-9]{52}$/, "@sha256:$1…");
+}

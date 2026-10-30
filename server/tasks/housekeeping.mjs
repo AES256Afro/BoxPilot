@@ -1,4 +1,4 @@
-import { rm, stat } from "node:fs/promises";
+import { lstat, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -16,7 +16,7 @@ import path from "node:path";
  */
 const leftoverPattern = /^boxpilot(?:\.prev\.|\.rollback-|-prev-|-live-before-|-candidate-|\.failed\.|\.staging\.)/;
 
-export async function housekeepingRemoveTrees({ paths = [], installRoot = "/opt", currentTree = "/opt/boxpilot" } = {}, { log = null, files = { rm, stat } } = {}) {
+export async function housekeepingRemoveTrees({ paths = [], installRoot = "/opt", currentTree = "/opt/boxpilot" } = {}, { log = null, files = { rm, stat, lstat } } = {}) {
   if (!Array.isArray(paths)) throw new Error("paths must be a list");
   if (paths.length > 500) throw new Error("too many paths in one request");
   const root = path.resolve(installRoot);

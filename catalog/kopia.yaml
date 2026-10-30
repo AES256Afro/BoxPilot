@@ -7,7 +7,7 @@ description: "Fast, encrypted, deduplicated snapshots with a web UI. Back up fol
 website: https://kopia.io
 risk: low
 image:
-  reference: kopia/kopia:0.23.1
+  reference: kopia/kopia:0.23.1@sha256:89fd95ee2942880ca00eae964266958a394421ddbdf69bca62e38afc55f5900e
   version: "0.23.1"
 # The web password is not on the command line, where every process on the server could read it:
 # `kopia server start` reads --server-password from KOPIA_SERVER_PASSWORD, set below.

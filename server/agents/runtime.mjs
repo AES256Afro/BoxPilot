@@ -70,12 +70,15 @@ export class ModelUnavailable extends Error {
   constructor(message, reason = "model-unavailable") { super(message); this.reason = reason; }
 }
 
-/** A free loopback port: bind to 0, read it, close. */
+/**
+ * A free loopback port: bind to 0, read it, close.
+ * @returns {Promise<number>}
+ */
 export function freePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => { const { port } = server.address(); server.close(() => resolve(port)); });
+    server.listen(0, "127.0.0.1", () => { const { port } = /** @type {import("node:net").AddressInfo} */ (server.address()); server.close(() => resolve(port)); });
   });
 }
 
@@ -126,11 +129,26 @@ async function modelFile(stateDir, repo, file) {
   return path.join(cacheDirectory(stateDir, repo), "snapshots", found.commit, file);
 }
 
+/**
+ * @typedef {{
+ *   driver: string, model?: string, requestModel?: string, repo?: string, file?: string, projector?: string | null,
+ *   contextTokens?: number, threads?: number, endpoint?: string, idleStopMs?: number,
+ * }} RuntimeSpec
+ */
+
 const basePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
 /**
  * The command that serves this runtime's model on `port`. Pure: the files and secrets it needs are
  * found first (`prepare`), so what is run can be read and tested as a list of words.
+ *
+ * @param {RuntimeSpec} runtime
+ * @param {{
+ *   port: number, runtimeDir: string, stateDir: string, node?: string,
+ *   fake?: { busyThreads?: number, busyMs?: number, vision?: boolean },
+ *   secrets?: { studioPassword?: string, studioPasswordSet?: boolean, apiKeyFile?: string },
+ *   files?: { binary?: string, model?: string, projector?: string | null },
+ * }} options
  */
 export function serverCommand(runtime, { port, runtimeDir, stateDir, node = process.execPath, fake = {}, secrets = {}, files = {} }) {
   const threads = String(Math.max(1, Math.trunc(runtime.threads ?? 1)));
@@ -174,6 +192,14 @@ export function serverCommand(runtime, { port, runtimeDir, stateDir, node = proc
   throw new ModelUnavailable(`The ${runtime.driver} runtime is not started by the runner`);
 }
 
+/**
+ * @param {{
+ *   spawn?: typeof spawnProcess, client?: any, runtimeDir?: string, stateDir?: string, now?: () => number,
+ *   startTimeoutMs?: number, listWaitMs?: number, driverOverride?: string | null,
+ *   fake?: { busyThreads?: number, busyMs?: number, vision?: boolean }, log?: (line: string) => void, pollMs?: number,
+ *   fetchImpl?: typeof globalThis.fetch,
+ * }} [options]
+ */
 export function createRuntime({
   spawn = spawnProcess,
   client,
@@ -303,6 +329,10 @@ export function createRuntime({
    * A model ready to answer: the running one when it is the one asked for, otherwise a fresh start
    * (which is counted as the run's load time). External servers are only checked.
    */
+  /**
+   * @param {RuntimeSpec} requested
+   * @param {{ signal?: AbortSignal }} [options]
+   */
   async function ensure(requested, { signal } = {}) {
     const runtime = driverOverride ? { ...requested, driver: driverOverride } : requested;
     if (runtime.driver === "external") {
@@ -338,7 +368,7 @@ export function createRuntime({
     let result;
     try {
       const response = await fetchImpl(`${entry.endpoint}${path}`, { headers: { Accept: "application/json", ...(entry.apiKey ? { Authorization: `Bearer ${entry.apiKey}` } : {}) }, signal: AbortSignal.timeout(5_000), redirect: "error" });
-      const body = response.ok ? await response.json().catch(() => null) : null;
+      const body = /** @type {any} */ (response.ok ? await response.json().catch(() => null) : null); // the server's JSON
       const said = entry.driver === "llama-server" ? body?.modalities?.vision : body?.is_vision;
       // Studio answers its status before the model it is loading is listed, and then says
       // is_vision false for the model nobody loaded yet (seen on the real one: active_model null,

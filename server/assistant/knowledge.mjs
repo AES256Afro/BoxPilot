@@ -134,9 +134,13 @@ function describeField(name, field) {
   return `${name} (${details.join(", ")})`;
 }
 
-/** One chunk per registered operation: what it does, its tier, who may run it, its parameters. */
+/**
+ * One chunk per registered operation: what it does, its tier, who may run it, its parameters.
+ * BoxPilot's own plumbing is left out: the planner drops it, so describing it only invites a step
+ * that is thrown away.
+ */
 export function operationChunks(registry) {
-  return registry.list().map((operation) => {
+  return registry.list().filter((operation) => !operation.internal).map((operation) => {
     const fields = Object.entries(operation.parameters?.fields ?? {}).map(([name, field]) => describeField(name, field));
     const who = operation.minimumRole === "owner" || operation.risk === "high" ? "the owner" : operation.minimumRole === "operator" || !operation.readOnly ? "an operator or the owner" : "anyone signed in";
     return {
@@ -296,6 +300,8 @@ export function fuseRankings(lists, { k = 60, depth = 50 } = {}) {
 /**
  * The index. `ensure()` builds it (documents and registry once, the catalog again whenever its
  * manifests change); `search()` ranks chunks for a question.
+ *
+ * @param {{ registry?: any, catalog?: any, root?: string, readDirectory?: typeof readdir, readText?: (file: string) => Promise<string>, embeddings?: ReturnType<typeof createEmbeddingCache>, now?: () => Date }} [options]
  */
 export function createKnowledgeIndex({
   registry,

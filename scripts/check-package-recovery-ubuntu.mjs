@@ -66,8 +66,8 @@ try {
   assert.equal(await new Promise((resolve, reject) => { webCheck.once("exit", resolve); webCheck.once("error", reject); }), 0);
   const stateFile = path.join(directory, "cleanup.sqlite3");
   const state = new DatabaseSync(stateFile);
-  state.exec("CREATE TABLE jobs(id TEXT PRIMARY KEY,state TEXT); CREATE TABLE job_output(job_id TEXT PRIMARY KEY,output TEXT)");
-  state.prepare("INSERT INTO jobs VALUES (?, 'completed')").run(savedJob);
+  state.exec("CREATE TABLE jobs(id TEXT PRIMARY KEY,state TEXT,timeout_json TEXT); CREATE TABLE job_output(job_id TEXT PRIMARY KEY,output TEXT)");
+  state.prepare("INSERT INTO jobs (id, state) VALUES (?, 'completed')").run(savedJob);
   state.prepare("INSERT INTO job_output VALUES (?,?)").run(savedJob, "saved output\n");
   state.close();
   const released = await releaseSavedJobLog({ jobId: savedJob }, { directory: cache, lookup: (id) => savedCompletedOutput(id, stateFile) });

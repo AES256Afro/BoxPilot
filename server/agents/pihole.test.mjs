@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { createPiholeReader, describePihole, parseRows, piholeQueries, summarize } from "./pihole.mjs";
 

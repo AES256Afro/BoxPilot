@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
 import { createJobService } from "../jobs.mjs";

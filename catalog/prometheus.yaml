@@ -7,7 +7,7 @@ description: Collects metrics from this server and keeps a time series of them. 
 website: https://prometheus.io
 risk: medium
 image:
-  reference: prom/prometheus:v3.14.0
+  reference: prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
   version: 3.14.0
 ports:
   - id: web
@@ -39,14 +39,14 @@ files:
             - targets: ["cadvisor:8080"]
 sidecars:
   - id: node-exporter
-    image: prom/node-exporter:v1.12.1
+    image: prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
     command: ["--path.rootfs=/host"]
     volumes:
       - id: rootfs
         container: /host
         hostPath: /
   - id: cadvisor
-    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    image: gcr.io/cadvisor/cadvisor:v0.55.1@sha256:3de2bd5203120b866d74a9b283b2ffb8ec382fbf9dc321814700c6ea6f44ec57
     command: ["--docker_only=true", "--housekeeping_interval=30s"]
     devices:
       - /dev/kmsg

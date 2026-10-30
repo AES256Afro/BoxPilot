@@ -28,7 +28,7 @@ describe("update notifier", () => {
     const { notifier, send, store, releaseUpdates, ledger } = fixture();
     await expect(notifier.check()).resolves.toEqual({ notified: true, reason: "sent", latest: "v0.62.7" });
     expect(releaseUpdates.inspect).toHaveBeenCalledWith({ refresh: true });
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ title: "BoxPilot: Version 0.62.7 is available", message: expect.stringContaining("System → BoxPilot updates") }));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ title: "BoxPilot: Version 0.62.7 is available", message: expect.stringContaining("System → BoxPilot updates") }), expect.anything());
     expect(store.setSetting).toHaveBeenCalledWith("updateNotifiedTag", "v0.62.7", expect.anything());
     expect(ledger()).toEqual({}); // delivered news leaves nothing behind
     await expect(notifier.check()).resolves.toMatchObject({ notified: false, reason: "already-notified" });
@@ -52,7 +52,7 @@ describe("update notifier", () => {
 
     setTarget({ kind: "ntfy" });
     expect((await alerts.check()).sent).toEqual(["release.available"]);
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ title: "BoxPilot: Version 0.62.7 is available" }));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ title: "BoxPilot: Version 0.62.7 is available" }), expect.anything());
     expect(ledger()).toEqual({});
   });
 
@@ -90,7 +90,7 @@ describe("update notifier", () => {
     await expect(notifier.check()).resolves.toMatchObject({ reason: "already-notified" });
     setTarget({ kind: "ntfy" });
     expect((await alerts.check()).sent).toEqual(["release.available"]);
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ title: "BoxPilot: Version 0.62.9 is available" }));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ title: "BoxPilot: Version 0.62.9 is available" }), expect.anything());
     expect(ledger()).toEqual({});
   });
 

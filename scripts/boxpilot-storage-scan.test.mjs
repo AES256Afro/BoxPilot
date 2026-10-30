@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { carryLastReadings, collectFilesystemErrors, createStorageScanner, diskAsleep, needsSatRetry, parseSmartctlEvidence, smartEvidenceFor, usbBridgeUnrecognized, writeStorageEvidence } from "./boxpilot-storage-scan.mjs";
+import { DatabaseSync } from "node:sqlite";
+import { carryLastReadings, collectFilesystemErrors, createStorageScanner, diskAsleep, needsSatRetry, parseSmartctlEvidence, smartEvidenceFor, usbBridgeUnrecognized, wakeAfterMs, weeklyWakeEnabled, writeStorageEvidence } from "./boxpilot-storage-scan.mjs";
 
 const directories = [];
 /** smartctl 7.4 --json output for USB disks, scrubbed: placeholder models, serials and USB ids. */
@@ -196,5 +197,103 @@ describe("a sleeping disk", () => {
     await writeStorageEvidence({ outputPath, stateDirectory: directory, scanner: scan([{ device: "/dev/sdb", health: "unavailable", reason: "asleep" }], "2026-09-28T12:00:00.000Z") });
     const written = JSON.parse(await readFile(outputPath, "utf8"));
     expect(written.disks[0]).toMatchObject({ reason: "asleep", lastHealth: "healthy", lastReadAt: "2026-09-28T06:00:00.000Z" });
+  });
+});
+
+describe("the owner's weekly read of a drive that is always asleep", () => {
+  const asleep = JSON.stringify({ smartctl: { messages: [{ string: "Device is in STANDBY mode, exit(2)" }] } });
+  const awake = JSON.stringify({ smart_status: { passed: true }, temperature: { current: 31 }, power_on_time: { hours: 9000 } });
+  const at = new Date("2026-10-19T06:00:00.000Z");
+  /** One spinning disk that answers "asleep" to the polite read and its health to the waking one. */
+  function sleepyDisk() {
+    const smart = [];
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("findmnt")) return { ok: true, stdout: JSON.stringify({ filesystems: [] }) };
+      if (binary.endsWith("lsblk")) return { ok: true, stdout: JSON.stringify({ blockdevices: [{ name: "/dev/sda", type: "disk", tran: "sata" }] }) };
+      smart.push(args);
+      return { ok: true, stdout: args.includes("standby") ? asleep : awake };
+    });
+    return { scanner: createStorageScanner({ run, checkAccess: async () => {}, now: () => at }), smart };
+  }
+  const readAgo = (ms) => ({ generatedAt: at.toISOString(), disks: [{ device: "/dev/sda", reason: "ok", health: "healthy", readAt: new Date(at.getTime() - ms).toISOString() }] });
+
+  it("leaves it asleep unless the owner turned the weekly read on", async () => {
+    const { scanner, smart } = sleepyDisk();
+    const result = await scanner.scan({ wake: false, previous: readAgo(30 * 24 * 60 * 60 * 1000) });
+    expect(result.disks[0]).toMatchObject({ reason: "asleep", health: "unavailable" });
+    expect(smart.every((args) => args.includes("standby"))).toBe(true);
+  });
+
+  it("wakes it once it has gone a week unread, and records that it did", async () => {
+    const { scanner, smart } = sleepyDisk();
+    const result = await scanner.scan({ wake: true, previous: readAgo(wakeAfterMs) });
+    expect(result.disks[0]).toMatchObject({ device: "/dev/sda", reason: "ok", health: "healthy", wokenForWeeklyRead: true, readAt: at.toISOString() });
+    expect(smart.at(-1)).toEqual(["--json=c", "--all", "/dev/sda"]);
+    // Never read awake at all counts as a week unread too.
+    const never = sleepyDisk();
+    expect((await never.scanner.scan({ wake: true, previous: null })).disks[0]).toMatchObject({ wokenForWeeklyRead: true });
+  });
+
+  it("leaves it asleep when it was read awake less than a week ago, including a reading carried while asleep", async () => {
+    const recent = sleepyDisk();
+    expect((await recent.scanner.scan({ wake: true, previous: readAgo(wakeAfterMs - 60_000) })).disks[0]).toMatchObject({ reason: "asleep" });
+    expect(recent.smart.every((args) => args.includes("standby"))).toBe(true);
+    const carried = sleepyDisk();
+    const previous = { generatedAt: at.toISOString(), disks: [{ device: "/dev/sda", reason: "asleep", lastHealth: "healthy", lastReadAt: new Date(at.getTime() - 60 * 60 * 1000).toISOString() }] };
+    expect((await carried.scanner.scan({ wake: true, previous })).disks[0]).toMatchObject({ reason: "asleep" });
+  });
+
+  it("tries a drive that does not answer the waking read once a week, not at every scan", async () => {
+    const smart = [];
+    let clock = at;
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("findmnt")) return { ok: true, stdout: JSON.stringify({ filesystems: [] }) };
+      if (binary.endsWith("lsblk")) return { ok: true, stdout: JSON.stringify({ blockdevices: [{ name: "/dev/sda", type: "disk", tran: "sata" }] }) };
+      smart.push(args);
+      return args.includes("standby") ? { ok: true, stdout: asleep } : { ok: false, stdout: "" };
+    });
+    const scanner = createStorageScanner({ run, checkAccess: async () => {}, now: () => clock });
+    let previous = null;
+    const wakes = () => smart.filter((args) => !args.includes("standby")).length;
+    for (let scan = 0; scan < 8; scan += 1) {
+      previous = carryLastReadings(await scanner.scan({ wake: true, previous }), previous);
+      clock = new Date(clock.getTime() + 6 * 60 * 60 * 1000);
+    }
+    expect(wakes()).toBe(1);
+    expect(previous.disks[0]).toMatchObject({ reason: "asleep", wakeTriedAt: at.toISOString() });
+    clock = new Date(at.getTime() + wakeAfterMs);
+    await scanner.scan({ wake: true, previous });
+    expect(wakes()).toBe(2);
+  });
+
+  it("wakes a drive whose last reading is dated ahead of the clock", async () => {
+    const { scanner } = sleepyDisk();
+    expect((await scanner.scan({ wake: true, previous: readAgo(-365 * 24 * 60 * 60 * 1000) })).disks[0]).toMatchObject({ wokenForWeeklyRead: true });
+  });
+
+  it("reads the owner's choice from the database, read-only, and is off when it cannot", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-wake-"));
+    directories.push(directory);
+    const databasePath = path.join(directory, "state.sqlite3");
+    expect(weeklyWakeEnabled(databasePath)).toBe(false);
+    const db = new DatabaseSync(databasePath);
+    db.exec("CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_by TEXT, updated_at TEXT NOT NULL)");
+    expect(weeklyWakeEnabled(databasePath)).toBe(false);
+    db.prepare("INSERT INTO settings VALUES ('storageWeeklyWake', ?, NULL, '2026-10-19')").run(JSON.stringify({ enabled: true }));
+    expect(weeklyWakeEnabled(databasePath)).toBe(true);
+    db.prepare("UPDATE settings SET value_json = 'not json'").run();
+    expect(weeklyWakeEnabled(databasePath)).toBe(false);
+    db.close();
+  });
+
+  it("hands the scan the evidence it replaces and the owner's choice", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-wake-"));
+    directories.push(directory);
+    const scan = vi.fn(async () => ({ schemaVersion: 2, generatedAt: at.toISOString(), available: true, disks: [] }));
+    const outputPath = path.join(directory, "storage-health.json");
+    await writeStorageEvidence({ outputPath, stateDirectory: directory, scanner: { scan }, wake: () => true });
+    await writeStorageEvidence({ outputPath, stateDirectory: directory, scanner: { scan }, wake: () => false });
+    expect(scan.mock.calls[0][0]).toEqual({ wake: true, previous: null });
+    expect(scan.mock.calls[1][0]).toMatchObject({ wake: false, previous: { generatedAt: at.toISOString() } });
   });
 });

@@ -31,7 +31,19 @@ export interface DatabaseCopiesReport {
   goes: string[];
   goesHumanBytes: string;
   totalHumanBytes: string;
+  lastRestore?: LastRestore | null;
 }
+
+export interface LastRestore {
+  at: string;
+  copy: string;
+  outcome: "restored" | "rolled-back" | "failed";
+  message: string;
+  saved: string | null;
+}
+
+const restoreTone = { restored: "success", "rolled-back": "warning", failed: "danger" } as const;
+const restoreTitle = (last: LastRestore) => last.outcome === "restored" ? `${last.copy} was put back on ${takenOn(last.at)}` : last.outcome === "rolled-back" ? `${last.copy} did not work, so the database it had was put back (${takenOn(last.at)})` : `Putting back ${last.copy} failed on ${takenOn(last.at)}`;
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 const whole = (text: string, [low, high]: [number, number]) => {
@@ -112,6 +124,20 @@ export function DatabaseCopies({ csrfToken, role }: { csrfToken: string; role: s
     });
   };
 
+  const putBack = (copy: DatabaseCopy) => start({
+    operationId: "housekeeping.database-copies.restore",
+    title: `Put back the database copy from ${copy.version}`,
+    parameters: { name: copy.name },
+    confirmText: copy.name,
+    preview: (
+      <div className="system-preview">
+        <p>Stops BoxPilot, saves the database as it is now as a new copy here, puts <code>{copy.name}</code> in its place and starts BoxPilot again. If BoxPilot does not answer on it, the database it had is put back.</p>
+        <p>Everything recorded since {takenOn(copy.takenAt)} (jobs, settings, accounts) is not in this copy. Accounts, passwords and passkeys go back to what they were then, so one removed since works again: check them afterwards. Everyone is signed out, you included; sign in again once BoxPilot is back.</p>
+      </div>
+    ),
+  });
+  const canPutBack = mayStart(role, "housekeeping.database-copies.restore");
+
   return (
     <Panel className="system-copies" title="Database copies from updates" count={verdict}
       meta={report ? <><b>{report.totalHumanBytes}</b> in <code>{report.directory}</code></> : undefined}
@@ -124,6 +150,11 @@ export function DatabaseCopies({ csrfToken, role }: { csrfToken: string; role: s
       {problem && <Notice tone="danger" live title="The copies could not be listed" action={<Button onClick={() => void load(null)}>Try again</Button>}>{problem}</Notice>}
       {report && (
         <>
+          {report.lastRestore && (
+            <Notice tone={restoreTone[report.lastRestore.outcome]} title={restoreTitle(report.lastRestore)}>
+              {report.lastRestore.outcome === "restored" && report.lastRestore.saved ? <>The database from before it is <code>{report.lastRestore.saved}</code>, below.</> : report.lastRestore.message}
+            </Notice>
+          )}
           <p className="system-note system-pad">Each update copies the database before it swaps the code in, so the old version can be put back with the data it wrote. They are never removed on their own.</p>
           <fieldset className="system-rule">
             <legend>Which copies to keep</legend>
@@ -156,6 +187,7 @@ export function DatabaseCopies({ csrfToken, role }: { csrfToken: string; role: s
                   </span>
                 ),
               },
+              ...(canPutBack ? [{ id: "restore", header: "", cell: (copy: DatabaseCopy) => <Button variant="ghost" risk={riskOf("housekeeping.database-copies.restore")} onClick={() => putBack(copy)} aria-label={`Put back the copy from ${copy.version}, ${takenOn(copy.takenAt)}`}>Put back</Button> }] : []),
             ]}
           />
         </>

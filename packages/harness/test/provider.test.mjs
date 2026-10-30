@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import { assistantTurn, checkMessage, createFakeProvider, createOpenAiCompatibleProvider, defineProvider, messagesFor, readChatResult } from "../src/index.mjs";
 

@@ -12,7 +12,8 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, lstat, mkdir, open, readdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
+import { assertArchiveFits, freeBytesOf as freeBytesOnDisk } from "./archive-expansion.mjs";
 import path from "node:path";
 import { copyFileExclusively, mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing, syncDirectory } from "./durable-file.mjs";
 import { fixedRun } from "./exec.mjs";
@@ -214,6 +215,7 @@ async function readSnapshotReferences(artifactPath, { run, tarBinary }) {
  * error names every snapshot that could not be (`unreadable`), so the owner can find each one and,
  * if it is damaged, remove it (housekeeping): until then nothing is pruned. Each snapshot is read
  * once while its size and time stay the same, as a nightly run of app backups asks once per app.
+ * @param {{ snapshotRoot?: string, names?: string[] | null, run?: typeof fixedRun, tarBinary?: string }} [options]
  */
 export async function snapshotBackupReferences({ snapshotRoot, names = null, run = fixedRun, tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar" } = {}) {
   const root = path.resolve(snapshotRoot);
@@ -264,6 +266,9 @@ export function createMachineSnapshotHelper({
   now = () => new Date(),
   // Tests run every path on one tmpdir filesystem; production keeps the device check.
   requireIndependentDevice = true,
+  // Free space a restore must leave on the filesystem it unpacks into (the live database's).
+  restoreReserveBytes = 1024 ** 3,
+  freeBytesOf = freeBytesOnDisk,
 } = {}) {
   const resolvedSnapshotRoot = path.resolve(snapshotRoot);
   const resolvedMountRoot = path.resolve(mountRoot);
@@ -596,11 +601,18 @@ export function createMachineSnapshotHelper({
     const unanswered = [];
     for (const mount of await mountedFilesystems()) {
       let failed = null;
+      // A folder on the drive can be a link to anywhere on this server (a huge file, a device), and
+      // everything below reads it as root: only a folder that is really on the drive is read.
+      const realMount = await realpath(mount.target).catch(() => null);
       for (const relative of ["boxpilot-local-mirror/machine-snapshots", "machine-snapshots", "."]) {
         const root = path.resolve(path.join(mount.target, relative));
         if (seen.has(root)) continue;
         seen.add(root);
-        const { snapshots, unreadable } = await snapshotsIn(root);
+        const real = realMount ? await realpath(root).catch(() => null) : null;
+        // path.relative, not a prefix: the drive can be "/" itself, where the prefix would be "//".
+        const within = real ? path.relative(realMount, real) : "";
+        if (within === ".." || within.startsWith(`..${path.sep}`) || path.isAbsolute(within)) continue;
+        const { snapshots, unreadable } = await snapshotsIn(real ?? root);
         if (unreadable) failed = unreadable;
         // An idle automount's source is "systemd-1", which means nothing to a person; the
         // mountpoint is the name the owner knows the drive by, so it stands in as the source.
@@ -658,8 +670,12 @@ export function createMachineSnapshotHelper({
     const entries = names.filter((entry) => snapshotNamePattern.test(entry)).sort().reverse();
     const snapshots = [];
     for (const name of entries.slice(0, 50)) {
-      const meta = await readFile(path.join(root, `${name}.meta.json`), "utf8").then(JSON.parse).catch(() => null);
-      const info = await stat(path.join(root, name)).catch(() => null);
+      // lstat, not stat: a snapshot or its description that is a link is not read through.
+      const info = await lstat(path.join(root, name)).catch(() => null);
+      if (!info?.isFile()) continue;
+      const metaPath = path.join(root, `${name}.meta.json`);
+      const metaIsFile = (await lstat(metaPath).catch(() => null))?.isFile() ?? false;
+      const meta = metaIsFile ? await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null) : null;
       snapshots.push({
         artifact: name,
         sizeBytes: meta?.sizeBytes ?? info?.size ?? null,
@@ -746,6 +762,7 @@ export function createMachineSnapshotHelper({
    * the snapshot itself lists that is still here, marked `fallback` so the restore says so. Never
    * one it does not list, nor one dated after it (`place.takenAt`): the newest archive there is was
    * the safety copy a failed attempt took of the app installed empty, and was restored as its data.
+   * @returns {Promise<{ location: string, directory: string, name: string, fallback?: boolean } | null>}
    */
   async function dataArchiveFor(id, listed, place = null) {
     const before = listed.filter((name) => !place?.takenAt || name.slice(0, 16) <= place.takenAt);
@@ -840,6 +857,7 @@ export function createMachineSnapshotHelper({
     return { source, artifact, createdAt: manifest.createdAt ?? meta?.createdAt ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps, system: manifest.contents?.system ?? null, vms: vms ?? null, containsSecrets: true };
   }
 
+
   /**
    * Rehydrate from a snapshot. Apps: project files are restored, the app is (re)installed through the
    * generic deployer using the archived settings and secrets, then (optionally) its newest data
@@ -851,7 +869,10 @@ export function createMachineSnapshotHelper({
    * with a warning that nothing can open it yet.
    * `allowCompose` is, per app id, the sha256 of a data archive's compose file the owner allowed to
    * be started exactly as archived although it gives the app more than the catalog does (sweep 4).
+   * @param {{ source: string, artifact: string, root?: string | null, apps?: string | string[], restoreData?: boolean, devicesByApp?: object | null, allowCompose?: object | null }} request
+   * @param {{ apps?: any, progress?: ((line: string, stream: string) => void) | null, serve?: ((deployed: object) => Promise<unknown>) | null }} [deps]
    */
+
   async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, devicesByApp = null, allowCompose = null }, { apps: appHelper, progress = null, serve = null } = {}) {
     if (!appHelper) throw new Error("Application deployer is unavailable");
     const { artifactPath, metaPath, root: snapshotDirectory, mount = null } = await locate(source, artifact, root);
@@ -861,6 +882,12 @@ export function createMachineSnapshotHelper({
     if (!meta?.checksumSha256) throw new Error(`${artifact}.meta.json is missing its checksum, so this archive cannot be verified. Copy the .meta.json file next to the archive and try again. Nothing was changed.`);
     progress?.("Verifying the snapshot checksum...", "stdout");
     if ((await sha256File(artifactPath)) !== meta.checksumSha256) throw new Error("The snapshot failed its checksum; it may be damaged. Nothing was changed.");
+    // The checksum is checked against a .meta.json beside the archive, on the same drive, so it
+    // proves the file is whole, not that BoxPilot made it. Unpacked as root onto the filesystem the
+    // live database is on, a small archive that inflates to more than the free space would fill it,
+    // root's reserved blocks included. What it holds is added up from its listing first.
+    await mkdir(resolvedSnapshotRoot, { recursive: true, mode: 0o700 });
+    await assertArchiveFits({ run, tarBinary, artifactPath, directory: resolvedSnapshotRoot, reserveBytes: restoreReserveBytes, free: freeBytesOf, what: "The snapshot" });
     const staging = path.join(resolvedSnapshotRoot, `.restore-${randomUUID()}`);
     await mkdir(staging, { recursive: true, mode: 0o700 });
     const summary = { source, artifact, apps: [], system: null, vms: [], controllerBackupStaged: null };
@@ -1057,6 +1084,7 @@ export function createMachineSnapshotHelper({
    * Remove one review directory, once the owner is done with it. Only a direct child of the
    * review root with a restore's timestamp name is accepted: this is the only deletion in the
    * snapshot tree that takes a name from the browser, and it must not be able to name anything else.
+   * @param {{ name?: string }} [request]
    */
   async function discardRestore({ name } = {}) {
     if (typeof name !== "string" || !reviewNamePattern.test(name)) throw new Error("That is not a restore review directory");

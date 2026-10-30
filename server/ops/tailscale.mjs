@@ -1,5 +1,6 @@
 import { defineOperation } from "./registry.mjs";
 import { validateRoutes } from "../tasks/tailscale.mjs";
+import { serveSocketMove } from "../tasks/serve-socket.mjs";
 
 const minutes = (value) => value * 60_000;
 
@@ -15,6 +16,13 @@ export function tailscaleOperations() {
         routes: { type: "array", optional: true, validate: (value) => validateRoutes(value) },
       } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("tailscale.set", { exitNode: parameters.exitNode ?? false, subnetRouter: parameters.subnetRouter ?? false, routes: parameters.routes ?? [] }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      // Owner only: it decides which connection BoxPilot believes when it says who is calling.
+      id: "tailscale.serve.socket", title: "Move Tailscale Serve to BoxPilot's socket", risk: "medium", minimumRole: "owner", timeoutMs: minutes(3),
+      description: "Points Tailscale Serve at BoxPilot's socket instead of its loopback port. Anything on this server can open the loopback port and claim to be Serve, apps on the host network included; only BoxPilot and root can open the socket. Needs a Tailscale that can forward to a socket.",
+      parameters: { fields: {} },
+      run: (_parameters, { run, progress }) => serveSocketMove({ ...(run ? { run } : {}), log: progress ?? null }),
     }),
   ];
 }

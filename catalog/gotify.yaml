@@ -7,7 +7,7 @@ description: Simple self-hosted push notification server with Android app and a 
 website: https://gotify.net
 risk: medium
 image:
-  reference: gotify/server:3.0.0
+  reference: gotify/server:3.0.0@sha256:d75e89e0e28389c00c2556afe01282a37ee9756b0285799aa25214243aebd5e5
   version: 3.0.0
 ports:
   - id: web

@@ -7,7 +7,7 @@ description: Torrent client built around plugins. Label your downloads, run scri
 website: https://deluge-torrent.org
 risk: medium
 image:
-  reference: lscr.io/linuxserver/deluge:version-2.2.0
+  reference: lscr.io/linuxserver/deluge:version-2.2.0@sha256:1dbf9663387f85bb5805fcb1418a246f877e01374bb2a6cd9e632c72fb2e1ebc
   version: 2.2.0
 ports:
   - id: web

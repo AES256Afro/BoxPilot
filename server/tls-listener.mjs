@@ -35,7 +35,7 @@ export function startTlsListener(
     readFile = readFileSync,
     createServer = createHttpsServer,
     log = console,
-    onError = () => {},
+    onError = (_error) => {},
   } = {},
 ) {
   const certPath = env.BOXPILOT_TLS_CERT;

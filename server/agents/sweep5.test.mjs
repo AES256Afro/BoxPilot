@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The 2026-10 sweep 5, on the real service, store and runner with the stand-in model: what a run
  * learned for someone who reads less stays that person's words to a run that reads more; a name in

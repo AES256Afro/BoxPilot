@@ -19,7 +19,21 @@ const sharableReads = new Set([
   "virtualization.foundation.inspect",
   // Asked for by Home's loaders and the Repair scan at the same moment (M50): each caller ran its own.
   "app.backup.protection", "app.serve.inspect", "apt.upgradable.inspect", "service.list",
+  "storage.usb.events", "storage.unclean.events", "storage.volumes.state",
 ]);
+
+/**
+ * Reads held for a while rather than only shared while in flight (M50.2 left this for later): the
+ * Repair scan's thirty days of kernel journal, this boot's unclean-unmount lines and each drive's
+ * filesystem state, which Home's five-minute loop asked the helper for every time. They move slower
+ * than that, and diagnostic-invalidation.mjs drops them after any storage, share or system change;
+ * the Repair page asks for a fresh scan (routes/host.mjs).
+ */
+export const heldReadMs = Object.freeze({
+  "storage.usb.events": 15 * 60_000,
+  "storage.unclean.events": 10 * 60_000,
+  "storage.volumes.state": 10 * 60_000,
+});
 
 /**
  * How long a shared read is allowed underneath. Callers keep their own deadlines (below), so this
@@ -35,7 +49,7 @@ const sharedReadCeilingMs = 30_000;
  */
 export const queuedCeilingMs = 24 * 60 * 60_000;
 
-export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000, queueTimeoutMs = queuedCeilingMs, maxResponseBytes = maxHelperResponseBytes, setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
+export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000, queueTimeoutMs = queuedCeilingMs, maxResponseBytes = maxHelperResponseBytes, setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout, now = () => Date.now() } = {}) {
   const transport = { active: 0, completed: 0, failed: 0 };
   // onQueued and onStarted tell the caller, once each, that the request is waiting behind other
   // work and that it has left the queue: a job says so, and a flow's step counts its time from then.
@@ -147,7 +161,7 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
     // to 30 seconds forever - and the reverse order made a later 30-second caller wait 60. What
     // remains, and is documented rather than hidden: a caller who joins a read already in flight
     // shares its ceiling, so a longer deadline than the read's can still be cut short by it.
-    if (!sharedReads.has(operation)) sharedReads.set(operation, shared((ceilingMs) => send(operation, {}, { timeoutMs: ceilingMs })));
+    if (!sharedReads.has(operation)) sharedReads.set(operation, shared((ceilingMs) => send(operation, {}, { timeoutMs: ceilingMs }), { ttlMs: heldReadMs[operation] ?? 0, now }));
     const underlying = sharedReads.get(operation)(Math.max(sharedReadCeilingMs, requestTimeoutMs));
     // Every caller races the read against its own deadline - including the long ones, who were
     // previously handed the read itself and so inherited whatever ceiling it happened to have.

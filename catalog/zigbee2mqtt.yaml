@@ -7,7 +7,7 @@ description: "Turn a USB Zigbee coordinator (Sonoff, ConBee, SkyConnect) into a 
 website: https://www.zigbee2mqtt.io
 risk: low
 image:
-  reference: koenkk/zigbee2mqtt:2.13.0
+  reference: koenkk/zigbee2mqtt:2.13.0@sha256:4fb4db4d49a217bed6d0204f454ce809febc565bbe051b85c556ee2bcef73d8c
   version: "2.13.0"
 ports:
   - id: web

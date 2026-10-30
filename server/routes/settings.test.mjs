@@ -13,8 +13,9 @@ const auth = {
   requireRole: (role) => (request, response, next) => ((request.headers["x-test-role"] === role || request.headers["x-test-role"] === "owner") ? next() : response.status(403).json({ error: "forbidden" })),
   requireCsrf: (_request, _response, next) => next(),
 };
-const notifications = { describe: () => ({ configured: true, kind: "ntfy" }) };
-const state = { getSetting: (key, fallback) => settings.get(key) ?? fallback };
+const notifications = { describe: () => ({ configured: true, kind: "ntfy" }), quietHours: () => ({ ...(settings.get("notificationQuietHours") ?? { enabled: false }), held: 2 }) };
+const audits = [];
+const state = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: (type, entry) => audits.push({ type, ...entry }) };
 const report = { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed." };
 const weeklyReport = {
   status: vi.fn(() => ({ enabled: true, cadence: "Sundays at 09:00", nextDueAt: "2026-10-04T13:00:00.000Z", lastSentAt: null, lastResult: null, targetConfigured: true })),
@@ -155,6 +156,41 @@ describe("GET /settings/vpn-profile role gate", () => {
   });
 });
 
+describe("where the copies go", () => {
+  it("shows the SSH and cloud destinations to an operator or the owner, and to a viewer only that one is set", async () => {
+    settings.set("backupDestination", { host: "backup.example", port: 22, user: "boxpilot", path: "/srv/copies" });
+    settings.set("backupDestinationLastSync", { completedAt: "2026-10-18T02:00:00.000Z", filesTransferred: 3, destination: "boxpilot@backup.example:/srv/copies" });
+    settings.set("cloudDestination", { provider: "b2", account: "0012abc", bucket: "home-copies", path: "box" });
+    settings.set("cloudDestinationLastSync", { completedAt: "2026-10-18T03:00:00.000Z", filesTransferred: 2, destination: "boxpilot:home-copies/box" });
+    const read = async (path, role) => (await fetch(`${base}/api/v1/settings/${path}`, { headers: { "x-test-role": role } })).json();
+    for (const role of ["owner", "operator"]) {
+      expect((await read("backup-destination", role)).destination).toMatchObject({ host: "backup.example", user: "boxpilot" });
+      expect((await read("cloud-destination", role)).destination).toMatchObject({ account: "0012abc", bucket: "home-copies" });
+    }
+    const ssh = await read("backup-destination", "viewer");
+    expect(ssh).toEqual({ destination: { hidden: true }, lastSync: { completedAt: "2026-10-18T02:00:00.000Z", filesTransferred: 3, destination: null } });
+    const cloud = await read("cloud-destination", "viewer");
+    expect(cloud).toEqual({ destination: { provider: "b2" }, lastSync: { completedAt: "2026-10-18T03:00:00.000Z", filesTransferred: 2, destination: null } });
+    expect(JSON.stringify([ssh, cloud])).not.toMatch(/backup\.example|0012abc|home-copies/);
+    for (const key of ["backupDestination", "backupDestinationLastSync", "cloudDestination", "cloudDestinationLastSync"]) settings.delete(key);
+    expect(await read("backup-destination", "viewer")).toEqual({ destination: null, lastSync: null });
+  });
+});
+
+describe("the weekly read of a sleeping drive (M36)", () => {
+  it("is off until the owner turns it on, and only the owner changes it", async () => {
+    const read = async (role) => (await fetch(`${base}/api/v1/settings/storage-wake`, { headers: { "x-test-role": role } })).json();
+    const put = (role, body) => fetch(`${base}/api/v1/settings/storage-wake`, { method: "PUT", headers: { "Content-Type": "application/json", "x-test-role": role }, body: JSON.stringify(body) });
+    expect(await read("viewer")).toEqual({ enabled: false });
+    expect((await put("operator", { enabled: true })).status).toBe(403);
+    expect((await put("owner", { enabled: "yes" })).status).toBe(400);
+    expect(await (await put("owner", { enabled: true })).json()).toEqual({ enabled: true });
+    expect(settings.get("storageWeeklyWake")).toEqual({ enabled: true });
+    expect(await read("viewer")).toEqual({ enabled: true });
+    settings.delete("storageWeeklyWake");
+  });
+});
+
 describe("the notification centre (M36)", () => {
   it("lists what was said, whether it arrived and whether it is still going, and marks it seen for the caller", async () => {
     const stored = new Map();
@@ -214,5 +250,20 @@ describe("the notification centre (M36)", () => {
     } finally {
       local.close();
     }
+  });
+});
+
+describe("quiet hours for pushes", () => {
+  it("are read by anyone signed in and changed only by the owner, with times that make sense", async () => {
+    const read = await fetch(`${base}/api/v1/settings/quiet-hours`, { headers: { "x-test-role": "viewer" } });
+    expect(await read.json()).toMatchObject({ enabled: false, held: 2 });
+    const put = (role, body) => fetch(`${base}/api/v1/settings/quiet-hours`, { method: "PUT", headers: { "Content-Type": "application/json", "x-test-role": role }, body: JSON.stringify(body) });
+    expect((await put("operator", { enabled: true, start: "22:00", end: "07:00" })).status).toBe(403);
+    expect((await put("owner", { enabled: true, start: "22:00", end: "22:00" })).status).toBe(400);
+    expect((await put("owner", { enabled: true, start: "10pm", end: "07:00" })).status).toBe(400);
+    const saved = await put("owner", { enabled: true, start: "22:30", end: "06:45", holdHigh: true, extra: "ignored" });
+    expect(saved.status).toBe(200);
+    expect(settings.get("notificationQuietHours")).toEqual({ enabled: true, start: "22:30", end: "06:45", holdHigh: true });
+    expect(audits.at(-1)).toMatchObject({ type: "notifications.quiet-hours", actorId: "owner-1" });
   });
 });

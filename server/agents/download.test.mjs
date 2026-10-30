@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Fetching a model into the runner's Hugging Face cache (M37), against a temporary directory and a
  * stand-in for Hugging Face: a model is kept only when every byte matches its published checksum,

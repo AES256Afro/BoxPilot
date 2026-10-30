@@ -1,8 +1,8 @@
-import { access, mkdir, readFile, rmdir, unlink } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rmdir, unlink } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { appendFstabEntry, containersBoundTo, mountNamePattern, parseManagedFstab, processesUsing, removeManagedEntry, unmountFromHost } from "./storage.mjs";
-import { mountpointFor, reservedMountNames } from "../backup-mount.mjs";
+import { backupMountName, mountpointFor, reservedMountNames } from "../backup-mount.mjs";
 import { hostMountsAt as mountsInHostTable, realMount, startMountUnit } from "./mount-agreement.mjs";
 
 /**
@@ -63,6 +63,7 @@ const binaries = {
 const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-2).join(" ");
 const pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+/** @param {{ kind?: string, host?: string, share?: string, name?: string, username?: string | null, password?: string | null, domain?: string | null }} [share] */
 export function validateShare({ kind, host, share, name, username = null, password = null, domain = null } = {}) {
   if (!shareKinds.includes(kind)) return "kind must be smb or nfs";
   if (typeof host !== "string" || !hostPattern.test(host)) return "host must be a hostname or IP address";
@@ -80,10 +81,16 @@ export function validateShare({ kind, host, share, name, username = null, passwo
 /** The fstab line for a share. Pure, so the UI preview and the task agree. */
 export function buildShareEntry({ kind, host, share, name, readOnly = false, guest = true }) {
   const mountpoint = mountpointFor(name);
-  const common = ["nofail", "_netdev", "x-systemd.automount", "x-systemd.idle-timeout=300", "x-systemd.mount-timeout=30"];
+  // nosuid,nodev: a setuid binary or device node on someone else's server gives nothing here.
+  const common = ["nosuid", "nodev", "nofail", "_netdev", "x-systemd.automount", "x-systemd.idle-timeout=300", "x-systemd.mount-timeout=30"];
   if (kind === "smb") {
     const source = `//${host}/${share.replace(/ /g, "\\040")}`;
-    const options = [guest ? "guest" : `credentials=${credentialsPath(name)}`, "uid=1000", "gid=1000", "file_mode=0664", "dir_mode=0775", "iocharset=utf8", ...(readOnly ? ["ro"] : []), ...common];
+    // cifs shows every file with the modes named here, whatever the copy asked for. The backup
+    // destination holds each app's archive with its .env beside the data it seals, the controller
+    // database and the machine snapshots: at uid 1000 and 0664 any user and any service on this
+    // server read them. Only BoxPilot's root helper reads or writes there, so it is root's alone.
+    const owner = name === backupMountName ? ["uid=0", "gid=0", "file_mode=0600", "dir_mode=0700"] : ["uid=1000", "gid=1000", "file_mode=0664", "dir_mode=0775"];
+    const options = [guest ? "guest" : `credentials=${credentialsPath(name)}`, ...owner, "iocharset=utf8", ...(readOnly ? ["ro"] : []), ...common];
     return { source, mountpoint, fstype: "cifs", entry: `${source} ${mountpoint} cifs ${options.join(",")} 0 0` };
   }
   const source = `${host}:${share}`;
@@ -178,8 +185,11 @@ async function holdersOf(majMin, processes) {
   }
 }
 
-/** Mount a share permanently at /mnt/<name>. Rolls back fstab and credentials if the first mount fails. */
-export async function shareMount({ kind, host, share, name, username = null, password = null, domain = null, readOnly = false } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir, unlink, rmdir }, exists = (file) => access(file).then(() => true, () => false), now = () => new Date() } = {}) {
+/**
+ * Mount a share permanently at /mnt/<name>. Rolls back fstab and credentials if the first mount fails.
+ * @param {{ kind?: string, host?: string, share?: string, name?: string, username?: string | null, password?: string | null, domain?: string | null, readOnly?: boolean }} [parameters]
+ */
+export async function shareMount({ kind, host, share, name, username = null, password = null, domain = null, readOnly = false } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir, unlink, rmdir, readdir }, exists = (file) => access(file).then(() => true, () => false), now = () => new Date() } = {}) {
   const problem = validateShare({ kind, host, share, name, username, password, domain });
   if (problem) throw new Error(`Invalid share: ${problem}`);
   if (typeof readOnly !== "boolean") throw new Error("readOnly must be true or false");
@@ -188,6 +198,10 @@ export async function shareMount({ kind, host, share, name, username = null, pas
   const guest = kind === "nfs" || !username;
   const { source, mountpoint, entry } = buildShareEntry({ kind, host, share, name, readOnly, guest });
   if ((await hostMountsAt(run, mountpoint)).length) throw new Error(`${mountpoint} is already mounted`);
+  // A folder with files in it is someone's data, an app's included (data folders live under /mnt):
+  // a share mounted over it hides what is there and sends what the app writes to another server.
+  const present = await (files.readdir ?? readdir)(mountpoint).catch(() => []);
+  if (present.length) throw new Error(`${mountpoint} already holds files; a share mounted there would hide them, and an app using that folder would read and write the share instead. Pick another name.`);
   const units = await unitsFor(run, mountpoint);
 
   let credentialsStored = false;
@@ -250,6 +264,7 @@ export async function shareMount({ kind, host, share, name, username = null, pas
  * the NAS through a folder nobody else can see, and bind the empty one at its next restart. Those
  * apps are named and nothing is done. File-sharing clients of a Samba share that reaches into the
  * folder are disconnected, as for a drive (unmountFromHost); anything else holding it is named.
+ * @param {{ name?: string }} [parameters]
  */
 export async function shareUnmount({ name } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, unlink }, sleep = pause, processes = undefined, now = () => new Date() } = {}) {
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
@@ -306,6 +321,7 @@ export async function shareUnmount({ name } = {}, { run = fixedRun, log = null, 
  * container hold a copy of the old mount of their own, which the host's unmount does not touch, so
  * they are restarted afterwards to see the new one (Docker resolves a bind when a container
  * starts). Anything else still using the share - a shell, a copy - leaves it alone, named.
+ * @param {{ name?: string }} [parameters]
  */
 export async function shareReconnect({ name } = {}, { run = fixedRun, log = null, files = { readFile }, sleep = pause, clock = () => Date.now(), processes = undefined, now = () => new Date() } = {}) {
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");

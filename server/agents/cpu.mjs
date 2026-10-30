@@ -29,6 +29,9 @@ export const quotaFor = (processors) => `CPUQuota=${processors * 100}%`;
 /**
  * Set the runner's processors to `processors`; `background` is what the reset timer puts back.
  * `bounds` is { min, max } (the machine's, unless a test gives its own).
+ *
+ * @param {{ processors: number, background: number, resetAfterSeconds?: number }} request
+ * @param {{ run?: (binary: string, args: string[], options?: { timeout?: number, maxBuffer?: number }) => Promise<{ ok: boolean, stdout?: string, stderr?: string }>, bounds?: { min: number, max: number }, systemctl?: string, systemdRun?: string }} options
  */
 export async function setRunnerProcessors({ processors, background, resetAfterSeconds = 1_200 }, { run, bounds = { min: coreLimits.min, max: coreCeiling(os.cpus().length) }, systemctl = systemctlBinary, systemdRun = systemdRunBinary } = {}) {
   const whole = (value, what, min, max) => {

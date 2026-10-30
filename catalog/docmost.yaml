@@ -7,7 +7,7 @@ description: "Team wiki and docs with real-time collaboration, spaces, and comme
 website: https://docmost.com
 risk: low
 image:
-  reference: docmost/docmost:0.95.0
+  reference: docmost/docmost:0.95.0@sha256:41c8d777cf23c74e78f94e676aec328b7d7856f48df5e573543dac68d371e37c
   version: "0.95.0"
 user: "1000:1000"
 ports:
@@ -43,7 +43,7 @@ env:
     generate: true
 sidecars:
   - id: database
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     env:
       POSTGRES_DB: docmost
       POSTGRES_USER: docmost
@@ -53,7 +53,7 @@ sidecars:
         container: /var/lib/postgresql/data
         path: postgres
   - id: redis
-    image: valkey/valkey:8.1.9-alpine
+    image: valkey/valkey:8.1.9-alpine@sha256:4934d214fd7e091d4ee77b398945b3fd62c6dd0ac71d8b79e2e3cbad8364f3b1
 health:
   kind: running
   stableSeconds: 15

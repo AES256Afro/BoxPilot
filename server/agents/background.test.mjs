@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The agents' background work against their budgets and quiet hours (sweep 1, 2026-10): the
  * nightly evaluation took the Environment Scout's four runs a day, so its Sunday routine was

@@ -41,6 +41,7 @@ function renderRunbook(kit) {
  * derived from it - so without sharing, one page load ran the VM inventory and walked the backup
  * root twice. Concurrent callers share one read; nothing is held afterwards.
  */
+/** @param {{ store?: any, prerequisites?: any, helper?: any, libvirt?: any, now?: () => Date, version?: string }} [options] */
 export function createRecoveryKitService({ store, prerequisites, helper, libvirt, now = () => new Date(), version = productVersion } = {}) {
   async function catalogInventory() {
     // Two reads for the whole catalog, not one per installed app: the kit only asks whether each

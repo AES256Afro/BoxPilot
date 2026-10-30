@@ -7,7 +7,7 @@ description: Reports this server's CPU, memory, disks, network, temperatures, an
 website: https://beszel.dev/guide/agent-installation
 risk: medium
 image:
-  reference: ghcr.io/henrygd/beszel/beszel-agent:0.18.8
+  reference: ghcr.io/henrygd/beszel/beszel-agent:0.18.8@sha256:0f0c8939e7ed95707bd8a8da47fd20a7f1a61c2eebbe3b5eb82422486df1f2bf
   version: 0.18.8
 network: host
 volumes:

@@ -2,6 +2,7 @@ import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { productVersion } from "../version.mjs";
+import { compareVersions, parseVersion } from "../release-updates.mjs";
 
 /**
  * Self-update (root side, runs inside boxpilot-run@ with network). Re-checks that the release
@@ -39,6 +40,7 @@ export async function runningUpgrade({ run = fixedRun, lockPath = upgradeLockPat
   return holder || `it holds ${lockPath}`;
 }
 
+/** @param {{ tag?: string, expectedCommit?: string }} [parameters] */
 export async function systemUpdate({ tag, expectedCommit } = {}, {
   run = fixedRun,
   log = null,
@@ -48,9 +50,14 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   nodeBinary = process.execPath,
   now = () => new Date(),
   lockPath = upgradeLockPath,
+  installedVersion = productVersion,
 } = {}) {
   if (typeof tag !== "string" || !releaseTagPattern.test(tag)) throw new Error("Release tag must look like v1.2.3");
   if (typeof expectedCommit !== "string" || !shaPattern.test(expectedCommit)) throw new Error("Expected commit must be a full SHA-1");
+  // The web side only offers a newer release, but this runs as root on whatever reaches the helper:
+  // an older tag, with its real commit, would put back an older helper and the bugs fixed since.
+  if (!parseVersion(installedVersion)) throw new Error(`The installed version ${installedVersion} is not a release number, so ${tag} cannot be compared with it; BoxPilot only updates forward. Nothing was changed.`);
+  if (compareVersions(tag.slice(1), installedVersion) <= 0) throw new Error(`${tag} is not newer than the installed ${installedVersion}; BoxPilot only updates forward. Nothing was changed.`);
 
   log?.(`Checking that ${tag} still points at ${expectedCommit.slice(0, 12)}`, "stdout");
   const response = await fetchImpl(`https://api.github.com/repos/${repository}/commits/${encodeURIComponent(tag)}`, {
@@ -58,7 +65,7 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
     signal: AbortSignal.timeout(15_000), redirect: "error",
   });
   if (!response.ok) throw new Error(`GitHub could not resolve ${tag} (status ${response.status})`);
-  const commit = await response.json();
+  const commit = /** @type {any} */ (await response.json()); // GitHub's payload
   if (commit?.sha !== expectedCommit) throw new Error(`${tag} now points at ${String(commit?.sha ?? "unknown").slice(0, 12)}, not the reviewed ${expectedCommit.slice(0, 12)}; check the release again`);
 
   // Two updates two seconds apart left the owner's server with two previous trees and the service
@@ -82,8 +89,9 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   // with a second one that could disagree, and an update checked on the wrong port rolls back after
   // the new version has already started on the database.
   // The script downloads by the reviewed commit, not the tag, so a moved tag cannot swap the code in.
+  // The tag goes along for a server that requires signed releases: the signature is on the tag.
   log?.(`$ systemd-run --unit ${unit} /bin/sh ${scriptCopy} ${expectedCommit}`, "stdout");
-  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, `--setenv=BOXPILOT_UPDATE_UNIT=${unit}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
+  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, `--setenv=BOXPILOT_UPDATE_UNIT=${unit}`, `--setenv=BOXPILOT_UPDATE_TAG=${tag}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
   if (!started.ok) throw new Error(`Could not start the update unit: ${started.stderr.split("\n").slice(-2).join(" ")}`);
   log?.("Update unit started. BoxPilot restarts when the build finishes and rolls back on a failed health check.", "stdout");
   return { started: true, unit, tag, expectedCommit, fromVersion: productVersion, startedAt: now().toISOString() };

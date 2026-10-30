@@ -10,7 +10,7 @@ image:
   # Pingvin Share itself was archived upstream after 1.13.0 (May 2025); Pingvin Share X is its
   # maintained fork, with the same port and data folders. An install updates in place, and the
   # app update puts the old version back if the new one does not come up healthy.
-  reference: smp46/pingvin-share-x:v1.22.4
+  reference: smp46/pingvin-share-x:v1.22.4@sha256:2d0d6f8388849febf11d2b5b599ac066f4b8fea59eee9b9e22c0ac8798024222
   version: 1.22.4
 ports:
   - id: web

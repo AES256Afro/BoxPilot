@@ -5,9 +5,9 @@ category: Network
 icon: "☁️"
 description: "Publish an app to the internet through Cloudflare without opening any port on your router: the tunnel connects out from this server, and Cloudflare serves the app over HTTPS at a name on your own domain. Set it up from this app's Tunnel tab with a Cloudflare API token, and publish apps from there."
 website: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks
-risk: medium
+risk: high
 image:
-  reference: cloudflare/cloudflared:2026.8.2
+  reference: cloudflare/cloudflared:2026.8.2@sha256:0aa26e284f05e6c77ae375b8c9c11d9eb6a448fb7bcd8d40f31cb6176189eb38
   version: "2026.8.2"
 # The host's own network, so a published app is always at http://127.0.0.1:<its port>, whether it
 # listens on the home network or on this server only (M42). It publishes no ports of its own.
