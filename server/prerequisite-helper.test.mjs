@@ -152,6 +152,21 @@ describe("fixed prerequisite helper", () => {
     expect(clearDockerApproval).toHaveBeenCalledTimes(2);
   });
 
+  it("says the Docker install unit's process died, not that its script failed, when systemd reports a core dump", async () => {
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("dpkg-query")) return { ok: false, stdout: "" };
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: "  Candidate: 28.2.2-0ubuntu1" };
+      if (binary.endsWith("systemctl") && args[0] === "start") return { ok: false, stdout: "", code: 1 };
+      if (binary.endsWith("systemctl") && args[0] === "show") return { ok: true, stdout: "Result=core-dump\nExecMainCode=3\nExecMainStatus=5" };
+      return { ok: false, stdout: "" };
+    });
+    const clearDockerApproval = vi.fn(async () => undefined);
+    const helper = createPrerequisiteHelper({ run, clearDockerApproval, writeDockerApproval: vi.fn(async () => undefined) });
+    await expect(helper.installDocker({ expectedVersion: "28.2.2-0ubuntu1" })).rejects.toThrow(new Error("The fixed Docker Engine installation service's process died (signal 5) before the script ran"));
+    expect(run).toHaveBeenCalledWith("/usr/bin/systemctl", ["show", "boxpilot-docker-install.service", "-p", "Result", "-p", "ExecMainCode", "-p", "ExecMainStatus"], { timeout: 10000 });
+    expect(clearDockerApproval).toHaveBeenCalledTimes(2);
+  });
+
   it("reports a ready existing KVM, QEMU, and libvirt stack without offering replacement", async () => {
     const versions = { "qemu-system-x86": "1:10.2.1+ds-1ubuntu3.2", "libvirt-daemon-system": "12.0.0-1ubuntu5.2", "libvirt-clients": "12.0.0-1ubuntu5.2", virtinst: "1:5.1.0-1", ovmf: "2025.11-3ubuntu7" };
     const run = vi.fn(async (binary, args) => {
