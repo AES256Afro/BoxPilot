@@ -31,6 +31,7 @@ const reviewed = {
   "app.vpn.killswitch.drill": "fixed drill against the app's own VPN sidecar",
   "app.update": "moves to the catalog's image for the app",
   "app.update.many": "app.update for each named app: the catalog's image, nothing the caller chooses",
+  "app.update.available": "app.update for each installed app the catalog has a newer image for; the caller only chooses apps to leave out",
   "app.exposure.set": "fixed modes; never serves or withdraws a tailnet port whose Serve entry is not this app's",
   "app.password.set": "newlines refused; the app's own admin password",
   "app.model.pull": "model-name pattern, passed as one argument to the app's own runtime",
