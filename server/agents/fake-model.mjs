@@ -29,6 +29,11 @@
  *   and reports llama-server's `timings` and the cached tokens on its last chunk.
  * - A request whose connection closes, or that Unsloth's POST /api/inference/cancel names by its
  *   `cancel_id`, stops at once; `state.log` says how far it got.
+ *
+ * Seeing (M40.6): with `state.vision` false (`--vision off`) it is a model server started without
+ * its vision projector. It says so where Unsloth does (GET /api/inference/status: `is_vision`) and
+ * where llama-server does (GET /props: `modalities.vision`), and refuses a request with an image
+ * as llama-server does. Otherwise it describes an image it is sent, in a sentence of its own.
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
@@ -45,8 +50,16 @@ export function letterVector(text) {
   return vector.map((value) => value + 0.01);
 }
 
+/** @type {Array<[RegExp, string[]]>} */
 const topics = [
+  // M47.6: the three reads the templates once said they could not make, and package updates, before
+  // the broader words (memory, backup, space) that would point at the whole-machine tools.
+  [/\b((using|uses|eating|eats|taking|takes) the most|most (cpu|memory|ram|processor)|working the (processor|cpu|machine)|hardest|hogging|slow(ness|ly)?|sluggish|busiest|heaviest|resource use|swap)\b/i, ["apps.usage"]],
+  [/never (been )?backed up|no backups?\b|without (a )?backup|unprotected|backup coverage|backup schedule|not backed up/i, ["backups.coverage"]],
+  [/reclaim|free up|clean[- ]?up|prune|dangling|taking up|takes up|docker('s)? disk/i, ["space.reclaimable"]],
+  [/\b(reboot|package updates?|system updates?|security updates?|upgradable)\b/i, ["updates.status"]],
   [/\b(called|named|hostname|operating system|kernel|memory|processor|cpu|uptime|address)\b/i, ["server.facts"]],
+  [/they ?spy|spyware|stalkerware|indicators?|exploited/i, ["theyspy.status"]],
   [/pi-?hole|dns|block|ads?\b|gravity/i, ["pihole.stats", "where.runs"]],
   [/where|which (container|host)|runs? (on|in)|native/i, ["where.runs"]],
   [/log|journal|error|crash/i, ["logs.query", "alerts.active"]],
@@ -80,7 +93,32 @@ const argumentsFor = (tool, question) => {
 
 // The request is in the first user message (the task); the plan and the planner's instruction the
 // runner adds after it, and later messages, are the runner's own words.
-const lastUserText = (messages) => textOf(messages.find((message) => message?.role === "user")?.content ?? "").split(/\n\n(?:Your plan:|Work out what is asked and plan it\.)/)[0];
+const lastUserText = (messages) => textOf(messages.find((message) => message?.role === "user")?.content ?? "").split(/\n\n(?:Your plan:|Work out what is asked and plan it\.|Tools made for requests worded like this:|Plans that worked for requests like this one:)/)[0];
+
+/**
+ * The demonstrations the planner was shown (M46), as a model that reads its prompt would take them
+ * up: the tools of the first (nearest) example, as catalog ids. Empty when there were none.
+ */
+function demonstrated(messages) {
+  const text = textOf(messages.find((message) => message?.role === "user")?.content ?? "");
+  const block = text.split(/\n\nPlans that worked for requests like this one:\n/)[1]?.split(/\n\n/)[0] ?? "";
+  const first = block.split("\n")[0] ?? "";
+  return [...(first.split("->")[1] ?? "").matchAll(/\b([a-z]+_[a-z_]+)\b/g)].map((match) => match[1].replace(/_/g, "."));
+}
+const firstUserText = (messages) => textOf(messages.find((message) => message?.role === "user")?.content ?? "");
+
+/**
+ * The tools the runner pointed at (M40): the planner's "Tools made for requests worded like this"
+ * and, once there is a plan, its steps' tools and "The request's words fit ..." - what a model that
+ * reads its prompt would take up. As catalog ids.
+ */
+function pointedAt(messages) {
+  const text = firstUserText(messages);
+  const hinted = /Tools made for requests worded like this: ([^\n]*)/.exec(text)?.[1] ?? "";
+  const plan = text.split(/\n\nYour plan:\n/)[1]?.split(/\n\nCarry it out/)[0] ?? "";
+  const names = [...`${hinted}\n${plan}`.matchAll(/\b([a-z]+_[a-z_]+)\b/g)].map((match) => match[1].replace(/_/g, "."));
+  return { hinted: [...new Set([...hinted.matchAll(/\b([a-z]+_[a-z_]+)\b/g)].map((match) => match[1].replace(/_/g, ".")))], planned: plan ? [...new Set(names)] : null };
+}
 
 /** The tools the planner may name: the schema's list when it has one, else the system message's "Tools:" lines. */
 function plannerTools(body) {
@@ -102,7 +140,11 @@ export function structuredReply(body) {
     const messages = Array.isArray(body?.messages) ? body.messages : [];
     const question = lastUserText(messages);
     const offered = plannerTools(body);
-    const tools = pickTools(question, offered.filter((toolName) => !["notes.write", "plan.propose", "notify.owner"].includes(toolName)));
+    const readable = offered.filter((toolName) => !["notes.write", "plan.propose", "notify.owner"].includes(toolName));
+    // The tools the runner pointed at first, then the ones the words suggest; when the words suggest
+    // nothing in particular, the nearest demonstration's tools (M46), as a model shown examples would.
+    const shown = topics.some(([pattern]) => pattern.test(question)) ? [] : demonstrated(messages).filter((toolName) => readable.includes(toolName));
+    const tools = [...new Set([...pointedAt(messages).hinted.filter((toolName) => readable.includes(toolName)), ...(shown.length ? shown : pickTools(question, readable))])].slice(0, 2);
     const asked = /<question>\s*([\s\S]*?)\s*<\/question>/.exec(question)?.[1]?.trim();
     const understanding = {
       goal: asked ? `Answer “${asked.slice(0, 160)}”` : "Do my job once and report",
@@ -125,6 +167,25 @@ export function structuredReply(body) {
 const textOf = (content) => (typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => part?.text ?? "").join(" ") : "");
 
 /** The deterministic model: tool calls first, then an answer drawn from what the tools said. */
+/** The images a chat request carries (data: URLs in `image_url` parts), as { mediaType, bytes }. */
+export function imagesIn(body) {
+  const found = [];
+  for (const message of Array.isArray(body?.messages) ? body.messages : []) {
+    for (const part of Array.isArray(message?.content) ? message.content : []) {
+      if (part?.type !== "image_url") continue;
+      const url = String(part.image_url?.url ?? "");
+      const match = /^data:([a-z0-9.+/-]+);base64,(.*)$/i.exec(url);
+      found.push({ mediaType: match?.[1] ?? null, bytes: match ? Buffer.from(match[2], "base64").length : 0 });
+    }
+  }
+  return found;
+}
+
+/** What the fake "sees" in an image: only what it can know without eyes, said like a description. */
+function pictureWords(image) {
+  return `A picture (${image.mediaType ?? "an image"}, ${image.bytes} bytes). It shows a server rack with three drives; the middle drive's light is red.`;
+}
+
 export function policyReply(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   // Offered as functions (server_facts); chosen by the catalog's names (server.facts).
@@ -132,14 +193,17 @@ export function policyReply(body) {
   const question = lastUserText(messages);
   const toolResults = messages.filter((message) => message?.role === "tool");
   if (offered.length && toolResults.length === 0 && body?.tool_choice !== "none") {
-    const tools = pickTools(question, offered.filter((name) => !["notes.write", "plan.propose", "notify.owner"].includes(name)));
+    const readable = offered.filter((name) => !["notes.write", "plan.propose", "notify.owner"].includes(name));
+    // With a plan, it follows the plan (and what the runner said the words fit); without one, the words.
+    const { planned } = pointedAt(messages);
+    const tools = planned?.some((name) => readable.includes(name)) ? planned.filter((name) => readable.includes(name)).slice(0, 3) : pickTools(question, readable);
     if (tools.length) return { toolCalls: tools.map((name) => ({ name: name.replace(/\./g, "_"), arguments: argumentsFor(name, question) })) };
   }
   if (!toolResults.length) return { content: "I have no tool output to go on, so I cannot say anything about this server yet." };
   const lines = toolResults.slice(0, 4).map((message, index) => {
     const text = textOf(message.content).replace(/<\/?tool_output[^>]*>/g, "").replace(/\s+/g, " ").trim();
-    const first = text.replace(/^Data from [^:]*:\s*/i, "").slice(0, 180);
-    return `- ${first}${first.length >= 180 ? "…" : ""} [T${index + 1}]`;
+    const first = text.replace(/^Data from [^:]*:\s*/i, "").slice(0, 400);
+    return `- ${first}${first.length >= 400 ? "…" : ""} [T${index + 1}]`;
   });
   return { content: `Here is what I found.\n\n${lines.join("\n")}` };
 }
@@ -234,6 +298,10 @@ export async function burn({ threads = 1, ms = 1000 } = {}) {
   await Promise.all(workers.map((worker) => new Promise((resolve) => { worker.once("exit", resolve); worker.once("error", resolve); })));
 }
 
+/**
+ * The rest of `options` is copied over the fake's `state` (chat, script, vision, speed, ...).
+ * @param {{ port?: number, host?: string, apiKey?: string | null, model?: string, busyThreads?: number, busyMs?: number, [state: string]: any }} [options]
+ */
 export async function startFakeModel({
   port = 0,
   host = "127.0.0.1",
@@ -246,7 +314,7 @@ export async function startFakeModel({
   const requests = [];
   // speed: { promptPerSecond, generatePerSecond } makes it take as long as a CPU would; clock(ms)
   // spends that time on a simulated clock instead of the real one; log keeps each call's timing.
-  const state = { chat: "policy", script: null, chunkSize: 24, delayMs: 0, busyThreads, busyMs, status: 500, speed: null, timeScale: 1, clock: null, log: [], cancels: [], ...options };
+  const state = { chat: "policy", script: null, chunkSize: 24, delayMs: 0, busyThreads, busyMs, status: 500, speed: null, timeScale: 1, clock: null, log: [], cancels: [], vision: true, mmprojFallback: null, statusLoaded: true, ...options };
   const slot = createSlot();
   const running = new Map();   // cancel_id -> the call it names, while it runs
   const json = (response, status, value) => {
@@ -281,18 +349,30 @@ export async function startFakeModel({
       call?.stop("cancelled");
       return json(response, 200, { cancelled: call ? 1 : 0 });
     }
+    // What the model server says about seeing (M40.6): Unsloth Studio's status, and llama-server's props.
+    // Shaped as Studio's: a model still loading is not listed, and is_vision is then false for nothing.
+    if (path === "/api/inference/status") {
+      return json(response, 200, state.statusLoaded === false
+        ? { is_vision: false, mmproj_fallback_reason: null, active_model: null, model_identifier: null, is_gguf: false, loaded: [] }
+        : { is_vision: state.vision !== false, mmproj_fallback_reason: state.mmprojFallback, active_model: model, model_identifier: model, is_gguf: true, loaded: [model] });
+    }
+    if (path === "/props") return json(response, 200, { model_alias: model, modalities: { vision: state.vision !== false, audio: false } });
     if (path !== "/v1/chat/completions") return json(response, 404, { error: { message: "not found" } });
     if (state.chat === "error") return json(response, state.status, { error: { message: "the model crashed" } });
     if (state.chat === "missing") return json(response, 404, { error: { message: `model ${body?.model} not found` } });
+    const images = imagesIn(body);
+    if (images.length && state.vision === false) return json(response, 500, { error: { code: 500, message: "image input is not supported - hint: if this is unexpected, you may need to provide the mmproj", type: "server_error" } });
     if (state.busyThreads > 0 && state.busyMs > 0) await burn({ threads: state.busyThreads, ms: state.busyMs });
     if (state.chat === "hang") { response.writeHead(200, { "Content-Type": "text/event-stream" }); return undefined; }
     const scripted = typeof state.script === "function" ? state.script(body) : null;
+    // A script may play the server's own trouble for one call (M48.9): { status: 500, error }.
+    if (scripted?.status) return json(response, scripted.status, { error: { message: scripted.error ?? "the model crashed" } });
     const understanding = body?.response_format?.json_schema?.name === "understanding";
     // A script that answers the tool loop is not asked to understand: the fake does that itself,
     // unless the script returns { understanding } (or plain content) for it.
     const reply = understanding
       ? (scripted?.understanding ? { content: JSON.stringify(scripted.understanding) } : scripted?.raw ? { content: scripted.raw } : structuredReply(body))
-      : scripted ?? structuredReply(body) ?? policyReply(body);
+      : scripted ?? (images.length ? { content: pictureWords(images[0]) } : null) ?? structuredReply(body) ?? policyReply(body);
     const toolCalls = (reply.toolCalls ?? []).map((call, index) => ({ id: `call_${state.log.length}_${index}`, name: call.name, arguments: typeof call.arguments === "string" ? call.arguments : JSON.stringify(call.arguments ?? {}) }));
 
     // What reading this prompt and writing this answer costs, against what the slot holds.
@@ -381,7 +461,7 @@ export async function startFakeModel({
   });
   server.listen(port, host);
   await new Promise((resolve, reject) => { server.once("listening", resolve); server.once("error", reject); });
-  const address = server.address();
+  const address = /** @type {import("node:net").AddressInfo} */ (server.address());
   return {
     url: `http://${host}:${address.port}`,
     port: address.port,
@@ -414,6 +494,7 @@ if (import.meta.main) {
     model: argument("model", "fake/qwen-agent"),
     busyThreads: Number(argument("busy-threads", "0")),
     busyMs: Number(argument("busy-ms", "0")),
+    vision: argument("vision", "on") !== "off",
   });
   process.stdout.write(`API Key: ${apiKey}\nListening on ${fake.url}\n`);
   const stop = () => { void fake.close().finally(() => process.exit(0)); };

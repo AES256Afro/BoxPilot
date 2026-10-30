@@ -1,0 +1,25 @@
+/*
+ * Approvals on your phone (src/shell/PushPanel.tsx, M25.2), at the top of the notification centre.
+ * Tokens only; every selector starts with .push-.
+ */
+
+.push-panel { display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-muted); }
+.push-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.push-title { margin: 0; color: var(--text-strong); font-size: 15px; font-weight: 600; }
+.push-quiet { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+.push-said { margin: 0; color: var(--status-good-text); font-size: 13px; }
+.push-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.push-devices { display: grid; margin: 0; padding: 0; border-top: 1px solid var(--border); list-style: none; }
+.push-device { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
+.push-device__name { color: var(--text-strong); font-size: 14px; font-weight: 600; }
+.push-device__error { flex: 1 1 100%; color: var(--status-warning-text); font-size: 12.5px; overflow-wrap: anywhere; }
+.push-device__remove { margin-left: auto; }
+.push-choices { border-top: 1px solid var(--border); }
+.push-choices summary { min-height: 30px; padding-top: 8px; color: var(--text-strong); font-size: 13px; font-weight: 600; cursor: pointer; }
+.push-settings { display: grid; gap: 12px; padding-top: 10px; }
+@media (pointer: coarse) {
+  .push-choices summary { min-height: 44px; }
+}
+.push-tiers { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; border: 0; }
+.push-tiers legend { margin-bottom: 6px; padding: 0; color: var(--text-strong); font-size: 13px; font-weight: 600; }
+.push-hours { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

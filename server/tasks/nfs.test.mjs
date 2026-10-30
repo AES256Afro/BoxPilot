@@ -23,6 +23,43 @@ function fakeFiles({ existing = null, ownerUid = 1000 } = {}) {
   };
 }
 
+describe("what an export may serve", () => {
+  // Exported by the kernel's NFS server, set up by a medium-risk approval: the folders it may name
+  // are the ones BoxPilot does not protect, however the path is spelled.
+  it.each(["/./etc", "//etc", "/.", "/./var/lib/boxpilot", "/var", "/var/lib", "/mnt/boxpilot", "/srv//x"])("refuses %s", (path) => {
+    expect(validateNfsConfig({ exports: [{ path }] })).toContain("system locations");
+  });
+
+  it("still exports ordinary folders", () => {
+    for (const path of ["/srv/media", "/mnt/nas-media", "/home/homebox/Shared", "/data/photos"]) expect(validateNfsConfig({ exports: [{ path }] })).toBeNull();
+  });
+
+  it("refuses a folder that leads into a protected location through a link", async () => {
+    const files = { ...fakeFiles(), realpath: vi.fn(async () => "/var/lib/boxpilot") };
+    await expect(nfsApply({ exports: [{ path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/system location/);
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("refuses a folder that reaches a login account's home only through a link", async () => {
+    const files = { ...fakeFiles(), realpath: vi.fn(async () => "/home/admin/media") };
+    await expect(nfsApply({ exports: [{ path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/which reaches a login account's home/);
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+
+  // A service account with a shell keeps its home outside /home (postgres at /var/lib/postgresql), and
+  // a folder that holds a home serves it as surely as the home itself.
+  it("refuses a link to any login account's home, or to a folder that holds one", async () => {
+    const passwd = "root:x:0:0:root:/root:/bin/bash\npostgres:x:114:120::/var/lib/postgresql:/bin/bash\nalice:x:1001:1001::/mnt/data/alice:/bin/bash\n";
+    const base = fakeFiles();
+    const withPasswd = (real) => ({ ...base, readFile: vi.fn(async (path, ...rest) => (path === "/etc/passwd" ? passwd : base.readFile(path, ...rest))), realpath: vi.fn(async () => real) });
+    for (const real of ["/var/lib/postgresql", "/mnt/data"]) {
+      const files = withPasswd(real);
+      await expect(nfsApply({ exports: [{ path: "/srv/media" }] }, { run: fakeRun(), files }), real).rejects.toThrow(`/srv/media leads to ${real}, which reaches a login account's home`);
+      expect(files.writeFile).not.toHaveBeenCalled();
+    }
+  });
+});
+
 describe("nfs tasks", () => {
   it("validates and renders exports squashed to the folder owner", () => {
     expect(validateNfsConfig({ exports: [{ path: "/srv/media", readOnly: true }] })).toBeNull();

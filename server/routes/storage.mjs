@@ -7,12 +7,14 @@
  * smbclient/showmount need no privileges.
  */
 import { Router } from "express";
+import { createRateLimit, rateLimited } from "../rate-limit.mjs";
 import net from "node:net";
 import dns from "node:dns/promises";
 import { fixedRun } from "../exec.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
 import { growthByApp } from "../app-data-growth.mjs";
 import { projectDaysToFull } from "../disk-forecast.mjs";
+import { smartTrendsByDisk } from "../smart-trends.mjs";
 import { parseNeighbors } from "../network.mjs";
 import { credentialPattern, hostPattern } from "../tasks/shares.mjs";
 import { readsThroughHelper, withOwnActors } from "./access.mjs";
@@ -84,7 +86,7 @@ async function mapLimit(items, limit, worker) {
   return results;
 }
 
-export function createStorageRouter({ auth, helper = null, inventory = null, state = null, run = fixedRun, collect = collectStorage, probe = probePort, reverse = (address) => dns.reverse(address), sweepLimit = 254 }) {
+export function createStorageRouter({ auth, helper = null, inventory = null, state = null, run = fixedRun, collect = collectStorage, probe = probePort, reverse = (address) => dns.reverse(address), sweepLimit = 254, now = () => Date.now() }) {
   const router = Router();
 
   router.get("/storage/overview", async (request, response) => {
@@ -119,11 +121,18 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
     // Those sizes are app.data.usage's, which needs an operator (ADR-003): the path and size of
     // every app's data. A viewer gets the drive forecasts, which any account can read from df.
     const sizes = readsThroughHelper(request);
-    response.json({ forecasts, tracking: Object.keys(history).length, usage: sizes ? growthByApp(usage, { now, windowDays: 7, limit: 200 }) : [], lastMeasured: sizes ? state?.getSetting?.("appDataUsageLastRun", null) ?? null : null });
+    response.json({ forecasts, tracking: Object.keys(history).length, usage: sizes ? growthByApp(usage, { now, windowDays: 7, limit: 200, series: true }) : [], lastMeasured: sizes ? state?.getSetting?.("appDataUsageLastRun", null) ?? null : null });
+  });
+
+  // Each disk's SMART readings over the last weeks, as the daily sampler kept them (M31.2): the same
+  // temperature, wear and error figures the Overview already shows any account, over time.
+  router.get("/storage/smart-history", (_request, response) => {
+    response.json({ disks: smartTrendsByDisk(state?.getSetting?.("smartHistory", {}) ?? {}, { now: now() }) });
   });
 
   // Discover LAN hosts offering SMB (445) or NFS (2049): recent neighbours plus a sweep of each /24.
-  router.get("/storage/shares/discover", async (_request, response) => {
+  // Operators and the owner (M50): a sweep of the LAN is work, and a viewer mounts nothing.
+  router.get("/storage/shares/discover", auth.requireRole("owner", "operator"), async (_request, response) => {
     const [addresses, neighbours] = await Promise.all([
       run(ipBinary, ["-j", "-4", "address", "show"], { timeout: 10_000 }),
       run(ipBinary, ["-j", "-4", "neigh", "show"], { timeout: 10_000 }),
@@ -199,7 +208,8 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
   });
 
   // List shares on one host. SMB passwords go to smbclient on stdin, never as an argument.
-  router.post("/storage/shares/list", auth.requireCsrf, async (request, response) => {
+  // Twelve listings a minute per account (M50): each is an smbclient or showmount run against another host.
+  router.post("/storage/shares/list", auth.requireCsrf, rateLimited(createRateLimit({ count: 12, perMs: 60_000 }), "share-list", { message: "Several share listings ran just now; wait a minute" }), async (request, response) => {
     const { kind, host, username = null, password = null, domain = null } = request.body ?? {};
     if (!["smb", "nfs"].includes(kind) || typeof host !== "string" || !hostPattern.test(host)) return response.status(400).json({ error: "kind must be smb or nfs and host a hostname or IP", code: "invalid_request" });
     if (username !== null && (typeof username !== "string" || !credentialPattern.test(username))) return response.status(400).json({ error: "username is invalid", code: "invalid_request" });

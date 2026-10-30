@@ -65,6 +65,8 @@ export function summarize({ totals, topBlocked, upstreams, gravity, blocking, no
 /**
  * The reader, for the helper. `apps.inspect()` says whether BoxPilot installed Pi-hole; `run` is
  * the helper's fixed-binary runner.
+ *
+ * @param {{ run?: (binary: string, args: string[], options?: { timeout?: number, maxBuffer?: number }) => Promise<{ ok: boolean, stdout?: string, stderr?: string }>, apps?: any, dockerBinary?: string, systemctlBinary?: string, ftlBinary?: string, now?: () => Date }} options
  */
 export function createPiholeReader({
   run,

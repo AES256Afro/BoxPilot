@@ -7,7 +7,7 @@ description: "Dedicated V Rising server with a join password and clan settings. 
 website: https://playvrising.com
 risk: low
 image:
-  reference: trueosiris/vrising:3.0
+  reference: trueosiris/vrising:3.0@sha256:a58cb84e3d69acf2d965ec752ee3a13ce5d10eea1808b536762fbd7048af71c2
   version: "3.0"
 ports:
   - id: game

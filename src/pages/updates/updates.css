@@ -20,6 +20,10 @@
 .updates-package__link { color: var(--text-strong); text-decoration: none; }
 .updates-package__link:hover { color: var(--accent); text-decoration: underline; }
 .updates-package__link code { font-size: 12.5px; }
+/* A finger, not a pointer: a package name is a link in a row; its target grows, the row does not. */
+@media (pointer: coarse) {
+  .updates-package__link { display: inline-block; padding-block: 14px; margin-block: -14px; }
+}
 .updates-version { color: var(--text-muted); overflow-wrap: anywhere; }
 
 /* Common tools: the package's name, what it is under it, and its one action on the right. */

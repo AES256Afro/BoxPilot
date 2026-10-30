@@ -35,7 +35,42 @@ export function defaultHelperAnswers() {
     "service.list": () => ({ units: [{ unit: "docker.service", active: "active", sub: "running", enabled: "enabled" }, { unit: "smartd.service", active: "failed", sub: "failed", enabled: "enabled" }], counts: { total: 2, active: 1, failed: 1 } }),
     "logs.read": (parameters) => ({ kind: parameters.kind, target: parameters.target, lines: ["2026-09-29T09:00:00 boxpilot: started", "2026-09-29T09:01:00 boxpilot: token=SENTINEL-LOG-1 refused"] }),
     "app.pihole.inspect": () => ({ placement: "boxpilot-app", container: "bp-pi-hole", running: true, available: true, blocking: true, last24h: { queries: 1000, blocked: 150, blockedPercent: 15 }, gravity: { domains: 90_000, updatedAt: "2026-09-27T00:00:00.000Z", ageDays: 2.4 }, upstreams: [{ upstream: "9.9.9.9#53", queries: 800, share: 100, averageReplyMs: 14 }], topBlocked: [{ domain: "ads.example.com", count: 40 }] }),
+    "app.theyspy.inspect": () => ({ placement: "boxpilot-app", container: "bp-theyspy", running: true, available: true, version: "1.2.0", at: "2026-09-29T07:00:00.000Z", readAt: "2026-09-29T07:10:00.000Z", days: 7, pihole: { connected: true, lastTestOk: true }, sections: [],
+      lookups: { total: 2, notFullyBlocked: 1, top: [{ device: "kids-ipad", indicator: "fearevolve[.]com", lookups: 3, blocked: 1, lastSeen: "2026-09-28T20:00:00.000Z" }] },
+      exploited: { total: 0, top: [] }, evidence: { contacted: 1, newThisPeriod: 1, gaps: 2, top: [{ device: "work-laptop", indicator: "fearevolve[.]com", source: "the TheySpy agent", at: "2026-09-28T09:00:00.000Z" }], agents: 1, lastAgentReport: "2026-09-29T06:00:00.000Z" } }),
     "agents.runtime.inspect": () => ({ runtime: { installed: false, version: null }, service: { active: "inactive" }, models: [], diskFreeBytes: 100e9 }),
+    // M47: the reads behind firewall.status, updates.status, protection.status, users.access and tunnel.exposure, as a plain home server answers them.
+    "firewall.inspect": () => ({ installed: true, enabled: true, defaults: { incoming: "deny", outgoing: "allow", routed: "reject" }, rules: [{ action: "allow", direction: "in", port: "22", protocol: "tcp", source: null, interface: null, family: "v4", comment: "SSH" }, { action: "allow", direction: "in", port: "8787", protocol: "tcp", source: "192.0.2.0/24", interface: null, family: "v4", comment: "BoxPilot" }], dockerRules: true }),
+    "apt.upgradable.inspect": () => ({ upgradable: [{ name: "openssl", suite: "noble-security", candidate: "3.0.13-0ubuntu3.5", installed: "3.0.13-0ubuntu3.4" }, { name: "curl", suite: "noble-updates", candidate: "8.5.0-2ubuntu10.6", installed: "8.5.0-2ubuntu10.5" }], count: 2, securityCount: 1, rebootRequired: false, needrestartPresent: true, servicesNeedingRestart: ["ssh.service"] }),
+    "fail2ban.inspect": () => ({ installed: true, running: true, configured: true, config: { managed: true, maxRetry: 5, findTimeMinutes: 10, banTimeMinutes: 60, ignoreLan: true }, currentlyBanned: 1, totalBanned: 14 }),
+    "users.inspect": () => ({ users: [{ name: "root", uid: 0, shell: "/bin/bash", sudo: true, keyCount: 1 }, { name: "owner", uid: 1000, shell: "/bin/bash", sudo: true, keyCount: 2 }], sshd: { passwordAuthentication: false, keyboardInteractive: false, pubkeyAuthentication: true, permitRootLogin: "prohibit-password", port: 22 }, sshActive: true }),
+    "cloudflare.tunnel.inspect": () => ({ connected: true, tunnel: { id: "t-1", name: "boxpilot-testbox" }, routes: [{ hostname: "photos.example.org", appId: "immich", hostPort: 2283, publishedAt: "2026-10-01T00:00:00.000Z" }] }),
+    // M47.6: the reads behind apps.usage, backups.coverage and space.reclaimable: Jellyfin busy, Nextcloud
+    // never backed up, 2.5 GB the clean-up would free.
+    "system.performance.inspect": () => ({ generatedAt: "2026-09-29T10:00:00.000Z", cpu: { model: "Intel N100", cores: 4, usagePercent: 12.4, perCore: [10, 14, 12, 13], load1: 0.42, load5: 0.5, load15: 0.61, loadPercent: 10 }, memory: { totalBytes: 16e9, usedBytes: 6e9, availableBytes: 10e9, usedPercent: 38 }, swap: { totalBytes: 2e9, usedBytes: 0, usedPercent: 0 }, uptimeSeconds: 86_400, temps: [], disks: [], statsAvailable: true, apps: [
+      { id: "pi-hole", state: "running", running: true, cpuPercent: 1.2, memBytes: 120e6, containers: 1 },
+      { id: "jellyfin", state: "running", running: true, cpuPercent: 48.6, memBytes: 1.3e9, containers: 2 },
+      { id: "nextcloud", state: "exited", running: false, cpuPercent: 0, memBytes: 0, containers: 0 },
+    ] }),
+    "app.backup.protection": () => ({ available: true, generatedAt: "2026-09-29T10:00:00.000Z", apps: [
+      { id: "pi-hole", name: "Pi-hole", protectable: true, backups: 3, newestAt: "2026-09-27T03:00:00.000Z" },
+      { id: "jellyfin", name: "Jellyfin", protectable: false, backups: 0, newestAt: null },
+      { id: "nextcloud", name: "Nextcloud", protectable: true, backups: 0, newestAt: null },
+    ] }),
+    "housekeeping.inspect": () => ({ generatedAt: "2026-09-29T10:00:00.000Z", categories: [
+      { id: "boxpilot-versions", title: "Previous BoxPilot releases", items: 2, bytes: 410e6, humanBytes: "410 MB", detail: [], keeping: [], safe: true },
+      { id: "docker-unused", title: "Docker images no app uses", items: 3, bytes: 2.1e9, humanBytes: "2.1 GB", detail: [], keeping: [], safe: true },
+      { id: "restore-leftovers", title: "Unfinished restores", items: 1, bytes: 50e6, humanBytes: "50 MB", detail: [], keeping: [], safe: false, unavailable: "Recovery evidence. General cleanup cannot remove these folders." },
+      { id: "job-logs", title: "Logs for jobs no longer listed", items: 0, bytes: 0, humanBytes: "0 B", detail: [], keeping: [], safe: true },
+    ], totalBytes: 2.51e9, totalHumanBytes: "2.5 GB" }),
+    "docker.disk.inspect": () => ({ available: true, rows: [
+      { type: "Images", total: 12, active: 9, size: "6.2GB", reclaimable: "2.1GB (33%)" },
+      { type: "Containers", total: 9, active: 8, size: "120MB", reclaimable: "0B (0%)" },
+      { type: "Local Volumes", total: 7, active: 7, size: "3.4GB", reclaimable: "0B (0%)" },
+      { type: "Build Cache", total: 0, active: 0, size: "0B", reclaimable: "0B" },
+    ], logging: { configured: false, logDriver: null, maxSize: null, liveRestore: false } }),
+    // M40: the runner's processors, set at each run as the root helper does (server/agents/cpu.mjs).
+    "agents.runtime.cpu": (parameters) => ({ processors: parameters.processors, background: parameters.background, quotaPercent: parameters.processors * 100, perSecond: `${parameters.processors}s`, resetAt: parameters.processors > parameters.background ? "2026-09-29T10:30:00.000Z" : null }),
   };
 }
 
@@ -85,11 +120,16 @@ export async function createAgentsHarness({ limits = {}, runnerOptions = {}, ser
   const newerListing = { value: [] };
   const service = createAgentService({
     state, store, registry, helper, inventory, knowledge, healthAlerts, now,
+    // M47: Repair's scan, as a server with nothing to fix answers it; an operator's reads only for a run that may make them.
+    repairScan: async ({ operatorReads }) => ({ findings: [], dismissed: [], jobs: [], counts: { critical: 0, warning: 0, info: 0 }, checkedAt: now().toISOString(), sourceStatus: operatorReads ? "ready" : "partial", unavailableChecks: operatorReads ? [] : ["USB history (needs an operator)"] }),
     redactor: createRedactor({ additionalLiterals: ["SENTINEL-LITERAL-9"] }),
     tokenPath: path.join(directory, "agents", "runner.token"),
     fetchJson: async (url) => { fetched.push(url); return url.includes("?author=") ? newerListing.value : { siblings: [{ rfilename: "Qwen3.6-4B-UD-Q4_K_XL.gguf" }, { rfilename: "mmproj-F16.gguf" }] }; },
     hostLoad: () => 0,
     limits,
+    // The owner's machine (a Ryzen 7 7800X3D: 16 processors, 8 cores), whatever runs the tests: a
+    // person's run gets 8 processors and threads, the background 4 (M40).
+    processors: 16, physicalCoreCount: 8,
     ...serviceOptions,
   });
 

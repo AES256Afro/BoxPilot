@@ -48,6 +48,14 @@ describe("Logs page", () => {
     fireEvent.click(open);
     expect(await screen.findByText("line from docker.service")).toBeTruthy();
     expect(reads.at(-1)).toMatchObject({ kind: "unit", target: "docker.service" });
+    // Part of a name opens the unit it matches, and the button says which, as Enter would;
+    // a name nothing matches says so rather than leaving the button greyed out.
+    const find = screen.getByRole("combobox", { name: "Find a unit" });
+    fireEvent.change(find, { target: { value: "dock" } });
+    expect(screen.getByRole("button", { name: "Open docker.service" })).toBeTruthy();
+    fireEvent.change(find, { target: { value: "nginx" } });
+    expect((screen.getByRole("button", { name: "Open unit" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("No unit has “nginx” in its name.")).toBeTruthy();
   });
 
   it("follows a container from its newest line's UTC time, keeping the zone", async () => {
@@ -69,6 +77,31 @@ describe("Logs page", () => {
     expect(follow.getAttribute("aria-checked")).toBe("true");
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(reads.at(-1)).toMatchObject({ kind: "container", since: "2026-08-21T01:00:00Z" });
+  });
+
+  it("follows one read at a time when the journal answers slower than the follow ticks", async () => {
+    // A filter matching nothing leaves no newest line, so each tick is a full scan. Slower than five
+    // seconds, the ticks stacked scans on the server and each discarded the answer before it.
+    let started = 0;
+    const answers: Array<() => void> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/logs.sources/inspect")) return json({ operation: "logs.sources", result: { groups: [{ id: "boxpilot", label: "BoxPilot" }], units: [], containers: [], dockerAvailable: false } });
+      started += 1;
+      if (started === 1) return json({ operation: "logs.read", result: { lines: [] } });
+      return new Promise<Response>((resolve) => { answers.push(() => resolve(json({ operation: "logs.read", result: { lines: [] } }))); });
+    }));
+    render(<LogsPage csrfToken="csrf-token" />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("switch", { name: "Follow" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(started).toBe(2);
+    // Twenty seconds of ticks while that scan is still going: none of them starts another.
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(started).toBe(2);
+    await act(async () => { answers.shift()?.(); await vi.advanceTimersByTimeAsync(5000); });
+    expect(started).toBe(3);
   });
 
   it("downloads the support bundle from the header, and says why when it cannot", async () => {

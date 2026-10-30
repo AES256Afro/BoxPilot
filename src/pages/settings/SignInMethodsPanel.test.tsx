@@ -18,6 +18,8 @@ describe("Sign-in settings", () => {
     render(<SignInSettings csrfToken="csrf-token" />);
     const button = (await screen.findByRole("button", { name: "Link me@example.com" })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
+    // Disabled with its reason, read out with it rather than only in a tooltip.
+    expect(document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Type your password above first");
     fireEvent.change(screen.getByLabelText("Your password"), { target: { value: "correct horse battery" } });
     expect(button.disabled).toBe(false);
     fireEvent.click(button);

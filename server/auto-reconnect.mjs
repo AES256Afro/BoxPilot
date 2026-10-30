@@ -26,7 +26,7 @@ export const autoReconnectLimits = Object.freeze({ cooldownMs: 30 * 60_000, maxA
 const settingKey = "driveReconnects";
 const conditions = Object.freeze({ "storage.mount.detached": "lost its drive", "storage.mount.readonly": "went read-only" });
 // Anything else working on the drive right now. The reconnect waits for it rather than racing it.
-const driveJobs = Object.freeze(["op:storage.check", "op:storage.dirty-mark.clear", "op:storage.remount", "op:storage.unmount"]);
+const driveJobs = Object.freeze(["op:storage.check", "op:storage.dirty-mark.clear", "op:storage.remount", "op:storage.unmount", "op:storage.writable"]);
 
 const reconnectable = (name) => typeof name === "string" && mountNamePattern.test(name) && !name.startsWith("share-") && name !== "swap";
 
@@ -54,6 +54,8 @@ export function attemptsIn(record, now, limits = autoReconnectLimits) {
  * and the running jobs are handed in, and `now` is a number. `tell` is whether the owner hears of
  * it: a cooldown or a check in progress passes by itself, a hold was told when it began, and a cap
  * or a check that found errors waits for a person, who is told once.
+ *
+ * @param {{ name: string, now: number, record?: { attempts?: { at: string }[], heldSince?: string, heldBecause?: string }, lastCheck?: any, activeJobs?: any[], limits?: typeof autoReconnectLimits }} options
  */
 export function reconnectRefusal({ name, now, record = {}, lastCheck = null, activeJobs = [], limits = autoReconnectLimits }) {
   const busy = activeJobs.find((job) => driveJobs.includes(job?.type) && job.parameters?.name === name);
@@ -115,7 +117,8 @@ export function createAutoReconnect({ store, flows, alerts = null, now = () => n
   const alertKey = (flow) => `flow.failed:${flow.id}`;
   // The ledger may wait on a notification target; the reconnect's outcome never waits on it.
   const quietly = (call) => { try { return Promise.resolve(call()).catch(() => {}); } catch { return Promise.resolve(); } };
-  const raise = (flow, title, message) => quietly(() => alerts?.raise({ key: alertKey(flow), title, message: message.slice(0, 500), priority: "high" }));
+  // Every reconnect runs, or is refused, under the flow's creator (flows.runForDrive): the words are theirs.
+  const raise = (flow, title, message) => quietly(() => alerts?.raise({ key: alertKey(flow), title, message: message.slice(0, 500), priority: "high", actorId: flow.createdBy ?? null }));
 
   /** One armed drive the round found in trouble: refuse with a reason, or reconnect it. */
   async function consider(name, loss, flow) {

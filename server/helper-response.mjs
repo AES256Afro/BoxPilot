@@ -11,6 +11,23 @@ export const maxHelperResponseBytes = 32 * 1024 * 1024;
 export const helperQueuedFrame = (id, lane) => ({ version: 1, id, queued: true, ...(lane ? { lane } : {}) });
 export const helperStartedFrame = (id) => ({ version: 1, id, started: true });
 
+/**
+ * The helper's reply for an operation that threw. A step that ran out of its own time says so in a
+ * field (M30.3), and an operation that tried to undo its partial changes says whether that worked
+ * (rolledBack), so the job records it from the field rather than from the words. A request turned
+ * away unstarted because BoxPilot is restarting says so in its code, helper_restarting (sweep 5),
+ * which the job layer answers by sending it again once BoxPilot is back. An older web side reads
+ * only `error`, so the reply stays what it was for it.
+ */
+export function helperErrorReply(id, error) {
+  const timeout = timeoutOf(error);
+  return {
+    version: 1, id, ok: false, error: error.message, code: timeout ? "timeout" : error?.code === "helper_restarting" ? "helper_restarting" : "operation_failed",
+    ...(timeout ? { timeout } : {}),
+    ...(typeof error?.rolledBack === "boolean" ? { rolledBack: error.rolledBack } : {}),
+  };
+}
+
 export function createHelperResponseReader(id, { maxFrameBytes = maxHelperResponseBytes, onQueued = () => {}, onStarted = () => {} } = {}) {
   let pending = "";
   let pendingBytes = 0;
@@ -34,9 +51,10 @@ export function createHelperResponseReader(id, { maxFrameBytes = maxHelperRespon
       started = true; onStarted(); return;
     }
     if (response.ok !== true) {
-      // The reply's code, and a step's timeout when it ran out of time (M30.3), ride on the error.
+      // The reply's code, a step's timeout when it ran out of time (M30.3), and whether the
+      // operation's own rollback worked, ride on the error.
       const timeout = timeoutOf(response);
-      throw Object.assign(new Error(response.error ?? "Helper operation failed"), typeof response.code === "string" ? { code: response.code } : {}, timeout ? { timeout } : {});
+      throw Object.assign(new Error(response.error ?? "Helper operation failed"), typeof response.code === "string" ? { code: response.code } : {}, timeout ? { timeout } : {}, typeof response.rolledBack === "boolean" ? { rolledBack: response.rolledBack } : {});
     }
     complete = true;
     result = response.result;

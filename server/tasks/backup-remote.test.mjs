@@ -62,7 +62,7 @@ describe("off-box SSH mirror tasks", () => {
     const result = await promise;
     expect(result).toMatchObject({ synced: true, completedAt: "2026-08-21T18:00:00.000Z", filesTransferred: 2, bytesTransferred: 1048576, mirrored: [{ name: "controller-backups" }], boundary: { deletesPerformed: false } });
     const rsyncCall = calls.find((call) => call.includes("rsync"));
-    expect(rsyncCall).toContain("-a --checksum --partial-dir=.boxpilot-partial --exclude=.boxpilot-partial --mkpath --stats");
+    expect(rsyncCall).toContain("-a --checksum --partial-dir=.boxpilot-partial --exclude=.boxpilot-partial --exclude=*.partial --mkpath --stats");
     expect(rsyncCall).toContain("StrictHostKeyChecking=yes");
     expect(rsyncCall).not.toContain("--delete");
     expect(rsyncCall).toContain(`${sources[0].root}/ backup@nas.local:/srv/boxpilot/controller-backups/`);
@@ -78,6 +78,20 @@ describe("off-box SSH mirror tasks", () => {
     const snapshotCall = calls.find((call) => call.includes("rsync") && call.includes("/machine-snapshots/"));
     expect(snapshotCall).toContain("--exclude=/.staging-*/ --exclude=/.restore-*/ --exclude=/restored/");
     expect(calls.find((call) => call.includes("rsync") && call.includes("/controller-backups/"))).not.toContain("/restored/");
+  });
+
+  it("leaves an app backup still being written out of every copy", async () => {
+    // `<stamp>.tar.gz.partial` grows and is then renamed: copied, it stays on the destination forever
+    // as a truncated archive, and its rename mid-transfer is rsync's exit 24.
+    const { run, calls, secretsDirectory, sources } = await fixture();
+    await mkdir(sources[1].root, { recursive: true });
+    const statExists = await import("node:fs/promises").then((fs) => fs.stat("/usr/bin/rsync").then(() => true, () => false));
+    const promise = backupRemoteSync(destination, { run, secretsDirectory, sources });
+    if (!statExists) { await expect(promise).rejects.toThrow("rsync is not installed"); return; }
+    await promise;
+    const rsyncCalls = calls.filter((call) => call.includes("rsync"));
+    expect(rsyncCalls.length).toBeGreaterThan(1);
+    for (const call of rsyncCalls) expect(call).toContain("--exclude=*.partial");
   });
 
   it("refuses to sync before the key exists or the host key is pinned", async () => {

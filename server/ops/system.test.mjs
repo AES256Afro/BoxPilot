@@ -13,6 +13,15 @@ describe("system operations", () => {
       .toEqual({ memTotalKiB: 32768000, memAvailableKiB: 16384000, swapTotalKiB: 4194300, swapFreeKiB: 4193276 });
   });
 
+  it("says in the helper's runtime read where BoxPilot's own restart stands (sweep 5)", async () => {
+    const unfinished = { outcome: "gave-up", units: ["boxpilot.service"], reason: "upgraded libraries", at: "2026-10-05T09:00:00.000Z", error: null };
+    const selfRestart = { status: () => ({ waiting: null, restarting: false, unfinished }) };
+    const result = await operations["system.runtime.inspect"].run({}, { selfRestart });
+    expect(result).toMatchObject({ uptimeSeconds: expect.any(Number), selfRestart: { waiting: null, restarting: false, unfinished } });
+    // A read run where there is no helper restart to ask (the web side's own) says nothing about it.
+    expect((await operations["system.runtime.inspect"].run({}, {})).selfRestart).toBeNull();
+  });
+
   it("stages hostname, timezone, and swappiness changes as root tasks with exact payloads", async () => {
     const runUnit = { runTask: vi.fn(async () => ({ ok: true })) };
     await operations["system.hostname.set"].run({ hostname: "shiny-box" }, { runUnit, jobLog: null });

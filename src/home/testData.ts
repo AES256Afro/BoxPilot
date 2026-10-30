@@ -45,17 +45,17 @@ export const answers: Record<string, unknown> = {
   "/api/v1/backups": { backups: [{ applicationId: "boxpilot-controller", createdAt: ago(3) }] },
   "/api/v1/setup": { firstRun: false, installedApps: 2 },
   "/api/v1/setup/checklist": { done: 5, total: 5, items: [] },
-  "/api/v1/virtualization/domains": { domains: [] },
+  "/api/v1/virtualization/domains?view=summary": { domains: [] },
   "/api/v1/power/outages": { outages: [], unacknowledged: 0 },
   "/api/v1/jobs?limit=50": { jobs: [] },
-  "/api/v1/jobs?limit=200": { jobs: [] },
+  "/api/v1/jobs?limit=200&view=summary": { jobs: [] },
 };
 
 /** The same server, busier: what Ops has more to show about. */
 export const busier: Record<string, unknown> = {
   "/api/v1/operations/apt.upgradable.inspect/inspect": { result: { count: 4, securityCount: 1, rebootRequired: true } },
   "/api/v1/operations/service.list/inspect": { result: { counts: { total: 100, active: 80, failed: 1 } } },
-  "/api/v1/virtualization/domains": { domains: [{ name: "dev-lab", state: "running", vcpus: 4, memoryKiB: 8 * 1024 * 1024 }, { name: "win11-test", state: "shut off", vcpus: 2, memoryKiB: 4 * 1024 * 1024 }] },
+  "/api/v1/virtualization/domains?view=summary": { domains: [{ name: "dev-lab", state: "running", vcpus: 4, memoryKiB: 8 * 1024 * 1024 }, { name: "win11-test", state: "shut off", vcpus: 2, memoryKiB: 4 * 1024 * 1024 }] },
   "/api/v1/operations/system.performance.inspect/inspect": { result: {
     cpu: { model: "fixture", cores: 16, usagePercent: 27.4, perCore: [], load1: 2.31, load5: 1.84, load15: 1.42, loadPercent: 14 },
     memory: { totalBytes: 32 * GiB, usedBytes: 11 * GiB, availableBytes: 21 * GiB, usedPercent: 34 },
@@ -70,7 +70,7 @@ export const busier: Record<string, unknown> = {
     job("wait1", "op:storage.remount", "awaiting_approval", 0.3, { parameters: { name: "media" }, title: "Reconnect a drive" }),
     job("done1", "op:apt.refresh", "completed", 2, { risk: "low" }),
   ] },
-  "/api/v1/jobs?limit=200": { jobs: [
+  "/api/v1/jobs?limit=200&view=summary": { jobs: [
     job("b3", "op:app.backup", "completed", 11, { parameters: { id: "jellyfin" } }),
     job("b2", "op:app.backup", "completed", 35, { parameters: { id: "jellyfin" } }),
     job("b1", "op:app.backup", "completed", 59, { parameters: { id: "jellyfin" } }),

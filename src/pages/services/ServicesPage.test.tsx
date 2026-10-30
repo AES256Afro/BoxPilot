@@ -106,6 +106,39 @@ describe("Services page", () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  // A journal that answered late was put in whatever sheet was open then: another unit's, or it
+  // reopened one already closed.
+  it("never shows a late journal in a closed sheet or another unit's", async () => {
+    const answers = new Map<string, () => void>();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/service.list/inspect")) return json(list);
+      const unit = (JSON.parse(String(init?.body)) as { parameters: { unit: string } }).parameters.unit;
+      return new Promise<Response>((resolve) => { answers.set(unit, () => resolve(json({ operation: "service.journal", result: { lines: [`journal of ${unit}`] } }))); });
+    }));
+    render(<ServicesPage csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Journal of docker.service" }));
+    let dialog = await screen.findByRole("dialog", { name: "docker.service" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(answers.has("docker.service")).toBe(true));
+    answers.get("docker.service")!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Journal of nginx.service" }));
+    dialog = await screen.findByRole("dialog", { name: "nginx.service" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Journal of fstrim.timer" }));
+    dialog = await screen.findByRole("dialog", { name: "fstrim.timer" });
+    await waitFor(() => expect(answers.has("nginx.service")).toBe(true));
+    answers.get("nginx.service")!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByRole("dialog", { name: "fstrim.timer" }).textContent).not.toContain("journal of nginx.service");
+    await waitFor(() => expect(answers.has("fstrim.timer")).toBe(true));
+    answers.get("fstrim.timer")!();
+    expect(await within(dialog).findByText("journal of fstrim.timer")).toBeTruthy();
+  });
+
   it("says when the list could not be read, and offers to try again", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ error: "The helper is not answering" }, 503)));
     render(<ServicesPage csrfToken="csrf-token" />);

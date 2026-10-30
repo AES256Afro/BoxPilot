@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { countOf } from "../../data";
+import { adviseRetry } from "../../retryAdvice";
 import { useShellHost } from "../../shell/TopBarSlot";
 import { Button, EmptyState, Field, Notice, PageHeader, Panel, Progress, SecretInput, StatusChip, Tabs, Tag, appHue, mayStart, riskOf, useUrlParam, type RiskTier, type Status } from "../../ui";
 import { Autoinstall } from "./Autoinstall";
@@ -14,7 +15,7 @@ import "./setup.css";
  * reused. The second tab prepares a new server's unattended install instead.
  */
 
-interface Step { id: string; kind: string; title: string; status: "done" | "ready" | "blocked" | "unknown"; detail: string; job: { operationId: string; parameters: Record<string, unknown> } | null; schedule?: { operationId: string; parameters: Record<string, unknown>; frequency: string; minute: number; hour: number | null; weekday: number | null } }
+interface Step { id: string; kind: string; title: string; status: "done" | "ready" | "blocked" | "unknown"; detail: string; /** The tier its job is approved at when the app's manifest raises it (a DNS server: high). */ risk?: RiskTier; job: { operationId: string; parameters: Record<string, unknown> } | null; schedule?: { operationId: string; parameters: Record<string, unknown>; frequency: string; minute: number; hour: number | null; weekday: number | null } }
 interface Profile { id: string; name: string; icon: string; description: string; steps: Step[]; remaining: number; blocked: number }
 interface SetupState { firstRun: boolean; installedApps: number; profiles: Profile[] }
 type StepProgress = Record<string, { state: "pending" | "running" | "done" | "failed" | "skipped"; error?: string }>;
@@ -36,7 +37,7 @@ const stepWords: Record<string, { status: Status; label: string }> = {
 
 /** The tier a batch of steps needs: its highest. */
 function batchTier(steps: Step[]): RiskTier | undefined {
-  const tiers = steps.map((step) => (step.job ? riskOf(step.job.operationId) : null)).filter((tier): tier is RiskTier => tier !== null);
+  const tiers = steps.map((step) => (step.job ? step.risk ?? riskOf(step.job.operationId) : null)).filter((tier): tier is RiskTier => tier !== null);
   return tiers.length ? tierOrder[Math.max(...tiers.map((tier) => tierOrder.indexOf(tier)))] : undefined;
 }
 
@@ -57,9 +58,19 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
   const [progress, setProgress] = useState<StepProgress>({});
   const [password, setPassword] = useState("");
   const [needPassword, setNeedPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const passwordRef = useRef("");
   const skipped = useRef<Set<string>>(new Set());
   const canRun = mayStart(role, "app.install");
+  // Choosing a profile swaps the grid for its plan: focus goes to the plan, not to a button that is
+  // gone (it fell to the page, and on a phone Install everything was scrolled away). Going back puts
+  // it on the profile it came from.
+  const planRef = useRef<HTMLDivElement>(null);
+  const cameFrom = useRef<string | null>(null);
+  useEffect(() => {
+    if (selected) { planRef.current?.focus(); planRef.current?.scrollIntoView?.({ block: "start" }); return; }
+    if (cameFrom.current) document.querySelector<HTMLElement>(`[data-profile="${cameFrom.current}"]`)?.focus();
+  }, [selected]);
 
   const load = useCallback(async () => {
     try {
@@ -74,12 +85,22 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  // Whether the page is still open. The run is this page's loop, not the server's: leaving the page
+  // used to leave it going unseen, staging and approving each later step with the password it held,
+  // and coming back offered to start the same steps again beside it. The job already running goes
+  // on, on the server; nothing after it is started.
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => { open.current = false; passwordRef.current = ""; };
+  }, []);
 
-  const headers = { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken };
+  const headers ={ "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken };
   const profile = setup?.profiles.find((entry) => entry.id === selected) ?? null;
   const mark = (id: string, state: StepProgress[string]) => setProgress((current) => ({ ...current, [id]: state }));
 
-  async function runStep(step: Step): Promise<"done" | "password" | "failed"> {
+  async function runStep(step: Step): Promise<"done" | "password" | "failed" | "left"> {
+    if (!open.current) return "left";
     if (step.kind === "schedule" && step.schedule) {
       const response = await fetch("/api/v1/schedules", { method: "POST", headers, body: JSON.stringify(step.schedule) });
       if (!response.ok) { const body = (await response.json().catch(() => ({}))) as { error?: string }; mark(step.id, { state: "failed", error: body.error ?? `Schedule rejected (${response.status})` }); return "failed"; }
@@ -89,9 +110,24 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
     const staged = await fetch(`/api/v1/operations/${encodeURIComponent(step.job.operationId)}/jobs`, { method: "POST", headers, body: JSON.stringify({ parameters: step.job.parameters }) });
     const stagedBody = (await staged.json().catch(() => ({}))) as { job?: { id: string }; error?: string };
     if (!staged.ok || !stagedBody.job) { mark(step.id, { state: "failed", error: stagedBody.error ?? `Could not prepare this step (server error ${staged.status})` }); return "failed"; }
+    // Staged but not approved: it waits in Activity for whoever comes back, rather than running unseen.
+    if (!open.current) return "left";
     const approve = await fetch(`/api/v1/jobs/${stagedBody.job.id}/approve`, { method: "POST", headers, body: JSON.stringify(passwordRef.current ? { password: passwordRef.current } : {}) });
-    if (approve.status === 401) return "password";
-    if (!approve.ok) { const body = (await approve.json().catch(() => ({}))) as { error?: string }; mark(step.id, { state: "failed", error: body.error ?? `Approval failed (${approve.status})` }); return "failed"; }
+    if (!approve.ok) {
+      const body = (await approve.json().catch(() => ({}))) as { error?: string };
+      // Not approved: withdraw it. The next try stages its own, and this one only waited in Activity.
+      await fetch(`/api/v1/jobs/${stagedBody.job.id}`, { method: "DELETE", headers }).catch(() => undefined);
+      // A missing password is a 409 in the server's words (as in ApproveDialog); 401 asks to sign in
+      // again. A wrong one is asked for again, not held for every retry.
+      const wrong = /wrong password/i.test(body.error ?? "");
+      if (approve.status === 401 || (approve.status === 409 && (wrong || /owner password/i.test(body.error ?? "")))) {
+        passwordRef.current = "";
+        setPasswordError(wrong ? body.error ?? "Wrong password" : null);
+        return "password";
+      }
+      mark(step.id, { state: "failed", error: body.error ?? `Approval failed (${approve.status})` });
+      return "failed";
+    }
     const started = Date.now();
     let unreadable = 0;
     for (;;) {
@@ -107,6 +143,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
       } else unreadable = 0;
       if (Date.now() - started > 45 * 60 * 1000) { mark(step.id, { state: "failed", error: "Timed out waiting for the job" }); return "failed"; }
       await sleep(2000);
+      if (!open.current) return "left";
     }
   }
 
@@ -142,8 +179,10 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
         if (!now || now.status !== "ready") { mark(step.id, { state: "skipped" }); continue; }
         plan.steps[index] = now;
       }
+      if (!open.current) return;
       mark(step.id, { state: "running" });
       const outcome = await runStep(plan.steps[index]);
+      if (outcome === "left") return;
       if (outcome === "password") { mark(step.id, { state: "pending" }); setNeedPassword(true); setPhase("paused"); return; }
       if (outcome === "failed") { setPhase("paused"); return; }
       mark(step.id, { state: "done" });
@@ -152,9 +191,15 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
     void load();
   }
 
-  const choose = (id: string) => { setSelected(id); setProgress({}); skipped.current = new Set(); setPhase("choose"); };
+  const choose = (id: string) => { cameFrom.current = id; setSelected(id); setProgress({}); skipped.current = new Set(); setPhase("choose"); };
   const resume = () => { passwordRef.current = password; if (profile) void run(profile); };
-  const retry = () => { for (const [id, entry] of Object.entries(progress)) if (entry.state === "failed") mark(id, { state: "pending" }); if (profile) void run(profile); };
+  // Read the server again first: a step that timed out here may have finished there, and running it
+  // again staged a second install that was refused as "already installed".
+  const retry = async () => {
+    for (const [id, entry] of Object.entries(progress)) if (entry.state === "failed") mark(id, { state: "pending" });
+    if (!profile) return;
+    void run((await currentProfile(profile.id)) ?? profile);
+  };
   const skipFailed = () => { for (const [id, entry] of Object.entries(progress)) if (entry.state === "failed") { skipped.current.add(id); mark(id, { state: "skipped" }); } if (profile) void run(profile); };
 
   const ready = setup ? setup.profiles.filter((entry) => entry.remaining === 0).length : 0;
@@ -163,6 +208,10 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
       : { status: "good" as const, label: countOf(setup.installedApps, "app installed", "apps installed") };
 
   const runnable = profile?.steps.filter((step) => step.status === "ready") ?? [];
+  // A failure that names another fix fails the same way when retried: only skipping moves on.
+  const failures = Object.values(progress).filter((entry) => entry.state === "failed");
+  const deadEnd = failures.find((entry) => !adviseRetry(entry.error).retry) ?? null;
+  const skippedCount = Object.values(progress).filter((entry) => entry.state === "skipped").length;
   const settled = profile ? profile.steps.filter((step) => step.status === "done" || progress[step.id]?.state === "done" || progress[step.id]?.state === "skipped").length : 0;
   const tier = batchTier(runnable);
 
@@ -197,7 +246,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
                   return (
                     <li key={entry.id}>
                       {/* Named by the profile and its state, not its emoji; described by what it brings. */}
-                      <button type="button" className="setup-profile" onClick={() => choose(entry.id)} aria-label={`${entry.name}, ${state.toLowerCase()}`} aria-describedby={`setup-profile-${entry.id}`}>
+                      <button type="button" className="setup-profile" data-profile={entry.id} onClick={() => choose(entry.id)} aria-label={`${entry.name}, ${state.toLowerCase()}`} aria-describedby={`setup-profile-${entry.id}`}>
                         <span className="setup-profile__square" data-hue={appHue(entry.id)} aria-hidden="true">{entry.icon}</span>
                         <span className="setup-profile__text">
                           <span className="setup-profile__name">{entry.name}</span>
@@ -217,6 +266,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
         ) : (
           <>
             <div className="setup-back"><Button variant="ghost" disabled={phase === "running"} onClick={() => setSelected(null)}>← All profiles</Button></div>
+            <div ref={planRef} tabIndex={-1} className="setup-plan-focus" aria-label={`${profile.name}: its steps`}>
             <Panel className="setup-plan" title={profile.name} count={phase === "finished" ? { status: "good", label: "done" } : `${runnable.length} to run`}
               meta={`${settled} of ${profile.steps.length} in place`}
               actions={phase === "choose" && canRun ? (
@@ -231,7 +281,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
                 {profile.steps.map((step) => {
                   const live = progress[step.id]?.state;
                   const words = stepWords[live ?? (step.status === "ready" ? "pending" : step.status)] ?? stepWords.pending;
-                  const stepTier = step.job ? riskOf(step.job.operationId) : null;
+                  const stepTier = step.job ? step.risk ?? riskOf(step.job.operationId) : null;
                   return (
                     <li key={step.id} className="setup-step" data-status={words.status}>
                       <StatusChip status={words.status}>{words.label}</StatusChip>
@@ -248,11 +298,12 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
               </ol>
               {runnable.length === 0 && phase === "choose" && <EmptyState title="Nothing to run">Everything in this profile is already in place, or waits on something outside it.</EmptyState>}
             </Panel>
+            </div>
             {phase === "running" && <Notice live tone="info" title="Running">Each step is a normal job; follow the details in Activity.</Notice>}
             {phase === "paused" && needPassword && (
               <Panel padded title="Approval">
                 <form className="setup-password" onSubmit={(event) => { event.preventDefault(); resume(); }}>
-                  <Field label="Owner password" hint="Your approval mode asks for it. Enter it once to approve the remaining steps.">
+                  <Field label="Owner password" hint="Your approval mode asks for it. Enter it once to approve the remaining steps." error={passwordError ?? undefined}>
                     <SecretInput value={password} onValueChange={setPassword} autoComplete="current-password" required />
                   </Field>
                   <Button type="submit" variant="primary">Continue</Button>
@@ -260,11 +311,17 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
               </Panel>
             )}
             {phase === "paused" && !needPassword && (
-              <Notice live tone="danger" title="A step failed" action={<><Button variant="primary" onClick={retry}>Retry</Button><Button onClick={skipFailed}>Skip and continue</Button></>}>
-                Fix the cause (its job log is in Activity), then retry, or skip it and go on.
+              <Notice live tone="danger" title="A step failed" action={deadEnd
+                ? <Button variant="primary" onClick={skipFailed}>Skip and continue</Button>
+                : <><Button variant="primary" onClick={() => void retry()}>Retry</Button><Button onClick={skipFailed}>Skip and continue</Button></>}>
+                {deadEnd
+                  ? "Running it again would stop the same way: the step's error names what has to happen first. Skip it and go on, and run it from its own page once that is done."
+                  : "Fix the cause (its job log is in Activity), then retry, or skip it and go on."}
               </Notice>
             )}
-            {phase === "finished" && <Notice live tone="success" title="All done">Anything skipped can be run later from its own page.</Notice>}
+            {phase === "finished" && (skippedCount === 0
+              ? <Notice live tone="success" title="All done">Every step in this profile is in place.</Notice>
+              : <Notice live tone="warning" title={`Done, with ${countOf(skippedCount, "step")} skipped`}>The steps marked skipped above did not run; each can be run later from its own page.</Notice>)}
           </>
         )}
       </Tabs>

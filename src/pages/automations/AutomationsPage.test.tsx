@@ -181,6 +181,8 @@ describe("Automations page", () => {
     const url = await screen.findByLabelText("Webhook URL");
     expect(url.textContent).toBe(`${window.location.origin}/api/v1/hooks/flow-1/secret-token`);
     expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+    // Shown in the automation's own card, beside the button that made it, not at the top of the page.
+    expect(url.closest(".automations-flow")?.querySelector(".automations-flow__name")?.textContent).toBe("Nightly");
     // Another action does not wipe it.
     fireEvent.click(screen.getByRole("button", { name: "Run it every Sunday at 03:00" }));
     await vi.waitFor(() => expect(calls).toContain("PUT /api/v1/flows/flow-1"));
@@ -215,5 +217,65 @@ describe("Automations page", () => {
     expect(verdict?.textContent).toBe("Not read");
     expect(verdict?.getAttribute("data-status")).toBe("unknown");
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+});
+
+/**
+ * A step only the owner may run, put in an operator's flow before steps were checked, does not run
+ * until the owner keeps it. The refusal said "open it and save the flow", and the page cannot edit
+ * an existing flow's steps: the owner had no way to do it.
+ */
+describe("an owner-only step the owner has not kept", () => {
+  const send = { operationId: "http.request", parameters: { url: "https://ntfy.example/topic", method: "POST" } };
+  const tidy = { ...baseFlow, id: "flow-7", name: "Tidy", createdBy: "operator-1", steps: [{ operationId: "apt.refresh", parameters: {} }, send], ownerToKeep: [{ step: 2, title: "Send an HTTP request", reads: [] }] };
+
+  it("offers the owner Keep this step, which keeps that step and no other", async () => {
+    let saved: unknown = null;
+    let kept = false;
+    serve({ flows: [tidy] }, (url, init) => {
+      if (url === "/api/v1/flows" && kept) return json({ flows: [{ ...tidy, ownerToKeep: [] }], palette, shelf: [] });
+      if (url === "/api/v1/flows/flow-7" && init?.method === "PUT") { saved = JSON.parse(String(init.body)); kept = true; return json({ flow: { ...tidy, ownerToKeep: [] } }); }
+      return undefined;
+    });
+    render(<AutomationsPage csrfToken="csrf" role="owner" />);
+    const card = (await screen.findByRole("heading", { level: 3, name: "Tidy" })).closest("li")!;
+    expect(within(card).getByText(/Step 2 \(Send an HTTP request\) is one only you may run/)).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Keep step 2" }));
+    // Its number, never the steps: sending them all back kept every owner-only step (sweep 4).
+    await vi.waitFor(() => expect(saved).toEqual({ keepStep: 2 }));
+    await vi.waitFor(() => expect(within(card).queryByRole("button", { name: "Keep step 2" })).toBeNull());
+    expect(within(card).getByText(/Step 2 is kept/)).toBeTruthy();
+  });
+
+  it("shows each step waiting to be kept with what it does and what it reads, and keeps only the one pressed (sweep 4)", async () => {
+    // The notice showed a step number and a title: keeping "Send an HTTP request" kept an address,
+    // a method and a saved credential the owner had not been shown, and the steps it reads.
+    const outward = { operationId: "http.request", name: "tell", parameters: { url: "https://collector.example/{{ steps.check.host }}", method: "POST", credentialName: "github-token", body: "[secret]" } };
+    const unpublish = { operationId: "cloudflare.unpublish", parameters: { hostname: "share.example.com" } };
+    const both = { ...tidy, steps: [{ operationId: "apt.refresh", parameters: {}, name: "check" }, unpublish, { operationId: "apt.refresh", parameters: {} }, outward], ownerToKeep: [{ step: 2, title: "Stop publishing an app to the internet", reads: [] }, { step: 4, title: "Send an HTTP request", reads: ["check"] }] };
+    let saved: unknown = null;
+    serve({ flows: [both] }, (url, init) => {
+      if (url === "/api/v1/flows/flow-7" && init?.method === "PUT") { saved = JSON.parse(String(init.body)); return json({ flow: both }); }
+      return undefined;
+    });
+    render(<AutomationsPage csrfToken="csrf" role="owner" />);
+    const card = (await screen.findByRole("heading", { level: 3, name: "Tidy" })).closest("li")!;
+    const fourth = within(card).getByRole("group", { name: "Step 4, waiting for you to keep it" });
+    expect(within(fourth).getByText("https://collector.example/{{ steps.check.host }}")).toBeTruthy();
+    expect(within(fourth).getByText("POST")).toBeTruthy();
+    expect(within(fourth).getByText("github-token")).toBeTruthy();
+    expect(within(fourth).getByText("[secret]")).toBeTruthy();
+    expect(within(fourth).getByText("It uses what check found.")).toBeTruthy();
+    const second = within(card).getByRole("group", { name: "Step 2, waiting for you to keep it" });
+    expect(within(second).getByText("share.example.com")).toBeTruthy();
+    fireEvent.click(within(fourth).getByRole("button", { name: "Keep step 4" }));
+    await vi.waitFor(() => expect(saved).toEqual({ keepStep: 4 }));
+  });
+
+  it("offers it to nobody else", async () => {
+    serve({ flows: [tidy] });
+    render(<AutomationsPage csrfToken="csrf" role="operator" />);
+    await screen.findByRole("heading", { level: 3, name: "Tidy" });
+    expect(screen.queryByRole("button", { name: "Keep step 2" })).toBeNull();
   });
 });

@@ -36,6 +36,7 @@ export function CodeBlock({ children, label, copy = true, follow = false, wrap =
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(children);
       setCopied("copied");
+      window.setTimeout(() => setCopied((current) => (current === "copied" ? "idle" : current)), 2_000);
     } catch {
       setCopied("failed");
     }

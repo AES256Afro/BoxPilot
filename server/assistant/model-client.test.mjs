@@ -1,10 +1,9 @@
-// @vitest-environment node
 import http from "node:http";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { startFakeModel } from "../agents/fake-model.mjs";
 import { startFakeOllama } from "../../test/fake-ollama.mjs";
 import { createModelClient, createOllamaAdapter, createOpenAiClient } from "./model-client.mjs";
-import { createEndpointGuard, isLoopbackAddress } from "./local-endpoint.mjs";
+import { createEndpointGuard, isLoopbackAddress } from "../../packages/harness/src/index.mjs";
 
 let fake;
 beforeAll(async () => { fake = await startFakeModel({ apiKey: "sk-test-key" }); });

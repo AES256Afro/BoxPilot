@@ -1,0 +1,52 @@
+/*
+ * The sidebar (src/shell/ShellSidebar.tsx, M41): a neutral frame from the semantic tokens. Each look
+ * that goes around this way draws it in its own material from src/looks/<id>/skin.css; below 761px
+ * it is folded away and the dock is the way around.
+ */
+.sidebar-nav {
+  position: fixed;
+  z-index: 20;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: var(--sidebar-width, 232px);
+  padding: 14px 10px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  color: var(--text);
+  background: var(--surface);
+  font-family: var(--font-sans);
+  scrollbar-width: thin;
+}
+
+.sidebar-host { display: flex; align-items: center; gap: 10px; padding: 2px 8px 12px; margin-bottom: 4px; border-bottom: 1px solid var(--border-subtle); }
+.sidebar-host__mark { display: grid; flex: none; width: 32px; height: 32px; place-items: center; border-radius: 9px; color: var(--accent-text-on); background: var(--accent); font: 800 12px/1 var(--font-sans); }
+.sidebar-host__words { display: grid; min-width: 0; gap: 1px; }
+.sidebar-host__name { overflow: hidden; color: var(--text-strong); font-size: 14.5px; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-host__facts { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }
+.sidebar-host__facts[data-status]::before { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--status-good); content: ""; }
+.sidebar-host__facts[data-status="warning"]::before { background: var(--status-warning); }
+.sidebar-host__facts[data-status="danger"]::before { background: var(--status-danger); }
+.sidebar-host__facts[data-status="unknown"]::before, .sidebar-host__facts[data-status="neutral"]::before { background: var(--status-unknown); }
+
+.sidebar-group { display: grid; gap: 1px; }
+.sidebar-group__title { margin: 10px 10px 4px; color: var(--text-muted); font: 700 10.5px/1.2 var(--font-sans); letter-spacing: 0.12em; text-transform: uppercase; }
+.sidebar-group__list, .sidebar-foot { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.sidebar-foot { margin-top: auto; padding-top: 10px; }
+
+.sidebar-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; padding: 5px 10px; border: 0; border-radius: 9px; color: var(--text); background: none; font: 500 14px/1.2 var(--font-sans); text-align: left; cursor: pointer; }
+.sidebar-item:hover { color: var(--text-strong); background: var(--surface-hover); }
+.sidebar-item[aria-current="page"] { color: var(--text-strong); background: var(--surface-raised); font-weight: 700; box-shadow: inset 0 0 0 1px var(--border); }
+.sidebar-item__icon { width: 18px; height: 18px; flex: none; opacity: 0.85; }
+.sidebar-item__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-item__badge { margin-left: auto; padding: 1px 7px; border-radius: 999px; color: var(--status-warning-text); background: var(--status-warning-bg); font: 700 11px/1.5 var(--font-mono); }
+
+@media (max-width: 760px) {
+  .sidebar-nav { display: none; }
+}
+
+/* Settings' list (M41): "All areas" leads it, quieter than the sections under it. */
+.sidebar-item--back { color: var(--text-muted); font-size: 13px; }

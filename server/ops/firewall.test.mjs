@@ -37,6 +37,34 @@ describe("firewall operations", () => {
     expect(merged[0].family).toBe("both");
   });
 
+  it("keeps where a rule lets traffic in from, and which way it goes", () => {
+    // What ufw writes to user.rules for, as `ufw status verbose` shows them:
+    //   8096/tcp  ALLOW IN   192.168.8.0/24
+    //   8096/tcp  ALLOW IN   Anywhere
+    //   25/tcp    DENY OUT   Anywhere
+    // The page could not tell the first two apart, and its Delete could reach the wrong one.
+    const v4 = parseUserRules([
+      "### tuple ### allow tcp 8096 0.0.0.0/0 any 192.168.8.0/24 in",
+      "### tuple ### allow tcp 8096 0.0.0.0/0 any 0.0.0.0/0 in",
+      "### tuple ### deny tcp 25 0.0.0.0/0 any 0.0.0.0/0 out",
+      "### tuple ### allow any any 0.0.0.0/0 any 192.168.8.0/24 OpenSSH - in",
+    ].join("\n"), "v4");
+    expect(v4[0]).toMatchObject({ action: "allow", port: 8096, protocol: "tcp", direction: "in", source: "192.168.8.0/24" });
+    expect(v4[1]).toMatchObject({ action: "allow", port: 8096, protocol: "tcp", direction: "in", source: null });
+    expect(v4[2]).toMatchObject({ action: "deny", port: 25, protocol: "tcp", direction: "out", source: null });
+    expect(v4[3]).toMatchObject({ app: "OpenSSH", source: "192.168.8.0/24" });
+    // The any-source rule is the same rule in both families; the LAN-only one is v4 alone.
+    const v6 = parseUserRules("### tuple ### allow tcp 8096 ::/0 any ::/0 in\n### tuple ### deny tcp 25 ::/0 any ::/0 out", "v6");
+    expect(v6[0]).toMatchObject({ source: null });
+    const merged = mergeRuleFamilies(v4, v6);
+    expect(merged.map((rule) => [rule.port, rule.direction, rule.source, rule.family])).toEqual([
+      [8096, "in", "192.168.8.0/24", "v4"],
+      [8096, "in", null, "both"],
+      [25, "out", null, "both"],
+      [null, "in", "192.168.8.0/24", "v4"],
+    ]);
+  });
+
   it("stages mutations as root tasks and enforces parameter shapes", async () => {
     const runUnit = { runTask: vi.fn(async () => ({ ok: true })) };
     await operations["firewall.set"].run({ enabled: true }, { runUnit, jobLog: null });

@@ -7,7 +7,7 @@ description: "Local speech-to-text service with an API: transcribe recordings, s
 website: https://github.com/ahmetoner/whisper-asr-webservice
 risk: low
 image:
-  reference: onerahmet/openai-whisper-asr-webservice:v1.10.0
+  reference: onerahmet/openai-whisper-asr-webservice:v1.10.0@sha256:0616c3d5fc6924e9d59aa8a7a3a944fbe8f3a5d701e5fc1fa2ce5b933dfecb73
   version: "1.10.0"
 ports:
   - id: api

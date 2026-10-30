@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, Notice, Panel, Select, StatusChip, Table, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, followRun, type AgentSummary, type Proposal, type Run } from "./api";
+import { agentsApi, followRun, type AgentSummary, type ModuleState, type Proposal, type Run, type ToolInfo } from "./api";
 import { errorText, finishedRunStates, kindWords, runState, seconds, waitingWords } from "./format";
 import type { RunnerWait } from "./setup";
+import { PausedNotice, isHeld } from "./Paused";
 import { ProposalCard } from "./ProposalCard";
 import { RunView } from "./Trace";
 
@@ -22,7 +23,15 @@ export interface ConsoleProps {
   csrfToken: string;
   role: string;
   now: number;
-  enabled: boolean;
+  /** Whether Agents are on, paused, or stopped: nothing starts while they are not running. */
+  module: Pick<ModuleState, "enabled" | "paused" | "pausedUntil" | "killedAt">;
+  /** The tool catalog, so the trace names each tool by its title. */
+  tools?: ToolInfo[] | null;
+  /** Whether this person may resume a paused agent (the owner and operators), and whether they are the owner. */
+  canPause?: boolean;
+  owner?: boolean;
+  onResumeAll?: () => void;
+  onResumeAgent?: (agent: AgentSummary) => void;
   /** Set while Agents are on and the runner is not answering. */
   runnerWait?: RunnerWait | null;
   onSelectAgent: (agentId: string) => void;
@@ -30,13 +39,26 @@ export interface ConsoleProps {
   onRunFinished: () => void;
 }
 
-/** "Was this right?": one person's verdict on an answer, which the evaluation counts. */
-function Feedback({ run, csrfToken, onGiven }: { run: Run; csrfToken: string; onGiven: (feedback: NonNullable<Run["feedback"]>) => void }) {
+/**
+ * "Was this right?": one person's verdict on an answer, which the evaluation counts. Whoever may
+ * change the agent can also say what the right answer holds: the question then joins its golden
+ * questions, and every evaluation asks it again (M40).
+ */
+function Feedback({ run, csrfToken, canAddQuestion, onGiven }: { run: Run; csrfToken: string; canAddQuestion: boolean; onGiven: (feedback: NonNullable<Run["feedback"]>) => void }) {
   const [note, setNote] = useState("");
+  const [words, setWords] = useState("");
   const [wrong, setWrong] = useState(false);
+  const [added, setAdded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const give = async (verdict: "up" | "down") => {
-    try { onGiven(await agentsApi.feedback(csrfToken, run.id, verdict, verdict === "down" ? note : undefined)); setError(null); setWrong(false); } catch (requestError) { setError(errorText(requestError, "That was not saved")); }
+    try {
+      const expect = verdict === "down" && canAddQuestion ? words.split(",").map((word) => word.trim()).filter(Boolean) : [];
+      const given = await agentsApi.feedback(csrfToken, run.id, verdict, verdict === "down" ? note : undefined, expect);
+      onGiven(given);
+      setAdded(Boolean(given.addedToEvaluation));
+      setError(null);
+      setWrong(false);
+    } catch (requestError) { setError(errorText(requestError, "That was not saved")); }
   };
   return (
     <div className="agents-feedback" role="group" aria-label="Was this right?">
@@ -47,15 +69,17 @@ function Feedback({ run, csrfToken, onGiven }: { run: Run; csrfToken: string; on
       {wrong && (
         <span className="agents-feedback__note">
           <TextInput aria-label="What was wrong" value={note} maxLength={300} placeholder="What was wrong (optional)" onValueChange={setNote} />
+          {canAddQuestion && <TextInput aria-label="Words the right answer holds" value={words} maxLength={200} placeholder="Words a right answer holds, by commas: adds it to the evaluation" onValueChange={setWords} />}
           <Button onClick={() => void give("down")}>Send</Button>
         </span>
       )}
+      {added && <Notice tone="success" live onDismiss={() => setAdded(false)}>The question is one of its golden questions now: every evaluation asks it again.</Notice>}
       {error && <Notice tone="danger" live>{error}</Notice>}
     </div>
   );
 }
 
-export function Console({ agents, agentId, runId, csrfToken, role, now, enabled, runnerWait = null, onSelectAgent, onStage, onRunFinished }: ConsoleProps) {
+export function Console({ agents, agentId, runId, csrfToken, role, now, module, tools = null, canPause = false, owner = false, onResumeAll, onResumeAgent, runnerWait = null, onSelectAgent, onStage, onRunFinished }: ConsoleProps) {
   const staff = role === "owner" || role === "operator";
   const usable = agents.filter((agent) => agent.canAsk || (staff && agent.canEdit) || (staff && role === "owner"));
   const agent = usable.find((entry) => entry.id === agentId) ?? usable[0] ?? null;
@@ -70,9 +94,16 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   const finishedCallback = useRef(onRunFinished);
   useEffect(() => { finishedCallback.current = onRunFinished; }, [onRunFinished]);
 
+  // Which agent's runs the list is for: an answer for the agent chosen before is dropped, or it would
+  // list that agent's runs under this one's name, and open its latest run here.
+  const historyFor = useRef<string | null>(null);
   const readHistory = useCallback(async (id: string) => {
+    historyFor.current = id;
     if (!staff) { setHistory([]); return; }
-    try { setHistory((await agentsApi.runs(id)).runs); } catch { setHistory(null); }
+    try {
+      const { runs } = await agentsApi.runs(id);
+      if (historyFor.current === id) setHistory(runs);
+    } catch { if (historyFor.current === id) setHistory(null); }
   }, [staff]);
 
   const follow = useCallback((id: string) => {
@@ -93,11 +124,16 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   const currentId = agent?.id ?? null;
   useEffect(() => { if (currentId) { setHistory(null); void readHistory(currentId); } }, [currentId, readHistory]);
   useEffect(() => { if (runId) follow(runId); }, [runId, follow]);
-  // With nothing chosen, the agent's latest run opens, so the console never starts blank.
-  const latest = history?.[0]?.id ?? null;
+  // With nothing chosen, the agent's latest run opens, so the console never starts blank: once for
+  // each agent chosen. It used to follow the latest again whenever the run on show was another
+  // agent's, so opening a delegate's run from "One request, N runs" snapped straight back.
+  const latest = history?.[0] && history[0].agentId === currentId ? history[0].id : null;
   const showing = run?.agentId ?? null;
+  const openedLatestFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!runId && latest && showing !== currentId) follow(latest);
+    if (runId || !latest || !currentId || openedLatestFor.current === currentId) return;
+    openedLatestFor.current = currentId;
+    if (showing !== currentId) follow(latest);
   }, [runId, latest, showing, currentId, follow]);
 
   const start = async (kind: "ask" | "test") => {
@@ -118,7 +154,18 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   };
   const cancel = async () => {
     if (!run) return;
-    try { setRun(await agentsApi.cancel(csrfToken, run.id)); } catch (requestError) { setError(errorText(requestError, "The run could not be stopped")); }
+    try {
+      // The reply carries no trace and no tree: merged, so stopping does not empty what was shown.
+      const stopped = await agentsApi.cancel(csrfToken, run.id);
+      setRun((current) => (current?.id === stopped.id ? { ...current, ...stopped, steps: stopped.steps ?? current.steps, tree: stopped.tree ?? current.tree } : stopped));
+    } catch (requestError) { setError(errorText(requestError, "The run could not be stopped")); }
+  };
+  // M45.6: stopping a plan this run made; what waits on a person is withdrawn.
+  const stopPlan = async (planId: string) => {
+    try {
+      const plan = await agentsApi.cancelPlan(csrfToken, planId);
+      setRun((current) => (current?.plan?.id === plan.id ? { ...current, plan } : current));
+    } catch (requestError) { setError(errorText(requestError, "The plan could not be stopped")); }
   };
   // Opening an earlier run shows it in the Run panel above, which is out of sight from the list.
   const open = (id: string) => {
@@ -133,6 +180,8 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
   }
   const running = run !== null && !finishedRunStates.has(run.state);
   const mayTest = staff && (agent.canEdit || role === "owner");
+  // Off, paused, or this agent paused: the buttons wait, and the notice says why and offers the resume.
+  const held = isHeld(module, agent);
 
   const columns: Array<TableColumn<Run>> = [
     { id: "state", header: "Outcome", cell: (entry) => <StatusChip status={runState(entry.state).status}>{runState(entry.state).label}</StatusChip> },
@@ -155,11 +204,11 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
             <Textarea rows={3} maxLength={2000} value={question} placeholder={agent.name === "Pi-hole Watcher" ? "Is Pi-hole blocking, and are its lists fresh?" : "What runs on this server, and is anything failing?"} onValueChange={setQuestion} />
           </Field>
           <div className="agents-ask__actions">
-            {agent.canAsk && <Button variant="primary" busy={busy} disabled={!enabled || !question.trim() || running} onClick={() => void start("ask")}>Ask</Button>}
-            {mayTest && <Button variant={agent.canAsk ? "secondary" : "primary"} busy={busy} disabled={!enabled || running} onClick={() => void start("test")}>{question.trim() ? "Run with this question" : "Run once"}</Button>}
+            {agent.canAsk && <Button variant="primary" busy={busy} disabled={held || !question.trim() || running} onClick={() => void start("ask")}>Ask</Button>}
+            {mayTest && <Button variant={agent.canAsk ? "secondary" : "primary"} busy={busy} disabled={held || running} onClick={() => void start("test")}>{question.trim() ? "Run with this question" : "Run once"}</Button>}
             {running && <Button variant="ghost" onClick={() => void cancel()}>Stop</Button>}
           </div>
-          {!enabled && <Notice tone="info">Agents are off, so nothing runs. The owner turns them on at the top of this page.</Notice>}
+          {held && <PausedNotice module={module} agent={agent} what="a question" canPause={canPause} owner={owner} onResumeAll={onResumeAll} onResumeAgent={onResumeAgent ? () => onResumeAgent(agent) : undefined} />}
           {error && <Notice tone="danger" live>{error}</Notice>}
         </div>
       </Panel>
@@ -186,8 +235,11 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, enabled,
                   </ol>
                 </nav>
               )}
-              <RunView run={run} />
-              {finishedRunStates.has(run.state) && run.kind !== "index" && <Feedback run={run} csrfToken={csrfToken} onGiven={(feedback) => setRun((current) => (current ? { ...current, feedback } : current))} />}
+              <RunView run={run} tools={tools} onStopPlan={role === "viewer" ? undefined : (planId) => void stopPlan(planId)} />
+              {/* Keyed by run: an open "Wrong" belongs to the run it was opened on. */}
+              {finishedRunStates.has(run.state) && run.kind !== "index" && <Feedback key={run.id} run={run} csrfToken={csrfToken}
+                canAddQuestion={Boolean(run.question) && run.kind !== "eval" && Boolean(agents.find((entry) => entry.id === run.agentId)?.canEdit)}
+                onGiven={(feedback) => setRun((current) => (current ? { ...current, feedback } : current))} />}
               {run.proposals.length > 0 && (
                 <div className="agents-cards__list">
                   {run.proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} csrfToken={csrfToken} role={role} onStage={onStage} onDecided={decided} />)}

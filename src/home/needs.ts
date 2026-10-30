@@ -1,8 +1,8 @@
 import type { AppProtection } from "../backupProtection";
 import { behindBackupSchedules, judgeProtection, protectionWarning } from "../backupProtection";
 import { countOf, sentenceList, type ViewName } from "../data";
-import { jobTimeout } from "../JobTimeout";
-import { dismissedFailure, failureSettled, ranAgain } from "../jobStatus";
+import { jobTimeout, mayStillBeRunning } from "../JobTimeout";
+import { dismissedFailure, failureSettled, jobSubject, ranAgain } from "../jobStatus";
 import { mirrorOperations, offBoxWarning } from "../offBox";
 import type { Job } from "../operations";
 import { fixesOf, type Finding, type RepairFix } from "../repair/types";
@@ -11,6 +11,7 @@ import type { RiskTier, Status } from "../ui/types";
 import type { AppFact, FactValues, Facts } from "./facts";
 import { relativeTime } from "./format";
 import { outageDetail, outageTitle } from "./outage";
+import { adviseRetry, failureLine, type RetryAdvice } from "../retryAdvice";
 
 /*
  * "What needs you" (M33.2): everything BoxPilot knows that the owner should look at or act on,
@@ -27,10 +28,13 @@ export type NeedSeverity = "danger" | "warning" | "neutral";
  * finding's fixes carry the finding's own `fix`, so Home and Ops run them exactly as Repair does
  * (M35): recorded against the finding, and the finding checked again when the job ends. `dismiss`
  * sets a failed job aside, and `acknowledge` says "Got it" to a power cut Home is telling the owner
- * about (`parameters.id` is the outage); neither runs anything.
+ * about (`parameters.id` is the outage); neither runs anything. `open` goes to the page where the
+ * fix is, when a failure names one: running the same thing again would only fail the same way.
  */
 export interface NeedAction {
-  kind?: "operation" | "schedule" | "dismiss" | "acknowledge";
+  kind?: "operation" | "schedule" | "dismiss" | "acknowledge" | "open";
+  /** For `open`: the page, and its tab, where the fix is. */
+  open?: { view: ViewName; tab?: string };
   fix?: RepairFix;
   /** Stage this timed-out job again with more time, rather than `operationId` afresh (M30.3). */
   moreTimeFor?: string;
@@ -77,6 +81,8 @@ export function watchView(family: string): ViewName {
   if (family === "flow.failed") return "automations";
   if (family === "release.available") return "system";
   if (family === "drive.reconnected") return "storage";
+  // BoxPilot's own restart that gave up or failed is made from Services (sweep 5).
+  if (family === "boxpilot.restart") return "services";
   if (family === "signin.new" || family === "report.weekly") return "settings";
   // A power cut: its advice is a UPS, which the System page sets up.
   if (family === "power.lost") return "system";
@@ -98,7 +104,8 @@ export function sortNeeds(needs: Need[]): Need[] {
   return [...needs].sort((a, b) => severityRank[a.severity] - severityRank[b.severity] || kindRank[a.kind] - kindRank[b.kind]);
 }
 
-const backupOperation = /^(app\.backup|backup\.|controller\.backup|host\.snapshot|vm\.backup|vm\.export)/;
+/** Operations that make or copy a backup, by id: the needs list's backup rules, and Today's "what ran" (M25.3). */
+export const backupOperation = /^(app\.backup|backup\.|controller\.backup|host\.snapshot|vm\.backup|vm\.export)/;
 
 /** Docker's state for a container that is not serving, as a sentence. */
 function containerWords(status: string): string {
@@ -109,6 +116,10 @@ function containerWords(status: string): string {
 const tierOf = (value: string): RiskTier | undefined => (value === "low" || value === "medium" || value === "high" ? value : undefined);
 /** At most `limit` characters, cut at a word with an ellipsis. */
 export const brief = (text: string, limit = 110): string => (text.length <= limit ? text : `${text.slice(0, limit).replace(/\s+\S*$/, "").replace(/[\s,:;.]+$/, "")}…`);
+/** The button that goes where a failure's fix is, in place of a Try again that would fail the same way. */
+const openAction = (next: NonNullable<RetryAdvice["next"]>): NeedAction => ({ kind: "open", open: { view: next.view, ...(next.tab ? { tab: next.tab } : {}) }, operationId: "", label: next.label, title: next.label, parameters: {}, preview: "", risk: "low" });
+/** When something last happened, for comparing a failure with what came after it. */
+const timeOf = (iso: string | null | undefined): number => { const at = Date.parse(iso ?? ""); return Number.isFinite(at) ? at : Number.NaN; };
 
 export function buildNeeds(facts: FactValues, { now, role }: { now: number; role: string | null | undefined }): Need[] {
   const needs: Need[] = [];
@@ -201,21 +212,46 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     needs.push({ id: "services", kind: "alert", severity: "danger", title: `${countOf(failed, "system service")} failed`, detail: "Services lists them with their journal", view: "services", action: null });
   }
 
+  // M36: copies of the database the update took before the secret scrub still hold those secrets.
+  // Only the ones removal can take: the newest copies always stay, and a need nobody can clear
+  // would sit on Home until the next update. Removing them is the owner's.
+  const heldSecrets = facts.databaseCopies?.removable ?? 0;
+  if (heldSecrets > 0 && mayStart(role, "housekeeping.database-copies.remove")) {
+    needs.push({
+      id: "database-copies", kind: "alert", severity: "warning", view: "system",
+      title: `${heldSecrets === 1 ? "A database copy" : `${heldSecrets} database copies`} from before the secret scrub ${heldSecrets === 1 ? "is" : "are"} still on disk`,
+      detail: "Updates keep a copy of the database to go back to; these were taken before BoxPilot moved its secrets out of it, so they still hold them",
+      action: { kind: "open", open: { view: "system", tab: "housekeeping" }, operationId: "", label: "Review copies", title: "Review copies", parameters: {}, preview: "", risk: "low" },
+    });
+  }
+
   // ── Repair's findings, each with its fixes, run as Repair runs them (M35). Apps with no
   //    container are said once above; each one's Reinstall and Uninstall are on Repair. ──
   for (const finding of repairFindings) {
     if (finding.id.startsWith("app-missing:")) continue;
     const failedBefore = finding.lastAttempt?.state === "failed";
-    const actions = fixesOf(finding)
+    // "Try again" only when the same fix can work again; a failure that names another place opens it.
+    const advice: RetryAdvice = failedBefore ? adviseRetry(finding.lastAttempt?.error) : { retry: true };
+    // A try that may still be running on the server is not offered again beside itself (sweep 4),
+    // until it can no longer be (12 hours on). Letting that try go is, and opens the fix again (sweep 5).
+    const attempt = finding.lastAttempt ?? null;
+    const leftRunning = mayStillBeRunning(attempt, now);
+    const fixes = leftRunning ? [] : fixesOf(finding)
       .filter((fix) => mayStart(role, fix.operationId))
-      .map((fix, index): NeedAction => ({ kind: fix.kind === "schedule" ? "schedule" : "operation", fix, operationId: fix.operationId, label: index === 0 && failedBefore ? "Try again" : fix.label, title: fix.label, parameters: fix.parameters ?? {}, preview: fix.preview, risk: fix.risk ?? riskOf(fix.operationId) }));
+      .map((fix, index): NeedAction => ({ kind: fix.kind === "schedule" ? "schedule" : "operation", fix, operationId: fix.operationId, label: index === 0 && failedBefore && advice.retry ? "Try again" : fix.label, title: fix.label, parameters: fix.parameters ?? {}, preview: fix.preview, risk: fix.risk ?? riskOf(fix.operationId) }));
+    const letGo: NeedAction | null = leftRunning && attempt && (role === "owner" || role === "operator")
+      ? { kind: "dismiss", operationId: "", label: "Dismiss this try", title: `Dismiss this try: ${attempt.title}`, parameters: {}, preview: "", risk: "low" } : null;
+    const runnable = [...(advice.next && fixes.length ? [openAction(advice.next)] : []), ...fixes];
+    const actions = [...runnable, ...(letGo ? [letGo] : [])];
     needs.push({
+      ...(letGo && attempt ? { jobId: attempt.jobId } : {}),
       id: `repair:${finding.id}`, kind: "repair", finding,
       severity: finding.severity === "critical" ? "danger" : finding.severity === "warning" ? "warning" : "neutral",
       title: finding.title,
-      // A row holds a line or two; the whole error is on Repair's card, with the job's log.
-      detail: failedBefore ? brief(`Last try failed: ${finding.lastAttempt?.error ?? "no error was recorded"}`) : finding.evidence?.[0] ?? null,
-      view: "repairs", action: actions[0] ?? null, ...(actions.length > 1 ? { actions } : {}),
+      // A row holds a line or two; the whole error is on Repair's card, with the job's log. What the
+      // error says to do first is kept, even when the start of it has to be cut.
+      detail: failedBefore ? failureLine("Last try failed: ", finding.lastAttempt?.error) : finding.evidence?.[0] ?? null,
+      view: finding.view ?? "repairs", action: runnable[0] ?? null, ...(actions.length > 1 || letGo ? { actions } : {}),
     });
   }
 
@@ -240,11 +276,11 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   if (updates && updates.count > 0) {
     needs.push({ id: "updates", kind: "updates", severity: updates.security > 0 ? "warning" : "neutral", title: `${countOf(updates.count, "update")} available`,
       detail: updates.security > 0 ? `${countOf(updates.security, "security fix", "security fixes")} among them` : "None of them are security fixes", view: "updates",
-      action: act("apt.upgrade", "Install", "Install all updates", {}, `Upgrades ${countOf(updates.count, "package")} with apt-get upgrade --with-new-pkgs after refreshing the lists.`) });
+      action: act("apt.upgrade", "Install", "Install all updates", {}, `Refreshes the package lists, then installs ${countOf(updates.count, "update")}; a service may restart while it does.`) });
   }
   if (facts.unattended && !facts.unattended.enabled) {
     needs.push({ id: "unattended", kind: "updates", severity: "neutral", title: "Security fixes wait for you", detail: "Automatic security updates are off", view: "updates",
-      action: act("apt.unattended.set", "Turn on", "Turn on automatic updates", { enabled: true }, "Sets APT::Periodic::Unattended-Upgrade \"1\" so security updates install nightly.") });
+      action: act("apt.unattended.set", "Turn on", "Turn on automatic updates", { enabled: true }, "Turns on nightly security updates: Ubuntu's unattended-upgrades installs them while you sleep.") });
   }
 
   // ── Backups: failed runs first, then what is not covered. ──
@@ -254,11 +290,27 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     const id = job.parameters?.id;
     if (job.type === "op:app.backup" && typeof id === "string" && !newestBackup.has(id)) newestBackup.set(id, job);
   }
+  // Backed up since, however it happened: Repair's "Back up now" for several apps runs one
+  // app.backup.many, and the backups list knows the newest copy whoever made it. A failure followed
+  // by a good copy is not a failure the owner still has to deal with.
+  const backedUpSince = (id: string, since: number): boolean => {
+    const newest = timeOf(facts.protection?.find((entry) => entry.id === id)?.newestAt);
+    if (newest > since) return true;
+    return jobs.some((other) => other.type === "op:app.backup.many" && other.state === "completed" && timeOf(other.createdAt) > since
+      && Array.isArray(other.parameters?.ids) && (other.parameters.ids as unknown[]).includes(id));
+  };
   for (const [id, job] of newestBackup) {
     if (job.state !== "failed" || ranAgain(job) || dismissedFailure(job)) continue;
+    // "The backup succeeded, but the app did not start again": the copy is made; the app being down
+    // is said with its own Start above.
+    if (/^The backup succeeded\b/.test(job.error ?? "") || backedUpSince(id, timeOf(job.createdAt))) continue;
     failedBackupApps.add(id);
-    needs.push({ id: `backup-failed:${id}`, kind: "backup", severity: "danger", title: `The last backup of ${appName(id)} failed`, detail: job.error ?? null, view: "backups", appId: id,
-      action: act("app.backup", "Back up again", `Back up ${appName(id)}`, { id }, `Stops ${appName(id)} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.`) });
+    // No space left on the device fails the same way every time: the button frees space instead.
+    const advice = adviseRetry(job.error);
+    const action = advice.retry
+      ? act("app.backup", "Back up again", `Back up ${appName(id)}`, { id }, `Stops ${appName(id)} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.`)
+      : advice.next && mayStart(role, "app.backup") ? openAction(advice.next) : null;
+    needs.push({ id: `backup-failed:${id}`, kind: "backup", severity: "danger", title: `The last backup of ${appName(id)} failed`, detail: job.error ? failureLine("", job.error) : null, view: "backups", appId: id, action });
   }
   const schedules = facts.schedules ?? [];
   for (const schedule of schedules) {
@@ -266,6 +318,12 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     if (schedule.lastOutcome !== "failed" && schedule.lastOutcome !== "did-not-run") continue;
     const subject = typeof schedule.parameters?.subject === "string" ? schedule.parameters.subject : null;
     if (subject && failedBackupApps.has(subject)) continue;
+    // A run that failed at 03:00 is dealt with when the same thing worked since, by hand or otherwise:
+    // it used to stay until the next night's run, beside a backup that had long since succeeded.
+    const lastRun = timeOf(schedule.lastRunAt);
+    if (Number.isFinite(lastRun) && ((subject && schedule.operationId === "app.backup" && backedUpSince(subject, lastRun))
+      || jobs.some((other) => other.type === `op:${schedule.operationId}` && other.state === "completed" && timeOf(other.createdAt) > lastRun
+        && (!subject || jobSubject(other).endsWith(`:${subject}`))))) continue;
     const what = subject ? `${schedule.title} (${appName(subject)})` : schedule.title;
     needs.push({ id: `schedule:${schedule.id}`, kind: "backup", severity: schedule.lastOutcome === "failed" ? "danger" : "warning",
       title: schedule.lastOutcome === "failed" ? `Scheduled backup failed: ${what}` : `Scheduled backup did not run: ${what}`,
@@ -296,7 +354,7 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     if (days === null || days > 7) {
       needs.push({ id: "database", kind: "backup", severity: "warning", title: days === null ? "BoxPilot's own database has no backup yet" : `BoxPilot's database was last backed up ${countOf(days, "day")} ago`,
         detail: "It holds your schedules, jobs, people and settings", view: "backups",
-        action: act("controller.backup.create", "Back up now", "Back up the BoxPilot database", {}, "Snapshots the live database with VACUUM INTO (no downtime) and restore-drills the copy before recording it.") });
+        action: act("controller.backup.create", "Back up now", "Back up the BoxPilot database", {}, "Takes a copy of the live database without stopping BoxPilot, then opens the copy to prove it restores before keeping it.") });
     }
   }
 
@@ -314,15 +372,23 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     const parameters = failedJob.parameters ?? {};
     // A run that ran out of time is offered the more time it can have, as Activity offers it.
     const moreTime = jobTimeout(failedJob)?.moreTimeMs ? failedJob.id : null;
-    const retry = failedJob.type.startsWith("op:") && !JSON.stringify(parameters).includes("[secret]")
+    // Run again only when that can work: a failure that names another fix (install a tool first, free
+    // space, a port someone else holds) opens where that fix is instead. Pressing Try again on those
+    // repeated the same refusal; the owner did it three times on "Reconnect a drive".
+    // One that may still be running on the server is not run again beside itself (sweep 4): the row
+    // opens it in Activity, where its log says how far it has got, and Dismiss lets it go.
+    const advice = moreTime ? { retry: true } : mayStillBeRunning(failedJob, now) ? { retry: false } : adviseRetry(failedJob.error);
+    const retry = advice.retry && failedJob.type.startsWith("op:") && !JSON.stringify(parameters).includes("[secret]")
       ? act(operationId, moreTime ? "Try again with more time" : "Try again", failedJob.title, parameters, `Runs ${failedJob.title} again with the same settings${moreTime ? " and a larger time budget" : ""}. The last run failed: ${failedJob.error ?? "no error was recorded"}`)
       : null;
     const again = retry && moreTime ? { ...retry, moreTimeFor: moreTime } : retry;
-    const dismiss: NeedAction | null = role === "owner" || role === "operator" ? { kind: "dismiss", operationId: "", label: "Dismiss", title: `Dismiss: ${failedJob.title}`, parameters: {}, preview: "", risk: "low" } : null;
-    const actions = [again, dismiss].filter((entry): entry is NeedAction => Boolean(entry));
+    const mayAct = role === "owner" || role === "operator";
+    const elsewhere = !advice.retry && advice.next && mayAct ? openAction(advice.next) : null;
+    const dismiss: NeedAction | null = mayAct ? { kind: "dismiss", operationId: "", label: "Dismiss", title: `Dismiss: ${failedJob.title}`, parameters: {}, preview: "", risk: "low" } : null;
+    const actions = [again ?? elsewhere, dismiss].filter((entry): entry is NeedAction => Boolean(entry));
     needs.push({ id: `job:${failedJob.id}`, kind: "job", severity: "warning", title: `${jobTimeout(failedJob) ? "Ran out of time" : "Failed"}: ${failedJob.title}`, jobId: failedJob.id,
-      detail: [failedJob.error, more > 0 ? `${countOf(more, "more failed job")} in Activity` : null].filter(Boolean).join(" · ") || null,
-      view: "repairs", action: again, ...(actions.length ? { actions } : {}) });
+      detail: [failedJob.error ? failureLine("", failedJob.error, 180) : null, more > 0 ? `${countOf(more, "more failed job")} in Activity` : null].filter(Boolean).join(" · ") || null,
+      view: "repairs", action: again ?? elsewhere, ...(actions.length ? { actions } : {}) });
   }
 
   // ── Setting up: a rebuild found, a fresh box, the essentials not yet done. ──
@@ -346,13 +412,19 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
 /** The buttons a need shows, `action` first. */
 export const actionsOf = (need: Need): NeedAction[] => need.actions ?? (need.action ? [need.action] : []);
 
+/**
+ * The first button that runs something, and so has a tier. One that only opens another page, or sets
+ * a failure aside, runs nothing: a row with only those is looked at, not approved.
+ */
+export const runs = (need: Need): NeedAction | null => actionsOf(need).find((action) => action.kind !== "open" && action.kind !== "dismiss" && action.kind !== "acknowledge") ?? null;
+
 /** Ops' action inbox: what can be run from here, by tier; and the rest, which is only looked at. */
 export function groupByTier(needs: Need[]): { high: Need[]; medium: Need[]; low: Need[]; look: Need[] } {
   return {
-    high: needs.filter((need) => need.action?.risk === "high"),
-    medium: needs.filter((need) => need.action?.risk === "medium"),
-    low: needs.filter((need) => need.action?.risk === "low"),
-    look: needs.filter((need) => !need.action),
+    high: needs.filter((need) => runs(need)?.risk === "high"),
+    medium: needs.filter((need) => runs(need)?.risk === "medium"),
+    low: needs.filter((need) => runs(need)?.risk === "low"),
+    look: needs.filter((need) => !runs(need)),
   };
 }
 

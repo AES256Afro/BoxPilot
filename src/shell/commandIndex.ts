@@ -8,7 +8,7 @@ import type { RiskTier } from "../ui/types";
  * feature the pages list. Pure, so the ranking is tested without a browser.
  */
 
-export type CommandGroup = "Pages" | "Actions" | "Apps" | "Settings and features";
+export type CommandGroup = "Suggested" | "Pages" | "Actions" | "Apps" | "Settings and features";
 
 /**
  * Something the command bar can do rather than open (M36): a registered operation, started through
@@ -30,15 +30,18 @@ export interface Command {
   label: string;
   /** Where it goes, in a few words: "Page", "System", "Opens in a new tab". */
   hint: string;
-  /** The page to open, with an app to open the catalog at. */
+  /** The page to open, with an app to open the catalog at, or the tab to open it at. */
   view?: ViewName;
   app?: string;
+  tab?: string;
   /** An address outside BoxPilot (an app's own web page), opened in a new tab. */
   href?: string;
   /** Extra words that should find it. */
   keywords?: string;
   /** An operation to start, through the approval dialog at its tier (M36). */
   action?: CommandAction;
+  /** A job to open Activity at (M36: the failure to look at again). */
+  job?: string;
 }
 
 /** What the command bar needs to know about an installed app to offer to act on it. */
@@ -46,7 +49,7 @@ export interface AppActionFacts { id: string; name: string; running: boolean; pa
 
 export interface CatalogEntry { id: string; name: string; category: string; installed: boolean; url: string | null }
 
-const groupRank: Record<CommandGroup, number> = { Pages: 0, Actions: 1, Apps: 2, "Settings and features": 3 };
+const groupRank: Record<CommandGroup, number> = { Suggested: -1, Pages: 0, Actions: 1, Apps: 2, "Settings and features": 3 };
 
 const tierHint: Record<RiskTier, string> = { low: "Runs at once", medium: "Preview, then confirm", high: "Asks for your password" };
 
@@ -82,6 +85,20 @@ export function actionCommands(apps: AppActionFacts[], role: string | null | und
   return commands;
 }
 
+/**
+ * What the command bar offers before anything is typed (M36), above the pages: the approvals
+ * waiting, the newest failure nobody has dealt with, and each app update this role may start.
+ * The approvals open Today, where they are listed first; the failure opens Activity at that job,
+ * where it can be run again or dismissed; an update is the same action a search finds.
+ */
+export function suggestedCommands({ waiting, failure, actions }: { waiting: number; failure: { id: string; title: string } | null; actions: Command[] }): Command[] {
+  const suggested: Command[] = [];
+  if (waiting > 0) suggested.push({ id: "suggest:approvals", group: "Suggested", label: `Review ${waiting === 1 ? "the job" : `${waiting} jobs`} waiting for approval`, hint: "Today", view: "today" });
+  if (failure) suggested.push({ id: "suggest:failure", group: "Suggested", label: `Failed: ${failure.title}`, hint: "Opens it in Activity, to run again or dismiss", job: failure.id });
+  for (const action of actions) if (action.id.startsWith("action:update:")) suggested.push({ ...action, id: `suggest:${action.id}`, group: "Suggested" });
+  return suggested;
+}
+
 /** The pages, as the command bar lists them with nothing typed: Home and Ops first, then the dock's areas. */
 export function pageCommands(): Command[] {
   const pages: Command[] = navItems.map((item) => ({
@@ -96,6 +113,11 @@ export function buildCommands(catalog: CatalogEntry[], actions: Command[] = []):
   const features: Command[] = navItems.flatMap((item) => viewFeatures[item.id].map((feature, index) => ({
     id: `feature:${item.id}:${index}`, group: "Settings and features" as const, label: feature, hint: item.label, view: item.id,
   })));
+  // Appearance is a tab of Settings, and the words people look for it by are not its name.
+  features.push({
+    id: "settings:appearance", group: "Settings and features", label: "Appearance", hint: "Settings", view: "settings", tab: "appearance",
+    keywords: "look looks theme light dark mode wallpaper accent colour color rows density compact glass",
+  });
   const apps: Command[] = [...catalog].sort((a, b) => Number(b.installed) - Number(a.installed) || a.name.localeCompare(b.name)).flatMap((app): Command[] => {
     if (!app.installed) return [{ id: `app:${app.id}`, group: "Apps", label: `Install ${app.name}`, hint: `App catalog · ${app.category}`, view: "catalog", app: app.id, keywords: `${app.name} ${app.id} ${app.category}` }];
     // Typing an installed app's name and pressing Enter opens the app itself, as a launcher does.

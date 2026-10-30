@@ -28,7 +28,7 @@ const pathOf = (unit) => `/${unit.replace(/\.(auto)?mount$/, "").replaceAll("-",
  * refuses the mount unit's stop until something lets go (Samba's close-share when `samba` is set);
  * `retrigger` has a client mount the share again through the automount between the two stops.
  */
-function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNothing = false, noopStarts = 0, busy = false, samba = false, retrigger = false, containers = [], journal = "", readOnly = false } = {}) {
+function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNothing = false, noopStarts = 0, busy = false, samba = false, retrigger = false, containers = [], binds = {}, journal = "", readOnly = false } = {}) {
   const state = { mounts: structuredClone(mounts), busy, journal, retriggered: false, noopStarts };
   const calls = [];
   const ok = (stdout = "") => ({ ok: true, code: 0, stdout, stderr: "" });
@@ -46,7 +46,7 @@ function fakeHost({ mounts = {}, fstype = "cifs", mountFails = null, startsButNo
     if (name === "systemd-escape") return ok(escape(args.at(-1)));
     if (name === "journalctl") return ok(args[0] === "--sync" ? "" : state.journal);
     if (name === "docker" && args[0] === "ps") return ok(containers.length ? "c0ffee" : "");
-    if (name === "docker" && args[0] === "inspect") return ok(containers.map((container) => `/${container}\t/mnt/nas-media/films\t`).join("\n"));
+    if (name === "docker" && args[0] === "inspect") return ok(containers.map((container) => `/${container}\t${binds[container] ?? "/mnt/nas-media/films"}\t`).join("\n"));
     if (name === "smbstatus") return ok(JSON.stringify({ tcons: { 1: { service: "Everything", machine: "192.168.1.40" } } }));
     if (name === "smbcontrol") { if (samba) state.busy = false; return ok(); }
     if (name !== "systemctl") return ok();
@@ -91,9 +91,12 @@ describe("network share tasks", () => {
     expect(validateShare({ kind: "smb", host: "nas", share: "Public", name: "boxpilot" })).toContain("reserved");
 
     expect(buildShareEntry({ kind: "smb", host: "nas", share: "My Files", name: "nas-files", guest: false }).entry)
-      .toBe("//nas/My\\040Files /mnt/nas-files cifs credentials=/etc/boxpilot/secrets/share-nas-files.cred,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=300,x-systemd.mount-timeout=30 0 0");
-    expect(buildShareEntry({ kind: "smb", host: "nas", share: "Public", name: "pub", guest: true, readOnly: true }).entry).toContain("cifs guest,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,ro,nofail");
-    expect(buildShareEntry({ kind: "nfs", host: "nas", share: "/volume1/media", name: "media" }).entry).toBe("nas:/volume1/media /mnt/media nfs rw,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=300,x-systemd.mount-timeout=30 0 0");
+      .toBe("//nas/My\\040Files /mnt/nas-files cifs credentials=/etc/boxpilot/secrets/share-nas-files.cred,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,nosuid,nodev,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=300,x-systemd.mount-timeout=30 0 0");
+    expect(buildShareEntry({ kind: "smb", host: "nas", share: "Public", name: "pub", guest: true, readOnly: true }).entry).toContain("cifs guest,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,ro,nosuid,nodev,nofail");
+    // The backup destination holds every app's .env: root's alone, not uid 1000's and world-readable.
+    expect(buildShareEntry({ kind: "smb", host: "nas", share: "alex/BoxPilot-Backup", name: "boxpilot-backup", guest: false }).entry)
+      .toBe("//nas/alex/BoxPilot-Backup /mnt/boxpilot/backup cifs credentials=/etc/boxpilot/secrets/share-boxpilot-backup.cred,uid=0,gid=0,file_mode=0600,dir_mode=0700,iocharset=utf8,nosuid,nodev,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=300,x-systemd.mount-timeout=30 0 0");
+    expect(buildShareEntry({ kind: "nfs", host: "nas", share: "/volume1/media", name: "media" }).entry).toBe("nas:/volume1/media /mnt/media nfs rw,nosuid,nodev,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=300,x-systemd.mount-timeout=30 0 0");
   });
 
   it("explains mount failures in plain words", () => {
@@ -129,6 +132,20 @@ describe("share.mount, on the host through the share's own units", () => {
     // Whether it is mounted, and how big it is, comes from PID 1's table.
     expect(host.calls.filter((call) => call.startsWith("findmnt") && !call.includes("--verify")).every((call) => call.startsWith("findmnt --task 1 "))).toBe(true);
     expect(host.calls.some((call) => call.includes("s3cret"))).toBe(false); // never on a command line
+  });
+
+  // Data folders live under /mnt too: a share mounted over one hid what was there and sent what the
+  // app wrote to whichever server the share named.
+  it("refuses before changing anything when the folder already holds files", async () => {
+    const files = { ...fakeFiles(), readdir: vi.fn(async () => ["photos", "library.db"]) };
+    const host = fakeHost();
+    await expect(shareMount({ kind: "nfs", host: "elsewhere", share: "/x", name: "media" }, { run: host.run, files, exists: toolsPresent, now })).rejects.toThrow("/mnt/media already holds files");
+    expect(files.readdir).toHaveBeenCalledWith("/mnt/media");
+    expect(files.state.fstab).toBe(BASE_FSTAB);
+    expect(host.calls.some((call) => call.startsWith("systemctl"))).toBe(false);
+    // An empty folder, or none, is fine.
+    const empty = { ...fakeFiles(), readdir: vi.fn(async () => []) };
+    await expect(shareMount({ kind: "nfs", host: "nas", share: "/volume1/media", name: "media" }, { run: fakeHost().run, files: empty, exists: toolsPresent, now })).resolves.toMatchObject({ mounted: true });
   });
 
   it("refuses before changing anything when the host already has something at the mount point", async () => {
@@ -224,7 +241,7 @@ describe("share.mount, on the host through the share's own units", () => {
     const host = fakeHost({ fstype: "nfs4" });
     const result = await shareMount({ kind: "nfs", host: "nas", share: "/volume1/media", name: "media", readOnly: true }, { run: host.run, files, exists: toolsPresent, now });
     expect(result).toMatchObject({ mounted: true, kind: "nfs", source: "nas:/volume1/media", credentialsStored: false, readOnly: true, sizeBytes: 1000 });
-    expect(files.state.fstab).toContain("nas:/volume1/media /mnt/media nfs ro,nofail,_netdev,x-systemd.automount");
+    expect(files.state.fstab).toContain("nas:/volume1/media /mnt/media nfs ro,nosuid,nodev,nofail,_netdev,x-systemd.automount");
     expect(host.state.mounts["/mnt/media"]).toEqual(["autofs", "nfs4"]);
   });
 });
@@ -261,6 +278,16 @@ describe("share.unmount, on the host, and not while something uses the share", (
     expect(host.calls.some((call) => call.startsWith("systemctl stop"))).toBe(false);
     expect(files.state.fstab).toBe(MANAGED_FSTAB);
     expect(host.state.mounts["/mnt/nas-media"]).toEqual(["autofs", "cifs"]);
+  });
+
+  it("names an app bound to a folder above the share, and forgets nothing", async () => {
+    // Kopia with /mnt carries the share into its own namespace: forgetting the share and its
+    // credentials under it would leave Kopia writing to the NAS through a mount nobody can see.
+    const files = fakeFiles(MANAGED_FSTAB);
+    const host = fakeHost({ mounts: { "/mnt/nas-media": ["autofs", "cifs"] }, containers: ["bp-kopia", "bp-nas-media-old"], binds: { "bp-kopia": "/mnt", "bp-nas-media-old": "/mnt/nas-media-old" } });
+    await expect(shareUnmount({ name: "nas-media" }, { run: host.run, files, now })).rejects.toThrow("/mnt/nas-media is in use by bp-kopia, so the share was left mounted and in fstab.");
+    expect(host.calls.some((call) => call.startsWith("systemctl stop"))).toBe(false);
+    expect(files.state.fstab).toBe(MANAGED_FSTAB);
   });
 
   it("names what holds the share and leaves it mounted, automount and all", async () => {

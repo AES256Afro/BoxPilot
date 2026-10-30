@@ -1,0 +1,48 @@
+[Unit]
+Description=BoxPilot heartbeat: one bare request to the owner's dead man's switch
+Documentation=https://github.com/AES256Afro/BoxPilot/blob/main/docs/DECISIONS.md
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/usr/local/bin/node
+ConditionPathExists=/opt/boxpilot/scripts/boxpilot-heartbeat.mjs
+
+# Started by boxpilot-heartbeat.timer, which is off until the owner turns the heartbeat on in
+# Settings, Notifications (heartbeat.set). One GET, ten seconds at most, never retried: the next
+# tick is the retry. See server/heartbeat.mjs for what is sent and why.
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/boxpilot
+Environment=NODE_ENV=production
+Environment=BOXPILOT_HEARTBEAT_STATUS=/var/lib/boxpilot-heartbeat/last.json
+ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-heartbeat.mjs
+TimeoutStartSec=30s
+# What happened last, world-readable (no secret in it): BoxPilot's Settings shows it.
+StateDirectory=boxpilot-heartbeat
+StateDirectoryMode=0755
+UMask=0022
+Nice=5
+MemoryMax=192M
+
+# Root with no capabilities at all: enough to read the credential store it owns
+# (/var/lib/boxpilot-managed/credentials.json, 0600 root), nothing else.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

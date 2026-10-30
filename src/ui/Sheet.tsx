@@ -48,8 +48,15 @@ export function Sheet({ title, kicker, onClose, children, footer, side = "right"
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
+  // A stray click outside a sheet with a form in it used to throw the typing away (M50): the backdrop
+  // closes only a sheet with nothing typed in it; Escape and the close button always do.
+  const backdrop = () => {
+    const fields = [...(ref.current?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("textarea, input") ?? [])];
+    const typed = fields.some((field) => !["checkbox", "radio", "hidden", "submit", "button", "file", "range", "color"].includes(field.type) && field.value !== "");
+    if (!typed) close.current();
+  };
   return createPortal(
-    <div className={cx("ui-sheet-backdrop", `ui-sheet-backdrop--${side}`)} role="presentation" onMouseDown={() => close.current()}>
+    <div className={cx("ui-sheet-backdrop", `ui-sheet-backdrop--${side}`)} role="presentation" onMouseDown={backdrop}>
       <section
         ref={ref}
         tabIndex={-1}

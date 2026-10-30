@@ -41,7 +41,10 @@ export function jobLogPath(jobId, directory = defaultJobLogDirectory) {
   return path.join(directory, `${jobId}.log`);
 }
 
-/** Writer for root-side processes. `group` is resolved by gid lookup of the boxpilot service user when available. */
+/**
+ * Writer for root-side processes. `group` is resolved by gid lookup of the boxpilot service user when available.
+ * @param {{ jobId?: string | null, directory?: string, gid?: number | null, now?: () => Date, replaceExisting?: boolean }} [options]
+ */
 export function createJobLogWriter({ jobId, directory = defaultJobLogDirectory, gid = null, now = () => new Date(), replaceExisting = false } = {}) {
   if (!jobId) return { append: async () => {}, flush: async () => {}, path: null, enabled: false };
   const target = jobLogPath(jobId, directory);
@@ -111,6 +114,7 @@ export function createJobLogWriter({ jobId, directory = defaultJobLogDirectory, 
   }
   // Appends run one after another on a single chain. Independent appendFile calls finish in any
   // order, so a burst of output could land in the file shuffled.
+  /** @type {Promise<unknown>} */
   let chain = Promise.resolve();
   function append(line, stream = "stdout") {
     const writing = chain.then(() => write(line, stream), () => write(line, stream));

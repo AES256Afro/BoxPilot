@@ -17,7 +17,7 @@
  */
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { createEndpointGuard, normalizeEndpoint, readBounded } from "../assistant/local-endpoint.mjs";
+import { createEndpointGuard, normalizeEndpoint, readBounded } from "../../packages/harness/src/index.mjs";
 import { extractPdfText } from "./pdf.mjs";
 
 export class ConnectorError extends Error {
@@ -26,7 +26,11 @@ export class ConnectorError extends Error {
 
 export const connectorLimits = Object.freeze({ fileBytes: 5 * 1024 * 1024, files: 100, documentChars: 64_000, syncChars: 400_000, pages: 25, blocks: 200, slackMessages: 400 });
 
-/** Text a document keeps: control characters out, bounded. */
+/**
+ * Text a document keeps: control characters out, bounded.
+ * @param {unknown} text
+ * @param {number} [max]
+ */
 export function cleanDocumentText(text, max = connectorLimits.documentChars) {
   const value = String(text ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").replace(/\r\n?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   return value.length > max ? `${value.slice(0, max)}…` : value;
@@ -52,7 +56,8 @@ export function textOfUpload(buffer, name) {
 
 // ---- a folder on this server ----
 
-const folderForbidden = /^\/(proc|sys|dev|run|boot|etc|root|var\/lib\/boxpilot)(\/|$)/;
+// BoxPilot's own state folders whatever their suffix (M50): "var/lib/boxpilot(/|$)" let /var/lib/boxpilot-managed through.
+const folderForbidden = /^\/(proc|sys|dev|run|boot|etc|root|var\/lib\/boxpilot[^/]*)(\/|$)/;
 
 /** The folder the owner named, checked: absolute, not a system or BoxPilot path. */
 export function readFolderSetting(value) {
@@ -67,13 +72,16 @@ export function readFolderSetting(value) {
  * The folder's documents: Markdown, text and PDF files at its top and one level down, each at most
  * 5 MB, at most 100. A file that cannot be read is skipped and named.
  */
-export async function scanFolder(folder, { read = readFile, list = readdir, info = stat } = {}) {
+export async function scanFolder(folder, { read = readFile, list = readdir, info = stat, until = Infinity, now = Date.now } = {}) {
   const found = [];
   const skipped = [];
   const walk = async (directory, depth) => {
     const entries = await list(directory, { withFileTypes: true }).catch((error) => { throw new ConnectorError(`The folder could not be read: ${error.code ?? error.message}`); });
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (found.length >= connectorLimits.files) return;
+      // Each PDF is read on the web process's thread. The caller stops waiting at its deadline;
+      // without this the scan went on reading every remaining file behind its back.
+      if (now() > until) throw new ConnectorError("The folder took too long to read");
       if (entry.name.startsWith(".")) continue;
       const full = path.posix.join(directory, entry.name);
       if (entry.isDirectory() && depth === 0) { await walk(full, 1); continue; }

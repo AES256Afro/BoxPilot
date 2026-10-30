@@ -56,7 +56,7 @@ async function checkAll(files, argsFor, command) {
 const mode = process.argv[2];
 let files; let failures;
 if (mode === "syntax") {
-  files = [...await filesUnder("server", ".mjs", { recursive: true }), ...await filesUnder("scripts", ".mjs", { recursive: true })];
+  files = [...await filesUnder("server", ".mjs", { recursive: true }), ...await filesUnder("scripts", ".mjs", { recursive: true }), ...await filesUnder("packages", ".mjs", { recursive: true })];
   failures = await checkAll(files, (file) => ["--check", file], process.execPath);
 } else if (mode === "shell") {
   files = [...await filesUnder("scripts", ".sh", { recursive: false }), ...await filesUnder("deploy", ".sh", { recursive: false })];

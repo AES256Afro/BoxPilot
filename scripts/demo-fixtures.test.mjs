@@ -84,6 +84,8 @@ describe("the demo can answer what the interface asks", () => {
       "host.snapshot.discover": ["locations", "unanswered"],
       "host.snapshot.restores": ["restores"],
       "router.leases": ["leases", "host"],
+      "cloudflare.tunnel.inspect": ["connected", "account", "tunnel", "plannedTunnelName", "zones", "routes", "problem"],
+      "cloudflare.tunnel.check": ["status", "connectors", "routesAtCloudflare", "checkedAt"],
     };
     const wrong = [];
     for (const [id, fields] of Object.entries(required)) {
@@ -120,6 +122,7 @@ describe("the demo can answer what the interface asks", () => {
       "host.snapshot.discover": ["locations", ["root", "mount", "snapshots"]],
       "host.snapshot.restores": ["restores", ["name", "stagedAt", "files"]],
       "dns.blocker.clients": ["clients", ["address", "queries"]],
+      "cloudflare.tunnel.inspect": ["routes", ["hostname", "url", "appId", "hostPort"]],
       // Nested one level down: the meta records what each app contributed, and the Backups page
       // reads `backups` to say how much of a restore would actually bring data back. The fixture
       // carried only `{ id }` for a long time, so that number could not be shown at all.

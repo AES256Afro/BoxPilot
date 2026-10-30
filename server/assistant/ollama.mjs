@@ -1,13 +1,15 @@
 /**
  * Ollama's own HTTP API (M34), kept as the legacy way to reach a model: the assistant's default is
  * now the OpenAI-compatible client in model-client.mjs (M37), which Ollama also answers. No cloud
- * endpoint and no API key: the address rules are local-endpoint.mjs's, checked when an address is
- * saved and again before every request, and a redirect is refused rather than followed elsewhere.
+ * endpoint and no API key: the address rules are the harness's local-endpoint.mjs, checked when an
+ * address is saved and again before every request, and a redirect is refused rather than followed
+ * elsewhere.
  */
 import { lookup as dnsLookup } from "node:dns/promises";
-import { createEndpointGuard, isLocalAddress, normalizeEndpoint, readBounded } from "./local-endpoint.mjs";
+import { createEndpointGuard, isLocalAddress, normalizeEndpoint, readBounded } from "../../packages/harness/src/index.mjs";
 
-// The address rules moved to local-endpoint.mjs (M37), where the OpenAI-compatible client shares them.
+// The address rules moved to local-endpoint.mjs (M37), where the OpenAI-compatible client shares
+// them; both live in the harness since M45.8.
 export { isLocalAddress, normalizeEndpoint };
 
 export const ollamaApiPort = 11434;
@@ -23,6 +25,11 @@ export function createOllamaClient({
 } = {}) {
   const guard = createEndpointGuard({ lookup, now, resolveTtlMs });
 
+  /**
+   * @param {string} endpoint
+   * @param {string} pathname
+   * @param {{ method?: string, body?: unknown, signal?: AbortSignal | null, timeoutMs: number }} options
+   */
   async function send(endpoint, pathname, { method = "GET", body, signal, timeoutMs }) {
     const origin = await guard(endpoint);
     const signals = [AbortSignal.timeout(timeoutMs)];
@@ -40,12 +47,17 @@ export function createOllamaClient({
     const text = await readBounded(response, 16 * 1024).catch(() => "");
     let message = text;
     try { message = JSON.parse(text)?.error ?? text; } catch { /* plain text */ }
+    /** @type {Error & { code?: string }} */
     const error = new Error(response.status === 404 && model ? `The model ${model} is not on the model server` : `The model server answered ${response.status}${message ? `: ${String(message).slice(0, 200)}` : ""}`);
     error.code = response.status === 404 ? "model_missing" : "model_error";
     return error;
   }
 
-  /** The models the server has, by name. */
+  /**
+   * The models the server has, by name.
+   * @param {string} endpoint
+   * @param {{ signal?: AbortSignal, timeoutMs?: number }} [options]
+   */
   async function tags(endpoint, { signal, timeoutMs = 3_000 } = {}) {
     const response = await send(endpoint, "/api/tags", { signal, timeoutMs });
     if (!response.ok) throw await failure(response);
@@ -56,7 +68,13 @@ export function createOllamaClient({
       : []));
   }
 
-  /** One vector per input, in order. */
+  /**
+   * One vector per input, in order.
+   * @param {string} endpoint
+   * @param {string} model
+   * @param {string[]} inputs
+   * @param {{ signal?: AbortSignal, timeoutMs?: number }} [options]
+   */
   async function embed(endpoint, model, inputs, { signal, timeoutMs = 15_000 } = {}) {
     const response = await send(endpoint, "/api/embed", { method: "POST", body: { model, input: inputs, truncate: true }, signal, timeoutMs });
     if (!response.ok) throw await failure(response, model);
@@ -73,6 +91,10 @@ export function createOllamaClient({
    * Stream a chat completion. Each piece of text goes to `onDelta` as it arrives; nothing is kept
    * here, so a caller that is cut off by its own deadline still has what came before. Resolves with
    * whether the model finished; rejects on an HTTP error, a malformed stream, or the signal.
+   *
+   * @param {string} endpoint
+   * @param {{ model: string, messages: object[], options?: object }} request
+   * @param {{ signal?: AbortSignal, timeoutMs?: number, onDelta?: (text: string) => unknown }} [options]
    */
   async function chat(endpoint, { model, messages, options = {} }, { signal, timeoutMs = 120_000, onDelta = () => {} } = {}) {
     const response = await send(endpoint, "/api/chat", { method: "POST", body: { model, messages, stream: true, options }, signal, timeoutMs });

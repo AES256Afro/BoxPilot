@@ -6,7 +6,8 @@ import { ConfigTab } from "./ConfigTab";
 import { LogsTab } from "./LogsTab";
 import { ModelsTab } from "./ModelsTab";
 import { ReachTab, reachOf } from "./ReachTab";
-import { appStatus, drillFailed, isPaused, isRunning, troubledSidecar } from "./appState";
+import { TunnelTab } from "./TunnelTab";
+import { appStatus, drillFailed, installTier, isPaused, isRunning, shortImage, troubledSidecar } from "./appState";
 import type { CatalogContext, Entry } from "./types";
 
 /*
@@ -17,7 +18,7 @@ import type { CatalogContext, Entry } from "./types";
  * action closes the sheet and goes through the approval dialog at its tier, as before.
  */
 
-export type SheetTab = "overview" | "reach" | "backups" | "vpn" | "logs" | "config" | "models" | "signin" | "secrets";
+export type SheetTab = "overview" | "tunnel" | "reach" | "backups" | "vpn" | "logs" | "config" | "models" | "signin" | "secrets";
 
 export interface AppSheetProps {
   entry: Entry;
@@ -50,11 +51,13 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   const status = appStatus(live);
   const tabs: Array<TabItem<SheetTab>> = [
     { id: "overview", label: "Overview" },
+    // M42: publishing apps to the internet lives with the app that runs the tunnel, installed or not.
+    ...(manifest.id === "cloudflared" && owner ? [{ id: "tunnel" as const, label: "Tunnel" }] : []),
     ...(installed ? [{ id: "reach" as const, label: "Reach" }] : []),
     ...((installed || live?.dataPresent) && canRead ? [{ id: "backups" as const, label: "Backups", status: live?.backupVerification && !live.backupVerification.verified ? "danger" as const : undefined, statusLabel: live?.backupVerification && !live.backupVerification.verified ? "last rehearsal failed" : undefined }] : []),
     ...(installed && manifest.networkVia ? [{ id: "vpn" as const, label: "VPN", status: live?.killSwitchDrill?.leaked ? "danger" as const : undefined, statusLabel: live?.killSwitchDrill?.leaked ? "leaked" : undefined }] : []),
     ...(installed && canRead ? [{ id: "logs" as const, label: "Logs" }] : []),
-    ...(installed ? [{ id: "config" as const, label: "Config" }] : []),
+    ...(installed ? [{ id: "config" as const, label: "Compose" }] : []),
     ...(installed && manifest.modelRunner && canRead ? [{ id: "models" as const, label: "Models" }] : []),
     ...(installed && manifest.signIn ? [{ id: "signin" as const, label: "Sign-in" }] : []),
     ...(installed && owner && manifest.env.some((env) => env.secret) ? [{ id: "secrets" as const, label: "Secrets" }] : []),
@@ -63,6 +66,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   const setTab = (next: SheetTab) => { setOpenTab(next); onTab?.(next); };
 
   const content = (current: SheetTab): ReactNode => {
+    if (current === "tunnel") return <TunnelTab entry={entry} ctx={ctx} />;
     if (current === "reach") return <ReachTab entry={entry} ctx={ctx} />;
     if (current === "backups") return <BackupsTab entry={entry} ctx={ctx} />;
     if (current === "vpn") return <VpnTab entry={entry} ctx={ctx} />;
@@ -80,7 +84,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
         <AppIcon id={manifest.id} name={manifest.name} icon={manifest.icon} size="lg" />
         <div className="catalog-sheet__lead">
           <StatusChip status={status.status}>{status.label}</StatusChip>
-          <p className="catalog-sheet__meta"><code>{manifest.image.reference}</code>{manifest.image.digestPinned ? " · digest pinned" : ""}</p>
+          <p className="catalog-sheet__meta"><code title={manifest.image.reference}>{shortImage(manifest.image.reference)}</code>{manifest.image.digestPinned ? " · digest pinned" : ""}</p>
           <p className="catalog-sheet__description">{manifest.description}</p>
         </div>
       </div>
@@ -118,7 +122,7 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
   const facts: KeyValueItem[] = [
     // The container's own state here; a folder it cannot write to is said above, in its notice.
     { id: "state", label: "State", value: stateWords(entry), status: appStatus(live ? { ...live, folderProblems: [] } : live).status, hint: live && installed && live.container.restarts > 0 ? `${live.container.restarts} restarts` : undefined },
-    { id: "version", label: "Version", mono: true, value: manifest.image.version ?? manifest.image.reference, hint: live?.updateAvailable ? `update ready: ${live.installedImage ?? "installed image"} → ${manifest.image.reference}` : installed ? "up to date" : undefined },
+    { id: "version", label: "Version", mono: true, value: manifest.image.version ?? shortImage(manifest.image.reference), hint: live?.updateAvailable ? `update ready: ${live.installedImage ? shortImage(live.installedImage) : "installed image"} → ${shortImage(manifest.image.reference)}` : installed ? "up to date" : undefined },
     ...(reach ? [{ id: "reach", label: "Reach", value: reach.tailnetOnly ? "Tailscale only" : "Your home network", hint: live!.urls.length ? live!.urls.map((url) => `${url.label} ${url.host}`).join(" · ") : "No web page" }] : []),
     ...(!installed && manifest.ports.length ? [{ id: "ports", label: "Ports", mono: true, value: manifest.ports.map((port) => `${port.label} ${port.host}/${port.protocol}`).join(" · ") }] : []),
     ...(folders.length ? [{ id: "data", label: "Data", mono: true, value: <span className="catalog-paths">{folders.map((folder) => <code key={folder.path} title={folder.label}>{folder.path}</code>)}</span> }] : []),
@@ -159,7 +163,7 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
         {installed && live && live.urls.map((port, index) => (
           <a key={port.id} className={`ui-button ui-button--${index === 0 ? "primary" : "secondary"}`} href={ctx.openUrl(port, manifest)} target="_blank" rel="noreferrer"><span className="ui-button__label">Open {port.label}</span></a>
         ))}
-        {!installed && may("app.install") && <Button variant="primary" onClick={() => ctx.configure(entry, "install")}>Install</Button>}
+        {!installed && may("app.install") && <Button variant="primary" risk={installTier(manifest)} onClick={() => ctx.configure(entry, "install")}>Install</Button>}
         {installed && may("app.action") && (paused
           ? <>
             <Button risk={riskOf("app.action")} onClick={() => lifecycle("unpause", `Resume ${name}`, <span>Thaws {name} exactly where it left off.</span>)}>Resume</Button>
@@ -167,12 +171,12 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
           </>
           : running
             ? <>
-              <Button risk={riskOf("app.action")} onClick={() => lifecycle("restart", `Restart ${name}`)}>Restart</Button>
-              <Button risk={riskOf("app.action")} onClick={() => lifecycle("stop", `Stop ${name}`)}>Stop</Button>
+              <Button risk={riskOf("app.action")} onClick={() => lifecycle("restart", `Restart ${name}`, <span>Stops and starts {name}; anyone using it is cut off for a few seconds. Its data and settings are kept.</span>)}>Restart</Button>
+              <Button risk={riskOf("app.action")} onClick={() => lifecycle("stop", `Stop ${name}`, <span>Stops {name} and frees its memory. Its data and settings are kept, and it stays stopped until you start it again.</span>)}>Stop</Button>
             </>
             : <Button risk={riskOf("app.action")} onClick={() => lifecycle("start", `Start ${name}`)}>Start</Button>)}
         {installed && may("app.update") && (
-          <Button variant={live?.updateAvailable ? "primary" : "secondary"} risk={riskOf("app.update")} onClick={() => act({ operationId: "app.update", title: `Update ${name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>
+          <Button variant={live?.updateAvailable ? "primary" : "secondary"} risk={riskOf("app.update")} onClick={() => act({ operationId: "app.update", title: `Update ${name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code title={live.installedImage ?? undefined}>{shortImage(live.installedImage)}</code> to <code title={manifest.image.reference}>{shortImage(manifest.image.reference)}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>
             {live?.updateAvailable ? "Update available" : "Update"}
           </Button>
         )}
@@ -181,6 +185,26 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
           <Button risk={riskOf("app.backup")} onClick={() => act({ operationId: "app.backup", title: `Back up ${name}`, parameters: { id: manifest.id }, preview: <span>Stops {name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.{ownFolders ? <> Your own folders ({ownFolders}) are <strong>not</strong> included.</> : null}</span> })}>Back up</Button>
         )}
       </div>
+
+      {/* What the app's manifest offers to do inside it (M38: Zulip's "Create your organization"),
+          each a registered operation approved at its own tier. It runs inside the container, so
+          only while the app is running. */}
+      {installed && (manifest.actions ?? []).some((action) => may(action.operation)) && (
+        <Panel level={3} title={`In ${name}`} className="catalog-app-actions">
+          <ul className="catalog-rows">
+            {(manifest.actions ?? []).filter((action) => may(action.operation)).map((action) => (
+              <li key={action.id} className="catalog-row">
+                <span className="catalog-row__main">
+                  <strong>{action.label}</strong>
+                  {action.description && <span className="catalog-row__dim">{action.description}</span>}
+                </span>
+                <Button risk={riskOf(action.operation)} disabled={!running} onClick={() => act({ operationId: action.operation, title: `${action.label} (${name})`, parameters: { id: manifest.id }, preview: <span>{action.description ?? action.label}</span> })}>{action.label}</Button>
+              </li>
+            ))}
+          </ul>
+          {!running && <p className="catalog-note">{name} is not running; start it first.</p>}
+        </Panel>
+      )}
 
       <KeyValue layout="rows" className="catalog-facts" items={facts} />
 

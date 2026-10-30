@@ -109,6 +109,8 @@ function spec({ port, protocol }) {
  * Build the ordered ufw argv list for applying a profile. Pure, so the preview and the root
  * task agree on exactly what runs. Protected allows come first; `ufw enable` comes last and
  * only after every rule succeeded, so a half-applied plan fails open, never closed.
+ *
+ * @param {{ profileId?: string, serviceIds?: string[], replace?: boolean, sshRateLimit?: boolean, webPort?: number, webHost?: string }} [options]
  */
 export function buildPlan({ profileId, serviceIds: chosen = [], replace = false, sshRateLimit = false, webPort = defaultWebPort, webHost = "127.0.0.1" } = {}) {
   const profile = profiles.find((entry) => entry.id === profileId);
@@ -154,20 +156,31 @@ function ruleAllows(rule, port, protocol) {
 }
 
 /**
- * Suggestions for the Firewall page. Every entry has a stable id, a level, copy, and where
- * possible a one-click action (`operationId` + `parameters`) or a `focus` hint for the UI.
- *
- * @param {object} input
- * @param {object|null} input.report   firewall.inspect result
- * @param {Array} input.listeners      listListeners() result from the web process
- * @param {Array} input.apps           installed apps: [{ id, name, ports: [{ port, protocol, label }] }]
- * @param {object|null} input.current  the stored profile setting, if any
+ * A rule that lets in only one address or range (ufw's `from`). firewall.rule.delete removes the
+ * rule from anywhere (`ufw delete allow 3306/tcp`), which is not this one: offered its removal, the
+ * owner got "does not exist any more" and the same advice on every visit. So the advice that
+ * removes rules leaves these alone; the owner who wrote one meant it.
  */
+const fromOneSource = (rule) => typeof rule.source === "string" && rule.source.length > 0;
+
 /** ufw comments allow letters, digits, spaces, dot, underscore and dash — nothing else. */
 function ruleComment(text) {
   return String(text).replace(/[^A-Za-z0-9 ._-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
+/**
+ * Suggestions for the Firewall page. Every entry has a stable id, a level, copy, and where
+ * possible a one-click action (`operationId` + `parameters`) or a `focus` hint for the UI.
+ *
+ * @param {object} [input]
+ * @param {any} [input.report]           firewall.inspect result, or null
+ * @param {any[]} [input.listeners]      listListeners() result from the web process
+ * @param {any[]} [input.apps]           installed apps: [{ id, name, ports: [{ port, protocol, label }] }]
+ * @param {any} [input.current]          the stored profile setting, if any
+ * @param {any} [input.fail2ban]         fail2ban.inspect result, if any
+ * @param {number} [input.webPort]
+ * @param {string} [input.webHost]
+ */
 export function adviseFirewall({ report, listeners = [], apps = [], current = null, fail2ban = null, webPort = defaultWebPort, webHost = "127.0.0.1" } = {}) {
   const advice = [];
   if (!report) {
@@ -204,10 +217,11 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
   }
 
   for (const entry of riskyPorts) {
-    const open = rules.some((rule) => ruleAllows(rule, entry.port, entry.protocol));
+    const fromAnywhere = (rule) => ruleAllows(rule, entry.port, entry.protocol) && !fromOneSource(rule);
+    const open = rules.some(fromAnywhere);
     const listening = exposed.some((listener) => listener.port === entry.port && listener.protocol === entry.protocol);
     if (open && !isProtected(entry, protectedList)) {
-      const rule = rules.find((candidate) => ruleAllows(candidate, entry.port, entry.protocol));
+      const rule = rules.find(fromAnywhere);
       advice.push({
         id: `risky-allow-${entry.port}-${entry.protocol}`, level: "warn", title: `${entry.label} is open to the whole LAN`,
         detail: `Port ${entry.port}/${entry.protocol} has an allow rule. Services like this should only be reached from this server or over Tailscale.`,
@@ -243,7 +257,7 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
   // said, so it read as a broken app rather than a rule left behind.
   for (const rule of rules) {
     if (!["allow", "limit"].includes(rule.action) || rule.direction === "out") continue;
-    if (!Number.isInteger(rule.port) || isProtected(rule, protectedList)) continue;
+    if (!Number.isInteger(rule.port) || isProtected(rule, protectedList) || fromOneSource(rule)) continue;
     if (listeners.some((entry) => entry.port === rule.port && (rule.protocol === "any" || entry.protocol === rule.protocol))) continue;
     if (apps.some((app) => (app.ports ?? []).some((port) => port.port === rule.port))) continue;
 

@@ -23,9 +23,14 @@ export function parseDefaultPolicies(content) {
   return { incoming: policy("INPUT"), outgoing: policy("OUTPUT"), routed: policy("FORWARD") };
 }
 
+/** ufw's "from anywhere", in either family. */
+const anywhere = new Set(["0.0.0.0/0", "::/0", "any"]);
+
 /**
  * Parse `### tuple ###` lines from /etc/ufw/user.rules:
  *   action proto dport dst sport src [dapp sapp] direction [comment=hex]
+ * `source` is where the rule lets traffic come from (`ufw status`'s From column), null for anywhere:
+ * a rule for 192.168.8.0/24 and one for anywhere on the same port are different rules.
  */
 export function parseUserRules(content, family = "v4") {
   const rules = [];
@@ -40,13 +45,14 @@ export function parseUserRules(content, family = "v4") {
     }
     const direction = fields.at(-1)?.match(/^(in|out)(?:_(.+))?$/);
     if (!direction || fields.length < 7) { rules.push({ raw: match[1], family }); continue; }
-    const [action, protocol, dport] = fields;
+    const [action, protocol, dport, , , src] = fields;
     const app = fields.length >= 9 && fields[6] !== "-" ? fields[6] : null;
     rules.push({
       action,
       protocol: protocol === "any" ? "any" : protocol,
       port: /^\d+$/.test(dport) ? Number(dport) : null,
       app,
+      source: anywhere.has(src) ? null : src,
       direction: direction[1],
       interface: direction[2] ?? null,
       comment,
@@ -56,9 +62,9 @@ export function parseUserRules(content, family = "v4") {
   return rules;
 }
 
-/** Collapse identical v4/v6 rules into one entry with family "both". */
+/** Collapse identical v4/v6 rules into one entry with family "both"; a rule from one source is never merged with one from anywhere. */
 export function mergeRuleFamilies(v4Rules, v6Rules) {
-  const key = (rule) => JSON.stringify([rule.action, rule.protocol, rule.port, rule.app, rule.direction, rule.interface, rule.raw ?? null]);
+  const key = (rule) => JSON.stringify([rule.action, rule.protocol, rule.port, rule.app, rule.source ?? null, rule.direction, rule.interface, rule.raw ?? null]);
   const merged = [...v4Rules];
   const seen = new Map(v4Rules.map((rule) => [key(rule), rule]));
   for (const rule of v6Rules) {

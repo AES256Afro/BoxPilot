@@ -97,6 +97,8 @@ export function ReachTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) 
       {exposable && (
         <div className="catalog-sheet__actions">
           {served && <a className="ui-button ui-button--secondary" href={`https://${served.dnsName}:${served.port}`} target="_blank" rel="noreferrer"><span className="ui-button__label">Open on tailnet 🔒</span></a>}
+          {/* Tailnet only but not published (Serve failed after an install): nothing can open it until it is. */}
+          {mayStart(role, "app.exposure.set") && tailnetOnly && !served && servePorts.length > 0 && <Button risk={riskOf("app.exposure.set")} onClick={toTailnet}>Publish on the tailnet</Button>}
           {mayStart(role, "app.exposure.set") && (tailnetOnly
             ? <Button risk={riskOf("app.exposure.set")} onClick={toLan}>Publish on home network</Button>
             : <Button risk={riskOf("app.exposure.set")} onClick={toTailnet}>Reach only through Tailscale</Button>)}

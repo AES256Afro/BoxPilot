@@ -44,6 +44,11 @@ const backupOperations = new Set(["app.backup", "app.backup.verify", "controller
 const plumbing = /^\/(?:dev|proc|sys|run|var\/run|etc)(?:\/|$)|\.sock$/;
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+/**
+ * @template T
+ * @param {() => T | Promise<T>} read
+ * @returns {Promise<{ ok: boolean, value?: T, error?: any }>}
+ */
 const attempt = (read) => Promise.resolve().then(read).then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
 const subjectOf = (parameters) => (typeof parameters?.id === "string" ? parameters.id : typeof parameters?.name === "string" ? parameters.name : null);
 const keepOf = (parameters) => (Number.isInteger(parameters?.keep) ? parameters.keep : null);
@@ -104,6 +109,11 @@ function flowTrigger(flow, flows) {
   return triggers.length ? triggers.join(", or ") : "run by hand";
 }
 
+/**
+ * @param {{ store?: any, helper?: any, catalogService?: any, inventory?: any, network?: any, notifications?: any, autoReconnect?: any, identity?: any,
+ *   registry?: typeof defaultRegistry, secretEnvNamesFor?: ((id: string) => Promise<string[]>) | null, collect?: typeof collectStorage, readTls?: typeof readTlsStatus,
+ *   webHost?: string, webPort?: number, tlsDir?: string, now?: () => Date, version?: string }} [options]
+ */
 export function createRunbookService({
   store, helper, catalogService, inventory = null, network = null, notifications = null, autoReconnect = null, identity = null,
   registry = defaultRegistry, secretEnvNamesFor = null, collect = collectStorage, readTls = readTlsStatus,
@@ -121,7 +131,7 @@ export function createRunbookService({
 
   const describeOperation = (id) => {
     const operation = registry.get(id);
-    return operation ? { title: operation.title, risk: operation.risk, readOnly: operation.readOnly, minimumRole: operation.minimumRole, confirm: Boolean(operation.confirm) } : null;
+    return operation ? { title: operation.title, risk: operation.risk, readOnly: operation.readOnly, minimumRole: operation.minimumRole, confirm: Boolean(operation.confirm), confirmWhen: operation.confirmWhen ?? null } : null;
   };
 
   async function schedulesAndFlows() {
@@ -173,7 +183,7 @@ export function createRunbookService({
   }
 
   async function facts() {
-    const [inventoryRead, topologyRead, storageRead, liveRead, catalogRead, protectionRead, servesRead, firewallRead, snapshotsRead, sambaRead, tlsRead, publishedRead, automation] = await Promise.all([
+    const [inventoryRead, topologyRead, storageRead, liveRead, catalogRead, protectionRead, servesRead, firewallRead, snapshotsRead, sambaRead, tlsRead, publishedRead, automation, cloudflareRead] = await Promise.all([
       attempt(() => inventory.inspect()),
       attempt(() => network.inspect()),
       attempt(() => collect()),
@@ -187,6 +197,8 @@ export function createRunbookService({
       attempt(() => readTls({ dir: tlsDir })),
       attempt(() => (identity?.servePublishesControlPlane ? identity.servePublishesControlPlane() : false)),
       attempt(() => schedulesAndFlows()),
+      // M42: the names BoxPilot published through Cloudflare, from its own record (no network).
+      attempt(() => ask("cloudflare.tunnel.inspect", {}, 30_000)),
     ]);
     const value = (read) => (read.ok && isObject(read.value) ? read.value : null);
     const inventoryValue = value(inventoryRead);
@@ -307,8 +319,13 @@ export function createRunbookService({
     }
     const apps = liveApps ? { available: true, items: appItems } : { available: false, reason: liveRead.ok ? "the app inventory came back incomplete" : "the app inventory could not be read; is the BoxPilot helper running?" };
     const tunnelApp = installed.find((app) => app.id === "cloudflared");
+    const cloudflare = value(cloudflareRead);
+    // What BoxPilot published through the tunnel (M42). Names added in the Cloudflare dashboard are not in its record.
+    const published = Array.isArray(cloudflare?.routes)
+      ? { available: true, tunnelName: typeof cloudflare.tunnel?.name === "string" ? cloudflare.tunnel.name : null, items: cloudflare.routes.filter((route) => typeof route?.hostname === "string").map((route) => ({ url: `https://${route.hostname}`, app: manifests.find((entry) => entry.id === route.appId)?.name ?? route.appId ?? null, port: Number.isInteger(route.hostPort) ? route.hostPort : null })) }
+      : { available: false };
     const tunnel = liveApps
-      ? { installed: Boolean(tunnelApp), name: manifests.find((entry) => entry.id === "cloudflared")?.name ?? "Cloudflare Tunnel", running: tunnelApp ? tunnelApp.container?.running === true : null }
+      ? { installed: Boolean(tunnelApp), name: manifests.find((entry) => entry.id === "cloudflared")?.name ?? "Cloudflare Tunnel", running: tunnelApp ? tunnelApp.container?.running === true : null, published }
       : { installed: null, reason: "the app inventory could not be read" };
 
     // ---- backups ----
@@ -343,8 +360,12 @@ export function createRunbookService({
       destinations.push({
         kind: "cloud", label: `Cloud storage (${cloudProviders[cloud.provider]?.label ?? cloud.provider})`, configured: true, where: cloudWhere(cloud), whereReason: "the destination names no bucket or path",
         lastSync: store.getSetting("cloudDestinationLastSync", null)?.completedAt ?? null,
-        note: "A plain mirror of the local backups, copied with rclone; not encrypted",
-        credential: "Its keys are in /etc/boxpilot/secrets/rclone.conf on this server (root only); keep a copy of them off this server",
+        note: cloud.sealed === true
+          ? "A mirror of the local backups, copied with rclone and encrypted with your passphrase (rclone crypt) before it leaves; the copies are in the sealed folder"
+          : "A plain mirror of the local backups, copied with rclone; not encrypted. Set the destination again with a passphrase: mirroring stops until then",
+        credential: cloud.sealed === true
+          ? "Its keys and the obscured passphrase are in /etc/boxpilot/secrets/rclone.conf on this server (root only); keep the passphrase off this server, or the copies cannot be read after losing it"
+          : "Its keys are in /etc/boxpilot/secrets/rclone.conf on this server (root only); keep a copy of them off this server",
       });
     }
     const backups = {
@@ -424,9 +445,11 @@ export function createRunbookService({
     for (const [key, entry] of Object.entries(isObject(alerts) ? alerts : {})) {
       if (!isObject(entry)) continue;
       const [family, subject = null] = key.split(":");
-      if (isNotice(key)) { notices.push({ family, subject, label: noticeKinds[family], title: entry.title ?? noticeKinds[family], since: entry.since ?? null }); continue; }
+      // The key, and who ran an automation's run (actorId), are what forAudience asks watchEntryFor with.
+      const ranBy = typeof entry.actorId === "string" ? { actorId: entry.actorId } : {};
+      if (isNotice(key)) { notices.push({ key, family, subject, label: noticeKinds[family], title: entry.title ?? noticeKinds[family], since: entry.since ?? null }); continue; }
       const label = healthConditions[family] ?? family;
-      conditions.push({ family, subject, label, title: entry.title ?? label, since: entry.since ?? null, announced: entry.notified !== false, ...(family.startsWith("schedule.") ? { scheduleCreatedBy: store.getSchedule?.(subject)?.createdBy ?? null } : {}) });
+      conditions.push({ key, family, subject, label, title: entry.title ?? label, since: entry.since ?? null, announced: entry.notified !== false, ...ranBy, ...(family.startsWith("schedule.") ? { scheduleCreatedBy: store.getSchedule?.(subject)?.createdBy ?? null } : {}) });
     }
     let targetConfigured = null;
     try { targetConfigured = notifications ? notifications.describe().configured === true : null; } catch { targetConfigured = null; }

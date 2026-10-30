@@ -1,7 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
-import { aggregateAppStats, appOperations, parseDockerStats, parseServeStatus } from "./apps.mjs";
+import { checkpointCeilingMs } from "../app-helper.mjs";
+import { aggregateAppStats, appOperations, parseDockerStats, parseServeStatus, serveTailnetOnly, servesThisApp } from "./apps.mjs";
+import { validateParameters } from "./registry.mjs";
 
 const operations = Object.fromEntries(appOperations().map((operation) => [operation.id, operation]));
+
+describe("operations that take a checkpoint first", () => {
+  // A checkpoint is a whole app backup. With a 15- or 40-minute budget, a 60-minute archive alone
+  // outlasted the job: it was recorded failed ("may still be running") while the helper finished
+  // the backup, and then the change, with nobody watching.
+  const minutes = (value) => value * 60_000;
+  const ownSteps = { "app.update": minutes(40), "app.rollback": minutes(40), "app.reconfigure": minutes(15), "app.compose.edit": minutes(20), "app.backup.restore-path": minutes(60), "app.backup.restore": minutes(90) };
+
+  it("budget the checkpoint's whole ceiling on top of their own steps", () => {
+    expect(checkpointCeilingMs).toBeGreaterThanOrEqual(minutes(60));
+    for (const [id, own] of Object.entries(ownSteps)) expect(operations[id].timeoutMs, id).toBeGreaterThanOrEqual(checkpointCeilingMs + own);
+  });
+
+  it("still offer more time where they did, as several times the larger budget", () => {
+    for (const id of ["app.update", "app.rollback"]) expect(operations[id].maxTimeoutMs, id).toBe(4 * operations[id].timeoutMs);
+  });
+});
 
 const serveJson = JSON.stringify({
   TCP: { 8093: { HTTPS: true } },
@@ -68,6 +87,30 @@ describe("app serve operations", () => {
 
     await operations["app.serve.set"].run({ id: "ntfy", enabled: false }, { run, apps: fakeApps() });
     expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["serve", "--yes", "--https=8093", "off"], expect.anything());
+  });
+
+  // An app given port 443 could take over, or take down, the tailnet address BoxPilot itself is
+  // reached at: Serve would replace BoxPilot's entry with the app's, or withdraw it.
+  it("leaves a tailnet port alone that publishes something other than the app", async () => {
+    const boxpilotAt443 = JSON.stringify({ Web: { "homebox.tail1234.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:8787" } } } } });
+    const run = vi.fn(async (_binary, args) => (args[1] === "status" ? { ok: true, stdout: boxpilotAt443, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    const on443 = { inspect: vi.fn(async () => ({ applications: [{ id: "ntfy", name: "ntfy", installed: true, urls: [{ id: "web", host: 443, exposure: "tailnet" }], published: [{ id: "web", host: 443, protocol: "tcp", bind: "127.0.0.1", fixed: false, web: true }] }] })) };
+    for (const enabled of [true, false]) {
+      await expect(operations["app.serve.set"].run({ id: "ntfy", enabled }, { run, apps: on443 })).rejects.toThrow("Port 443 on the tailnet already publishes http://127.0.0.1:8787 at https://homebox.tail1234.ts.net, not this app; nothing was changed.");
+    }
+    await expect(operations["app.exposure.set"].run({ id: "ntfy", mode: "lan" }, { run, apps: on443 })).rejects.toThrow("Port 443 on the tailnet already publishes http://127.0.0.1:8787");
+    expect(run.mock.calls.filter(([, args]) => args[1] !== "status")).toEqual([]);
+    // Install and the move to Tailnet only publish after the app is in place: the port is skipped and said.
+    const installed = await serveTailnetOnly({ name: "ntfy", exposure: "tailnet", hostPorts: [{ host: 443, protocol: "tcp", exposure: "loopback" }] }, { run });
+    expect(installed.warnings?.[0]).toContain("443: that tailnet port already publishes http://127.0.0.1:8787 at https://homebox.tail1234.ts.net, so it was left alone");
+    const tailnetOnly = { ...on443, reconfigure: vi.fn(async () => ({ hostPorts: [{ id: "web", host: 443, protocol: "tcp", exposure: "loopback" }] })) };
+    await expect(operations["app.exposure.set"].run({ id: "ntfy", mode: "tailnet" }, { run, apps: tailnetOnly })).rejects.toThrow("443: that tailnet port already publishes http://127.0.0.1:8787");
+    expect(run.mock.calls.filter(([, args]) => args[1] !== "status")).toEqual([]);
+    expect(servesThisApp({ target: "http://127.0.0.1:443" }, 443)).toBe(true);
+    expect(servesThisApp({ target: "localhost:8093" }, 8093)).toBe(true);
+    expect(servesThisApp({ target: "http://127.0.0.1:8787" }, 443)).toBe(false);
+    expect(servesThisApp({ target: "http://192.168.1.20:443" }, 443)).toBe(false);
+    expect(servesThisApp({ target: null }, 443)).toBe(false);
   });
 
   // The Dockge port trap (2026-09-29): Dockge was on the home network (every address) and served at the same port, so
@@ -154,9 +197,13 @@ describe("operations that re-render an app's compose file carry the devices the 
   it("covers every app operation that ends in writing the project", async () => {
     const { deviceResolvingOperations } = await import("../catalog/devices.mjs");
     // app.reinstall writes the project again when its compose file is gone too (M35).
-    const rerendering = appOperations().filter((operation) => /apps\.(install|reinstall|update|reconfigure|rollbackApp|setPassword)\(/.test(String(operation.run))).map((operation) => operation.id);
+    // updateEach( is app.update for each app (the bulk operations share it).
+    const rerendering = appOperations().filter((operation) => /apps\.(install|reinstall|update|reconfigure|rollbackApp|setPassword)\(|updateEach\(/.test(String(operation.run))).map((operation) => operation.id);
     expect(rerendering.length).toBeGreaterThan(4);
-    expect([...deviceResolvingOperations].sort()).toEqual([...rerendering].sort());
+    // Several apps in one job are given each app's devices (devicesByApp, the index.mjs prepare hook).
+    const perApp = rerendering.filter((id) => operations[id].parameters.fields.devicesByApp);
+    expect(perApp.sort()).toEqual(["app.update.available", "app.update.many"]);
+    expect([...deviceResolvingOperations].sort()).toEqual(rerendering.filter((id) => !perApp.includes(id)).sort());
     for (const id of deviceResolvingOperations) expect(operations[id].parameters.fields.devices, id).toBeTruthy();
   });
 
@@ -170,5 +217,126 @@ describe("operations that re-render an app's compose file carry the devices the 
     expect(apps.setPassword).toHaveBeenCalledWith(expect.objectContaining({ id: "jellyfin", devices: ["/dev/dri/renderD128"] }), expect.anything());
     await operations["app.exposure.set"].run({ id: "jellyfin", mode: "lan", devices: ["/dev/dri/renderD128"] }, { apps, run: vi.fn() });
     expect(apps.reconfigure).toHaveBeenCalledWith(expect.objectContaining({ id: "jellyfin", devices: ["/dev/dri/renderD128"] }), expect.anything());
+  });
+});
+
+describe("installing an app for the tailnet only (M38)", () => {
+  const zulipServe = JSON.stringify({ TCP: { 8543: { HTTPS: true } }, Web: { "homebox.tail1234.ts.net:8543": { Handlers: { "/": { Proxy: "http://127.0.0.1:8543" } } } } });
+  const installed = (exposure) => ({ install: vi.fn(async () => ({ installed: true, id: "zulip", name: "Zulip", exposure, hostPorts: [{ id: "web", host: 8543, protocol: "tcp", exposure: exposure === "tailnet" ? "loopback" : "lan", tailnet: "serve" }] })) });
+
+  it("publishes its web port with Tailscale Serve once it is up, and says where", async () => {
+    const run = vi.fn(async (_binary, args) => (args[1] === "status" ? { ok: true, stdout: zulipServe, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    const result = await operations["app.install"].run({ id: "zulip", values: {} }, { apps: installed("tailnet"), run });
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["serve", "--bg", "--yes", "--https=8543", "http://127.0.0.1:8543"], expect.anything());
+    expect(result).toMatchObject({ installed: true, served: true, urls: ["https://homebox.tail1234.ts.net:8543"] });
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it("keeps the install and says how to publish it when Serve fails", async () => {
+    const run = vi.fn(async (_binary, args) => (args[0] === "serve" && args[1] === "--bg" ? { ok: false, stdout: "", stderr: "serve: Tailscale is stopped" } : { ok: true, stdout: "{}", stderr: "" }));
+    const result = await operations["app.install"].run({ id: "zulip", values: {} }, { apps: installed("tailnet"), run });
+    expect(result).toMatchObject({ installed: true, served: false });
+    expect(result.warnings[0]).toMatch(/publishing it with Tailscale Serve failed \(8543: serve: Tailscale is stopped\).*choose Publish on the tailnet/);
+  });
+
+  it("leaves an app on the home network alone", async () => {
+    const run = vi.fn();
+    const result = await operations["app.install"].run({ id: "zulip", values: { exposure: "lan" } }, { apps: installed("lan"), run });
+    expect(run).not.toHaveBeenCalled();
+    expect(result.served).toBeUndefined();
+  });
+});
+
+// R4B3-6: a restore writes the backup's compose file again for this server and says who can reach the
+// app and on which ports (exposure, hostPorts), as an install does; app.backup.restore ignored that,
+// so restoring a tailnet-only backup left its web port on 127.0.0.1 with nothing publishing it.
+describe("restoring a tailnet-only app's backup", () => {
+  const serving = JSON.stringify({ Web: { "homebox.tail1234.ts.net:8384": { Handlers: { "/": { Proxy: "http://127.0.0.1:8384" } } } } });
+  const restoring = (exposure, extra = {}) => ({ restoreAppBackup: vi.fn(async () => ({ restored: true, id: "relay", name: "Relay", backup: "20260819T120000Z.tar.gz", exposure, hostPorts: [{ id: "web", host: 8384, protocol: "tcp", exposure: exposure === "tailnet" ? "loopback" : "lan", tailnet: "serve" }], ...extra })) });
+  const parameters = { id: "relay", backup: "20260819T120000Z.tar.gz" };
+
+  it("publishes its web port with Tailscale Serve once it is back, and says where", async () => {
+    const run = vi.fn(async (_binary, args) => (args[1] === "status" ? { ok: true, stdout: serving, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    const result = await operations["app.backup.restore"].run(parameters, { apps: restoring("tailnet"), run });
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["serve", "--bg", "--yes", "--https=8384", "http://127.0.0.1:8384"], expect.anything());
+    expect(result).toMatchObject({ restored: true, served: true, urls: ["https://homebox.tail1234.ts.net:8384"] });
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it("keeps the restore, with its own warnings, and says how to publish it when Serve fails", async () => {
+    const run = vi.fn(async (_binary, args) => (args[1] === "--bg" ? { ok: false, stdout: "", stderr: "serve: Tailscale is stopped" } : { ok: true, stdout: "{}", stderr: "" }));
+    const result = await operations["app.backup.restore"].run(parameters, { apps: restoring("tailnet", { warnings: ["an earlier warning"] }), run });
+    expect(result).toMatchObject({ restored: true, served: false });
+    expect(result.warnings[0]).toBe("an earlier warning");
+    expect(result.warnings[1]).toMatch(/^Relay is installed for your tailnet only, but publishing it with Tailscale Serve failed \(8384: serve: Tailscale is stopped\).*choose Publish on the tailnet\.$/);
+  });
+
+  it("leaves an app on the home network alone", async () => {
+    const run = vi.fn();
+    const result = await operations["app.backup.restore"].run(parameters, { apps: restoring("lan"), run });
+    expect(run).not.toHaveBeenCalled();
+    expect(result.served).toBeUndefined();
+  });
+});
+
+describe("updating several apps in one job (M36)", () => {
+  it("updates each in turn with its own devices, carries on past one that fails, and names it at the end", async () => {
+    const calls = [];
+    const apps = { update: vi.fn(async ({ id, devices }) => { calls.push([id, devices]); if (id === "immich") throw new Error("the new image did not become healthy; the previous one is back"); return { updated: true }; }) };
+    const progress = vi.fn();
+    const run = operations["app.update.many"].run({ ids: ["jellyfin", "immich", "plex"], devicesByApp: { plex: ["/dev/dri/renderD128"] } }, { apps, progress, timeScale: 1 });
+    await expect(run).rejects.toThrow("immich: the new image did not become healthy; the previous one is back. jellyfin, plex were updated.");
+    expect(calls).toEqual([["jellyfin", null], ["immich", null], ["plex", ["/dev/dri/renderD128"]]]);
+    expect(apps.update.mock.calls.every(([, options]) => options.checkpoint === true)).toBe(true);
+    await expect(operations["app.update.many"].run({ ids: ["jellyfin"] }, { apps: { update: async () => ({}) }, progress })).resolves.toEqual({ updated: true, apps: ["jellyfin"] });
+    expect(operations["app.update.many"].risk).toBe("medium");
+  });
+
+  it("starts no app it could not finish in the time left, and names the ones it left alone", async () => {
+    // Each update takes three hours on this clock; the job has twelve, and an update may take 110 minutes.
+    let clock = 0;
+    const apps = { update: vi.fn(async () => { clock += 3 * 60 * 60_000; return {}; }) };
+    const ids = ["a1", "a2", "a3", "a4", "a5", "a6"];
+    await expect(operations["app.update.many"].run({ ids }, { apps, progress: vi.fn(), timeScale: 1, now: () => clock })).rejects.toThrow("not started in the time left: a5, a6. a1, a2, a3, a4 were updated.");
+    expect(apps.update.mock.calls.map(([{ id }]) => id)).toEqual(["a1", "a2", "a3", "a4"]);
+    expect(operations["app.update.many"].timeoutMs).toBe(12 * 60 * 60_000);
+  });
+
+  it("updates, unattended, every app with an update ready, each backed up first, and leaves the rest alone", async () => {
+    const calls = [];
+    const apps = {
+      inspect: vi.fn(async () => ({ applications: [
+        { id: "theyspy", installed: true, updateAvailable: true },
+        { id: "jellyfin", installed: true, updateAvailable: true },
+        { id: "plex", installed: true, updateAvailable: false },
+        { id: "immich", installed: false, updateAvailable: false },
+        { id: "ollama", installed: true, updateAvailable: true },
+      ] })),
+      update: vi.fn(async ({ id, devices }, options) => { calls.push([id, devices, options.checkpoint]); return { updated: true }; }),
+    };
+    const progress = vi.fn();
+    const result = await operations["app.update.available"].run({ exclude: ["ollama"], devicesByApp: { jellyfin: ["/dev/dri/renderD128"], plex: ["/dev/dri/renderD128"] } }, { apps, progress, timeScale: 1 });
+    expect(result).toEqual({ updated: true, apps: ["theyspy", "jellyfin"] });
+    // A backup (checkpoint) before each update, always; devices only for the apps that glob for them.
+    expect(calls).toEqual([["theyspy", null, true], ["jellyfin", ["/dev/dri/renderD128"], true]]);
+    expect(operations["app.update.available"].risk).toBe("medium");
+    expect(operations["app.update.available"].timeoutMs).toBe(12 * 60 * 60_000);
+
+    const quiet = { inspect: async () => ({ applications: [{ id: "plex", installed: true, updateAvailable: false }] }), update: vi.fn() };
+    await expect(operations["app.update.available"].run({}, { apps: quiet, progress })).resolves.toEqual({ updated: false, apps: [] });
+    expect(quiet.update).not.toHaveBeenCalled();
+    const spec = operations["app.update.available"].parameters;
+    expect(validateParameters(spec, {}, "t")).toBeNull();
+    expect(validateParameters(spec, { exclude: ["../etc"] }, "t")).toContain("up to 50");
+  });
+
+  it("takes 1 to 20 different apps, and devices only as /dev paths per named app", () => {
+    const spec = operations["app.update.many"].parameters;
+    expect(validateParameters(spec, { ids: ["jellyfin", "plex"] }, "t")).toBeNull();
+    expect(validateParameters(spec, { ids: [] }, "t")).toContain("1 to 20");
+    expect(validateParameters(spec, { ids: ["jellyfin", "jellyfin"] }, "t")).toContain("1 to 20");
+    expect(validateParameters(spec, { ids: ["../etc"] }, "t")).toContain("1 to 20");
+    expect(validateParameters(spec, { ids: ["plex"], devicesByApp: { plex: ["/dev/dri/renderD128"] } }, "t")).toBeNull();
+    expect(validateParameters(spec, { ids: ["plex"], devicesByApp: { plex: ["/etc/shadow"] } }, "t")).toContain("/dev paths");
   });
 });

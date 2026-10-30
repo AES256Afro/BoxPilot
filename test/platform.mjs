@@ -9,3 +9,10 @@
  * one of them: `onWindows` is false there.
  */
 export const onWindows = process.platform === "win32";
+
+/**
+ * A real tar for tests that only need archives written and read, not Linux itself: `/usr/bin/tar`
+ * on Linux, as the product runs it, and the tar Windows ships (bsdtar) on a Windows checkout, so a
+ * local run exercises them too. Tests that depend on GNU tar's own behaviour stay gated.
+ */
+export const testTar = onWindows ? `${process.env.SystemRoot ?? "C:\\Windows"}\\System32\\tar.exe` : "/usr/bin/tar";

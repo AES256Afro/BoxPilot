@@ -7,7 +7,7 @@ description: "Web UI for MariaDB and MySQL servers: browse tables, run queries, 
 website: https://www.phpmyadmin.net
 risk: low
 image:
-  reference: phpmyadmin:5.2.3-apache
+  reference: phpmyadmin:5.2.3-apache@sha256:fb0cb638f7d1c2529407921d86679b2b2faf5bb8542314821e9f16e7e3d2954f
   version: "5.2.3"
 ports:
   - id: web

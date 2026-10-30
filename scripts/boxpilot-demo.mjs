@@ -21,15 +21,19 @@ import { annotateDevices, parseLsblkTree, sharesFrom, volumeGroupsFrom } from ".
 import { cloudProviders } from "../server/backup-cloud.mjs";
 import { buildChecklist } from "../server/setup-checklist.mjs";
 import { assessDriveChecks } from "../server/drive-checks.mjs";
-import { backupsDue, detectRemediations, fingerprintOf } from "../server/remediations.mjs";
+import { backupsDue, detectRemediations, dnsLeansOnThisServer, fingerprintOf } from "../server/remediations.mjs";
+import { judgeResilience } from "../server/dns-resilience.mjs";
 import { applyLedger } from "../server/repair-ledger.mjs";
 import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
 import { securityHeaders } from "../server/security-headers.mjs";
 import { databaseCopyReport, databaseCopyRule, describeDatabaseCopy, humanBytes } from "../server/housekeeping.mjs";
+import { cleanupBounds, cleanupCategoryIds, cleanupParameters, journalVacuumArgs, planJournalFolder } from "../server/space-recovery.mjs";
+import { validateParameters } from "../server/ops/registry.mjs";
 import { keepsBackupData } from "../server/catalog/schema.mjs";
 import { registry as operationRegistry } from "../server/ops/index.mjs";
 import { createAgentsDemo } from "./demo-agents.mjs";
+import { powerOnGuidance } from "../server/power-on-guidance.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -41,13 +45,16 @@ const digest = (seed) => createHash("sha256").update(`demo:${seed}`).digest("hex
 
 // ---------- the fictional server ----------
 const host = { hostname: "homebox", lan: "192.168.50.20", gateway: "192.168.50.1", tailnet: "homebox.tail0a1b.ts.net", tailscaleIp: "100.101.102.103", owner: "alex" };
-const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095, ntfy: 8093 };
+const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095, ntfy: 8093, zulip: 8543, "pingvin-share": 3022 };
+// Installed apps with no port of their own: the Cloudflare Tunnel app shares the host's network (M42).
+const installedWithoutPorts = new Set(["cloudflared"]);
 // Apps set to "Tailnet only": their web port is on 127.0.0.1 and Tailscale Serve publishes it at the
 // same port. Only these are served (app.serve.inspect below): an app on the home network publishes
 // on every address, and Serve beside it at the same port is the trap Dockge fell into on 2026-09-29, which
 // the demo depicted for Immich and Vaultwarden until scripts/demo-fixtures.test.mjs looked.
-const tailnetOnly = new Set(["vaultwarden"]);
-const stats = { jellyfin: { cpuPercent: 3.2, memBytes: 412 * 1024 ** 2, containers: 1 }, "pi-hole": { cpuPercent: 0.4, memBytes: 96 * 1024 ** 2, containers: 2 }, immich: { cpuPercent: 6.1, memBytes: 1.4 * GiB, containers: 4 }, vaultwarden: { cpuPercent: 0.1, memBytes: 48 * 1024 ** 2, containers: 1 }, "uptime-kuma": { cpuPercent: 0.8, memBytes: 120 * 1024 ** 2, containers: 1 }, homepage: { cpuPercent: 0.2, memBytes: 70 * 1024 ** 2, containers: 1 }, nextcloud: { cpuPercent: 1.9, memBytes: 620 * 1024 ** 2, containers: 3 }, scrutiny: { cpuPercent: 0.3, memBytes: 110 * 1024 ** 2, containers: 1 } };
+// Zulip is tailnet only by default (M38): its address is the Serve one, which its phone apps need.
+const tailnetOnly = new Set(["vaultwarden", "zulip"]);
+const stats = { jellyfin: { cpuPercent: 3.2, memBytes: 412 * 1024 ** 2, containers: 1 }, "pi-hole": { cpuPercent: 0.4, memBytes: 96 * 1024 ** 2, containers: 2 }, immich: { cpuPercent: 6.1, memBytes: 1.4 * GiB, containers: 4 }, vaultwarden: { cpuPercent: 0.1, memBytes: 48 * 1024 ** 2, containers: 1 }, "uptime-kuma": { cpuPercent: 0.8, memBytes: 120 * 1024 ** 2, containers: 1 }, homepage: { cpuPercent: 0.2, memBytes: 70 * 1024 ** 2, containers: 1 }, nextcloud: { cpuPercent: 1.9, memBytes: 620 * 1024 ** 2, containers: 3 }, scrutiny: { cpuPercent: 0.3, memBytes: 110 * 1024 ** 2, containers: 1 }, zulip: { cpuPercent: 1.2, memBytes: 1.3 * GiB, containers: 5 } };
 
 const lsblk = JSON.stringify({ blockdevices: [
   { path: "/dev/nvme0n1", kname: "nvme0n1", pkname: null, type: "disk", size: 1024209543168, fstype: null, model: "Example NVMe SSD 1TB", tran: "nvme", mountpoints: [null], ro: false, rm: false },
@@ -96,6 +103,22 @@ const firewallProfile = { id: "home-server", services: ["dns", "jellyfin"], sshR
 const listeners = [{ protocol: "tcp", address: "0.0.0.0", port: 2283, scope: "wildcard" }, { protocol: "tcp", address: "0.0.0.0", port: 5432, scope: "wildcard" }];
 const fail2ban = { installed: true, running: true, configured: true, config: { managed: true, maxRetry: 5, findTimeMinutes: 10, banTimeMinutes: 60, ignoreLan: true, ignore: ["127.0.0.1/8", "::1", "100.64.0.0/10", "192.168.50.0/24"], sshd: true }, currentlyBanned: 1, totalBanned: 14 };
 
+// Power (M39): a short outage last night, which the UPS rode out, and an earlier one that ran the
+// battery down, so the server shut itself down and came back when the mains did. Fictional.
+const powerEvents = () => [
+  { at: ago(9.9), event: "on-mains", charge: 97, runtime: 2310 },
+  { at: ago(9.97), event: "on-battery", charge: 100, runtime: 2460 },
+  { at: ago(76), event: "started" },
+  { at: ago(77.2), event: "power-off" },
+  { at: ago(77.21), event: "apps-stopped", containers: 9, drives: 1, busy: 0 },
+  { at: ago(77.22), event: "shutdown", charge: 18, runtime: 290 },
+  { at: ago(77.22), event: "low-battery", charge: 18, runtime: 290 },
+  { at: ago(77.8), event: "on-battery", charge: 100, runtime: 2460 },
+  { at: ago(24 * 20), event: "watching", charge: 100, runtime: 2460 },
+];
+const powerPolicy = { shutdownAtLowBattery: true, lowBatteryPercent: 20, lowRuntimeSeconds: 300, preparationSeconds: 60, configuredAt: ago(24 * 20) };
+const upsReading = { installed: true, configured: true, available: true, state: "online", reason: "ok", deviceCount: 1, statusTokens: ["OL"], batteryChargePercent: 100, estimatedRuntimeSeconds: 2460, loadPercent: 18, lowBatteryPercent: 20, lowRuntimeSeconds: 300, source: "nut-localhost-fixed", boundary: { mutationPerformed: false, powerCommandAvailable: false, shutdownPolicyChanged: false, localhostOnly: true, remoteNetworkProbePerformed: false, browserTargetAccepted: false, rawOutputIncluded: false, deviceNameIncluded: false, serialIncluded: false } };
+
 const inventory = () => ({
   generatedAt: now().toISOString(),
   host: { hostname: host.hostname, operatingSystem: "Ubuntu 24.04.3 LTS", kernel: "6.8.0-64-generic", architecture: "x64", uptimeSeconds: 19 * 86400 + 4 * 3600 },
@@ -106,13 +129,21 @@ const inventory = () => ({
       { target: "/", source: "/dev/mapper/ubuntu--vg-ubuntu--lv", filesystem: "ext4", totalBytes: 800 * GiB, usedBytes: 212 * GiB, availableBytes: 588 * GiB, usedPercent: 27, capacityState: "healthy", readOnly: false, optionNames: ["relatime", "rw"], errorEvidence: { supported: true, state: "healthy", errorsCount: 0, source: "ext4-sysfs-errors-count", reason: "ok" } },
       { target: "/mnt/media", source: "/dev/sda1", filesystem: "ext4", totalBytes: 4000 * GiB, usedBytes: 2710 * GiB, availableBytes: 1290 * GiB, usedPercent: 68, capacityState: "healthy", readOnly: false, optionNames: ["nofail", "relatime", "rw"], errorEvidence: { supported: true, state: "healthy", errorsCount: 0, source: "ext4-sysfs-errors-count", reason: "ok" } },
     ], summary: { healthy: 2, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 2, critical: 0, unavailable: 0, unsupported: 0 } },
-    blockDevices: { available: true, devices: [{ name: "/dev/nvme0n1", parent: null, type: "disk", filesystem: null, sizeBytes: 1024209543168, mountTargets: [], rotational: false, readOnly: false, transport: "nvme", model: "Example NVMe SSD 1TB" }, { name: "/dev/sda", parent: null, type: "disk", filesystem: null, sizeBytes: 4000 * GiB, mountTargets: [], rotational: true, readOnly: false, transport: "usb", model: "Example USB HDD 4TB" }] },
+    // As lsblk lists them inside the web service's sandbox: partitions, and no device-mapper volume (M40).
+    blockDevices: { available: true, devices: [
+      { name: "/dev/nvme0n1", parent: null, type: "disk", filesystem: null, sizeBytes: 1024209543168, mountTargets: [], rotational: false, readOnly: false, transport: "nvme", model: "Example NVMe SSD 1TB" },
+      { name: "/dev/nvme0n1p1", parent: "/dev/nvme0n1", type: "part", filesystem: "vfat", sizeBytes: 1 * GiB, mountTargets: ["/boot/efi"], rotational: false, readOnly: false, transport: "nvme", model: null },
+      { name: "/dev/nvme0n1p2", parent: "/dev/nvme0n1", type: "part", filesystem: "ext4", sizeBytes: 2 * GiB, mountTargets: ["/boot"], rotational: false, readOnly: false, transport: "nvme", model: null },
+      { name: "/dev/nvme0n1p3", parent: "/dev/nvme0n1", type: "part", filesystem: "LVM2_member", sizeBytes: 950 * GiB, mountTargets: [], rotational: false, readOnly: false, transport: "nvme", model: null },
+      { name: "/dev/sda", parent: null, type: "disk", filesystem: null, sizeBytes: 4000 * GiB, mountTargets: [], rotational: true, readOnly: false, transport: "usb", model: "Example USB HDD 4TB" },
+      { name: "/dev/sda1", parent: "/dev/sda", type: "part", filesystem: "ext4", sizeBytes: 4000 * GiB, mountTargets: ["/mnt/media"], rotational: true, readOnly: false, transport: "usb", model: null },
+    ] },
     smart: { available: true, status: "healthy", reason: "fixed-root-scan", generatedAt: ago(2), stale: false, disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 41, powerOnHours: 6120, percentageUsed: 3, mediaErrors: 0, unsafeShutdowns: 2 }, { device: "/dev/sda", health: "healthy", passed: true, temperatureCelsius: 36, powerOnHours: 14800, percentageUsed: null, mediaErrors: 0, unsafeShutdowns: 0, reason: "ok", transport: "usb", deviceType: "sat", readAt: ago(2) },
       // A data drive that spins down: the scan leaves it asleep and keeps what it last said (M36).
       { device: "/dev/sdb", health: "unavailable", passed: null, temperatureCelsius: null, powerOnHours: null, percentageUsed: null, mediaErrors: null, unsafeShutdowns: null, reason: "asleep", transport: "sata", deviceType: "auto", lastHealth: "healthy", lastReadAt: ago(26) }] },
   },
   maintenance: { system: { available: true, state: "running", failedServiceCount: 0, failedServiceCountTruncated: false }, reboot: { available: true, required: false }, packageManager: { available: true, state: "ready", pendingUpdateFragments: 0, countTruncated: false }, aptMetadata: { available: true, state: "current", updatedAt: ago(5), ageHours: 5 }, automaticSecurityUpdates: { available: true, state: "enabled-active", enabled: true, active: true } },
-  power: { ups: { installed: true, configured: true, available: true, state: "online", reason: "ok", deviceCount: 1, statusTokens: ["OL"], batteryChargePercent: 100, estimatedRuntimeSeconds: 2460, loadPercent: 18, source: "nut-localhost-fixed", boundary: { mutationPerformed: false, powerCommandAvailable: false, shutdownPolicyChanged: false, localhostOnly: true, remoteNetworkProbePerformed: false, browserTargetAccepted: false, rawOutputIncluded: false, deviceNameIncluded: false, serialIncluded: false } } },
+  power: { ups: upsReading, events: powerEvents().slice(0, 20), eventsAvailable: "yes", policy: powerPolicy },
   network: { addresses: [{ interface: "eno1", address: host.lan, cidr: `${host.lan}/24` }, { interface: "tailscale0", address: host.tailscaleIp, cidr: `${host.tailscaleIp}/32` }], tailscale: { installed: true, connected: true, dnsName: host.tailnet } },
   services: [{ unit: "boxpilot.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" }, { unit: "boxpilot-helper.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" }, { unit: "docker.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" }, { unit: "tailscaled.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" }],
   docker: { available: true, containers: Object.keys(installed).map((id) => ({ id: id.slice(0, 6), name: `bp-${id}`, image: `${id}:latest`, state: "running", status: "Up 19 days", health: "healthy", ports: `${host.lan}:${installed[id]}`, networks: `bp-${id}_default` })), images: [], networks: [], volumes: [], projects: [] },
@@ -194,7 +225,104 @@ function demoDatabaseCopies(parameters = {}) {
   return databaseCopyReport(copies, { rule, now: Date.now(), directory: "/var/lib/boxpilot" });
 }
 
+/*
+ * Where the disk space went, and a cleanup preview that follows the bounds asked for (M30.8): a
+ * journal of 1.4 GiB in weekly archives, a month of job logs, APT's cache after an upgrade, and the
+ * images an update left dangling. The journal half is planned by the product's own vacuum model.
+ */
+const demoMachineId = "0123456789abcdef0123456789abcdef";
+const demoJournalFolder = `/var/log/journal/${demoMachineId}`;
+const demoJournalFiles = () => {
+  const hex = (value, width) => BigInt(Math.round(value)).toString(16).padStart(width, "0");
+  const archived = Array.from({ length: 12 }, (_, index) => {
+    const startedMs = Date.now() - (12 - index) * 7 * 86_400_000;
+    return { name: `system@${"a".repeat(32)}-${hex(index * 50_000 + 1, 16)}-${hex(startedMs * 1000, 16)}.journal`, bytes: 112 * 1024 ** 2 };
+  });
+  return [...archived, { name: "system.journal", bytes: 64 * 1024 ** 2 }, { name: "user-1000.journal", bytes: 8 * 1024 ** 2 }];
+};
+const demoJobLogs = [
+  ...Array.from({ length: 9 }, (_, index) => ({ id: `0b1c2d3e-0000-4000-8000-00000000000${index}`, days: 20 + index * 4, bytes: (120 + index * 30) * 1024, state: "completed" })),
+  ...Array.from({ length: 5 }, (_, index) => ({ id: `0b1c2d3e-0000-4000-8000-00000000001${index}`, days: 2 + index * 2, bytes: 90 * 1024, state: "completed" })),
+  { id: "0b1c2d3e-0000-4000-8000-000000000020", days: 16, bytes: 640 * 1024, state: "failed" },
+];
+const demoAptFiles = [["linux-image-6.8.0-45-generic_6.8.0-45.45_amd64.deb", 14.6], ["linux-modules-6.8.0-45-generic_6.8.0-45.45_amd64.deb", 38.2], ["docker-ce_5%3a28.0.0-1~ubuntu.24.04~noble_amd64.deb", 27.4], ["containerd.io_1.7.25-1_amd64.deb", 30.1], ["openssl_3.0.13-0ubuntu3.4_amd64.deb", 1.6]].map(([name, mebibytes]) => ({ what: `/var/cache/apt/archives/${name}`, bytes: Math.round(mebibytes * 1024 ** 2) }))
+  .concat([{ what: "/var/cache/apt/pkgcache.bin", bytes: 46 * 1024 ** 2 }, { what: "/var/cache/apt/srcpkgcache.bin", bytes: 45 * 1024 ** 2 }]);
+const demoDangling = [{ what: "sha256:5f1e0c2b9a7d", bytes: 412_000_000 }, { what: "sha256:9c3a71d40e28", bytes: 188_000_000 }];
+
+function demoSpaceInspect() {
+  const journal = demoJournalFiles();
+  const sum = (list) => list.reduce((total, entry) => total + entry.bytes, 0);
+  const active = journal.filter((file) => !file.name.includes("@"));
+  const logs = (filter) => { const list = demoJobLogs.filter(filter); return { count: list.length, bytes: sum(list) }; };
+  const measured = (entry) => ({ ...entry, available: true, unavailable: null, humanBytes: humanBytes(entry.bytes) });
+  return {
+    generatedAt: now().toISOString(),
+    categories: [
+      measured({ id: "journal", title: "System journal", path: "/var/log/journal", bytes: sum(journal), inodes: journal.length + 1, filesystem: "2049",
+        detail: { journaldReportedBytes: Math.round(sum(journal) / (0.1 * GiB)) * 0.1 * GiB, folders: 1, activeFiles: active.length, activeBytes: sum(active), archivedFiles: journal.length - active.length, archivedBytes: sum(journal) - sum(active) } }),
+      measured({ id: "job-logs", title: "BoxPilot job logs", path: "/run/boxpilot/job-logs", bytes: sum(demoJobLogs), inodes: demoJobLogs.length, filesystem: "26",
+        detail: { retentionDays: cleanupBounds.jobLogDefaultDays, active: logs(() => false), "past-retention": logs((log) => log.state === "completed" && log.days > 14), completed: logs((log) => log.state === "completed" && log.days <= 14), failed: logs((log) => log.state === "failed"), unlisted: logs(() => false) } }),
+      measured({ id: "apt-cache", title: "APT download cache", path: "/var/cache/apt", bytes: sum(demoAptFiles) + 4096 * 6, inodes: demoAptFiles.length + 6, filesystem: "2049",
+        detail: { cleanableFiles: demoAptFiles.length, cleanableBytes: sum(demoAptFiles), packages: demoAptFiles.filter((file) => file.what.endsWith(".deb")).length } }),
+      measured({ id: "docker", title: "Docker", path: "/var/lib/docker", bytes: 14_184_000_000, inodes: null, filesystem: "2049",
+        detail: { rows: [
+          { type: "Images", total: 22, active: 14, bytes: 10_100_000_000, reclaimableBytes: 1_180_000_000, reclaimablePercent: 11 },
+          { type: "Containers", total: 14, active: 13, bytes: 644_000_000, reclaimableBytes: 12_300_000, reclaimablePercent: 1 },
+          { type: "Local Volumes", total: 9, active: 9, bytes: 3_440_000_000, reclaimableBytes: 0, reclaimablePercent: 0 },
+          { type: "Build Cache", total: 0, active: 0, bytes: 0, reclaimableBytes: 0, reclaimablePercent: null },
+        ], danglingImages: { count: demoDangling.length, bytes: sum(demoDangling), usedByContainers: 0 } } }),
+      measured({ id: "backups", title: "Local backups", path: "/var/lib/boxpilot-managed/backups/catalog", bytes: 21.4 * GiB, inodes: 412, filesystem: "2049",
+        detail: { roots: [
+          { id: "application", title: "Application backups", path: "/var/lib/boxpilot-managed/backups/catalog", bytes: 19.8 * GiB, inodes: 380, files: 352, retention: "Each backup keeps the newest copies of its own kind. Reclaim disk space offers those beyond the newest 3 of each kind, keeping any a machine snapshot restores from.", beyondNewest: { count: 5, bytes: 780 * 1024 ** 2, keepsPerKind: 3 } },
+          { id: "database", title: "BoxPilot database backups", path: "/var/lib/boxpilot-managed/backups/boxpilot-controller", bytes: 1.6 * GiB, inodes: 32, files: 30, retention: "Each new backup keeps the newest 10 local copies." },
+          { id: "machine-snapshots", title: "Machine snapshots", path: "/var/lib/boxpilot-managed/machine-snapshots", bytes: null, inodes: null, files: null, retention: "Each new snapshot keeps the newest 3.", unavailable: "Not created yet" },
+        ] } }),
+    ],
+    filesystems: [
+      { key: "2049", path: "/var/log/journal", freeBytes: 411 * GiB, totalBytes: 492 * GiB, freeInodes: 30_412_000, totalInodes: 32_768_000, categories: ["journal", "apt-cache", "docker", "backups"] },
+      { key: "26", path: "/run/boxpilot/job-logs", freeBytes: 3.1 * GiB, totalBytes: 3.2 * GiB, freeInodes: 812_000, totalInodes: 813_000, categories: ["job-logs"] },
+    ],
+  };
+}
+
+/** The preview for the bounds asked for, as space.cleanup.preview answers; bounds it would refuse fall back to the defaults. */
+function demoSpacePlan(parameters = {}) {
+  const asked = validateParameters(cleanupParameters, parameters, "Disk-space cleanup") ? { categories: ["journal", "job-logs", "apt-cache"], journalMaxAgeDays: 30 } : parameters;
+  const bounds = { journalMaxBytes: asked.journalMaxBytes ?? null, journalMaxAgeDays: asked.journalMaxAgeDays ?? null, jobLogRetentionDays: asked.jobLogRetentionDays ?? cleanupBounds.jobLogDefaultDays };
+  const sum = (list) => list.reduce((total, entry) => total + entry.bytes, 0);
+  const plans = {
+    journal: () => {
+      const planned = planJournalFolder(demoJournalFiles(), { maxBytes: bounds.journalMaxBytes, maxAgeDays: bounds.journalMaxAgeDays, now: Date.now() });
+      const limits = [bounds.journalMaxBytes !== null ? `each journal folder is within ${humanBytes(bounds.journalMaxBytes)}` : null, bounds.journalMaxAgeDays !== null ? `no archived file starts more than ${bounds.journalMaxAgeDays} days ago` : null].filter(Boolean);
+      return { bound: `Archived journal files, oldest first, until ${limits.join(" and ")} (journalctl ${journalVacuumArgs({ maxBytes: bounds.journalMaxBytes, maxAgeDays: bounds.journalMaxAgeDays }).join(" ")}).`,
+        bytes: sum(planned.remove), inodes: planned.remove.length,
+        items: planned.remove.map((file) => ({ what: `${demoJournalFolder}/${file.name}`, bytes: file.bytes, at: new Date(file.realtimeUs / 1000).toISOString() })), more: 0,
+        keeping: [`${planned.activeFiles} active journal files (${humanBytes(planned.activeBytes)}), which journald is writing and never deletes`, ...(planned.kept.length ? [`${planned.kept.length} archived files within the bound (${humanBytes(sum(planned.kept))})`] : [])] };
+    },
+    "job-logs": () => {
+      const remove = demoJobLogs.filter((log) => log.state === "completed" && log.days > bounds.jobLogRetentionDays);
+      const newer = demoJobLogs.filter((log) => log.state === "completed" && log.days <= bounds.jobLogRetentionDays);
+      return { bound: `Logs of completed jobs last written more than ${bounds.jobLogRetentionDays} days ago.`, bytes: sum(remove), inodes: remove.length,
+        items: remove.map((log) => ({ what: `${log.id}.log`, bytes: log.bytes, at: ago(log.days * 24), detail: "Activity keeps the end of its output" })), more: 0,
+        keeping: ["1 log of failed or cancelled jobs, the record of what went wrong (640.0 KiB)", ...(newer.length ? [`${newer.length} completed jobs' logs newer than ${bounds.jobLogRetentionDays} days (${humanBytes(sum(newer))})`] : [])] };
+    },
+    "apt-cache": () => ({ bound: "Downloaded package files and APT's rebuildable package cache (apt-get clean).", bytes: sum(demoAptFiles), inodes: demoAptFiles.length, items: demoAptFiles, more: 0, keeping: ["The package lists, so the next install only downloads its own packages"] }),
+    "docker-dangling": () => ({ bound: "Dangling images no container uses (docker image prune, without --all).", bytes: sum(demoDangling), inodes: null, items: demoDangling, more: 0, keeping: ["Every tagged image, every container, every volume, and the build cache", "Sizes are Docker's; layers an image shares with a kept one are not freed"] }),
+  };
+  const titles = { journal: "System journal", "job-logs": "BoxPilot job logs", "apt-cache": "APT download cache", "docker-dangling": "Dangling Docker images" };
+  const categories = cleanupCategoryIds.filter((id) => asked.categories.includes(id)).map((id) => { const planned = plans[id](); return { id, title: titles[id], available: true, unavailable: null, ...planned, humanBytes: humanBytes(planned.bytes) }; });
+  const totalBytes = sum(categories);
+  return { generatedAt: now().toISOString(), bounds, categories, totalBytes, totalHumanBytes: humanBytes(totalBytes), totalInodes: categories.reduce((total, category) => total + (category.inodes ?? 0), 0) };
+}
+
 export const inspections = {
+  // The watchdog and Wake-on-LAN (M39): an AMD board whose watchdog Ubuntu does not load by itself,
+  // and one wired port that can wake. The address is from the documentation range (RFC 7042).
+  "power.hardware.inspect": {
+    watchdog: { state: "loadable", usable: true, virtualization: "none", devices: [], driver: { name: "sp5100_tco", available: "module", loaded: false, blacklisted: true }, runtimeSeconds: 0, rebootSeconds: 600, managedByBoxPilot: false },
+    wakeOnLan: { ethtool: true, ports: [{ name: "eno1", mac: "00:00:5e:00:53:01", driver: "r8169", up: true, supports: "pumbg", current: "d", supportsMagic: true, magicOn: false, linkFile: "/usr/lib/systemd/network/99-default.link", keptByBoxPilot: false }] },
+    boardVendor: "ASUSTeK COMPUTER INC.",
+  },
   "system.settings.inspect": {
     hostname: { static: host.hostname, live: host.hostname }, timezone: "UTC",
     timezones: ["UTC", "Europe/London", "Europe/Berlin", "America/New_York", "America/Chicago", "America/Los_Angeles", "Asia/Tokyo", "Australia/Sydney"],
@@ -243,7 +371,8 @@ export const inspections = {
     { unit: "systemd-journald.service", description: "Journal Service", load: "loaded", active: "active", sub: "running", enabled: "static", guarded: null, critical: true },
   ] },
   // Vaultwarden, which is tailnet only, and an old entry for MinIO, which is not installed any more.
-  "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }, { dnsName: host.tailnet, port: 9001, target: "http://127.0.0.1:9001" }] },
+  // Zulip too (M38): tailnet only by default, at the address its phone apps need.
+  "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }, { dnsName: host.tailnet, port: 8543, target: "http://127.0.0.1:8543" }, { dnsName: host.tailnet, port: 9001, target: "http://127.0.0.1:9001" }] },
   "app.stats.inspect": { available: true, stats },
   "host.snapshot.inspect": machineState,
   "backup.remote.inspect": { keyReady: true, publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExampleExam boxpilot-backup-mirror", fingerprint: "SHA256:ExampleFingerprintExampleFingerprintExample0", hostKeysPinned: 1, rsyncInstalled: true },
@@ -269,6 +398,8 @@ export const inspections = {
     { type: "Build Cache", total: 0, active: 0, size: "0B", reclaimable: "0B" },
   ], logging: { configured: true, logDriver: "json-file", maxSize: "10m", liveRestore: true } },
   "housekeeping.database-copies.inspect": demoDatabaseCopies(),
+  "space.inspect": demoSpaceInspect(),
+  "space.cleanup.preview": demoSpacePlan({ categories: ["journal", "job-logs", "apt-cache"], journalMaxAgeDays: 30, jobLogRetentionDays: 14 }),
   "housekeeping.inspect": (() => {
     const categories = [
       { id: "boxpilot-versions", title: "Previous BoxPilot releases", summary: "Copies of BoxPilot that past updates left in /opt. The most recent working version is kept, so you can still put it back by hand, and so is the last update that failed its health check.", items: 4, bytes: 1.4 * GiB, detail: ["boxpilot.prev.1750", "boxpilot.prev.1746", "boxpilot.rollback-1741", "boxpilot-prev-1738"], keeping: ["boxpilot.prev.1752"], safe: true },
@@ -409,6 +540,16 @@ export const inspections = {
   "dns.blocker.verify": { address: host.lan, answering: true, resolving: true, blocking: true, intercepted: false, interceptorBlocking: null,
     control: { domain: "example.com", addresses: ["93.184.216.34"], error: null },
     probe: { domain: "doubleclick.net", addresses: ["0.0.0.0"], error: null }, reason: null },
+  // M39.3: the heartbeat on, pinging a dead man's switch every five minutes; the last one taken.
+  "heartbeat.inspect": { configured: true, host: "hc-ping.com", installed: true, enabled: true, intervalMinutes: 5, last: { at: ago(0.04), ok: true, status: 200, ms: 142, error: null }, intervals: [1, 2, 5, 10, 15, 30, 60] },
+  // M42: Cloudflare connected, and Pingvin Share published at a name on the owner's (fictional) domain.
+  "cloudflare.tunnel.inspect": {
+    connected: true, account: { id: "0f1e2d3c4b5a69788796a5b4c3d2e1f0", name: "Example household" }, tunnel: { id: "6f0c2e9a-4b1d-4c7e-9a3f-2d5b8e1c0a47", name: `boxpilot-${host.hostname}` },
+    plannedTunnelName: `boxpilot-${host.hostname}`, zones: [{ id: "4d3c2b1a0f9e8d7c6b5a49382716f5e4", name: "example.com" }],
+    routes: [{ hostname: "share.example.com", url: "https://share.example.com", appId: "pingvin-share", portId: "web", hostPort: 3022, service: "http://127.0.0.1:3022", publishedAt: ago(30) }],
+    connectedAt: ago(31), problem: null,
+  },
+  "cloudflare.tunnel.check": { status: "healthy", connectors: 1, routesAtCloudflare: ["share.example.com"], checkedAt: now().toISOString() },
   "router.inspect": { configured: true, reachable: true, host: "192.168.1.1", username: "root", model: "GL-MT6000", firmware: "4.7.0", reason: null },
   "router.leases": { host: "192.168.1.1", leases: [
     { name: "homebox", address: host.lan, mac: "aa:bb:cc:dd:ee:02", online: true, reserved: true },
@@ -465,6 +606,7 @@ const freshRest = {
   "/storage/nfs": (body) => ({ ...body, installed: false, running: false, configured: false, config: { ...body.config, exports: [] } }),
   "/storage/shares/discover": (body) => ({ ...body, devices: [] }),
   "/power/ups/detect": (body) => ({ ...body, devices: [], nutInstalled: false }),
+  "/power/overview": (body) => ({ ...body, ups: { ...body.ups, installed: false, configured: false, available: false, state: "unavailable", reason: "nut-client-not-installed", batteryChargePercent: null, estimatedRuntimeSeconds: null, loadPercent: null, lowBatteryPercent: null, lowRuntimeSeconds: null }, events: [], eventsAvailable: "none", policy: null, guidance: powerOnGuidance({ boardVendor: body.guidance.board?.vendor ?? null }) }),
   "/virtualization/domains": (body) => ({ ...body, connected: false, error: "libvirt is not installed on this server yet", domains: [] }),
   "/virtualization/status": (body) => ({ ...body, ready: false, checks: body.checks.map((check) => ({ ...check, ok: false, detail: "Not installed on this server yet" })),
     tailscale: { installed: false, connected: false, dnsName: null, serveUrls: [] },
@@ -577,11 +719,26 @@ api.get("/notifications", (_request, response) => json(response, { seenAt: ago(3
   { id: "n2", kind: "alert", key: "storage.mount.full:/mnt/media", family: "storage.mount.full", title: "/mnt/media is 91% full", message: "The filesystem mounted at /mnt/media is nearly full.", at: ago(26), delivered: true, reason: null, deliveredAt: ago(26), resolvedAt: ago(22), live: false },
   { id: "n3", kind: "job", key: "job.failed:d3", family: "job.failed", title: "Mirror local backups to the cloud destination failed", message: "rclone: the bucket answered 503; the next scheduled run tries again.", at: ago(50), delivered: true, reason: null, deliveredAt: ago(50), resolvedAt: null, live: false },
   { id: "n4", kind: "notice", key: "drive.reconnected:media", family: "drive.reconnected", title: "The media drive was reconnected automatically", message: "It dropped off USB at 03:12 and was checked and mounted again at 03:14.", at: ago(96), delivered: true, reason: null, deliveredAt: ago(96), resolvedAt: null, live: false },
+  { id: "n5", kind: "approval", key: "approval.waiting:0f8b3c1e-1111-4222-8333-444455556666", family: "approval.waiting", title: "Update an app (Immich): approve?", message: "Medium risk. Tap to review it in BoxPilot; nothing runs until you approve it there.", at: ago(120), delivered: true, reason: null, deliveredAt: ago(120), resolvedAt: null, live: false },
 ] }));
 api.post("/notifications/seen", (_request, response) => json(response, { seenAt: now().toISOString() }));
+/**
+ * Push approvals (M25.2): the panel at the top of the notifications, with the owner's iPhone on and
+ * the choices set. The demo never registers a service worker, so nothing can be turned on or pushed.
+ */
+api.get("/push", (_request, response) => json(response, {
+  canSubscribe: true, publicKey: null, problem: null,
+  devices: [{ id: "demo-iphone", label: "iPhone", service: "Apple", createdAt: ago(72), lastSentAt: ago(2), lastError: null }],
+  settings: { tiers: { low: false, medium: true, high: true }, quietHours: { enabled: true, start: "22:00", end: "07:00" }, ntfy: "fallback", openAt: `https://${host.tailnet}`, timeZone: "Europe/London" },
+}));
+api.get("/settings/quiet-hours", (_request, response) => json(response, { enabled: true, start: "22:30", end: "07:00", holdHigh: false, held: 0, quietNow: false }));
 api.get("/settings/weekly-report", (_request, response) => json(response, { enabled: true, cadence: "Sundays at 09:00", nextDueAt: new Date(Date.now() + 4 * 24 * 3600_000).toISOString(), lastSentAt: ago(72), lastResult: "sent", targetConfigured: true }));
 api.get("/settings/weekly-report/preview", (_request, response) => json(response, { title: "Weekly report, nothing failed", message: "Sep 20 to Sep 27: 41 jobs ran, none failed.\nBackups: 7 app backups this week; database backed up today." }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { approvalMode: "tiered", modes: ["tiered", "always-password"], elevationTtlMs: 10 * 60_000 }));
+// The weekly read of a sleeping drive (M36): off until the owner turns it on, as on a real server.
+let demoStorageWake = false;
+api.get("/settings/storage-wake", (_request, response) => json(response, { enabled: demoStorageWake }));
+api.put("/settings/storage-wake", (request, response) => { demoStorageWake = request.body?.enabled === true; json(response, { enabled: demoStorageWake }); });
 api.get("/settings/vpn-profile", (_request, response) => json(response, {
   profile: { configured: true, provider: "mullvad", type: "wireguard", wireguardAddresses: "10.64.222.21/32", countries: "Sweden, Netherlands", portForwarding: "off", dot: "on", blockMalicious: "on", blockAds: "on", blockSurveillance: "off", dnsAddress: "", outboundSubnets: "192.168.0.0/16, 10.0.0.0/8", healthTargetAddress: "", hasWireguardKey: true, hasOpenvpnPassword: false, updatedAt: ago(48) },
   providers: ["mullvad", "protonvpn", "nordvpn", "surfshark", "private internet access", "airvpn", "windscribe", "ivpn", "custom"],
@@ -779,21 +936,33 @@ api.get("/integrations/github", (_request, response) => json(response, {
 api.get("/power/outages", (_request, response) => json(response, { outages: [], unacknowledged: 0 }));
 api.post("/power/outages/:id/acknowledge", (request, response) => response.json({ outage: { id: request.params.id, acknowledged: { at: now().toISOString(), by: "owner-demo" } } }));
 api.get("/power/ups/detect", (_request, response) => json(response, { devices: [{ vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id", sysfs: "1-3" }], nutInstalled: true }));
+api.get("/power/overview", (_request, response) => json(response, { ups: upsReading, events: powerEvents(), eventsAvailable: "yes", policy: powerPolicy, guidance: powerOnGuidance({ boardVendor: "ASUSTeK COMPUTER INC.", upsConfigured: true }) }));
 api.get("/firewall/overview", (_request, response) => json(response, {
   report: firewallReport, reportError: null, web: { port: 8787, lanExposed: false }, protected: protectedRules({ webPort: 8787, webHost: "127.0.0.1" }), profiles, services, riskyPorts, current: firewallProfile,
   advice: adviseFirewall({ report: firewallReport, listeners, apps: [{ id: "immich", name: "Immich", ports: [{ port: 2283, protocol: "tcp", label: "Web UI and mobile app" }] }], current: firewallProfile, fail2ban, webPort: 8787, webHost: "127.0.0.1" }),
 }));
 api.get("/firewall/plan", (request, response) => json(response, buildPlan({ profileId: request.query.profile ?? "home-server", serviceIds: typeof request.query.services === "string" && request.query.services ? request.query.services.split(",") : [], replace: request.query.replace === "true", sshRateLimit: request.query.sshRateLimit === "true", webPort: 8787, webHost: "127.0.0.1" })));
 api.get("/storage/overview", (_request, response) => json(response, storageOverview));
+// Thirty days of the SMART sampler (M31.2): the NVMe slowly wearing, the USB disk steady.
+api.get("/storage/smart-history", (_request, response) => {
+  const day = (offset) => new Date(now().getTime() - offset * 24 * 60 * 60 * 1000).toISOString();
+  const samples = (make) => Array.from({ length: 30 }, (_value, index) => ({ at: day(29 - index), ...make(index) }));
+  json(response, { disks: [
+    { device: "/dev/nvme0n1", days: 29, wearChange: 1, errorChange: 0, samples: samples((index) => ({ temperatureCelsius: Math.round(41 + 3 * Math.sin(index / 3)), percentageUsed: index < 15 ? 2 : 3, mediaErrors: 0 })) },
+    { device: "/dev/sda", days: 29, wearChange: null, errorChange: 0, samples: samples((index) => ({ temperatureCelsius: Math.round(35 + 1.5 * Math.sin(index / 4 + 1)), percentageUsed: null, mediaErrors: 0 })) },
+  ] });
+});
+// Thirty daily sizes ending at `gib`, growing about `perDay` GiB a day (M31.4).
+const dailySizes = (gib, perDay) => Array.from({ length: 30 }, (_value, index) => ({ at: new Date(now().getTime() - (29 - index) * 24 * 60 * 60 * 1000).toISOString(), bytes: Math.round((gib - perDay * (29 - index) + (index % 3) * perDay * 0.2) * 1024 ** 3) }));
 api.get("/storage/forecast", (_request, response) => json(response, { tracking: 2, forecasts: [
   { target: "/mnt/media", daysToFull: 11, availableBytes: 214 * 1024 ** 3, totalBytes: 4000 * 1024 ** 3, samples: 14 },
   { target: "/", daysToFull: 63, availableBytes: 41 * 1024 ** 3, totalBytes: 234 * 1024 ** 3, samples: 14 },
 // What each app's folders hold and how fast they are growing (M23.1). The download client is
 // running away with the drive while the library it feeds has barely moved.
 ], usage: [
-  { appId: "qbittorrent", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"] },
-  { appId: "sonarr", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"] },
-  { appId: "jellyfin", path: "/srv/media", mount: "/", bytes: 2180 * 1024 ** 3, grewBytes: 12 * 1024 ** 3, days: 7 },
+  { appId: "qbittorrent", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"], series: dailySizes(1340, 35) },
+  { appId: "sonarr", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7, sharedWith: ["qbittorrent", "sonarr"], series: dailySizes(1340, 35) },
+  { appId: "jellyfin", path: "/srv/media", mount: "/", bytes: 2180 * 1024 ** 3, grewBytes: 12 * 1024 ** 3, days: 7, series: dailySizes(2180, 1.7) },
   { appId: "nextcloud", path: "/srv/documents", mount: "/", bytes: 48 * 1024 ** 3, grewBytes: 0, days: 7 },
 ], lastMeasured: { at: ago(9), sampled: 4, unmeasured: 0, error: null } }));   // ago() is hours: last night's sweep
 api.get("/storage/shares/discover", (_request, response) => json(response, { devices: [{ address: "192.168.50.30", name: "nas.local", smb: true, nfs: true, mac: "02:00:00:aa:00:30", interface: "eno1" }], scanned: 253, interfaces: ["eno1 192.168.50.20/24"] }));
@@ -880,10 +1049,37 @@ const troubleFacts = () => ({
 const refusedRemount = { id: "t4", type: "op:storage.remount", title: "Reconnect a drive", state: "failed", risk: "medium", result: null, createdAt: ago(1.2), updatedAt: ago(1.19), approvals: [],
   parameters: { name: "media" }, error: "/mnt/media is in use, so it was left alone: umount: /mnt/media: target is busy. Stop whatever is using it — an app with that folder mounted, or the file server — and try again.",
   steps: [{ name: "apply", state: "running", detail: "Running Reconnect a drive", createdAt: ago(1.2) }, { name: "apply", state: "failed", detail: "Reconnect a drive failed: /mnt/media is in use, so it was left alone", createdAt: ago(1.19) }] };
+/**
+ * Whether the house keeps its DNS with homebox off (M39.2), judged by the product's own rules from
+ * facts per world: the lease names only homebox (the 2026-09-29 outage's shape); the unwell world's
+ * router passes lookups to a Pi-hole that is stopped, with the check after a power cut failing; a
+ * new server has nothing on it that the house leans on.
+ */
+function resilienceFor(world) {
+  const healthy = { answering: true, resolving: true, blocking: true, error: null };
+  const facts = world === "fresh"
+    ? { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.gateway], dhcpServer: host.gateway }, servesDns: false, answers: { [host.gateway]: { ...healthy, blocking: false } } }
+    : world === "trouble"
+      ? { handedOut: { source: "dhcp", via: "systemd-networkd", servers: [host.gateway], dhcpServer: host.gateway }, servesDns: true, answers: { [host.gateway]: healthy }, canary: { router: host.gateway, forwards: true } }
+      // homebox's address is set by hand, so no lease: Pi-hole's own log says eight devices ask it directly.
+      : { handedOut: { source: "pihole-log", via: "Pi-hole's query log", servers: [host.lan], dhcpServer: host.gateway }, servesDns: true, answers: { [host.lan]: healthy },
+        askers: { available: true, window: "hour", queries: 1840, lanClients: 8, routerQueries: 0, routerAsks: false } };
+  const verdict = judgeResilience({ selfAddresses: [host.lan, host.tailscaleIp], gateway: host.gateway, rehearsal: null, ...facts }, { now: now(), hostname: host.hostname });
+  // After the power cut the unwell world had: Pi-hole came back, this server's own lookups did not
+  // (the 2026-09-29 resolv.conf trap), which is also why its heartbeat is failing.
+  const afterOutage = world === "trouble" ? { at: ago(0.3), ok: false, outage: { id: "demo-outage", stoppedAt: ago(4), backAt: ago(0.35) }, checks: [
+    { id: "dns-app-lan", ok: true, label: "Pi-hole answers on the LAN", detail: `A lookup sent to ${host.lan}, as a device on your network sends it, came back.` },
+    { id: "host-lookups", ok: false, label: "This server cannot look names up", detail: "github.com did not resolve through the system's resolver: no such name, or no DNS server answered." },
+  ] } : null;
+  return { ...verdict, checkedAt: ago(0.05), lanAddress: host.lan, gateway: host.gateway, canary: facts.canary ?? null, afterOutage };
+}
+api.get("/network/dns-resilience", (request, response) => json(response, resilienceFor(scenarioOf(request.get("referer")))));
+
 function demoScan(world) {
   if (world === "fresh") return { findings: [], dismissed: [], counts: { critical: 0, warning: 0, info: 0 }, jobs: { attached: [], resolved: [], dismissed: [] }, checkedAt: now().toISOString(), sourceStatus: "ready", unavailableChecks: [] };
   const facts = world === "trouble" ? troubleFacts() : { now: Date.now(), protection: protectionFixture(), schedules: [{ operationId: "app.backup", parameters: { id: "immich" }, enabled: true }] };
-  const { findings } = world === "trouble" ? detectRemediations(facts) : { findings: backupsDue(facts) };
+  const pihole = [{ id: "pi-hole", name: "Pi-hole", container: { running: world !== "trouble" } }];
+  const { findings } = world === "trouble" ? detectRemediations({ ...facts, dnsResilience: resilienceFor(world) }) : { findings: [...backupsDue(facts), ...dnsLeansOnThisServer({ dnsResilience: resilienceFor(world), apps: pihole })] };
   const split = findings.find((entry) => entry.id === "split-data-folders");
   const ledger = applyLedger(findings, world === "trouble" ? {
     // Set aside two days ago with a reason, as the owner would a split that is deliberate.
@@ -904,13 +1100,14 @@ api.post("/remediations/attempts", (request, response) => response.status(201).j
 api.post("/schedules", (request, response) => response.status(201).json({ schedule: { id: "demo-schedule", ...request.body, enabled: true, createdBy: "owner-demo", createdAt: now().toISOString() } }));
 api.get("/catalog", async (request, response) => {
   const { manifests, problems } = await loadCatalog();
-  const present = installedFor(scenarioOf(request.get("referer")));
+  const scenario = scenarioOf(request.get("referer"));
+  const present = installedFor(scenario);
   json(response, {
     applications: manifests.map((manifest) => {
-      const port = present[manifest.id];
+      const port = present[manifest.id] ?? (scenario !== "fresh" && installedWithoutPorts.has(manifest.id) ? "no ports" : undefined);
       // As describe() says it (the Dockge port trap, 2026-09-29): each published port and the address it binds.
       const published = port && manifest.network !== "host" ? manifest.ports.map((entry) => ({ id: entry.id, host: entry.host, protocol: entry.protocol, bind: entry.exposure === "loopback" || (tailnetOnly.has(manifest.id) && entry.protocol === "tcp" && (entry.tailnet ?? "serve") === "serve") ? "127.0.0.1" : "0.0.0.0", fixed: Boolean(entry.fixed), web: entry.protocol === "tcp" && (entry.tailnet ?? "serve") === "serve" })) : [];
-      const live = { id: manifest.id, name: manifest.name, published, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [], ...(tailnetOnly.has(manifest.id) ? { exposure: "tailnet" } : {}) }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null, updateHistory: port && manifest.id === "pi-hole" ? [{ at: ago(30), from: { "pi-hole": "pihole/pihole:2025.07.1" }, to: { "pi-hole": manifest.image.reference } }, { at: ago(30 * 24), from: { "pi-hole": "pihole/pihole:2025.05.0" }, to: { "pi-hole": "pihole/pihole:2025.07.1" } }] : [], backupVerification: port && manifest.id === "jellyfin" ? { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11), history: [{ verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11) }, { verified: true, backup: "20260818T031400Z.tar.gz", reason: null, checkedAt: ago(11 + 168) }, { verified: false, backup: "20260811T031400Z.tar.gz", reason: "The archive could not be unpacked: unexpected end of file", checkedAt: ago(11 + 336) }] } : null };
+      const live = { id: manifest.id, name: manifest.name, published, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [], ...(tailnetOnly.has(manifest.id) ? { exposure: "tailnet" } : {}) }, pinnedRollback: false, uninstalledAt: null, secretsSaved: manifest.env.filter((entry) => entry.secret && !entry.generate && !entry.fixed).map((entry) => entry.name) } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null, updateHistory: port && manifest.id === "pi-hole" ? [{ at: ago(30), from: { "pi-hole": "pihole/pihole:2025.07.1" }, to: { "pi-hole": manifest.image.reference } }, { at: ago(30 * 24), from: { "pi-hole": "pihole/pihole:2025.05.0" }, to: { "pi-hole": "pihole/pihole:2025.07.1" } }] : [], backupVerification: port && manifest.id === "jellyfin" ? { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11), history: [{ verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11) }, { verified: true, backup: "20260818T031400Z.tar.gz", reason: null, checkedAt: ago(11 + 168) }, { verified: false, backup: "20260811T031400Z.tar.gz", reason: "The archive could not be unpacked: unexpected end of file", checkedAt: ago(11 + 336) }] } : null };
       // As the product's summary says it (M36): whether an app backup archives anything of it.
       return { manifest: { ...manifest, keepsBackup: keepsBackupData(manifest) }, live };
     }),
@@ -954,6 +1151,8 @@ export function emptied(value) {
 
 /** The words that only appear when there is nothing to show, which emptying cannot invent. */
 const freshWords = {
+  // A fresh box is the same hardware: its watchdog and network port are there before anything is set up.
+  "power.hardware.inspect": inspections["power.hardware.inspect"],
   // A fresh box has had no update, so no database copies; the rule keeps its numbers.
   "housekeeping.database-copies.inspect": { rule: databaseCopyRule(), defaults: databaseCopyRule(), limits: { keep: [1, 50], keepDays: [0, 3650] }, secretScrubVersion: "1.127.0" },
   // The rebuild persona: a fresh box with the old server's backup drive already mounted. This is
@@ -966,6 +1165,11 @@ const freshWords = {
   "dns.names.inspect": { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from the App catalog.", platform: null, records: [], apps: [] },
   "router.inspect": { configured: false, reachable: false, host: null, username: null, model: null, firmware: null, reason: "No router is connected yet." },
   "router.leases": { host: null, leases: [] },
+  // Off until the owner turns it on (M39.3).
+  "heartbeat.inspect": { configured: false, host: null, installed: true, enabled: false, intervalMinutes: null, last: null, intervals: [1, 2, 5, 10, 15, 30, 60] },
+  // Not connected to Cloudflare yet (M42).
+  "cloudflare.tunnel.inspect": { connected: false, account: null, tunnel: null, plannedTunnelName: `boxpilot-${host.hostname}`, zones: [], routes: [], connectedAt: null, problem: null },
+  "cloudflare.tunnel.check": { status: "inactive", connectors: 0, routesAtCloudflare: [], checkedAt: now().toISOString() },
   // A new server can read its backup folder; it just has no apps in it yet.
   "app.backup.protection": { available: true, apps: [] },
   // The machine itself is there on a new server (M33.12): its name, clock, memory and swap. Only
@@ -995,6 +1199,10 @@ const troubleWords = {
     reason: 'The router did not accept that password for "root". This is the password for the router\'s own admin page, which is often not the same as any other password on this network.' },
   // Pi-hole is installed but its container is stopped, so the names it serves have gone with it.
   "dns.names.inspect": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: false }, records: [] },
+  // The heartbeat is on, and the last ping did not get through: DNS was down on this server too.
+  "heartbeat.inspect": { configured: true, host: "hc-ping.com", installed: true, enabled: true, intervalMinutes: 5, last: { at: ago(0.07), ok: false, status: null, ms: 38, error: "its name did not resolve (DNS is not answering)" }, intervals: [1, 2, 5, 10, 15, 30, 60] },
+  // The Cloudflare Tunnel app is not holding the tunnel up: what is published shows an error page (M42).
+  "cloudflare.tunnel.check": { status: "down", connectors: 0, routesAtCloudflare: ["share.example.com"], checkedAt: now().toISOString() },
   "dns.blocker.clients": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: true }, clients: [], self: 9 },
   "app.serve.inspect": { available: false, serves: [] },
   "dns.blocker.verify": { address: "192.168.1.10", answering: true, resolving: false, blocking: true, intercepted: true, interceptorBlocking: false,
@@ -1018,6 +1226,8 @@ const troubleWords = {
   "canary.verify": { ok: false },
   "app.models.inspect": { id: "open-webui", available: false, reason: "Open WebUI + Ollama is paused. Resume it to see its models", models: [] },
   "housekeeping.inspect": { totalBytes: 41 * GiB },
+  // The disk the journal, APT and Docker share is nearly full: what Logs and caches is for.
+  "space.inspect": { filesystems: demoSpaceInspect().filesystems.map((filesystem) => (filesystem.key === "2049" ? { ...filesystem, freeBytes: 2.1 * GiB } : filesystem)) },
 };
 
 /** The same server, described by the routes that report what it can currently reach. */
@@ -1236,8 +1446,10 @@ api.get("/operations/:id/inspect", (request, response) => {
 // reads through /run (which is how it passes parameters) behaves here too.
 api.post("/operations/:id/run", (request, response) => {
   const fixture = fixturesFor(scenarioOf(request.get("referer")))[request.params.id];
-  // The one read whose answer depends on what it is asked: the database-copy rule (M36).
-  const result = request.params.id === "housekeeping.database-copies.inspect" && fixture?.copies?.length ? demoDatabaseCopies(request.body?.parameters ?? {}) : fixture ?? {};
+  // The reads whose answer depends on what they are asked: the database-copy rule (M36) and the
+  // disk-space cleanup's bounds (M30.8).
+  const result = request.params.id === "housekeeping.database-copies.inspect" && fixture?.copies?.length ? demoDatabaseCopies(request.body?.parameters ?? {})
+    : request.params.id === "space.cleanup.preview" && fixture?.categories?.length ? demoSpacePlan(request.body?.parameters ?? {}) : fixture ?? {};
   return json(response, { operation: request.params.id, result });
 });
 /**
@@ -1302,7 +1514,8 @@ api.post("/assistant/ask", (_request, response) => json(response, {
  * stand-in model instead of Unsloth (scripts/demo-agents.mjs). The list routes are named here so the
  * static bundle carries them; everything else under /agents reaches the same world.
  */
-export const agentsDemo = createAgentsDemo({ inventory, apps: installed, services: Object.fromEntries(scenarioNames.map((name) => [name, fixturesFor(name)["service.list"]])), scenarioOf });
+// The agents see every installed app, the Cloudflare Tunnel app with no port of its own among them.
+export const agentsDemo = createAgentsDemo({ inventory, apps: { ...installed, ...Object.fromEntries([...installedWithoutPorts].map((id) => [id, null])) }, services:Object.fromEntries(scenarioNames.map((name) => [name, fixturesFor(name)["service.list"]])), scenarioOf });
 api.get("/agents", agentsDemo.handle);
 api.get("/agents/catalog", agentsDemo.handle);
 api.get("/agents/usage", agentsDemo.handle);
@@ -1310,6 +1523,14 @@ api.get("/agents/runtime", agentsDemo.handle);
 api.get("/agents/glance", agentsDemo.handle);
 api.get("/agents/proposals", agentsDemo.handle);
 api.get("/agents/knowledge", agentsDemo.handle);
+api.get("/agents/zulip", agentsDemo.handle);
+// A card's step named as the job it was staged as: the demo stages nothing (its job is "demo-job"),
+// so the card is answered as it stands, the way reading it again would.
+api.post("/agents/proposals/:proposalId/steps/:step/job", (request, response, next) => {
+  request.method = "GET";
+  request.url = `/agents/proposals/${encodeURIComponent(request.params.proposalId)}`;
+  agentsDemo.handle(request, response, next);
+});
 api.use(agentsDemo.handle);
 
 api.all("/{*rest}", (_request, response) => response.status(404).json({ error: "Not part of the demo", code: "demo_missing" }));

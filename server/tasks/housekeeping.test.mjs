@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, stat, symlink } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { onWindows } from "../../test/platform.mjs";
 import { housekeepingRemoveTrees } from "./housekeeping.mjs";
@@ -21,7 +24,7 @@ function files(present = []) {
 
 describe("removing previous release trees", () => {
   const root = "/opt";
-  const good = ["/opt/boxpilot.prev.20260825T170951Z", "/opt/boxpilot-prev-0.40.0", "/opt/boxpilot.rollback-0.60.0-d6562ba"];
+  const good = ["/opt/boxpilot.prev.20260825T170951Z", "/opt/boxpilot-prev-0.40.0", "/opt/boxpilot.rollback-0.60.0-d6562ba", "/opt/boxpilot.staging.20261005T120000Z"];
 
   // Linux only: expects POSIX paths.
   it.skipIf(onWindows)("removes the leftovers it is given", async () => {
@@ -57,12 +60,28 @@ describe("removing previous release trees", () => {
     const f = files(good);
     f.rm = vi.fn(async (target) => { if (target === good[1]) throw new Error("EROFS: read-only file system"); f.removed.push(target); });
     const result = await housekeepingRemoveTrees({ paths: good, installRoot: root, currentTree: "/opt/boxpilot" }, { files: f });
-    expect(result.removed).toEqual([good[0], good[2]]);
+    expect(result.removed).toEqual(good.filter((target) => target !== good[1]));
     expect(result.refused).toEqual([{ path: good[1], reason: "EROFS: read-only file system" }]);
   });
 
   it("refuses an unreasonable number of paths in one request", async () => {
     await expect(housekeepingRemoveTrees({ paths: Array.from({ length: 501 }, (_, i) => `/opt/boxpilot.prev.${i}`) }, { files: files() }))
       .rejects.toThrow("too many paths");
+  });
+  // Linux only: file symlinks. The default files must lstat, or a link to a directory passes as one.
+  it.skipIf(onWindows)("refuses a link to a directory with the real filesystem", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bp-housekeeping-"));
+    try {
+      const target = path.join(root, "elsewhere");
+      const link = path.join(root, "boxpilot.prev.20260101T000000Z");
+      await mkdir(target);
+      await symlink(target, link);
+      const result = await housekeepingRemoveTrees({ paths: [link], installRoot: root, currentTree: path.join(root, "boxpilot") });
+      expect(result.removed).toEqual([]);
+      expect(result.refused).toEqual([{ path: link, reason: "not a directory" }]);
+      expect((await stat(target)).isDirectory()).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

@@ -1,0 +1,565 @@
+/*
+ * The Toybox look's skin (M41), as docs/design-directions/05-looks.html draws it (M.toybox and the
+ * .ty* rules). Light only, whatever the device prefers: a light sky with two soft round blobs,
+ * chunky white cards with an ink edge and a flat ink shadow, Fredoka everywhere, yellow pill
+ * buttons that press down and white ones beside them, pastel accents. There is no bar: its
+ * controls (the robot mark, the server and the page's name, Home and Ops, search, the bell and the
+ * account menu) float on the sky as pills; the areas are a chunky tray floating at the bottom, the
+ * current one a yellow pill, so Home's two columns sit where the drawing has them.
+ * Every selector starts with :root[data-look="toybox"].
+ */
+
+:root[data-look="toybox"] {
+  color-scheme: light;
+  --font-toy: "Fredoka", ui-rounded, "Nunito", "Arial Rounded MT Bold", sans-serif;
+  --ty-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-condensed: var(--font-toy);
+  --font-sans: var(--font-toy);
+  --font-mono: var(--font-toy);
+  --font-display: var(--font-toy);
+
+  --ty-ink: #2b2340;
+  --ty-soft: #5b5470;
+  --ty-sky: #dcefff;
+  --ty-yellow: #ffd84d;
+  --ty-pink: #ffb3d1;
+  --ty-green: #9ee8bb;
+  --ty-blue: #a9d0ff;
+  --ty-lilac: #cfbcff;
+  --ty-cream: #fff4c7;
+  --ty-focus: #7c5cff;
+  --ty-shadow: 0 6.8px 0 var(--ty-ink);
+  --ty-shadow-sm: 0 3px 0 var(--ty-ink);
+
+  /* The strip across the top, and where the page starts under it: the drawing's 35 px margins. */
+  --ty-bar-h: 38px;
+  --ty-x: 35px;
+
+  /* The console's family, pointed at the toybox: white cards on sky, ink lines, a violet for links. */
+  --cc-canvas: #dcefff;
+  --cc-topbar: #ffffff;
+  --cc-rail: #ffffff;
+  --cc-panel: #ffffff;
+  --cc-raised: #f3f0ff;
+  --cc-inset: #ffffff;
+  --cc-line: rgba(43, 35, 64, 0.32);
+  --cc-hairline: rgba(43, 35, 64, 0.16);
+  --cc-line-strong: #2b2340;
+  --cc-text: #2b2340;
+  --cc-text-strong: #1d1730;
+  --cc-muted: #5b5470;
+  --cc-icon: #5b5470;
+  --cc-amber: #5a3fc0;
+  --cc-amber-ink: #ffffff;
+  --cc-amber-bg: rgba(124, 92, 255, 0.12);
+  --cc-amber-border: rgba(90, 63, 192, 0.45);
+  --cc-cyan: #6b4de6;
+  --cc-cyan-fill: rgba(207, 188, 255, 0.45);
+  --cc-green: #237a44;
+  --cc-green-bg: #d8f7e2;
+  --cc-green-border: #2b2340;
+  --cc-red: #d23a5f;
+  --cc-red-text: #8a1c35;
+  --cc-red-bg: #ffe0e8;
+  --cc-red-border: #2b2340;
+  --cc-track: #ffffff;
+
+  /* What the console leaves to the scheme, held still so dark devices draw the same. */
+  --modal-bg: rgba(43, 35, 64, 0.34);
+  --backdrop-bg: rgba(43, 35, 64, 0.22);
+  --shadow-lg: 0 8px 0 #2b2340;
+  --shadow-xl: 0 8px 0 #2b2340;
+  --text-on-emphasis: #ffffff;
+  --accent-focus: #7c5cff;
+  --warn: #f5b400;
+  --warn-dim: #2b2340;
+  --warn-bg: #fff1b8;
+  --warn-light: #f5b400;
+  --warn-text: #6b4400;
+  --warn-text-light: #6b4400;
+  --warn-text-dim: #6b4400;
+  --warn-faint: #fff8d6;
+  --surface-warn: #fff8d6;
+  --gradient-warn: linear-gradient(#fff1b8, #fff1b8);
+  --gradient-warn-panel: linear-gradient(#fff1b8, #fff1b8);
+  --gradient-warn-bar: linear-gradient(#f5b400, #f5b400);
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+}
+
+/* Status and tier in pastel with ink words, on the page and on whatever opens over it. */
+:root[data-look="toybox"],
+:root[data-look="toybox"] .look-console {
+  --accent: #5a3fc0;
+  --link: #5a3fc0;
+  --status-good: #2f9e57;
+  --status-good-text: #1d5a2c;
+  --status-good-bg: #d8f7e2;
+  --status-good-border: #2b2340;
+  --status-warning: #f5b400;
+  --status-warning-text: #6b4400;
+  --status-warning-bg: #fff1b8;
+  --status-warning-border: #2b2340;
+  --status-danger: #e0446a;
+  --status-danger-text: #8a1c35;
+  --status-danger-bg: #ffe0e8;
+  --status-danger-border: #2b2340;
+  --status-neutral: #5b5470;
+  --status-neutral-text: #2b2340;
+  --status-neutral-bg: #efeaff;
+  --status-neutral-border: #2b2340;
+  --status-unknown: #5b5470;
+  --status-unknown-text: #5b5470;
+  --status-unknown-bg: #ffffff;
+  --status-unknown-border: #5b5470;
+  --risk-low: #2f9e57;
+  --risk-low-text: #1d5a2c;
+  --risk-low-bg: #d8f7e2;
+  --risk-low-border: #2b2340;
+  --risk-medium: #f5b400;
+  --risk-medium-text: #6b4400;
+  --risk-medium-bg: #fff1b8;
+  --risk-medium-border: #2b2340;
+  --risk-high: #e0446a;
+  --risk-high-text: #8a1c35;
+  --risk-high-bg: #ffe0e8;
+  --risk-high-border: #2b2340;
+}
+:root[data-look="toybox"] .look-console { font-family: var(--font-toy); }
+
+:root[data-look="toybox"] body {
+  background:
+    radial-gradient(circle at 8% 90%, #ffe6f2 0 175px, transparent 177px) fixed,
+    radial-gradient(circle at 96% 6%, #fff4c7 0 136px, transparent 138px) fixed,
+    #dcefff;
+}
+:root[data-look="toybox"] .app-shell { color: var(--ty-ink); background: transparent; font-family: var(--font-toy); }
+:root[data-look="toybox"] :is(pre, code, kbd, samp, .ui-code__text, .ui-input--mono) { font-family: var(--ty-code); }
+:root[data-look="toybox"] ::selection { color: var(--ty-ink); background: var(--ty-yellow); }
+:root[data-look="toybox"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible,
+:root[data-look="toybox"] .look-console :focus-visible:not([tabindex="-1"]) { outline: 3px solid var(--ty-focus); outline-offset: 2px; }
+/* Light only: the switch has nothing to offer here. */
+:root[data-look="toybox"] .ui-theme-switch { display: none; }
+
+/* ── The top bar: no strip at all, as the drawing has none: the controls float on the sky as
+   chunky pills and scroll away with the page, while the tray of areas stays put ── */
+:root[data-look="toybox"] .topbar {
+  position: relative;
+  z-index: 40;
+  gap: 12px;
+  min-height: var(--ty-bar-h);
+  padding: 0 var(--ty-x);
+  border-bottom: 0;
+  color: var(--ty-ink);
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  font-family: var(--font-toy);
+}
+:root[data-look="toybox"] .app-shell::before { background: #dcefff; }
+/* Sign out, light or dark and Settings are in the account menu; Activity shows itself while
+   something runs, and the bell with its count always. */
+:root[data-look="toybox"] :is(.bar-sign-out, .bar-activity:not([data-live])) { display: none; }
+:root[data-look="toybox"] .account-menu { display: flex; }
+:root[data-look="toybox"] .account-menu__button { width: 30px; height: 30px; border: 2.2px solid var(--ty-ink); background: #ffffff; box-shadow: 0 2.5px 0 var(--ty-ink); }
+:root[data-look="toybox"] .account-menu__button:active { box-shadow: 0 0 0 var(--ty-ink); transform: translateY(2.5px); }
+:root[data-look="toybox"] .account-menu__avatar { width: 22px; height: 22px; color: var(--ty-ink); background: var(--ty-lilac); font: 700 12px/1 var(--font-toy); }
+:root[data-look="toybox"] .account-menu__button[aria-expanded="true"] .account-menu__avatar { background: var(--ty-yellow); box-shadow: none; }
+:root[data-look="toybox"] .account-menu__list { top: calc(100% + 10px); min-width: 210px; padding: 8px; border: 3px solid var(--ty-ink); border-radius: 20px; color: var(--ty-ink); background: #ffffff; box-shadow: 0 5px 0 var(--ty-ink); font-family: var(--font-toy); }
+:root[data-look="toybox"] .account-menu__who { border-bottom: 2px dashed rgba(43, 35, 64, 0.2); color: var(--ty-soft); font-weight: 600; }
+:root[data-look="toybox"] .account-menu__group { gap: 4px; border-block: 2px dashed rgba(43, 35, 64, 0.2); }
+:root[data-look="toybox"] .account-menu__item { border-radius: 999px; color: var(--ty-ink); font-weight: 600; }
+:root[data-look="toybox"] .account-menu__item:is(:hover, :focus-visible) { color: var(--ty-ink); background: #fff8e0; }
+:root[data-look="toybox"] .account-menu__item--choice[aria-checked="true"] { color: var(--ty-ink); background: var(--ty-yellow); box-shadow: inset 0 0 0 2px var(--ty-ink); }
+:root[data-look="toybox"] .account-menu__item--out { color: #8a1c35; }
+:root[data-look="toybox"] .topbar-left { flex: 1 1 auto; gap: 12px; min-width: 0; }
+/* The mark: the robot's face, small. */
+:root[data-look="toybox"] .brand { display: flex; }
+:root[data-look="toybox"] .brand > span {
+  width: 31px;
+  height: 27px;
+  box-sizing: border-box;
+  border: 2.5px solid var(--ty-ink);
+  border-radius: 8px;
+  color: transparent;
+  background:
+    radial-gradient(circle at 34% 40%, var(--ty-ink) 0 2.4px, transparent 2.8px),
+    radial-gradient(circle at 66% 40%, var(--ty-ink) 0 2.4px, transparent 2.8px),
+    radial-gradient(ellipse 22% 14% at 50% 64%, transparent 0 60%, var(--ty-ink) 62% 100%, transparent 100%) 0 0 / 100% 100% no-repeat,
+    var(--ty-blue);
+  box-shadow: 0 2px 0 var(--ty-ink);
+  font-size: 0;
+}
+:root[data-look="toybox"] .brand div { display: none; }
+:root[data-look="toybox"] .topbar-slot { display: flex; min-width: 0; }
+:root[data-look="toybox"] .cc-crumb { align-items: baseline; gap: 8px; min-width: 0; }
+:root[data-look="toybox"] .cc-crumb__host { flex: none; color: var(--ty-soft); font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+:root[data-look="toybox"] .cc-crumb__sep { color: var(--ty-soft); font-size: 15px; }
+:root[data-look="toybox"] .cc-kv { display: none; }
+:root[data-look="toybox"] .cc-crumb > :is(h1, .toybox-crumb__page) {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ty-ink);
+  font: 600 19px/1.2 var(--font-toy);
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+:root[data-look="toybox"] .cc-crumb .ui-info-toggle { align-self: center; width: 28px; height: 28px; margin-left: 2px; }
+/* Home and Ops: two pills, the one in use yellow and pressed in. */
+:root[data-look="toybox"] .view-switch { gap: 6px; padding: 0 0 2px; border: 0; border-radius: 0; background: none; }
+:root[data-look="toybox"] .view-switch__option {
+  min-height: 27px;
+  padding: 0 12px;
+  border: 2.2px solid var(--ty-ink);
+  border-radius: 999px;
+  color: var(--ty-ink);
+  background: #ffffff;
+  box-shadow: 0 2.5px 0 var(--ty-ink);
+  font: 600 13.5px/1 var(--font-toy);
+}
+:root[data-look="toybox"] .view-switch__option:hover { color: var(--ty-ink); background: #fff8e0; }
+:root[data-look="toybox"] .view-switch__option[aria-current="page"] { border-color: var(--ty-ink); color: var(--ty-ink); background: var(--ty-yellow); box-shadow: 0 0.5px 0 var(--ty-ink); transform: translateY(2px); }
+:root[data-look="toybox"] .command-trigger {
+  flex: 0 1 260px;
+  max-width: 260px;
+  min-height: 28px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 2.2px solid var(--ty-ink);
+  border-radius: 999px;
+  color: var(--ty-soft);
+  background: #ffffff;
+  box-shadow: 0 2.5px 0 var(--ty-ink);
+  font: 500 13px/1.2 var(--font-toy);
+}
+:root[data-look="toybox"] .command-trigger:hover { border-color: var(--ty-ink); color: var(--ty-ink); background: #fff8e0; }
+:root[data-look="toybox"] .command-trigger__keys { display: none; }
+:root[data-look="toybox"] .topbar-right { flex: none; gap: 7px; margin-left: 0; }
+:root[data-look="toybox"] .bar-button {
+  min-height: 28px;
+  padding: 0 11px;
+  border: 2.2px solid var(--ty-ink);
+  border-radius: 999px;
+  color: var(--ty-ink);
+  background: #ffffff;
+  box-shadow: 0 2.5px 0 var(--ty-ink);
+  font: 600 13px/1 var(--font-toy);
+  transition: transform 80ms ease, box-shadow 80ms ease;
+}
+/* The bell is a round button, its count a sticker on its shoulder. */
+:root[data-look="toybox"] .topbar .bar-button[aria-haspopup="dialog"]:has(> svg) { width: 28px; padding: 0; justify-content: center; }
+:root[data-look="toybox"] .topbar .bar-button:has(> svg) .bar-badge { position: absolute; top: -5px; right: -10px; }
+:root[data-look="toybox"] .bar-button:hover,
+:root[data-look="toybox"] .bar-button[aria-expanded="true"] { color: var(--ty-ink); background: #fff8e0; }
+:root[data-look="toybox"] .bar-button[data-live] { color: var(--ty-ink); background: var(--ty-cream); }
+:root[data-look="toybox"] .bar-button:active { box-shadow: 0 0 0 var(--ty-ink); transform: translateY(2.5px); }
+:root[data-look="toybox"] .bar-button svg { width: 16px; height: 16px; }
+:root[data-look="toybox"] .bar-badge { min-width: 19px; height: 19px; padding: 0 5px; border: 2px solid var(--ty-ink); color: var(--ty-ink); background: #ffb938; font: 700 11px/1 var(--font-toy); }
+:root[data-look="toybox"] :is(.connection-pill, .signed-in-user, .bar-tiers) { display: none; }
+:root[data-look="toybox"] .bar-label { border: 2px solid var(--ty-ink); border-radius: 999px; color: var(--ty-ink); background: var(--ty-cream); font-family: var(--font-toy); font-size: 12px; font-weight: 600; }
+:root[data-look="toybox"] .bar-lock__long { display: none; }
+:root[data-look="toybox"] .bar-lock__short { display: inline; }
+:root[data-look="toybox"] .content { max-width: none; padding: 20px var(--ty-x) calc(var(--shell-bottom-inset, 0px) + 116px); }
+/* Home, as the drawing has it: the page starts right under the controls, whose words begin over
+   the speech bubble, and the big robot stands at the left with its antenna up among them in place
+   of the small mark, crossing nothing. */
+@media (min-width: 761px) {
+  :root[data-look="toybox"] .app-shell[data-view="home"] .topbar { padding-left: 176px; }
+  :root[data-look="toybox"] .app-shell[data-view="home"] .brand { display: none; }
+  :root[data-look="toybox"] .app-shell[data-view="home"] .content { padding-top: 3px; }
+}
+
+/* ── The areas: a chunky tray floating at the bottom, pastel circles named under them, the one in front of you a yellow pill ── */
+:root[data-look="toybox"] .shell-dock { bottom: calc(var(--shell-bottom-inset, 0px) + 12px + env(safe-area-inset-bottom, 0px)); }
+:root[data-look="toybox"] .ui-dock.shell-dock ul {
+  gap: 4px;
+  padding: 5px 10px 4px;
+  border: 3.5px solid var(--ty-ink);
+  border-radius: 26px;
+  background: #ffffff;
+  box-shadow: 0 6px 0 var(--ty-ink);
+  backdrop-filter: none;
+}
+:root[data-look="toybox"] .shell-dock .ui-dock__item { width: 64px; gap: 3px; padding: 3px 0 2px; border: 2.2px solid transparent; border-radius: 18px; }
+:root[data-look="toybox"] .shell-dock .ui-dock__icon {
+  --ty-pastel: #bfe3ff;
+  width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  border: 2.5px solid var(--ty-ink);
+  border-radius: 50%;
+  color: var(--ty-ink);
+  background: var(--ty-pastel);
+  box-shadow: 0 2.5px 0 var(--ty-ink);
+}
+:root[data-look="toybox"] .shell-dock .ui-dock__icon svg { width: 18px; height: 18px; }
+:root[data-look="toybox"] .shell-dock li[data-area="today"] .ui-dock__icon { --ty-pastel: #ffe7a6; }
+:root[data-look="toybox"] .shell-dock li[data-area="updates"] .ui-dock__icon { --ty-pastel: #b8f0d2; }
+:root[data-look="toybox"] .shell-dock li[data-area="storage"] .ui-dock__icon { --ty-pastel: #ffc9dc; }
+:root[data-look="toybox"] .shell-dock li[data-area="firewall"] .ui-dock__icon { --ty-pastel: #ffc2c2; }
+:root[data-look="toybox"] .shell-dock li[data-area="network"] .ui-dock__icon { --ty-pastel: #bfe3ff; }
+:root[data-look="toybox"] .shell-dock li[data-area="backups"] .ui-dock__icon { --ty-pastel: #d8c8ff; }
+:root[data-look="toybox"] .shell-dock li[data-area="virtualization"] .ui-dock__icon { --ty-pastel: #cbd8ff; }
+:root[data-look="toybox"] .shell-dock li[data-area="repairs"] .ui-dock__icon { --ty-pastel: #ffd6bf; }
+:root[data-look="toybox"] .shell-dock li[data-area="logs"] .ui-dock__icon { --ty-pastel: #e3e3ea; }
+:root[data-look="toybox"] .shell-dock li[data-area="catalog"] .ui-dock__icon { --ty-pastel: #c9f5c0; }
+:root[data-look="toybox"] .shell-dock li[data-area="settings"] .ui-dock__icon { --ty-pastel: #f0c9ff; }
+:root[data-look="toybox"] .shell-dock li[data-area="more"] .ui-dock__icon { --ty-pastel: #ffffff; }
+:root[data-look="toybox"] .shell-dock .ui-dock__item:hover { background: #fff8e0; }
+:root[data-look="toybox"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: var(--ty-ink); background: var(--ty-pastel); }
+:root[data-look="toybox"] .shell-dock .ui-dock__item[aria-current="page"] { border-color: var(--ty-ink); background: var(--ty-yellow); box-shadow: 0 3px 0 var(--ty-ink); }
+:root[data-look="toybox"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: var(--ty-ink); color: var(--ty-ink); background: #ffffff; }
+:root[data-look="toybox"] .shell-dock .ui-dock__label { color: var(--ty-ink); font: 600 11.5px/1.2 var(--font-toy); }
+:root[data-look="toybox"] .shell-dock .ui-dock__item:is(:hover, [aria-current="page"]) .ui-dock__label { color: var(--ty-ink); }
+:root[data-look="toybox"] .shell-dock .ui-dock__item:focus-visible { outline: 3px solid var(--ty-focus); outline-offset: 2px; }
+:root[data-look="toybox"] .shell-dock .ui-dock__separator { width: 0; margin: 8px 3px; border-left: 2.3px dashed rgba(43, 35, 64, 0.25); background: none; }
+:root[data-look="toybox"] .ui-dock__badge,
+:root[data-look="toybox"] [data-density="compact"] .ui-dock__badge { top: -7px; right: -9px; min-width: 19px; height: 19px; border: 2px solid var(--ty-ink); color: var(--ty-ink); background: #ffb938; box-shadow: none; font: 700 10.5px/1 var(--font-toy); }
+@media (min-width: 761px) {
+  /* The everyday areas in the tray, and More for the rest. */
+  :root[data-look="toybox"] .shell-dock [data-priority="3"] { display: none; }
+  :root[data-look="toybox"] .shell-dock [data-priority="overflow"] { display: block; }
+}
+:root[data-look="toybox"] .areas-sheet .ui-dock__icon { box-sizing: border-box; border: 2.5px solid var(--ty-ink); border-radius: 50%; color: var(--ty-ink); background: #bfe3ff; box-shadow: 0 2.5px 0 var(--ty-ink); }
+:root[data-look="toybox"] .areas-sheet .ui-dock__item[aria-current="page"] .ui-dock__icon { background: var(--ty-yellow); }
+:root[data-look="toybox"] .areas-sheet .ui-dock__label { color: var(--ty-ink); font: 600 12.5px/1.2 var(--font-toy); }
+
+/* ── The page ── */
+:root[data-look="toybox"] .content--console { gap: 18px; }
+:root[data-look="toybox"] .ui-page-header { gap: 8px 14px; }
+:root[data-look="toybox"] .ui-page-header__summary { color: var(--ty-ink); font-size: 15px; font-weight: 500; }
+:root[data-look="toybox"] .ui-page-header__about { border: 3px solid var(--ty-ink); border-radius: 18px; color: var(--ty-ink); background: #ffffff; box-shadow: 0 4px 0 var(--ty-ink); }
+:root[data-look="toybox"] .ui-facts { color: var(--ty-soft); font-size: 13.5px; }
+:root[data-look="toybox"] .ui-facts b { color: var(--ty-ink); font-weight: 600; }
+:root[data-look="toybox"] .ui-info-toggle { width: 32px; height: 32px; border: 2.2px solid var(--ty-ink); border-radius: 50%; color: var(--ty-ink); background: #ffffff; box-shadow: var(--ty-shadow-sm); }
+:root[data-look="toybox"] .ui-info-toggle:hover,
+:root[data-look="toybox"] .ui-info-toggle[aria-expanded="true"] { color: var(--ty-ink); background: var(--ty-cream); }
+
+/* Chunky cards. */
+:root[data-look="toybox"] :is(.ui-panel, .ui-metric, .ui-job, .ui-card, .ui-kv--strip, .ui-code) {
+  border: 3.5px solid var(--ty-ink);
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 6px 0 var(--ty-ink);
+}
+:root[data-look="toybox"] .ui-panel__head { min-height: 40px; padding: 12px 18px 6px; border-bottom: 0; }
+:root[data-look="toybox"] .ui-panel__title { gap: 8px; color: var(--ty-soft); font: 600 14.5px/1.2 var(--font-toy); letter-spacing: 0.05em; text-transform: uppercase; }
+:root[data-look="toybox"] .ui-panel__count { padding: 0 8px; border: 2px solid var(--ty-ink); border-radius: 999px; color: var(--ty-ink); background: #ffe7a6; font-size: 12px; font-weight: 700; letter-spacing: 0; }
+:root[data-look="toybox"] .ui-panel__count.ui-marked { color: var(--ty-ink); }
+:root[data-look="toybox"] .ui-panel__meta { color: var(--ty-soft); font-size: 13px; }
+:root[data-look="toybox"] .ui-panel__meta b { color: var(--ty-ink); font-weight: 600; }
+:root[data-look="toybox"] .ui-panel__foot { border-top: 2.3px dashed rgba(43, 35, 64, 0.25); color: var(--ty-soft); background: transparent; font-size: 13px; }
+:root[data-look="toybox"] .ui-panel--padded > .ui-panel__body { padding: 8px 18px 16px; }
+
+/* Figures: a label in capitals, the number big, a candy-stripe bar. */
+:root[data-look="toybox"] .ui-metric { min-height: 0; padding: 14px 16px; }
+:root[data-look="toybox"] .ui-metric--link:hover { background: #fffaf0; box-shadow: 0 6px 0 var(--ty-ink); }
+:root[data-look="toybox"] .ui-metric__label { color: var(--ty-soft); font: 600 12.5px/1.2 var(--font-toy); letter-spacing: 0.06em; }
+:root[data-look="toybox"] .ui-metric__value { color: var(--ty-ink); font: 600 28px/1.1 var(--font-toy); letter-spacing: 0; }
+:root[data-look="toybox"] .ui-metric__value small { color: var(--ty-soft); font-size: 14px; font-weight: 500; }
+:root[data-look="toybox"] .ui-metric[data-status="warning"] .ui-metric__value { color: #6b4400; }
+:root[data-look="toybox"] .ui-metric__caption { color: var(--ty-soft); font-size: 13px; }
+:root[data-look="toybox"] :is(.ui-metric__bar, .ui-progress__track) { height: 16px; margin-top: 6px; overflow: hidden; box-sizing: border-box; border: 2.2px solid var(--ty-ink); border-radius: 999px; background: #ffffff; }
+:root[data-look="toybox"] .ui-progress__track { margin-top: 0; }
+:root[data-look="toybox"] :is(.ui-metric__bar > i, .ui-metric[data-status="good"] .ui-metric__bar > i, .ui-progress__fill) {
+  --ty-c: var(--ty-lilac);
+  border-radius: 0;
+  background: repeating-linear-gradient(-45deg, var(--ty-c) 0 7.8px, rgba(255, 255, 255, 0.45) 7.8px 12.5px), var(--ty-c);
+  box-shadow: 2.2px 0 0 var(--ty-ink);
+}
+:root[data-look="toybox"] :is(.ui-metric[data-status="warning"] .ui-metric__bar > i, .ui-progress[data-status="warning"] .ui-progress__fill) { --ty-c: var(--ty-yellow); }
+:root[data-look="toybox"] :is(.ui-metric[data-status="danger"] .ui-metric__bar > i, .ui-progress[data-status="danger"] .ui-progress__fill) { --ty-c: var(--ty-pink); }
+:root[data-look="toybox"] .ui-progress[data-status="good"] .ui-progress__fill { --ty-c: var(--ty-green); }
+:root[data-look="toybox"] .ui-spark__line { stroke: #6b4de6; stroke-width: 2; }
+:root[data-look="toybox"] :is(.ui-progress__detail, .ui-job__time, .ui-job__line) { color: var(--ty-soft); font-size: 13px; }
+
+/* What needs you, on Ops and wherever the list is drawn: rows under dashed lines, round marks. */
+:root[data-look="toybox"] .need { padding: 11px 16px; border-top: 2.3px dashed rgba(43, 35, 64, 0.22); box-shadow: none; }
+:root[data-look="toybox"] .need[data-severity="neutral"] { box-shadow: none; }
+:root[data-look="toybox"] .need__mark { width: 12px; height: 12px; border: 2px solid var(--ty-ink); border-radius: 50%; }
+:root[data-look="toybox"] .need__title { color: var(--ty-ink); font-size: 15.5px; font-weight: 600; }
+:root[data-look="toybox"] .need__detail { color: var(--ty-soft); font-size: 13.5px; }
+:root[data-look="toybox"] .ui-risk { padding: 1px 9px; border: 2px solid var(--ty-ink); border-radius: 999px; font: 600 12px/1.4 var(--font-toy); letter-spacing: 0.02em; }
+
+/* Pill buttons that press down: white, the main one yellow, the tier a round dot inside. */
+:root[data-look="toybox"] .ui-button {
+  min-height: 32px;
+  padding: 0 16px;
+  border: 2.5px solid var(--ty-ink);
+  border-radius: 999px;
+  color: var(--ty-ink);
+  background: #ffffff;
+  box-shadow: var(--ty-shadow-sm);
+  font: 600 14px/1.1 var(--font-toy);
+  transition: transform 80ms ease, box-shadow 80ms ease, background-color 120ms ease;
+}
+:root[data-look="toybox"] .ui-button:hover:not(:disabled) { border-color: var(--ty-ink); background: #fff8e0; }
+:root[data-look="toybox"] .ui-button:active:not(:disabled) { box-shadow: 0 0 0 var(--ty-ink); transform: translateY(3px); }
+:root[data-look="toybox"] .ui-button--primary { border-color: var(--ty-ink); color: var(--ty-ink); background: var(--ty-yellow); }
+:root[data-look="toybox"] .ui-button--primary:hover:not(:disabled) { border-color: var(--ty-ink); background: #ffe27a; }
+:root[data-look="toybox"] .ui-button--ghost { padding: 0 8px; border-color: transparent; color: #5a3fc0; background: none; box-shadow: none; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+:root[data-look="toybox"] .ui-button--ghost:hover:not(:disabled) { border-color: transparent; background: #f3f0ff; }
+:root[data-look="toybox"] .ui-button--ghost:active:not(:disabled) { transform: none; }
+:root[data-look="toybox"] .ui-button--risk-medium,
+:root[data-look="toybox"] .ui-button--risk-high { padding-left: 27px; }
+:root[data-look="toybox"] .ui-button--risk-medium::before,
+:root[data-look="toybox"] .ui-button--risk-high::before,
+:root[data-look="toybox"] .ui-button--primary.ui-button--risk-medium::before,
+:root[data-look="toybox"] .ui-button--primary.ui-button--risk-high::before {
+  top: calc(50% - 5.5px);
+  bottom: auto;
+  left: 9px;
+  width: 11px;
+  height: 11px;
+  box-sizing: border-box;
+  border: 2px solid var(--ty-ink);
+  border-radius: 50%;
+  background: var(--ty-yellow);
+}
+:root[data-look="toybox"] .ui-button--primary.ui-button--risk-medium::before { background: #ffffff; }
+:root[data-look="toybox"] :is(.ui-button--risk-high, .ui-button--primary.ui-button--risk-high)::before { background: var(--ty-pink); }
+:root[data-look="toybox"] .ui-button__lock { color: #8a1c35; }
+:root[data-look="toybox"] :is(.ui-button, .ui-button--primary) .ui-button__tier { border: 2px solid var(--ty-ink); color: var(--ty-ink); background: var(--ty-pink); font: 700 11px/1.3 var(--font-toy); letter-spacing: 0; }
+:root[data-look="toybox"] .ui-button:disabled { opacity: 0.5; }
+
+/* Tabs and segments: a row of pills, the open one yellow and pressed in. */
+:root[data-look="toybox"] .ui-tabs__list { gap: 8px; padding: 2px 2px 9px; border-bottom: 0; }
+:root[data-look="toybox"] .ui-segmented { gap: 6px; padding: 0 0 4px; border: 0; background: none; }
+:root[data-look="toybox"] :is(.ui-tabs__tab, .ui-segmented__option) {
+  min-height: 34px;
+  margin: 0;
+  padding: 0 16px;
+  border: 2.5px solid var(--ty-ink);
+  border-radius: 999px;
+  color: var(--ty-ink);
+  background: #ffffff;
+  box-shadow: var(--ty-shadow-sm);
+  font: 600 14.5px/1.1 var(--font-toy);
+}
+:root[data-look="toybox"] .ui-segmented__option { min-height: 30px; padding: 0 13px; font-size: 13.5px; }
+:root[data-look="toybox"] :is(.ui-tabs__tab, .ui-segmented__option):hover:not(:disabled) { color: var(--ty-ink); background: #fff8e0; }
+:root[data-look="toybox"] .ui-tabs__tab[aria-selected="true"],
+:root[data-look="toybox"] .ui-segmented__option[aria-checked="true"] { border-color: var(--ty-ink); color: var(--ty-ink); background: var(--ty-yellow); box-shadow: 0 1px 0 var(--ty-ink); transform: translateY(2px); }
+:root[data-look="toybox"] :is(.ui-tabs__count, .ui-segmented__count) { color: var(--ty-soft); font-family: var(--font-toy); font-size: 12.5px; font-weight: 600; }
+:root[data-look="toybox"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: var(--ty-ink); }
+
+/* Fields: white, an ink edge, a yellow ring on focus. */
+:root[data-look="toybox"] :is(.ui-input, .ui-textarea, .ui-select__control) {
+  min-height: 36px;
+  border: 2.5px solid var(--ty-ink);
+  border-radius: 14px;
+  color: var(--ty-ink);
+  background: #ffffff;
+  font: 500 14.5px/1.3 var(--font-toy);
+}
+:root[data-look="toybox"] .ui-select__control { border-radius: 999px; box-shadow: var(--ty-shadow-sm); padding-left: 14px; }
+:root[data-look="toybox"] .ui-select__chevron { color: var(--ty-ink); }
+:root[data-look="toybox"] :is(.ui-input, .ui-textarea, .ui-select__control):hover:not(:disabled) { border-color: var(--ty-ink); }
+:root[data-look="toybox"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: var(--ty-ink); outline: 0; box-shadow: 0 0 0 4px var(--ty-yellow); }
+:root[data-look="toybox"] .ui-input--mono { font-family: var(--ty-code); font-size: 13.5px; }
+:root[data-look="toybox"] .ui-field__label { color: var(--ty-ink); font-size: 14px; font-weight: 600; }
+:root[data-look="toybox"] :is(.ui-field__hint, .ui-field__flag) { color: var(--ty-soft); font-family: var(--font-toy); }
+:root[data-look="toybox"] .ui-secret .ui-input { border-right: 0; border-radius: 14px 0 0 14px; }
+:root[data-look="toybox"] .ui-secret__toggle { border: 2.5px solid var(--ty-ink); border-radius: 0 14px 14px 0; color: var(--ty-ink); background: var(--ty-cream); font-family: var(--font-toy); font-weight: 600; }
+
+/* A switch: a pill that turns green, the knob a white button. */
+:root[data-look="toybox"] .ui-switch__track { width: 42px; height: 24px; box-sizing: border-box; border: 2.5px solid var(--ty-ink); background: #ffffff; }
+:root[data-look="toybox"] .ui-switch__thumb { top: 2px; left: 2px; width: 15px; height: 15px; box-sizing: border-box; border: 2px solid var(--ty-ink); background: var(--ty-lilac); }
+:root[data-look="toybox"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: var(--ty-ink); background: var(--ty-green); }
+:root[data-look="toybox"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #ffffff; transform: translateX(18px); }
+:root[data-look="toybox"] .ui-switch__state { color: var(--ty-soft); font-family: var(--font-toy); font-size: 12px; letter-spacing: 0.04em; }
+:root[data-look="toybox"] :is(.ui-switch__label, .ui-check__label) { color: var(--ty-ink); font-size: 14.5px; font-weight: 600; }
+:root[data-look="toybox"] .ui-check__mark { width: 18px; height: 18px; box-sizing: border-box; border: 2.5px solid var(--ty-ink); border-radius: 6px; background: #ffffff; }
+:root[data-look="toybox"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: var(--ty-ink); background: var(--ty-yellow); }
+:root[data-look="toybox"] .ui-check__mark::after { border-color: var(--ty-ink); }
+
+/* Tables: a pale lilac head over an ink rule, dashed rows, a cream row under the pointer. */
+:root[data-look="toybox"] .ui-table { font-size: 14px; font-variant-numeric: tabular-nums; }
+:root[data-look="toybox"] .ui-table th { height: 32px; padding: 0 9px; border-bottom: 2.5px solid var(--ty-ink); color: var(--ty-soft); background: #f3f0ff; font: 600 12.5px/1.2 var(--font-toy); letter-spacing: 0.05em; }
+:root[data-look="toybox"] .ui-table td { height: 34px; padding: 0 9px; border-bottom: 2px dashed rgba(43, 35, 64, 0.16); color: var(--ty-ink); font-family: var(--font-toy); font-size: 14px; }
+:root[data-look="toybox"] .ui-table tbody tr:last-child td { border-bottom: 0; }
+:root[data-look="toybox"] .ui-table tbody tr:hover td { background: #fff8e0; }
+:root[data-look="toybox"] .ui-table .ui-chip { font-family: var(--font-toy); font-size: 13px; }
+:root[data-look="toybox"] .ui-table th[aria-sort="ascending"],
+:root[data-look="toybox"] .ui-table th[aria-sort="descending"] { color: var(--ty-ink); background: var(--ty-cream); }
+
+/* Chips and tags: pastel pills with an ink edge. */
+:root[data-look="toybox"] .ui-chip { padding: 1px 9px; border: 2px solid var(--ty-ink); border-radius: 999px; font: 600 12.5px/1.4 var(--font-toy); }
+:root[data-look="toybox"] .ui-chip--unknown { border-color: var(--ty-soft); }
+:root[data-look="toybox"] .ui-tag { padding: 1px 8px; border-radius: 999px; color: var(--ty-ink); background: #efeaff; font: 500 12.5px/1.4 var(--font-toy); }
+:root[data-look="toybox"] .ui-tag--tier { border-width: 2px; letter-spacing: 0.02em; }
+:root[data-look="toybox"] .ui-mark { border-radius: 50%; }
+
+/* Facts, notices, empty lists and code. */
+:root[data-look="toybox"] :is(.ui-kv__label, .ui-kv--columns .ui-kv__label, .ui-kv--strip .ui-kv__label) { color: var(--ty-soft); font-family: var(--font-toy); font-size: 12.5px; font-weight: 600; letter-spacing: 0.05em; }
+:root[data-look="toybox"] .ui-kv__value { color: var(--ty-ink); font-weight: 600; }
+:root[data-look="toybox"] .ui-kv--strip .ui-kv__item { border-right: 2px dashed rgba(43, 35, 64, 0.2); box-shadow: none; }
+:root[data-look="toybox"] .ui-kv--rows .ui-kv__item { border-top: 2px dashed rgba(43, 35, 64, 0.16); }
+:root[data-look="toybox"] .ui-notice { border: 3px solid var(--ty-ink); border-radius: 18px; box-shadow: 0 4px 0 var(--ty-ink); }
+:root[data-look="toybox"] .ui-notice__title { font-weight: 600; }
+:root[data-look="toybox"] .ui-empty__icon { border: 2.5px dashed var(--ty-ink); border-radius: 50%; color: var(--ty-ink); }
+:root[data-look="toybox"] .ui-code__bar { border-bottom: 2.5px solid var(--ty-ink); background: var(--ty-cream); }
+:root[data-look="toybox"] .ui-code__label { color: var(--ty-ink); font-family: var(--font-toy); font-size: 12.5px; }
+:root[data-look="toybox"] .ui-code__copy { border: 2px solid var(--ty-ink); border-radius: 999px; background: #ffffff; font-family: var(--font-toy); }
+
+/* App squares become round pastel-edged buttons of the app's own colour. */
+:root[data-look="toybox"] .ui-app-icon { box-sizing: border-box; border: 2.5px solid var(--ty-ink); border-radius: 50%; box-shadow: 0 2.5px 0 var(--ty-ink); }
+
+/* ── Sheets and dialogs: chunky cards, a cream head, a round white close button ── */
+:root[data-look="toybox"] :is(.ui-sheet, .approve-dialog, .command-dialog) { border: 3.5px solid var(--ty-ink); color: var(--ty-ink); background: #ffffff; box-shadow: 0 8px 0 var(--ty-ink); }
+:root[data-look="toybox"] :is(.ui-sheet--center, .approve-dialog, .command-dialog) { border-radius: 26px; }
+:root[data-look="toybox"] .ui-sheet--right { border-width: 3.5px 0 3.5px 3.5px; border-radius: 26px 0 0 26px; box-shadow: -6px 6px 0 var(--ty-ink); }
+:root[data-look="toybox"] :is(.ui-sheet__head, .approve-head) { border-bottom: 2.5px dashed rgba(43, 35, 64, 0.3); background: var(--ty-cream); }
+:root[data-look="toybox"] :is(.ui-sheet__title, .approve-title) { color: var(--ty-ink); font: 600 21px/1.2 var(--font-toy); }
+:root[data-look="toybox"] :is(.ui-sheet__kicker, .approve-kicker) { color: var(--ty-soft); font: 600 12px/1.2 var(--font-toy); letter-spacing: 0.06em; }
+:root[data-look="toybox"] :is(.ui-sheet__close, .approve-close) { width: 34px; height: 34px; border: 2.5px solid var(--ty-ink); border-radius: 50%; color: var(--ty-ink); background: #ffffff; box-shadow: var(--ty-shadow-sm); }
+:root[data-look="toybox"] :is(.ui-sheet__close, .approve-close):hover:not(:disabled) { background: var(--ty-pink); }
+:root[data-look="toybox"] .ui-sheet__foot { border-top: 2.5px dashed rgba(43, 35, 64, 0.25); }
+
+/* ── A phone: the strip wraps under the page's name, the tray holds the four everyday areas and More ── */
+@media (max-width: 760px) {
+  :root[data-look="toybox"] body { background: radial-gradient(circle at 96% 3%, #fff4c7 0 90px, transparent 92px) fixed, #dcefff; }
+  :root[data-look="toybox"] .topbar { flex-wrap: wrap; gap: 8px 8px; padding: 7px 14px 9px; }
+  :root[data-look="toybox"] .topbar-left { gap: 10px; }
+  :root[data-look="toybox"] :is(.cc-crumb__host, .cc-crumb__sep) { display: none; }
+  :root[data-look="toybox"] .view-switch { margin-left: auto; }
+  :root[data-look="toybox"] .view-switch__option { padding: 0 10px; }
+  :root[data-look="toybox"] .command-trigger { flex: 0 0 38px; width: 38px; min-width: 38px; margin-left: 0; padding: 0; justify-content: center; }
+  :root[data-look="toybox"] .command-trigger__label { display: none; }
+  :root[data-look="toybox"] .topbar-right { flex: 1 1 auto; justify-content: flex-end; }
+  :root[data-look="toybox"] .content { padding: 14px 14px calc(var(--shell-bottom-inset, 0px) + 116px); }
+  :root[data-look="toybox"] .ui-dock.shell-dock ul { gap: 2px; padding: 5px 7px 4px; }
+  :root[data-look="toybox"] .shell-dock .ui-dock__item { width: 60px; }
+}
+
+/* A finger, not a pointer: the pills grow to 44 px to tap, as every look's do. */
+@media (pointer: coarse) {
+  :root[data-look="toybox"] :is(.ui-button, .ui-tabs__tab, .ui-segmented__option, .ui-select__control, .ui-input, .ui-textarea, .ui-switch__control, .ui-secret__toggle, .bar-button, .command-trigger, .view-switch__option) { min-height: 44px; }
+  :root[data-look="toybox"] .bar-button { min-width: 44px; }
+  :root[data-look="toybox"] .account-menu__button { width: 44px; height: 44px; }
+  :root[data-look="toybox"] .topbar .bar-button[aria-haspopup="dialog"]:has(> svg) { width: 44px; }
+  :root[data-look="toybox"] :is(.ui-info-toggle, .ui-sheet__close, .approve-close) { width: 44px; height: 44px; }
+}
+@media (pointer: coarse) and (max-width: 760px) {
+  :root[data-look="toybox"] .command-trigger { flex-basis: 44px; width: 44px; min-width: 44px; }
+}
+
+/* Settings → Appearance: the looks' pictures as chunky tiles. */
+:root[data-look="toybox"] .settings-appearance { border: 3.5px solid var(--ty-ink); border-radius: 22px; box-shadow: 0 6px 0 var(--ty-ink); }
+:root[data-look="toybox"] .settings-look__picture { border: 2.5px solid var(--ty-ink); border-radius: 16px; box-shadow: 0 3px 0 var(--ty-ink); }
+:root[data-look="toybox"] .settings-look[aria-checked="true"] .settings-look__picture { box-shadow: 0 0 0 4px var(--ty-yellow), 0 6px 0 4px var(--ty-ink); }
+
+/* The pages' own boxes (the catalog's filters and cards, automations, agents) as small chunky cards. */
+:root[data-look="toybox"] :is(.setup-profile, .catalog-toolbar, .catalog-card, .automations-card, .automations-step, .agents-card, .agents-template, .settings-device, .settings-report, .vms-live, .vms-fieldset, .storage-choose, .settings-appearance__now) {
+  border: 2.5px solid var(--ty-ink);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 4px 0 var(--ty-ink);
+}
+/* A box of text inside a card keeps a lighter edge, so cards do not stack their shadows. */
+:root[data-look="toybox"] :is(.ui-panel, .ui-sheet) .ui-code { border-width: 2px; border-radius: 14px; box-shadow: none; }
+:root[data-look="toybox"] .setup-hero { border: 3.5px solid var(--ty-ink); border-radius: 22px; background: radial-gradient(90% 140% at 0% 0%, #fff4c7, transparent 62%), radial-gradient(70% 120% at 100% 100%, #efeaff, transparent 60%), #ffffff; box-shadow: 0 6px 0 var(--ty-ink); }
+:root[data-look="toybox"] .setup-profile { gap: 12px; margin-bottom: 4px; }

@@ -1,4 +1,6 @@
 import { useId, useState, type ReactNode } from "react";
+import { useDrawnLook } from "../looks/drawnLook";
+import { useShellHostLine } from "../shell/ShellHost";
 import { TopBarSlot, useShellHost } from "../shell/TopBarSlot";
 import { InfoIcon } from "./icons";
 import { Facts } from "./Facts";
@@ -41,9 +43,15 @@ export interface PageHeaderProps {
  * Center has it ("homebox / services"); under the bar comes one row: the verdict chip, a sentence
  * when needed, the facts in mono, and the page's actions with their tiers. Facts first: whatever
  * explains the page waits behind the info toggle.
+ *
+ * The Launcher (M41) draws it as Home greets: the page's name large at the top of the page, over
+ * the verdict and the actions, under a bar that names the server as Home's does. The one h1 moves
+ * out of the bar into the page.
  */
 export function PageHeader({ title, status, summary, meta, actions, about, barFacts, host, placement = "bar", className }: PageHeaderProps) {
   const shellHost = useShellHost();
+  const hostLine = useShellHostLine();
+  const titled = useDrawnLook() === "launcher" && placement === "bar";
   const aboutId = useId();
   const [open, setOpen] = useState(false);
   const name = host ?? shellHost ?? "boxpilot";
@@ -66,6 +74,31 @@ export function PageHeader({ title, status, summary, meta, actions, about, barFa
       {barFacts && <span className="cc-kv">{barFacts}</span>}
     </div>
   );
+  if (titled) {
+    return (
+      <>
+        <TopBarSlot>
+          <div className="cc-crumb ui-crumb ui-crumb--host ui-marked" data-status={hostLine.status ?? undefined}>
+            {hostLine.status && <span className="ui-mark ui-crumb__mark" aria-hidden="true" />}
+            <span className="cc-crumb__host">{name}</span>
+            {(barFacts || hostLine.facts) && <span className="cc-kv">{barFacts ?? hostLine.facts}</span>}
+          </div>
+        </TopBarSlot>
+        <div className={cx("ui-page-header", "ui-page-header--titled", className)}>
+          <h1 className="ui-page-header__title">{title}</h1>
+          {facts && (
+            <div className="ui-page-header__facts">
+              {status && <StatusChip status={status.status} className="ui-page-header__verdict">{status.label}</StatusChip>}
+              {summary && <p className="ui-page-header__summary">{summary}</p>}
+              {meta && <Facts className="ui-page-header__meta">{meta}</Facts>}
+            </div>
+          )}
+          {(toggle || actions) && <div className="ui-page-header__actions">{toggle}{actions}</div>}
+          {explained}
+        </div>
+      </>
+    );
+  }
   return (
     <>
       {placement === "inline" ? crumb : <TopBarSlot inPlace>{crumb}</TopBarSlot>}

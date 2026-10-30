@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readdir, readFile, writeFile, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { onWindows } from "../test/platform.mjs";
 import { createLocalDnsService, nameFor, parseHostsFile, renderHostsFile, managedHostsFile } from "./local-dns.mjs";
 
 const directories = [];
@@ -53,6 +54,17 @@ describe("naming the apps on this server", () => {
     expect(await readFile(path.join(hosts, "custom.list"), "utf8")).toBe("# mine\n192.168.1.99 printer.lan\n");
   });
 
+  // The folder is the DNS app's, and its container can leave anything in it: a fixed temporary name
+  // is one it can prepare in advance. What is there is left as it was.
+  it("writes through a temporary file of its own, never one already in the folder", async () => {
+    const { service, hosts } = await fixture();
+    await writeFile(path.join(hosts, `${managedHostsFile}.tmp`), "left by the app");
+    await service.apply({ address: "192.168.1.10", domain: "lan" });
+    expect(await readFile(path.join(hosts, `${managedHostsFile}.tmp`), "utf8")).toBe("left by the app");
+    expect(await readFile(path.join(hosts, managedHostsFile), "utf8")).toContain("192.168.1.10 jellyfin.lan");
+    expect((await readdir(hosts)).filter((name) => name.endsWith(".tmp"))).toEqual([`${managedHostsFile}.tmp`]);
+  });
+
   it("rewrites the file rather than appending, so a removed app loses its name", async () => {
     const { service, hosts } = await fixture();
     await service.apply({ address: "192.168.1.10", domain: "lan" });
@@ -98,6 +110,42 @@ describe("naming the apps on this server", () => {
     const text = renderHostsFile([{ address: "10.0.0.1", name: "a.lan" }, { address: "10.0.0.1", name: "b.lan" }], { generatedAt: "2026-08-25T18:00:00.000Z" });
     expect(parseHostsFile(text)).toEqual([{ address: "10.0.0.1", name: "a.lan" }, { address: "10.0.0.1", name: "b.lan" }]);
     expect(parseHostsFile("")).toEqual([]);
+  });
+});
+
+// The hosts folder is inside the DNS app's own volume, which its container writes as root. A link it
+// leaves there must not lead the root helper to read or write anything else. Needs Linux: real
+// symbolic links, as an unprivileged user may make them.
+describe.skipIf(onWindows)("links the DNS app's container leaves in its own volume", () => {
+  it("never reads through a link where BoxPilot's file should be", async () => {
+    const { service, catalogRoot, hosts } = await fixture();
+    const secret = path.join(catalogRoot, "credentials.json");
+    await writeFile(secret, '{\n  "zulip-bot": {\n    "value": "sentinel-secret-value"\n  }\n}');
+    await symlink(secret, path.join(hosts, managedHostsFile));
+    const report = await service.inspect();
+    expect(JSON.stringify(report)).not.toContain("sentinel-secret-value");
+    expect(report.records).toEqual([]);
+  });
+
+  it("never writes through a link left where a temporary file might go", async () => {
+    const { service, catalogRoot, hosts } = await fixture();
+    const victim = path.join(catalogRoot, "boxpilot.sqlite3");
+    await writeFile(victim, "precious");
+    await symlink(victim, path.join(hosts, `${managedHostsFile}.tmp`));
+    await service.apply({ address: "192.168.1.10", domain: "lan" });
+    expect(await readFile(victim, "utf8")).toBe("precious");
+    expect((await lstat(path.join(hosts, managedHostsFile))).isFile()).toBe(true);
+  });
+
+  it("refuses a hosts folder that is a link somewhere else", async () => {
+    const { service, catalogRoot, hosts } = await fixture();
+    const elsewhere = path.join(catalogRoot, "elsewhere");
+    await mkdir(elsewhere);
+    await rm(hosts, { recursive: true, force: true });
+    await symlink(elsewhere, hosts);
+    await expect(service.apply({ address: "192.168.1.10", domain: "lan" })).rejects.toThrow(/link/);
+    expect(await readdir(elsewhere)).toEqual([]);
+    await expect(service.clear()).rejects.toThrow(/link/);
   });
 });
 

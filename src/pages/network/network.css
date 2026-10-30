@@ -42,6 +42,14 @@
 .network-tailscale__form { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
 .network-tailscale__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 
+/* The router's steps for DNS that survives this server being off (M39.2): numbered, a command
+   under a step where one is needed, the router's own menu names in the strong text colour. */
+.network-steps { display: grid; gap: 8px; margin: 0; padding-left: 20px; color: var(--text); font-size: 13.5px; line-height: 1.45; }
+.network-steps li { min-width: 0; padding-left: 2px; }
+.network-steps code, .network-note code { overflow-wrap: anywhere; }
+.network-steps b, .network-steps em, .network-note em { color: var(--text-strong); font-style: normal; }
+.network-steps .ui-code { margin-top: 6px; }
+
 .network-plan__summary { margin: 0; color: var(--text-strong); font-size: 14.5px; font-weight: 600; line-height: 1.35; }
 
 /* Forms in sheets: two columns of fields where there is room. */

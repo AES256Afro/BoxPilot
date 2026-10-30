@@ -1,9 +1,13 @@
-import { useEffect, useState } from "react";
-import { Button, Field, KeyValue, Notice, Panel, SecretInput, Select, StatusChip, TextInput } from "../../ui";
+import { useCallback, useEffect, useState } from "react";
+import { Button, Checkbox, Field, KeyValue, Notice, Panel, SecretInput, Select, StatusChip, Switch, TextInput } from "../../ui";
+import HeartbeatPanel from "./HeartbeatPanel";
+import { openView } from "../../activityEvents";
+import { watchView } from "../../home/needs";
 
 interface NotificationState { configured: boolean; kind: "ntfy" | "gotify" | "webhook" | null; url: string | null; topic: string | null; hasToken: boolean }
 interface WatchCondition { key: string; label: string; active: boolean; details: Array<{ title: string; since: string | null }> }
 interface WatchStatus { targetConfigured: boolean; activeCount: number; conditions: WatchCondition[] }
+interface QuietHoursState { enabled: boolean; start: string; end: string; holdHigh: boolean; held: number; quietNow: boolean }
 interface WeeklyReportStatus { enabled: boolean; cadence: string; nextDueAt: string | null; lastSentAt: string | null; lastResult: "sent" | "not-announced" | "missed" | null; targetConfigured: boolean }
 
 const services = [{ value: "ntfy", label: "ntfy" }, { value: "gotify", label: "Gotify" }, { value: "webhook", label: "Webhook" }];
@@ -20,9 +24,17 @@ function WeeklyReport({ csrfToken, targetConfigured }: { csrfToken: string; targ
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // A read that fails is said with a way to try again (M49): the panel used to vanish without a word.
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    fetch("/api/v1/settings/weekly-report").then((response) => (response.ok ? response.json() : null)).then((body: WeeklyReportStatus | null) => setStatus(body)).catch(() => {});
-  }, []);
+    let gone = false;
+    fetch("/api/v1/settings/weekly-report")
+      .then(async (response) => { if (!response.ok) throw new Error(`The server answered ${response.status}`); return response.json() as Promise<WeeklyReportStatus>; })
+      .then((body) => { if (!gone) { setStatus(body); setStatusError(null); } })
+      .catch((requestError: unknown) => { if (!gone) setStatusError(requestError instanceof Error ? requestError.message : "Could not read the weekly report"); });
+    return () => { gone = true; };
+  }, [attempt]);
 
   const call = async <T,>(url: string, init: RequestInit, done: (body: T) => void, failure: string) => {
     setBusy(true); setError(null); setMessage(null);
@@ -41,7 +53,11 @@ function WeeklyReport({ csrfToken, targetConfigured }: { csrfToken: string; targ
   const show = () => call("/api/v1/settings/weekly-report/preview", {}, (body: { title: string; message: string }) => setPreview(body), "Could not put the report together");
   const send = () => call("/api/v1/settings/weekly-report/send", { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } }, (body: { title: string; message: string }) => { setPreview(body); setMessage("Sent. Check your device."); }, "The report could not be sent");
 
-  if (!status) return null;
+  if (!status) {
+    return statusError
+      ? <Panel title="Weekly report" padded className="settings-panel"><Notice tone="danger" live title="The weekly report could not be read" action={<Button onClick={() => setAttempt((count) => count + 1)}>Try again</Button>}>{statusError}</Notice></Panel>
+      : null;
+  }
   return (
     <Panel
       title="Weekly report"
@@ -76,6 +92,64 @@ function WeeklyReport({ csrfToken, targetConfigured }: { csrfToken: string; targ
 }
 
 /**
+ * Quiet hours (M36): between two times, pushes wait and go as one summary when the quiet ends.
+ * Urgent ones still go unless held too. Anyone signed in sees it; only the owner changes it.
+ */
+function QuietHours({ csrfToken }: { csrfToken: string }) {
+  const [state, setState] = useState<QuietHoursState | null>(null);
+  const [draft, setDraft] = useState<Pick<QuietHoursState, "enabled" | "start" | "end" | "holdHigh"> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let gone = false;
+    fetch("/api/v1/settings/quiet-hours")
+      .then(async (response) => { if (!response.ok) throw new Error(`The server answered ${response.status}`); return response.json() as Promise<QuietHoursState>; })
+      .then((body) => { if (!gone) { setState(body); setDraft({ enabled: body.enabled, start: body.start, end: body.end, holdHigh: body.holdHigh }); } })
+      .catch((requestError: unknown) => { if (!gone) setError(requestError instanceof Error ? requestError.message : "Could not read quiet hours"); });
+    return () => { gone = true; };
+  }, []);
+  if (!state || !draft) return error ? <Panel title="Quiet hours" padded className="settings-panel"><Notice tone="danger" live>{error}</Notice></Panel> : null;
+  const changed = draft.enabled !== state.enabled || draft.start !== state.start || draft.end !== state.end || draft.holdHigh !== state.holdHigh;
+  const save = async () => {
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      const response = await fetch("/api/v1/settings/quiet-hours", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify(draft) });
+      const body = await response.json().catch(() => ({})) as QuietHoursState & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not save quiet hours");
+      setState(body);
+      setMessage(body.enabled ? `Pushes wait from ${body.start} to ${body.end}, server time.` : "Quiet hours are off.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save quiet hours");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Panel
+      title="Quiet hours"
+      count={{ status: state.enabled ? "good" : "neutral", label: state.enabled ? `${state.start} to ${state.end}` : "off" }}
+      meta={state.held ? <><b>{state.held}</b> waiting for the summary</> : state.quietNow ? "quiet now" : undefined}
+      padded
+      className="settings-panel"
+    >
+      <Switch checked={draft.enabled} onChange={(enabled) => setDraft({ ...draft, enabled })} label="Hold pushes overnight" description="They go as one summary when the quiet ends. The notification centre has each one as it happens." />
+      <div className="settings-actions">
+        <Field label="From"><TextInput type="time" value={draft.start} onValueChange={(start) => setDraft({ ...draft, start })} disabled={!draft.enabled} /></Field>
+        <Field label="Until"><TextInput type="time" value={draft.end} onValueChange={(end) => setDraft({ ...draft, end })} disabled={!draft.enabled} /></Field>
+      </div>
+      <Checkbox checked={draft.holdHigh} onChange={(holdHigh) => setDraft({ ...draft, holdHigh })} disabled={!draft.enabled} label="Hold urgent ones too" description="A failing disk, a drive gone, the UPS running low, a failed job. Left off, these still wake you." />
+      <p className="settings-quiet">Server time. The test button and "Send the report now" always go at once.</p>
+      <div className="settings-actions">
+        <Button variant="primary" disabled={busy || !changed} onClick={() => void save()}>Save quiet hours</Button>
+      </div>
+      {message && <Notice tone="success" live>{message}</Notice>}
+      {error && <Notice tone="danger" live>{error}</Notice>}
+    </Panel>
+  );
+}
+
+/**
  * Settings → Notifications: where alerts and the weekly report go (ntfy, Gotify or a webhook; ntfy
  * and Gotify are both in the app catalog, so the target can live on this very server), what BoxPilot
  * watches for, and the weekly report. Owner-only (ADR-003): the target and its token are the box's.
@@ -97,9 +171,15 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
   // loopback without anything being exposed, so the target is one click of prefill plus a password.
   const [localServer, setLocalServer] = useState<{ kind: "ntfy" | "gotify"; name: string; sendUrl: string; reachAddress: string | null } | null>(null);
   const refresh = () => fetch("/api/v1/settings/notifications").then((response) => response.json()).then((body: NotificationState) => setCurrent(body)).catch(() => setError("Could not read the notification settings"));
+  // The watch list is read apart, with Try again when it fails (M50): it used to vanish without a word.
+  const [watchError, setWatchError] = useState<string | null>(null);
+  const readWatch = useCallback(() => fetch("/api/v1/settings/watch")
+    .then(async (response) => { if (!response.ok) throw new Error(`The server answered ${response.status}`); return response.json() as Promise<WatchStatus>; })
+    .then((body) => { setWatch(body && Array.isArray(body.conditions) ? body : null); setWatchError(null); })
+    .catch((requestError: unknown) => setWatchError(requestError instanceof Error ? requestError.message : "The watch list could not be read")), []);
   useEffect(() => {
     void refresh();
-    fetch("/api/v1/settings/watch").then((response) => (response.ok ? response.json() : null)).then((body: WatchStatus | null) => setWatch(body && Array.isArray(body.conditions) ? body : null)).catch(() => {});
+    void readWatch();
     // ntfy and Gotify are both in the catalog and both can be the target; if one is installed and
     // running, offer to point BoxPilot straight at it rather than making the owner type its address.
     fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((data: { applications?: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean }; urls: Array<{ host: number }> } | null }>; host?: { lanAddress: string | null; tailscaleDnsName: string | null } } | null) => {
@@ -157,6 +237,8 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
   const configured = current?.configured === true;
   const form = !configured || editing;
   const offerLocal = Boolean(localServer && form && url !== localServer.sendUrl);
+  // The server keeps the saved token when none is sent for the same service.
+  const keepsToken = Boolean(configured && current?.hasToken && current.kind === kind);
 
   return (
     <>
@@ -205,7 +287,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
                     <TextInput mono placeholder="topic" value={topic} onValueChange={(value) => setTopic(value.trim())} autoComplete="off" spellCheck={false} />
                   </Field>
                 )}
-                <Field label="Token" optional hint={kind === "gotify" ? "The application token." : kind === "ntfy" ? "An access token, if the topic needs one." : "A bearer token, if the webhook needs one."}>
+                <Field label="Token" optional hint={`${kind === "gotify" ? "The application token." : kind === "ntfy" ? "An access token, if the topic needs one." : "A bearer token, if the webhook needs one."}${keepsToken ? " Leave empty to keep the saved token." : ""}`}>
                   <SecretInput value={token} onValueChange={setToken} />
                 </Field>
               </div>
@@ -226,27 +308,38 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
           {error && <Notice tone="danger" live>{error}</Notice>}
         </Panel>
         <WeeklyReport csrfToken={csrfToken} targetConfigured={configured} />
+        <QuietHours csrfToken={csrfToken} />
       </div>
 
-      {watch && (
-        <Panel
-          title="What BoxPilot watches"
-          count={{ status: watch.activeCount ? "warning" : "good", label: watch.activeCount ? `${watch.activeCount} needs attention` : "All clear" }}
-          meta={watch.targetConfigured ? "checked every 15 minutes" : "no target: these cannot reach you"}
-          className="settings-panel"
-          footer="A push when one turns bad, and again when it clears. A scheduled task or automation that keeps failing is one push until it works again; anything that could not be sent is listed on Home and Ops."
-        >
-          <ul className="settings-watch" aria-label="Conditions BoxPilot watches for">
-            {watch.conditions.map((condition) => (
-              <li key={condition.key} className="settings-watch__item" title={condition.active ? condition.details.map((detail) => detail.title).join("; ") : "Clear"}>
-                <span>{condition.label}{condition.active && condition.details.length > 1 ? ` (${condition.details.length})` : ""}</span>
-                <StatusChip status={condition.active ? "warning" : "good"}>{condition.active ? "needs a look" : "clear"}</StatusChip>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      )}
-
+      <div className="settings-column">
+        {/* M39.3: something outside this server that notices when it goes quiet. */}
+        <HeartbeatPanel csrfToken={csrfToken} />
+        {!watch && watchError && (
+          <Panel title="What BoxPilot watches" padded className="settings-panel">
+            <Notice tone="danger" live title="The watch list could not be read" action={<Button onClick={() => void readWatch()}>Try again</Button>}>{watchError}</Notice>
+          </Panel>
+        )}
+        {watch && (
+          <Panel
+            title="What BoxPilot watches"
+            count={{ status: watch.activeCount ? "warning" : "good", label: watch.activeCount ? `${watch.activeCount} needs attention` : "All clear" }}
+            meta={watch.targetConfigured ? "checked every 15 minutes" : "no target: these cannot reach you"}
+            className="settings-panel"
+            footer="A push when one turns bad, and again when it clears. A scheduled task or automation that keeps failing is one push until it works again; anything that could not be sent is listed on Home and Ops."
+          >
+            <ul className="settings-watch" aria-label="Conditions BoxPilot watches for">
+              {watch.conditions.map((condition) => (
+                <li key={condition.key} className="settings-watch__item" title={condition.active ? condition.details.map((detail) => detail.title).join("; ") : "Clear"}>
+                  <span>{condition.label}{condition.active && condition.details.length > 1 ? ` (${condition.details.length})` : ""}</span>
+                  <StatusChip status={condition.active ? "warning" : "good"}>{condition.active ? "needs a look" : "clear"}</StatusChip>
+                  {/* The chip looked like a link and went nowhere (M49): the page the condition belongs to is a button away. */}
+                  {condition.active && <Button variant="ghost" onClick={() => openView(watchView(condition.key))} aria-label={`Open the page for ${condition.label}`}>Open</Button>}
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        )}
+      </div>
     </>
   );
 }

@@ -1,6 +1,8 @@
-import { readFile, unlink, writeFile } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
+import { readBounded } from "../../packages/harness/src/index.mjs";
 
 /**
  * Root-side user and SSH tasks executed by scripts/boxpilot-run.mjs inside boxpilot-run@.service.
@@ -32,7 +34,8 @@ async function userEntry(run, username) {
 async function defaultFetchKeys(githubUser) {
   const response = await fetch(`https://github.com/${githubUser}.keys`, { signal: AbortSignal.timeout(15_000), redirect: "follow" });
   if (!response.ok) throw new Error(`GitHub returned ${response.status} for ${githubUser}.keys. Check the username`);
-  return response.text();
+  // Bounded (M50): a page of keys is kilobytes, and this runs as root.
+  return readBounded(response, 256 * 1024);
 }
 
 /**
@@ -66,6 +69,7 @@ async function appendAuthorizedKeys(run, log, _files, entry, keys) {
   return { added: added.length, total: current.size + added.length };
 }
 
+/** @param {{ username?: string, githubUser?: string | null }} [parameters] */
 export async function userAdd({ username, githubUser = null } = {}, { run = fixedRun, log = null, files = { readFile, writeFile }, fetchKeys = defaultFetchKeys } = {}) {
   assertUsername(username);
   if (githubUser !== null && (typeof githubUser !== "string" || !githubUserPattern.test(githubUser))) throw new Error("GitHub username is invalid");
@@ -84,6 +88,7 @@ export async function userAdd({ username, githubUser = null } = {}, { run = fixe
   return { username, uid: entry.uid, home: entry.home, passwordLoginDisabled: true, importedKeys };
 }
 
+/** @param {{ username?: string, githubUser?: string | null, keys?: string | null }} [parameters] */
 export async function userKeysImport({ username, githubUser = null, keys = null } = {}, { run = fixedRun, log = null, files = { readFile, writeFile }, fetchKeys = defaultFetchKeys } = {}) {
   assertUsername(username);
   if (username === "root") throw new Error("Keys are never added for root; give an administrator account sudo instead");
@@ -104,6 +109,7 @@ export async function userKeysImport({ username, githubUser = null, keys = null 
   return { username, source: githubUser ? `github:${githubUser}` : "pasted", ...imported };
 }
 
+/** @param {{ username?: string, sudo?: boolean }} [parameters] */
 export async function userSudoSet({ username, sudo } = {}, { run = fixedRun, log = null } = {}) {
   assertUsername(username);
   if (typeof sudo !== "boolean") throw new Error("sudo must be true or false");
@@ -135,6 +141,7 @@ async function usersWithKeys(run, files) {
   return withKeys;
 }
 
+/** @param {{ enabled?: boolean }} [parameters] */
 export async function sshPasswordAuthSet({ enabled } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, unlink } } = {}) {
   if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
   if (!enabled) {

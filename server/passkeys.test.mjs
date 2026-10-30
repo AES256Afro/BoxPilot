@@ -10,6 +10,8 @@ import { bufferToBase64url } from "./webauthn.mjs";
 const sha256 = (buffer) => createHash("sha256").update(buffer).digest();
 const origin = "https://boxpilot.lan:8443";
 const rpId = "boxpilot.lan";
+// Where BoxPilot is served in these tests: the LAN name over HTTPS, and a tailnet name.
+const allowedOrigins = [origin, "https://homebox.tail0a1b.ts.net"];
 
 /** A software passkey that produces exactly what the browser accessors hand the server. */
 function softwareAuthenticator({ rp = rpId } = {}) {
@@ -68,16 +70,16 @@ describe("passkey service", () => {
 
   it("registers a passkey and then signs in with it", () => {
     const authenticator = softwareAuthenticator();
-    const options = passkeys.registerOptions({ owner, origin });
+    const options = passkeys.registerOptions({ owner, origin, allowedOrigins });
     expect(options.rp.id).toBe(rpId);
     expect(options.authenticatorSelection.residentKey).toBe("required");
 
-    const stored = passkeys.registerVerify({ owner, origin, credential: authenticator.create(options.challenge, "My phone") });
+    const stored = passkeys.registerVerify({ owner, origin, allowedOrigins, credential: authenticator.create(options.challenge, "My phone") });
     expect(stored.label).toBe("My phone");
     expect(store.countPasskeys(owner.id)).toBe(1);
 
-    const authOptions = passkeys.authenticateOptions({ origin });
-    const result = passkeys.authenticateVerify({ origin, response: authenticator.get(authOptions.challenge) });
+    const authOptions = passkeys.authenticateOptions({ origin, allowedOrigins });
+    const result = passkeys.authenticateVerify({ origin, allowedOrigins, response: authenticator.get(authOptions.challenge) });
     expect(result.owner.id).toBe(owner.id);
     expect(result.cloned).toBe(false);
     // The counter advanced and was recorded.
@@ -89,36 +91,46 @@ describe("passkey service", () => {
     expect(() => passkeys.authenticateOptions({ origin: "http://192.168.50.20:8787" })).toThrow(/secure connection/);
   });
 
+  it("refuses an origin BoxPilot is not served at, the same name on another port included", () => {
+    // The RP ID is the host name alone, so boxpilot.lan:3000 - an app's page - would otherwise pass.
+    for (const elsewhere of ["https://boxpilot.lan:3000", "https://boxpilot.lan"]) {
+      expect(() => passkeys.authenticateOptions({ origin: elsewhere, allowedOrigins })).toThrow(/not an address BoxPilot is served at/);
+      expect(() => passkeys.registerOptions({ owner, origin: elsewhere, allowedOrigins })).toThrow(/not an address BoxPilot is served at/);
+    }
+    // With no list of where BoxPilot is served, nothing is.
+    expect(() => passkeys.authenticateOptions({ origin })).toThrow(/not an address BoxPilot is served at/);
+  });
+
   it("spends a challenge only once", () => {
     const authenticator = softwareAuthenticator();
-    const options = passkeys.registerOptions({ owner, origin });
+    const options = passkeys.registerOptions({ owner, origin, allowedOrigins });
     const credential = authenticator.create(options.challenge);
-    passkeys.registerVerify({ owner, origin, credential });
+    passkeys.registerVerify({ owner, origin, allowedOrigins, credential });
     // Same challenge again: rejected as expired/used.
-    expect(() => passkeys.registerVerify({ owner, origin, credential: softwareAuthenticator().create(options.challenge) })).toThrow(/expired or was already used/);
+    expect(() => passkeys.registerVerify({ owner, origin, allowedOrigins, credential: softwareAuthenticator().create(options.challenge) })).toThrow(/expired or was already used/);
   });
 
   it("does not sign in with a passkey registered for a different RP ID", () => {
     // Register at boxpilot.lan.
     const authenticator = softwareAuthenticator();
-    const options = passkeys.registerOptions({ owner, origin });
-    passkeys.registerVerify({ owner, origin, credential: authenticator.create(options.challenge) });
+    const options = passkeys.registerOptions({ owner, origin, allowedOrigins });
+    passkeys.registerVerify({ owner, origin, allowedOrigins, credential: authenticator.create(options.challenge) });
     // Try to use it from the tailnet origin: no passkey is registered for that RP ID.
     const tailnetOrigin = "https://homebox.tail0a1b.ts.net";
-    const authOptions = passkeys.authenticateOptions({ origin: tailnetOrigin });
-    expect(() => passkeys.authenticateVerify({ origin: tailnetOrigin, response: authenticator.get(authOptions.challenge) })).toThrow(/not registered here/);
+    const authOptions = passkeys.authenticateOptions({ origin: tailnetOrigin, allowedOrigins });
+    expect(() => passkeys.authenticateVerify({ origin: tailnetOrigin, allowedOrigins, response: authenticator.get(authOptions.challenge) })).toThrow(/not registered here/);
   });
 
   it("rejects an unknown credential id", () => {
     const authenticator = softwareAuthenticator();
-    const authOptions = passkeys.authenticateOptions({ origin });
-    expect(() => passkeys.authenticateVerify({ origin, response: authenticator.get(authOptions.challenge) })).toThrow(/not registered here/);
+    const authOptions = passkeys.authenticateOptions({ origin, allowedOrigins });
+    expect(() => passkeys.authenticateVerify({ origin, allowedOrigins, response: authenticator.get(authOptions.challenge) })).toThrow(/not registered here/);
   });
 
   it("lists, renames and removes passkeys", () => {
     const authenticator = softwareAuthenticator();
-    const options = passkeys.registerOptions({ owner, origin });
-    const stored = passkeys.registerVerify({ owner, origin, credential: authenticator.create(options.challenge) });
+    const options = passkeys.registerOptions({ owner, origin, allowedOrigins });
+    const stored = passkeys.registerVerify({ owner, origin, allowedOrigins, credential: authenticator.create(options.challenge) });
     expect(passkeys.list(owner.id)).toHaveLength(1);
     passkeys.rename(owner.id, stored.id, "Yubikey");
     expect(passkeys.list(owner.id)[0].label).toBe("Yubikey");

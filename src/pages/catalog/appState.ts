@@ -1,4 +1,5 @@
-import type { Status } from "../../ui/types";
+import { riskOf } from "../../ui/operationRisk";
+import type { RiskTier, Status } from "../../ui/types";
 import type { AppStats, LiveState, Manifest, Values } from "./types";
 
 /*
@@ -12,6 +13,19 @@ import type { AppStats, LiveState, Manifest, Values } from "./types";
  * and offers Stop but no Resume. Asking here once keeps the places that care in agreement.
  */
 export const isPaused = (live: LiveState | null | undefined) => live?.container.status === "paused";
+
+const tierRank: Record<RiskTier, number> = { low: 0, medium: 1, high: 2 };
+/**
+ * The tier installing this app is staged and approved at: the higher of app.install's own and the
+ * manifest's (server/catalog installRiskLookup, since the security audit). Pi-hole, AdGuard Home,
+ * Technitium and wg-easy say high, so their Install says high before the click, as the approval
+ * will; the button used to show app.install's medium for every app.
+ */
+export function installTier(manifest: Pick<Manifest, "risk">): RiskTier {
+  const own = riskOf("app.install");
+  const app = manifest.risk && manifest.risk in tierRank ? manifest.risk : own;
+  return tierRank[app] > tierRank[own] ? app : own;
+}
 export const isRunning = (live: LiveState | null | undefined) => Boolean(live?.container.running) && !isPaused(live);
 /** A weekly kill-switch drill that ended badly. One still starting or running has not failed. */
 export const drillFailed = (lastResult?: string | null) => Boolean(lastResult) && !["completed", "started", "starting"].some((state) => lastResult!.startsWith(state));
@@ -31,10 +45,16 @@ export function appStatus(live: LiveState | null | undefined): { status: Status;
   if (!live.installed) return { status: "neutral", label: live.dataPresent ? "Not installed · data kept" : "Not installed" };
   if (live.killSwitchDrill?.leaked) return { status: "danger", label: "Leaked outside its VPN" };
   if ((live.folderProblems ?? []).length > 0) return { status: "danger", label: "Cannot write to its folder" };
-  if (isPaused(live)) return { status: "warning", label: "Paused" };
+  // Paused by a person, or stopped by one on purpose (M49): not a problem, as Home already says of
+  // the same apps; the catalog counted them in "need a look" and drew them amber.
+  if (isPaused(live)) return { status: "neutral", label: "Paused" };
   const troubled = troubledSidecar(live);
   if (live.container.running && troubled) return { status: "warning", label: `Running · ${troubled.id} ${troubled.status === "restarting" ? "is restarting" : "is down"}` };
   if (live.container.running) return live.container.health === "unhealthy" ? { status: "warning", label: "Running · unhealthy" } : { status: "good", label: "Running" };
+  // Home calls an installed app with no container "No container" (the nightly clean-up removed it);
+  // the catalog said "Stopped" of the same app, which Start does not look like it would fix.
+  if (live.container.exists === false) return { status: "warning", label: "No container" };
+  if (live.stoppedOnPurpose && live.container.status !== "restarting") return { status: "neutral", label: "Stopped" };
   return { status: "warning", label: "Stopped" };
 }
 
@@ -98,7 +118,11 @@ export function compactValues(manifest: Manifest, values: Values, baseline?: Val
   const envBase = (name: string) => baseline?.env?.[name] ?? String(manifest.env.find((entry) => entry.name === name)?.default ?? "");
   const volumeBase = (id: string) => baseline?.volumes?.[id] ?? manifest.volumes.find((volume) => volume.id === id)?.hostPath;
   const ports = Object.fromEntries(Object.entries(values.ports).filter(([id, host]) => portBase(id) !== host));
-  const env = Object.fromEntries(Object.entries(values.env).filter(([name, value]) => value !== "" && envBase(name) !== value));
+  // Empty means "unchanged" only for a secret, a password or a generated value (the server keeps
+  // the one it has). Any other setting cleared over a stored value is sent empty: left out, the
+  // merge kept the old value.
+  const keptWhenEmpty = (name: string) => { const entry = manifest.env.find((field) => field.name === name); return !entry || entry.secret || entry.generate || entry.type === "password"; };
+  const env = Object.fromEntries(Object.entries(values.env).filter(([name, value]) => (value === "" ? !keptWhenEmpty(name) && Boolean(baseline?.env?.[name]) : envBase(name) !== value)));
   const volumes = Object.fromEntries(Object.entries(values.volumes).filter(([id, path]) => path !== "" && volumeBase(id) !== path));
   // Setup choices are always sent explicitly: an empty list means "none", not "the defaults".
   return { ports, env, volumes, ...((manifest.networkModes?.length ?? 0) > 1 && values.networkMode ? { networkMode: values.networkMode } : {}), ...(manifest.setup ? { setup: values.setup ?? [] } : {}) };
@@ -109,4 +133,9 @@ export async function runRead<T>(csrfToken: string, operationId: string, paramet
   const response = await fetch(`/api/v1/operations/${operationId}/run`, { method: "POST", signal: init.signal, headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters }) });
   const body = (await response.json().catch(() => ({}))) as { result?: T; error?: string; code?: string };
   return { response, body };
+}
+
+/** An image reference for reading: a pinned digest is cut to its first 12 characters, as Docker shows image ids. */
+export function shortImage(reference: string | null | undefined): string {
+  return String(reference ?? "").replace(/@sha256:([a-f0-9]{12})[a-f0-9]{52}$/, "@sha256:$1…");
 }

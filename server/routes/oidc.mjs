@@ -8,6 +8,7 @@
  * app is configured with, with nothing to set.
  */
 import express, { Router } from "express";
+import { createRateLimit, rateLimited } from "../rate-limit.mjs";
 import { OidcError } from "../oidc.mjs";
 import { securityInternals } from "../security.mjs";
 
@@ -34,7 +35,11 @@ function allowCrossOrigin(response) {
   response.setHeader("Cache-Control", "no-store");
 }
 
-export function createOidcRouter({ oidc, auth, store }) {
+export function createOidcRouter({ oidc, auth, store, limits = null }) {
+  // The token and userinfo endpoints answer anyone (M50): a cap per address, generous for real clients.
+  const byAddress = { keyOf: (request) => request.ip ?? "unknown", message: "Too many requests; wait a minute" };
+  const tokenLimit = rateLimited(limits?.token ?? createRateLimit({ count: 30, perMs: 60_000 }), "oidc-token", byAddress);
+  const userinfoLimit = rateLimited(limits?.userinfo ?? createRateLimit({ count: 120, perMs: 60_000 }), "oidc-userinfo", byAddress);
   const router = Router();
   // OIDC token and consent bodies are application/x-www-form-urlencoded.
   router.use(express.urlencoded({ extended: false, limit: "16kb" }));
@@ -64,8 +69,8 @@ export function createOidcRouter({ oidc, auth, store }) {
 
   // The consent screen. The owner must be signed in to BoxPilot; if not, send them to sign in and
   // come back here afterwards.
-  router.get("/oidc/authorize", (request, response) => {
-    const session = auth.requestSession(request);
+  router.get("/oidc/authorize", async (request, response) => {
+    const session = await auth.requestSession(request);
     if (!session) {
       const next = encodeURIComponent(request.originalUrl);
       return response.redirect(`/?next=${next}`);
@@ -87,8 +92,8 @@ export function createOidcRouter({ oidc, auth, store }) {
   });
 
   // The consent decision. Owner session + a CSRF token carried in the form.
-  router.post("/oidc/authorize", (request, response) => {
-    const session = auth.requestSession(request);
+  router.post("/oidc/authorize", async (request, response) => {
+    const session = await auth.requestSession(request);
     if (!session) return response.status(401).type("html").send(simplePage("Session expired", "Sign in to BoxPilot again, then retry from the app."));
     const body = request.body ?? {};
     // Constant-time, like auth.requireCsrf: the one CSRF comparison in the product that was not.
@@ -113,7 +118,7 @@ export function createOidcRouter({ oidc, auth, store }) {
     return response.redirect(redirectWith(validated.redirectUri, { code, state: validated.state }));
   });
 
-  router.post("/oidc/token", (request, response) => {
+  router.post("/oidc/token", tokenLimit, (request, response) => {
     allowCrossOrigin(response);
     const body = request.body ?? {};
     if (body.grant_type !== "authorization_code") return response.status(400).json({ error: "unsupported_grant_type", error_description: "Only authorization_code is supported" });
@@ -125,7 +130,7 @@ export function createOidcRouter({ oidc, auth, store }) {
     }
   });
 
-  router.get("/oidc/userinfo", (request, response) => {
+  router.get("/oidc/userinfo", userinfoLimit, (request, response) => {
     allowCrossOrigin(response);
     const header = String(request.get("authorization") ?? "");
     const token = header.startsWith("Bearer ") ? header.slice(7).trim() : null;
@@ -149,14 +154,14 @@ export function createOidcAdminRouter({ oidc, auth }) {
     const issuer = originFrom(request);
     response.json({ issuer, discovery: `${issuer}/.well-known/openid-configuration`, clients: oidc.listClients(), status: oidc.status() });
   });
-  router.post("/oidc/clients", ownerOnly, (request, response) => {
+  router.post("/oidc/clients", ownerOnly, auth.requireCsrf, (request, response) => {
     try {
       response.status(201).json(oidc.registerClient({ name: request.body?.name, redirectUris: request.body?.redirectUris, ownerId: request.boxpilotSession.owner.id }));
     } catch (error) {
       response.status(400).json({ error: error.message, code: "invalid_client" });
     }
   });
-  router.delete("/oidc/clients/:id", ownerOnly, (request, response) => {
+  router.delete("/oidc/clients/:id", ownerOnly, auth.requireCsrf, (request, response) => {
     try {
       oidc.removeClient(request.params.id, request.boxpilotSession.owner.id);
       response.json({ removed: true });

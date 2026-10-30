@@ -1,0 +1,14 @@
+[Unit]
+Description=BoxPilot heartbeat to the owner's dead man's switch (off until turned on in Settings)
+
+# Installed with BoxPilot and never enabled by the installer or an upgrade: the owner turns it on in
+# Settings, Notifications (heartbeat.set), which writes the interval as a drop-in in
+# boxpilot-heartbeat.timer.d/interval.conf. Five minutes unless changed.
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Unit=boxpilot-heartbeat.service
+
+[Install]
+WantedBy=timers.target

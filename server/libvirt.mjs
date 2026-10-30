@@ -142,6 +142,7 @@ export function validateSnapshotName(name) {
   return typeof name === "string" && snapshotPattern.test(name);
 }
 
+/** @param {{ runCommand?: typeof defaultRunCommand, checkKvmAccess?: () => Promise<boolean> }} [options] */
 export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmAccess } = {}) {
   const hasKvmAccess = checkKvmAccess ?? (async () => {
     try {
@@ -304,7 +305,29 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     return results;
   }
 
-  async function listDomains() {
+  /**
+   * What `dominfo` alone says of a VM (M50): name, state, size and whether it starts at boot. Home
+   * shows nothing more, and read the full record (six virsh processes a VM, one more per snapshot)
+   * every five minutes for it.
+   */
+  async function getDomainSummary(name) {
+    if (!validateDomainName(name)) return null;
+    const infoResult = await runCommand("virsh", ["--connect", connectionUri, "dominfo", name]);
+    if (!infoResult.ok) return null;
+    const info = parseKeyValueOutput(infoResult.stdout);
+    return {
+      name: info.name ?? name,
+      uuid: info.uuid ?? null,
+      state: normalizeState(info.state),
+      vcpus: Number.parseInt(info.cpu_s ?? "0", 10),
+      memoryKiB: Number.parseInt(info.max_memory?.replace(/\s*KiB$/i, "") ?? "0", 10),
+      persistent: info.persistent === "yes",
+      autostart: info.autostart === "enable" || info.autostart === "yes",
+      managed: validateDomainName(info.name ?? name),
+    };
+  }
+
+  async function listDomains({ summary = false } = {}) {
     const result = await runCommand("virsh", ["--connect", connectionUri, "list", "--all", "--name"]);
     if (!result.ok) {
       return { connected: false, domains: [], error: result.stderr || "Unable to query libvirt" };
@@ -313,8 +336,8 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     // Bounded fan-out, and no guest-agent probes here: on a VM without an agent each probe waits
     // out libvirt's timeout, and this list is what the Overview loads. The per-VM read still does
     // them. Eight domains with four snapshots each was ~100 concurrent virsh processes.
-    const domains = (await mapWithLimit(names, 4, (name) => getDomain(name, { probeGuestAgent: false }))).filter(Boolean);
-    return { connected: true, domains, error: null };
+    const domains = (await mapWithLimit(names, 4, (name) => (summary ? getDomainSummary(name) : getDomain(name, { probeGuestAgent: false })))).filter(Boolean);
+    return { connected: true, domains, error: null, ...(summary ? { summary: true } : {}) };
   }
 
   async function listResources() {

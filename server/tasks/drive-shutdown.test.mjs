@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { hostView, managedDriveEntries, mountUnitName, parseContainers, parseExtState, parseVerifySummary, planDockerOrder, prepareDrivesForReboot, resumeAfterCancelledReboot, stopSignalOf, storageDockerOrder, storageVolumeState, verificationAllows } from "./drive-shutdown.mjs";
+import { hostView, managedDriveEntries, mountUnitName, parseContainers, parseExtState, parseSystemdUtcTimestamp, parseVerifySummary, planDockerOrder, prepareDrivesForReboot, resumeAfterCancelledReboot, stopSignalOf, storageDockerOrder, storageVolumeState, verificationAllows } from "./drive-shutdown.mjs";
 import { afterResume, systemReboot } from "./system.mjs";
 import { exfatVolumeFlags, withDockerOrder } from "./storage.mjs";
+import { buildShareEntry } from "./shares.mjs";
 import { laggingSystemd } from "../../test/lagging-systemd.mjs";
 
 const ORDER = "x-systemd.before=docker.service,x-systemd.device-timeout=30s";
@@ -75,6 +76,15 @@ describe("the Docker ordering in drive entries", () => {
       ["elsewhere", "not mounted at /mnt/elsewhere"], ["nfsbox", "a network filesystem"], ["netdev", "a network filesystem"], ["commented", "not an fstab entry"], ["short", "not an fstab entry"],
     ]);
     expect(managedDriveEntries(content).every((entry) => entry.drive === false)).toBe(true);
+  });
+
+  it("leaves the backup destination's share as shares.mjs writes it, root's alone, untouched", () => {
+    const { entry } = buildShareEntry({ kind: "smb", host: "nas", share: "BoxPilot-Backup", name: "boxpilot-backup", guest: false });
+    expect(entry).toContain(",uid=0,gid=0,file_mode=0600,dir_mode=0700,");
+    const content = `${OWNER_FSTAB}# boxpilot:share-boxpilot-backup\n${entry}\n`;
+    const plan = planDockerOrder(content);
+    expect(plan.content.split("\n").at(-2)).toBe(entry);
+    expect(plan.drives.at(-1)).toEqual({ name: "share-boxpilot-backup", mountpoint: "/mnt/boxpilot/backup", status: "skipped", reason: "a network share" });
   });
 
   it("reads findmnt --verify's count and lets through only what was already there", () => {
@@ -337,6 +347,46 @@ describe("getting the drives ready before a reboot", () => {
     expect(summary.drives[0].state).toBe("unmounted");
   });
 
+  // The UPS's shutdown on a low battery (M39.1): the same steps, every app, and its own words.
+  it("before a power-off, stops Docker for every app, not only those on a drive, and says the shutdown", async () => {
+    const server = rebootHost({ containers: [pihole] });
+    const summary = await prepareDrivesForReboot({}, { ...server.options, allContainers: true, occasion: "shutdown" });
+    expect(server.calls).toContain("systemctl stop docker.socket docker.service");
+    expect(summary).toMatchObject({ dockerStopped: true, containers: { stopped: ["bp-pihole"] } });
+    expect(summary.drives[0].state).toBe("unmounted");
+    expect(server.log).toHaveBeenCalledWith(expect.stringContaining("their restart policies start them again when the server starts"), "stdout");
+  });
+
+  it("before a power-off with no drive mounted, still stops the apps and syncs", async () => {
+    const server = rebootHost({ mounted: {}, containers: [pihole] });
+    const summary = await prepareDrivesForReboot({}, { ...server.options, allContainers: true, occasion: "shutdown" });
+    expect(server.calls).toEqual([
+      "findmnt --task 1 -n -o SOURCE,FSTYPE,MAJ:MIN --mountpoint /mnt/the-dump",
+      "docker ps -q --no-trunc",
+      expect.stringMatching(/^docker inspect c{64}$/),
+      "systemctl stop docker.socket docker.service",
+      "sync ",
+    ]);
+    expect(summary.containers.stopped).toEqual(["bp-pihole"]);
+    expect(server.log).toHaveBeenCalledWith("No BoxPilot drive is mounted; nothing to unmount before the shutdown", "stdout");
+  });
+
+  it("stops Docker for a container bound to a folder above a drive, which carries the drive with it", async () => {
+    // node-exporter binds / and File Browser /mnt: Docker's binds are recursive, so each holds
+    // /mnt/the-dump in its own namespace however the host unmounts it.
+    const nodeExporter = { id: "d".repeat(64), name: "bp-node-exporter", pid: 4545, binds: ["/proc", "/sys", "/"] };
+    const fileBrowser = { id: "e".repeat(64), name: "bp-filebrowser", pid: 4646, binds: ["/mnt"] };
+    const sibling = { id: "f".repeat(64), name: "bp-backup", pid: 4747, binds: ["/mnt/the-dump-backup"] };
+    for (const holder of [nodeExporter, fileBrowser]) {
+      const server = rebootHost({ containers: [pihole, holder, sibling] });
+      const summary = await prepareDrivesForReboot({}, server.options);
+      expect(server.calls).toContain("systemctl stop docker.socket docker.service");
+      expect(summary.containers.stopped).toEqual([holder.name]);
+    }
+    const unrelated = rebootHost({ containers: [pihole, sibling] });
+    expect((await prepareDrivesForReboot({}, unrelated.options)).dockerStopped).toBe(false);
+  });
+
   it("does nothing at all when no BoxPilot drive is mounted", async () => {
     const server = rebootHost({ mounted: {}, containers: [plex] });
     const summary = await prepareDrivesForReboot({}, server.options);
@@ -526,8 +576,8 @@ describe("what each drive's filesystem says about its last unmount", () => {
       if (name === "findmnt" && args.at(-1) === "/mnt/media") return { ok: true, stdout: "/dev/sdb1 ext4", stderr: "" };
       if (name === "findmnt") return { ok: false, stdout: "", stderr: "" };
       if (name === "blkid") return { ok: true, stdout: "/dev/sdc1", stderr: "" };
-      if (name === "systemctl" && args.at(-1) === "mnt-the\\x2ddump.mount") return { ok: true, stdout: "@1790622000", stderr: "" };
-      if (name === "systemctl") return { ok: true, stdout: "@1790620000", stderr: "" };
+      if (name === "systemctl" && args.at(-1) === "mnt-the\\x2ddump.mount") return { ok: true, stdout: "Mon 2026-09-28 19:00:00 UTC", stderr: "" };
+      if (name === "systemctl") return { ok: true, stdout: "Mon 2026-09-28 18:26:40 UTC", stderr: "" };
       if (name === "dumpe2fs") return { ok: true, stdout: "Filesystem volume name:   media\nFilesystem state:         clean with errors\nErrors behavior:          Continue\n", stderr: "dumpe2fs 1.47.0 (5-Feb-2023)" };
       return { ok: true, stdout: "", stderr: "" };
     });
@@ -536,16 +586,28 @@ describe("what each drive's filesystem says about its last unmount", () => {
     expect(state).toEqual({
       available: true, readAt: "2026-09-28T20:00:00.000Z",
       drives: [
-        { name: "the-dump", mountpoint: "/mnt/the-dump", device: "/dev/sda2", fstype: "exfat", mounted: true, mountedAt: new Date(1790622000 * 1000).toISOString(), exfat: { dirty: true }, ext: null },
-        { name: "media", mountpoint: "/mnt/media", device: "/dev/sdb1", fstype: "ext4", mounted: true, mountedAt: new Date(1790620000 * 1000).toISOString(), exfat: null, ext: { state: "clean with errors" } },
+        { name: "the-dump", mountpoint: "/mnt/the-dump", device: "/dev/sda2", fstype: "exfat", mounted: true, mountedAt: "2026-09-28T19:00:00.000Z", exfat: { dirty: true }, ext: null },
+        { name: "media", mountpoint: "/mnt/media", device: "/dev/sdb1", fstype: "ext4", mounted: true, mountedAt: "2026-09-28T18:26:40.000Z", exfat: null, ext: { state: "clean with errors" } },
         // Not mounted: found by its UUID, and its mark is exact, since nothing can have written to it since.
         { name: "spare", mountpoint: "/mnt/spare", device: "/dev/sdc1", fstype: "exfat", mounted: false, mountedAt: null, exfat: { dirty: false }, ext: null },
       ],
     });
-    expect(calls).toContain("systemctl show --timestamp=unix --property=ActiveEnterTimestamp --value mnt-the\\x2ddump.mount");
+    expect(calls).toContain("systemctl show --timestamp=utc --property=ActiveEnterTimestamp --value mnt-the\\x2ddump.mount");
     expect(calls).toContain("dumpe2fs -h /dev/sdb1");
     // Read only: nothing mounted, unmounted or written.
     expect(calls.some((call) => /^(u?mount|fsck|e2fsck|tune2fs) /.test(call))).toBe(false);
+  });
+
+  it("reads when a mount began from systemctl show --timestamp=utc", () => {
+    // systemd 249 (Ubuntu 22.04), 255 (24.04) and 259 (26.04) alike, on the runners.
+    expect(parseSystemdUtcTimestamp("Tue 2026-09-29 23:15:01 UTC\n")).toBe("2026-09-29T23:15:01.000Z");
+    // Never active: 249 says n/a, 255 and 259 say nothing.
+    expect(parseSystemdUtcTimestamp("n/a")).toBeNull();
+    expect(parseSystemdUtcTimestamp("")).toBeNull();
+    // Local time, which is systemd's default, names a zone this cannot place.
+    expect(parseSystemdUtcTimestamp("Wed 2026-09-30 01:15:01 CEST")).toBeNull();
+    // 249's answer to --timestamp=unix, which is systemd 251's.
+    expect(parseSystemdUtcTimestamp("Invalid value: unix.")).toBeNull();
   });
 
   it("reads the superblock's state line", () => {

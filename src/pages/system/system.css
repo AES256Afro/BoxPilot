@@ -32,6 +32,9 @@
 .system-clean__facts { display: grid; align-content: start; gap: 3px; min-width: 0; }
 .system-clean__size { color: var(--text-strong); font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
 .system-clean__size[data-review="true"] { color: var(--status-warning-text); }
+.system-clean__remove { display: grid; gap: 6px; margin: 2px 0 0; padding: 0; list-style: none; }
+.system-clean__remove li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.system-clean__remove code { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
 .system-details summary { color: var(--accent); font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .system-details ul { display: grid; gap: 2px; margin: 4px 0 0; padding-left: 16px; }
 .system-details code { color: var(--text-muted); font-size: 11.5px; overflow-wrap: anywhere; }
@@ -42,13 +45,35 @@
 .system-rule .ui-field { flex: 0 1 12rem; }
 .system-rule__answer { align-self: center; color: var(--text); font-size: 13px; }
 .system-hint { margin: 0; padding: 0 12px 10px; color: var(--status-warning-text); font-size: 13px; line-height: 1.4; }
+/* Logs and caches (M30.8): the categories to clean on one line, then the bounds and the buttons. */
+.system-space__rule { align-items: flex-end; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.system-space__choices { display: flex; flex-basis: 100%; flex-wrap: wrap; gap: 6px 18px; }
 .system-preview p { margin: 0 0 6px; }
 .system-preview ul { margin: 0 0 6px; padding-left: 18px; }
 
-/* The UPS: what was found, then how to set it up. */
-.system-ups { display: grid; gap: 10px; }
+/* Power (M39): the UPS's three steps and its settings, the event log, the watchdog, and what
+   brings the server back after a power cut. */
+.system-ups { display: grid; gap: 10px; min-width: 0; }
 .system-ups .system-form { align-items: center; }
 .system-ups .system-form > .ui-button { margin-top: 0; }
+.system-ups__form.system-form { align-items: flex-start; }
+.system-ups__form > .ui-field { flex: 1 1 11rem; max-width: 16rem; }
+.system-ups__form > .ui-checkbox, .system-ups__form > .ui-switch { flex-basis: 100%; }
+.system-ups__form > .ui-button { margin-top: 23px; }
+.system-sentence { margin: 0; font-family: var(--font-sans); font-size: 13.5px; line-height: 1.45; color: var(--text); }
+.system-event { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; white-space: normal; }
+.system-event > span:last-child { display: grid; gap: 2px; min-width: 0; }
+.system-event__detail { color: var(--text-muted); font-size: 12.5px; }
+.system-lead { margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.5; }
+.system-board { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); }
+.system-board .system-sub { margin: 0; }
+.system-step { margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.system-step .ui-tag { margin-right: 4px; }
+.system-guide { display: grid; gap: 4px; margin: 0; padding-left: 18px; color: var(--text); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.system-page kbd { padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-raised); color: var(--text-strong); font-size: 12px; }
+.system-subhead { margin: 6px 0 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+.system-wake { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.system-mac { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; overflow-wrap: anywhere; }
 
 @media (max-width: 640px) {
   .system-clean__row { grid-template-columns: minmax(0, 1fr); }
@@ -56,3 +81,6 @@
   .system-form > .ui-button { margin-top: 0; }
   .system-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Where the look is: System is where people look for it first. */
+.system-elsewhere { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 2px; }

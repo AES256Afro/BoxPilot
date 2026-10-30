@@ -29,13 +29,41 @@ export function checkHandoff({ agent, spec, run, target, chain, handedSoFar }) {
   return { depth };
 }
 
-/** Find an agent by what the model called it: its name, or its id. */
+/** An agent's name as it is matched: any case, "the" before it or not, spaces as one (Zulip's names too, service.mjs). */
+export const nameKey = (name) => String(name ?? "").trim().toLowerCase().replace(/^the\s+/, "").replace(/\s+/g, " ");
+
+/** Words a message to the bot starts with anyway, and BoxPilot's own names: never an agent's (2026-10 sweep 5). */
+const greetings = new Set(["hey", "hi", "hello", "ok", "okay", "thanks", "thank you", "please", "ask"]);
+const boxpilotNames = new Set(["boxpilot", "boxpilot agents"]);
+
+/**
+ * Why `name` cannot be an agent's, or null. A message in Zulip that starts with an agent's name is
+ * asked of that agent: one called "Hey" took every "Hey, ..." - the owner's included, run as the
+ * owner under its maker's words - and one called "BoxPilot" would post as "BoxPilot: ...".
+ */
+export function reservedNameProblem(name) {
+  const key = nameKey(name).replace(/[.!,:;]+$/, "");
+  if (boxpilotNames.has(key)) return `"${String(name).trim()}" is BoxPilot's own name: its posts and warnings start with it. Give the agent another name.`;
+  if (greetings.has(key)) return `"${String(name).trim()}" is a word people use to start a message, so their messages in the team chat would go to this agent. Give it another name.`;
+  return null;
+}
+
+/**
+ * The agents the model may mean by what it called one: the one with that id, else every one with
+ * exactly that name (any case, "the" before it or not). Never a part of a name (2026-10 sweep 3:
+ * "Pi-hole" was taken for whichever agent's name held it). More than one is not guessed between.
+ */
+export function agentsNamed(agents, name) {
+  const wanted = nameKey(name);
+  if (!wanted) return [];
+  const byId = agents.find((agent) => agent.id === String(name ?? "").trim());
+  return byId ? [byId] : agents.filter((agent) => nameKey(agent.name) === wanted);
+}
+
+/** Find an agent by what the model called it: its id, or its exact name; null for none, or two. */
 export function findSpecialist(agents, name) {
-  const wanted = String(name ?? "").trim().toLowerCase();
-  if (!wanted) return null;
-  return agents.find((agent) => agent.id === wanted || agent.name.toLowerCase() === wanted)
-    ?? agents.find((agent) => agent.name.toLowerCase().includes(wanted) || wanted.includes(agent.name.toLowerCase()))
-    ?? null;
+  const found = agentsNamed(agents, name);
+  return found.length === 1 ? found[0] : null;
 }
 
 /** The agents a supervisor may hand work to, as its prompt lists them. */

@@ -6,9 +6,11 @@ import SchedulesPanel from "../automations/SchedulesPanel";
 import { Button, KeyValue, MetricStrip, MetricTile, Notice, PageHeader, Panel, Tabs, useUrlParam, type Status } from "../../ui";
 import { SystemHardware } from "./SystemHardware";
 import { SystemHousekeeping } from "./SystemHousekeeping";
+import { SystemPower, thresholdWords, watchdogWords } from "./SystemPower";
 import { SystemTime } from "./SystemTime";
 import { releaseState, SystemUpdates, updateLogFacts } from "./SystemUpdates";
-import { gib, upsLabel, type DockerDisk, type Housekeeping, type ReleaseUpdate, type StartOperation, type SystemSettings, type UpdateStatus, type UpsDetection } from "./systemTypes";
+import { gib, nextRunWords, upsLabel, type DockerDisk, type Housekeeping, type PowerHardware, type PowerOverview, type ReleaseUpdate, type SpaceReport, type StartOperation, type SystemSettings, type UpdateStatus, type UpsDetection } from "./systemTypes";
+import { upsStateWords } from "../../powerEvents";
 import "./system.css";
 
 /*
@@ -16,25 +18,31 @@ import "./system.css";
  * had. Facts first: the verdict (BoxPilot's own update) and the host's name, clock and memory in
  * the header, then one tab per job: an overview of figures that each open their tab, BoxPilot's
  * update, housekeeping (reclaimable space, Docker's disk, the database copies updates take), the
- * name, time zone and language, the hardware (memory and swap, trim, the UPS), and the schedules.
+ * name, time zone and language, the hardware (memory and swap, trim), power (M39: the UPS, the
+ * power-event log, the watchdog, and powering on after an outage), and the schedules.
  */
 
-const tabIds = ["overview", "updates", "housekeeping", "time", "hardware", "schedules"] as const;
+const tabIds = ["overview", "updates", "housekeeping", "time", "hardware", "power", "schedules"] as const;
 type TabId = (typeof tabIds)[number];
 
 export interface SystemPageProps {
   csrfToken: string;
   /** Who is signed in: a viewer reads the settings and changes nothing; housekeeping is an operator's. */
   role?: string;
+  /** Opens Settings at Appearance: System is where people look for the look first. */
+  onOpenAppearance?: () => void;
 }
 
-export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProps) {
+export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance }: SystemPageProps) {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dockerDisk, setDockerDisk] = useState<DockerDisk | null>(null);
   const [housekeeping, setHousekeeping] = useState<Housekeeping | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [space, setSpace] = useState<SpaceReport | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  const [spaceProblem, setSpaceProblem] = useState<string | null>(null);
   const [release, setRelease] = useState<ReleaseUpdate | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const [checkingRelease, setCheckingRelease] = useState(false);
@@ -43,6 +51,11 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
   const [updateOutcome, setUpdateOutcome] = useState<"live" | "timeout" | "failed" | null>(null);
   const [ups, setUps] = useState<UpsDetection | null>(null);
   const [upsError, setUpsError] = useState<string | null>(null);
+  const [power, setPower] = useState<PowerOverview | null>(null);
+  const [powerError, setPowerError] = useState<string | null>(null);
+  const [powerHardware, setPowerHardware] = useState<PowerHardware | null>(null);
+  const [powerHardwareError, setPowerHardwareError] = useState<string | null>(null);
+  const [readingHardware, setReadingHardware] = useState(false);
   const [tab, setTab] = useUrlParam<TabId>("tab", tabIds, "overview");
   const updateTarget = useRef<string | null>(null);
   const operator = role === "owner" || role === "operator";
@@ -97,6 +110,25 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
   }, [operator]);
   useEffect(() => { void scan(); }, [scan]);
 
+  /**
+   * Where the disk space went (M30.8). Measuring walks the journal, the job logs and the backups as
+   * root for up to a few minutes, so it runs only when asked; the figures stay across tabs.
+   */
+  const measureSpace = useCallback(async () => {
+    if (!operator) return;
+    setMeasuring(true);
+    try {
+      const { result } = await inspectOperation<SpaceReport>("space.inspect");
+      if (!Array.isArray(result?.categories) || !Array.isArray(result.filesystems)) throw new Error("The measurement arrived in a shape this page cannot read");
+      setSpace(result);
+      setSpaceProblem(null);
+    } catch (requestError) {
+      setSpaceProblem(requestError instanceof Error ? requestError.message : "The disk could not be measured");
+    } finally {
+      setMeasuring(false);
+    }
+  }, [operator]);
+
   const lookForUps = useCallback(async () => {
     try {
       const response = await fetch("/api/v1/power/ups/detect");
@@ -110,6 +142,41 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
   }, []);
   useEffect(() => { void lookForUps(); }, [lookForUps]);
 
+  /** The UPS, the power-event log, what BoxPilot set up and the firmware guidance: one light read. */
+  const loadPower = useCallback(async () => {
+    try {
+      const body = await readJson<PowerOverview>(await fetch("/api/v1/power/overview"));
+      if (!body?.ups || !Array.isArray(body.events) || !body.guidance) throw new Error("The power facts arrived in a shape this page cannot read");
+      setPower(body);
+      setPowerError(null);
+    } catch (requestError) {
+      setPowerError(requestError instanceof Error ? requestError.message : "The power facts could not be read");
+    }
+  }, []);
+  useEffect(() => { void loadPower(); }, [loadPower]);
+
+  /** The watchdog and Wake-on-LAN: a root read (ADR-003), so an operator's, and only when the tab is open. */
+  const readHardware = useCallback(async () => {
+    if (!operator) return;
+    setReadingHardware(true);
+    try {
+      const { result } = await inspectOperation<PowerHardware>("power.hardware.inspect");
+      if (!result?.watchdog || !Array.isArray(result.wakeOnLan?.ports)) throw new Error("The watchdog and network ports arrived in a shape this page cannot read");
+      setPowerHardware(result);
+      setPowerHardwareError(null);
+    } catch (requestError) {
+      setPowerHardwareError(requestError instanceof Error ? requestError.message : "The watchdog could not be read");
+    } finally {
+      setReadingHardware(false);
+    }
+  }, [operator]);
+  const hardwareAsked = useRef(false);
+  useEffect(() => {
+    if (tab !== "power" || hardwareAsked.current) return;
+    hardwareAsked.current = true;
+    void readHardware();
+  }, [tab, readHardware]);
+
   // After the update job starts the detached build, poll health until the new version answers.
   useEffect(() => {
     if (!updating) return undefined;
@@ -118,28 +185,45 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
       fetch("/api/v1/health").then((response) => (response.ok ? response.json() : null)).then((health: { version?: string } | null) => {
         if (health?.version === updating) { setUpdateOutcome("live"); window.clearInterval(timer); window.setTimeout(() => window.location.reload(), 1500); }
       }).catch(() => {});
-      if (Date.now() - started > 10 * 60 * 1000) { setUpdateOutcome("timeout"); window.clearInterval(timer); }
+      // No longer "updating" once it has stopped or run out of time: the verdict said so for good,
+      // and the Update button stayed hidden.
+      if (Date.now() - started > 10 * 60 * 1000) { setUpdateOutcome("timeout"); setUpdating(null); window.clearInterval(timer); window.clearInterval(watch); }
     }, 3000);
     // The update can stop before it restarts anything (a database copy that could not be made, a
     // build that failed) and health goes on answering the old version. Its own log says so at once.
     const watch = window.setInterval(() => {
       inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => {
         if (result && Array.isArray(result.log)) setUpdateStatus(result);
-        if (result?.outcome === "failed") { setUpdateOutcome("failed"); window.clearInterval(timer); window.clearInterval(watch); }
+        if (result?.outcome === "failed") { setUpdateOutcome("failed"); setUpdating(null); window.clearInterval(timer); window.clearInterval(watch); }
       }).catch(() => {});
     }, 6000);
     return () => { window.clearInterval(timer); window.clearInterval(watch); };
   }, [updating]);
 
   const { start, dialog } = useOperation(csrfToken, (job) => {
-    if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) setUpdating(updateTarget.current);
+    if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) { setUpdateOutcome(null); setUpdating(updateTarget.current); }
+    if (job.type === "op:system.update.signer.set" && job.state === "completed") inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => setUpdateStatus(result && Array.isArray(result.log) ? result : null)).catch(() => {});
     // A finished cleanup invalidates its own figures: leaving them up says gigabytes are still
-    // waiting when they have just gone.
-    if (job.type === "op:housekeeping.reclaim" && job.state === "completed") void scan();
-    if (job.type === "op:ups.setup" || job.type === "op:apt.install") void lookForUps();
+    // waiting when they have just gone, and a snapshot removed by name is still offered for removal.
+    if ((job.type === "op:housekeeping.reclaim" || job.type === "op:housekeeping.unreadable-snapshot.remove") && job.state === "completed") void scan();
+    // A cleanup that ran, even one that failed partway, changed the figures it was planned against;
+    // it is only offered once the disk has been measured.
+    if (job.type === "op:space.cleanup" && (job.state === "completed" || job.state === "failed")) void measureSpace();
+    if (job.type === "op:ups.setup" || job.type === "op:apt.install") { void lookForUps(); void loadPower(); }
+    if (job.type.startsWith("op:power.")) void readHardware();
     void refresh();
   });
   const begin: StartOperation = start;
+
+  const setSigner = (publicKey: string | null) => start({
+    operationId: "system.update.signer.set",
+    title: publicKey ? "Require signed BoxPilot releases" : "Stop checking release signatures",
+    parameters: publicKey ? { publicKey } : {},
+    confirmText: publicKey ? "require signed releases" : "stop checking signatures",
+    preview: publicKey
+      ? <span>From now on an update builds a release only when its tag is signed with this key. An unsigned release, or one signed with another key, stops before anything changes. Keep signing releases with it, or updates stop.</span>
+      : <span>Updates go back to building whatever commit the release tag points at, signed or not.</span>,
+  });
 
   const update = (target: NonNullable<ReleaseUpdate["latest"]>) => {
     updateTarget.current = target.version;
@@ -160,6 +244,10 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
   const swapUsed = memory?.swapTotalKiB ? (memory.swapTotalKiB ?? 0) - (memory.swapFreeKiB ?? 0) : null;
   const trimOn = settings?.fstrim.enabled === "enabled";
   const upsDevice = ups?.devices[0] ?? null;
+  const upsReading = power?.ups ?? null;
+  const upsWatching = Boolean(upsReading?.configured && upsReading.available);
+  const upsWords = upsStateWords(upsReading?.state);
+  const lowWords = thresholdWords(upsReading?.lowBatteryPercent, upsReading?.lowRuntimeSeconds);
 
   const verdict: { status: Status; label: string } = !settings ? (error ? { status: "unknown", label: "Not read" } : { status: "unknown", label: "Reading…" })
     : updating ? { status: "neutral", label: `Updating to ${updating}` }
@@ -175,9 +263,9 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
         title="System"
         status={verdict}
         meta={settings ? <><b>{settings.hostname.live ?? "—"}</b> · {settings.timezone ?? "time zone unknown"} · <b>{gib(memory?.memAvailableKiB)}</b> free of {gib(memory?.memTotalKiB)} · BoxPilot <b>{release?.current.version ?? __BOXPILOT_VERSION__}</b></> : undefined}
-        actions={<Button variant="ghost" busy={loading && Boolean(settings)} onClick={() => { void refresh(); void loadRelease(); void scan(); void lookForUps(); }}>Read again</Button>}
+        actions={<Button variant="ghost" busy={loading && Boolean(settings)} onClick={() => { void refresh(); void loadRelease(); void scan(); void lookForUps(); void loadPower(); if (tab === "power") void readHardware(); }}>Check again</Button>}
         about={<>
-          <p>This server's own settings: BoxPilot's update, what can be cleaned up, the name, time zone and language, memory and swap, SSD trim and a UPS, and what runs on a schedule.</p>
+          <p>This server's own settings: BoxPilot's update, what can be cleaned up, the name, time zone and language, memory, swap and SSD trim, power (a UPS, the watchdog, and starting again after a power cut), and what runs on a schedule.</p>
           <p>Every change is a job with its tier: renaming, the time zone, swap and cleanup ask you to confirm; updating BoxPilot asks for your password and the release's tag typed out.</p>
         </>}
       />
@@ -190,10 +278,11 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
         onChange={setTab}
         tabs={[
           { id: "overview", label: "Overview" },
-          { id: "updates", label: "Updates", status: lastFailed ? "danger" : releaseChip.status === "warning" ? "warning" : undefined, statusLabel: lastFailed ? "the last update failed" : releaseChip.status === "warning" ? "an update is available" : undefined },
+          { id: "updates", label: "BoxPilot update", status: lastFailed ? "danger" : releaseChip.status === "warning" ? "warning" : undefined, statusLabel: lastFailed ? "the last update failed" : releaseChip.status === "warning" ? "an update is available" : undefined },
           { id: "housekeeping", label: "Housekeeping", count: housekeeping && housekeeping.totalBytes > 0 ? housekeeping.totalHumanBytes : undefined },
           { id: "time", label: "Time & name" },
           { id: "hardware", label: "Hardware" },
+          { id: "power", label: "Power", status: upsReading && ["on-battery", "low-battery", "forced-shutdown"].includes(upsReading.state) ? "warning" : undefined, statusLabel: upsReading && ["on-battery", "low-battery", "forced-shutdown"].includes(upsReading.state) ? "the server is on battery" : undefined },
           { id: "schedules", label: "Schedules" },
         ]}
       >
@@ -206,24 +295,37 @@ export default function SystemPage({ csrfToken, role = "owner" }: SystemPageProp
               <MetricTile label="Reclaimable" value={housekeeping ? housekeeping.totalHumanBytes : "—"} caption={!operator ? "an operator's to scan" : housekeeping ? "in items nothing needs" : scanning ? "Scanning…" : "Not scanned"} status={housekeeping ? "neutral" : "unknown"} onSelect={() => setTab("housekeeping")} />
               <MetricTile label="Name" value={settings?.hostname.live ?? "—"} caption={settings ? (settings.hostname.static !== settings.hostname.live ? `static: ${settings.hostname.static}` : "static and live match") : "Reading…"} status={settings ? "neutral" : "unknown"} onSelect={() => setTab("time")} />
               <MetricTile label="Time zone" value={settings?.timezone ?? "—"} caption={settings?.locale ? `language ${settings.locale}` : `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} in your browser`} status={settings ? "neutral" : "unknown"} onSelect={() => setTab("time")} />
+              <MetricTile label="Power" value={upsWatching ? upsWords.label : upsDevice ? "UPS found" : power ? "No UPS" : "—"}
+                caption={upsWatching ? `battery ${upsReading?.batteryChargePercent ?? "—"}%${lowWords ? ` · shuts down ${lowWords}` : ""}` : upsDevice ? "set up monitoring" : power ? "a power cut stops it without warning" : powerError ? "not read" : "Reading…"}
+                status={upsWatching ? upsWords.status : power ? "warning" : "unknown"} onSelect={() => setTab("power")} />
             </MetricStrip>
             <Panel padded title="Also on this server">
               <KeyValue layout="columns" items={[
-                { id: "trim", label: "SSD trim", status: settings ? (trimOn ? "good" : "neutral") : "unknown", value: settings ? (trimOn ? "weekly" : "off") : "—", hint: trimOn && settings?.fstrim.nextRun ? `next ${settings.fstrim.nextRun}` : undefined },
-                { id: "ups", label: "UPS", status: ups ? (upsDevice ? "good" : "neutral") : "unknown", value: upsDevice ? upsLabel(upsDevice) : ups ? "none on USB" : upsError ? "not read" : "—", hint: upsDevice ? (ups?.nutInstalled ? "NUT installed" : "NUT not installed") : undefined },
+                { id: "trim", label: "SSD trim", status: settings ? (trimOn ? "good" : "neutral") : "unknown", value: settings ? (trimOn ? "weekly" : "off") : "—", hint: trimOn && nextRunWords(settings?.fstrim.nextRun) ? `next ${nextRunWords(settings?.fstrim.nextRun)}` : undefined },
+                { id: "ups", label: "UPS", status: upsWatching ? upsWords.status : ups ? "neutral" : "unknown", value: upsDevice ? upsLabel(upsDevice) : upsWatching ? upsWords.label : ups ? "none on USB" : upsError ? "not read" : "—", hint: upsWatching ? `${upsWords.label.toLowerCase()}, watched` : upsDevice ? (ups?.nutInstalled ? "NUT installed, not set up" : "NUT not installed") : undefined },
+                { id: "watchdog", label: "Watchdog", status: powerHardware ? watchdogWords(powerHardware.watchdog).status : undefined, value: powerHardware ? watchdogWords(powerHardware.watchdog).label : operator ? "on the Power tab" : "an operator's to read" },
                 { id: "docker-logs", label: "Docker logs", status: dockerDisk?.logging ? (dockerDisk.logging.configured ? "good" : "warning") : undefined, value: !dockerDisk ? "not read" : !dockerDisk.available ? "Docker not answering" : dockerDisk.logging?.configured ? `capped at ${dockerDisk.logging.maxSize}` : "unlimited" },
                 { id: "copy", label: "Last database copy", value: lastUpdate.databaseCopy ? lastUpdate.databaseCopy.split("/").at(-1) : "none recorded", mono: Boolean(lastUpdate.databaseCopy) },
               ]} />
             </Panel>
+            {onOpenAppearance && (
+              <p className="system-note system-elsewhere">
+                The look, light or dark, and the wallpaper are in Settings, under Appearance. <Button variant="ghost" onClick={onOpenAppearance}>Open Appearance</Button>
+              </p>
+            )}
           </>
         ) : current === "updates" ? (
-          <SystemUpdates release={release} releaseError={releaseError} checking={checkingRelease} onCheck={() => void loadRelease(true)} status={updateStatus} updating={updating} outcome={updateOutcome} role={role} onUpdate={update} />
+          <SystemUpdates release={release} releaseError={releaseError} checking={checkingRelease} onCheck={() => void loadRelease(true)} status={updateStatus} updating={updating} outcome={updateOutcome} role={role} onUpdate={update} onSigner={setSigner} />
         ) : current === "housekeeping" ? (
-          <SystemHousekeeping csrfToken={csrfToken} role={role} housekeeping={housekeeping} scanning={scanning} onRescan={() => void scan()} dockerDisk={dockerDisk} start={begin} />
+          <SystemHousekeeping csrfToken={csrfToken} role={role} housekeeping={housekeeping} scanning={scanning} onRescan={() => void scan()} dockerDisk={dockerDisk}
+            space={{ report: space, measuring, problem: spaceProblem, onMeasure: () => void measureSpace() }} start={begin} />
         ) : current === "time" ? (
           <SystemTime settings={settings} loading={loading} role={role} start={begin} />
         ) : current === "hardware" ? (
-          <SystemHardware settings={settings} loading={loading} role={role} start={begin} ups={ups} upsError={upsError} onLookAgain={() => void lookForUps()} />
+          <SystemHardware settings={settings} loading={loading} role={role} start={begin} />
+        ) : current === "power" ? (
+          <SystemPower role={role} start={begin} ups={ups} upsError={upsError} onLookAgain={() => { void lookForUps(); void loadPower(); }}
+            overview={power} overviewError={powerError} hardware={powerHardware} hardwareError={powerHardwareError} hardwareLoading={readingHardware} onReadHardware={() => void readHardware()} />
         ) : (
           <SchedulesPanel csrfToken={csrfToken} role={role} serverTimezone={settings?.timezone ?? null} />
         )}

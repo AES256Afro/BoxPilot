@@ -1,6 +1,7 @@
 import { defineOperation } from "./registry.mjs";
 import { releaseSavedJobLog } from "../job-log-cleanup.mjs";
 import { jobIdPattern } from "../job-log.mjs";
+import { redactSecretBlocks } from "../redaction.mjs";
 
 const journalctl = process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl";
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
@@ -25,8 +26,39 @@ export const logGroups = Object.freeze({
   system: { label: "Everything", all: true },
 });
 
+// BoxPilot's session cookie by name too: an app served on BoxPilot's own hostname receives it with
+// every request (cookies are not kept apart by port), and one that logs its headers would hand the
+// owner's session to whoever reads that container's log.
+// A Cookie header names every cookie of every app on the hostname, so it goes to the end of the line;
+// a JSON-style header has a quote between the name and the colon.
 function redact(value) {
-  return String(value ?? "").replace(/\b(token|password|secret|api[_-]?key|authorization)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]");
+  return String(value ?? "")
+    .replace(/\b(cookie|set-cookie)\b"?\s*[:=].*$/gi, "$1=[REDACTED]")
+    .replace(/\b(authorization)\b"?\s*[:=]\s*"?(?:(?:bearer|basic|token|digest)\s+)?[^\s,;"]+/gi, "$1=[REDACTED]")
+    .replace(/\b(token|password|secret|api[_-]?key)\b"?\s*[:=]\s*"?[^\s,;"]+/gi, "$1=[REDACTED]")
+    .replace(/((?:__Host-)?boxpilot_(?:session|device)[A-Za-z_]*)=[^\s;,"'\\]+/g, "$1=[REDACTED]");
+}
+
+/**
+ * A filter picks lines, and a private key is found by its BEGIN and END lines: a filter that matched
+ * the body and neither of those sent the body on whole (sweep 4). So keys come out of the whole text
+ * first, and a filtered line that was a key's comes back as the one line saying a key was taken out,
+ * whatever the filter.
+ *
+ * The filter is text, matched here, case-blind, for a journal as for a container - never a pattern
+ * handed to journalctl (sweep 5). journalctl reads -g as PCRE2, and paired with the key markers in
+ * one pattern, a filter ending `)|zzz\Q` quoted the markers away and one ending `)(?x)#` commented
+ * them out: the BEGIN and END lines were never read, and two body lines went through under the three
+ * redactKeyBodies needs. A filtered journal read looks through the newest `filterWindowLines` lines
+ * of its time window, as a container's looks through `docker logs --tail`.
+ */
+const filterWindowLines = 5_000;
+const keyTakenOut = /\[REDACTED_(?:PRIVATE_KEY|KEY_BODY)\]/;
+
+function matchingLines(entries, filter) {
+  if (!filter) return entries;
+  const wanted = filter.toLowerCase();
+  return entries.filter((line) => keyTakenOut.test(line) || line.toLowerCase().includes(wanted));
 }
 
 /** A zoned timestamp as UTC `YYYY-MM-DDTHH:MM:SS`; null when it has no zone or is not a real time. */
@@ -58,7 +90,7 @@ export function logOperations() {
   return [
     defineOperation({
       id: "job.output.release", title: "Clear a saved job's live-output cache", risk: "low", minimumRole: "owner", timeoutMs: 15_000,
-      description: "Clears a completed job's runtime log only when its entire contents already match the saved database output. Retains incomplete or changed logs.",
+      description: "Clears a finished job's runtime log only when its entire contents already match the saved database output. Retains incomplete or changed logs, and a failed job's log while work it started may still be writing to it.",
       parameters: { fields: { jobId: { type: "string", pattern: jobIdPattern } } },
       run: (parameters) => releaseSavedJobLog(parameters),
     }),
@@ -100,11 +132,12 @@ export function logOperations() {
           }
           result = await run(dockerBinary, ["logs", "--timestamps", "--tail", String(lines), ...(since ? ["--since", since.match(/^\d+[mhd]$/) ? since : zonedToUtc(since) ? `${zonedToUtc(since)}Z` : since.replace(" ", "T")] : []), target], { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
           if (!result.ok && !result.stdout && !result.stderr) throw new Error("docker logs failed");
-          let entries = `${result.stdout}\n${result.stderr}`.split("\n").filter(Boolean);
-          if (filter) entries = entries.filter((line) => line.toLowerCase().includes(filter.toLowerCase()));
-          return { kind, target, lines: entries.slice(-lines).map(redact), truncated: entries.length > lines };
+          // Redacted before the filter: a filter that matched the hidden value would tell, one guessed
+          // character at a time, what [REDACTED] stands for.
+          const entries = matchingLines(redactSecretBlocks(`${result.stdout}\n${result.stderr}`).split("\n").filter(Boolean).map(redact), filter);
+          return { kind, target, lines: entries.slice(-lines), truncated: entries.length > lines };
         }
-        const args = ["--no-pager", "-o", "short-iso", "-n", String(lines), ...sinceArgument(since)];
+        const args = ["--no-pager", "-o", "short-iso", "-n", String(filter ? Math.max(lines, filterWindowLines) : lines), ...sinceArgument(since)];
         if (kind === "group") {
           const group = Object.hasOwn(logGroups, target) ? logGroups[target] : undefined;
           if (!group) throw new Error("Unknown log group");
@@ -114,11 +147,10 @@ export function logOperations() {
           if (!unitPattern.test(target)) throw new Error("Unit name is invalid");
           args.push("-u", target);
         }
-        if (filter) args.push("-g", filter);
         result = await run(journalctl, args, { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
         if (!result.ok && !result.stdout) throw new Error(`journalctl failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
-        const entries = result.stdout.split("\n").filter((line) => line && !line.startsWith("-- "));
-        return { kind, target, lines: entries.slice(-lines).map(redact), truncated: false };
+        const entries = matchingLines(redactSecretBlocks(result.stdout).split("\n").filter((line) => line && !line.startsWith("-- ")).map(redact), filter);
+        return { kind, target, lines: entries.slice(-lines), truncated: false };
       },
     }),
   ];

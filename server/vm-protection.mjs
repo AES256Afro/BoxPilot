@@ -12,6 +12,7 @@ export function createVmProtectionService({ store, helper }) {
   }
 
   /** Pin the export evidence and destination revision for the registry operation. */
+  /** @param {{ exportId?: string }} [parameters] */
   async function prepareOperation({ exportId } = {}) {
     const artifact = store.getVmExport(exportId);
     if (!artifact) throw new Error("VM export not found");

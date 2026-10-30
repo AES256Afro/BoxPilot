@@ -1,10 +1,11 @@
 import http from "node:http";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { onWindows } from "../test/platform.mjs";
 import { createCredentialStore } from "./credentials.mjs";
+import { agentsConnectorSync } from "./tasks/agents.mjs";
 import { httpRequest } from "./tasks/http-request.mjs";
 
 const directories = [];
@@ -39,6 +40,49 @@ describe("the credential store", () => {
     await expect(store.set({ name: "Bad Name", value: "x" })).rejects.toThrow(/lowercase letters/);
     await expect(store.set({ name: "ok", value: "" })).rejects.toThrow(/1 to 4096/);
     await expect(store.set({ name: "ok", value: "y".repeat(4097) })).rejects.toThrow(/1 to 4096/);
+  });
+
+  // A value goes into one request header, and a header cannot carry a line break: Node's fetch
+  // refused it with an error that quoted the value, and that error became the job's.
+  it("refuses a value with a line break inside it, and drops one it ends with", async () => {
+    const { store } = await storeIn();
+    await expect(store.set({ name: "ok", value: "first-half\nsecond-half" })).rejects.toThrow(/line break/);
+    await store.set({ name: "ok", value: "tk_pasted\n" });
+    expect(await store.read("ok")).toBe("tk_pasted");
+  });
+
+  // The helper runs a Zulip connect and a heartbeat change side by side (different lanes), and each
+  // read the file, changed its copy and put it back: the second one back lost the first one's key.
+  it("keeps both of two saves made at once", async () => {
+    const { store } = await storeIn();
+    await Promise.all([store.set({ name: "zulip-bot", value: "key-one" }), store.set({ name: "heartbeat-url", value: "https://hc.example/abc" })]);
+    expect((await store.listNames()).map((entry) => entry.name)).toEqual(["heartbeat-url", "zulip-bot"]);
+  });
+
+  it("refuses to save over a store it cannot read, rather than starting it again empty", async () => {
+    const { store, file } = await storeIn();
+    await store.set({ name: "kept", value: "tk_kept" });
+    await writeFile(file, "{ damaged");
+    await expect(store.set({ name: "new", value: "x" })).rejects.toThrow(/could not be read/);
+    expect(await readFile(file, "utf8")).toBe("{ damaged");
+  });
+});
+
+describe("a credential that cannot be a header", () => {
+  const stored = { read: async () => "SENTINEL-first\nsecond" };
+
+  it("is refused before the request, without quoting it", async () => {
+    const outcome = await httpRequest({ url: "http://127.0.0.1:9/x", credentialName: "hook" }, { credentials: stored }).catch((error) => error);
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome.message).not.toMatch(/SENTINEL/);
+    const custom = await httpRequest({ url: "http://127.0.0.1:9/x", credentialName: "hook", credentialHeader: "X-Api-Key", credentialPrefix: "" }, { credentials: stored }).catch((error) => error);
+    expect(custom.message).not.toMatch(/SENTINEL/);
+  });
+
+  it("is refused by a connector sync the same way", async () => {
+    const outcome = await agentsConnectorSync({ connector: "notion", credentialName: "notion" }, { credentials: stored, fetcher: fetch }).catch((error) => error);
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome.message).not.toMatch(/SENTINEL/);
   });
 });
 

@@ -20,7 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runnerUnit } from "../agents/caps.mjs";
 import { boundSync, connectors } from "../agents/connectors.mjs";
-import { createCredentialStore } from "../credentials.mjs";
+import { createCredentialStore, headerUnsafe, managedCredentialProblem } from "../credentials.mjs";
 import { agentsPaths, readModelParameters } from "../agents/host.mjs";
 import { embedderModel, testedUnslothVersion } from "../agents/models.mjs";
 
@@ -29,6 +29,8 @@ const runuser = "/usr/sbin/runuser";
 const installerUrl = "https://unsloth.ai/install.sh";
 const downloadScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "boxpilot-agents-download.mjs");
 const trustedInstallerHosts = /(^|\.)(unsloth\.ai|githubusercontent\.com|github\.com)$/;
+
+/** @typedef {{ log?: (line: string, stream?: string) => void, run?: typeof import("../exec.mjs").fixedRun, paths?: typeof agentsPaths }} AgentsTaskOptions */
 
 async function ensureUser(run, paths) {
   const known = await run("/usr/bin/id", ["-u", paths.user], { timeout: 10_000 });
@@ -47,8 +49,12 @@ async function ensureStateDirectory(run, paths) {
 /** Run a program as the runner's user, with a clean environment of our choosing. */
 const asRunner = (run, paths, command, args, options = {}) => run(runuser, ["-u", paths.user, "--", "/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", `HOME=${paths.state}`, ...(options.env ?? []), command, ...args], { timeout: options.timeout ?? 60_000, maxBuffer: 16 * 1024 * 1024, ...(options.onLine ? { onLine: options.onLine } : {}) });
 
+/**
+ * @param {unknown} [_parameters]
+ * @param {AgentsTaskOptions & { fetcher?: typeof fetch }} [options]
+ */
 export async function agentsInstall(_parameters = {}, { log = () => {}, run, fetcher = fetch, paths = agentsPaths } = {}) {
-  const apt = await run("/usr/bin/apt-get", ["install", "-y", "--no-install-recommends", "libgomp1", "ca-certificates", "curl"], { timeout: 10 * 60_000, env: { DEBIAN_FRONTEND: "noninteractive" } });
+  const apt = await run("/usr/bin/apt-get", ["install", "-y", "--no-install-recommends", "libgomp1", "ca-certificates", "curl"], { timeout: 10 * 60_000, env: { DEBIAN_FRONTEND: "noninteractive", NEEDRESTART_SUSPEND: "1" } });
   if (!apt.ok) throw new Error("Could not install the OpenMP library Unsloth's llama.cpp needs (libgomp1)");
   const created = await ensureUser(run, paths);
   log(created ? `Created the ${paths.user} user` : `The ${paths.user} user exists`, "stdout");
@@ -86,6 +92,10 @@ export async function agentsInstall(_parameters = {}, { log = () => {}, run, fet
   return { installed: true, version: installedVersion, testedVersion: testedUnslothVersion, tested, installerSha256: sha256, path: binary };
 }
 
+/**
+ * @param {unknown} [_parameters]
+ * @param {AgentsTaskOptions} [options]
+ */
 export async function agentsEnable(_parameters = {}, { log = () => {}, run, paths = agentsPaths } = {}) {
   const token = await stat(paths.token).catch(() => null);
   if (!token?.isFile()) throw new Error("Turn Agents on in the Agents section first: that makes the runner's key");
@@ -99,6 +109,10 @@ export async function agentsEnable(_parameters = {}, { log = () => {}, run, path
   return { unit: runnerUnit, active: true };
 }
 
+/**
+ * @param {unknown} [_parameters]
+ * @param {AgentsTaskOptions} [options]
+ */
 export async function agentsDisable(_parameters = {}, { run } = {}) {
   const stopped = await run(systemctl, ["disable", "--now", runnerUnit], { timeout: 90_000 });
   if (!stopped.ok && !/not loaded|does not exist|No such file/i.test(stopped.stderr)) throw new Error(`systemctl could not stop ${runnerUnit}: ${stopped.stderr.split("\n").slice(-2).join(" ")}`);
@@ -123,6 +137,10 @@ async function inRunnersCache(action, parameters, { log, run, paths, timeout }) 
   return answer.result;
 }
 
+/**
+ * @param {{ repo?: string, file?: string, projector?: string | null }} [parameters]
+ * @param {AgentsTaskOptions} [options]
+ */
 export async function agentsModelDownload(parameters = {}, { log = () => {}, run, paths = agentsPaths } = {}) {
   const model = readModelParameters(parameters);
   const result = await inRunnersCache("download", { repo: model.repo, file: model.file, projector: model.projector }, { log, run, paths, timeout: 6 * 3600_000 });
@@ -135,12 +153,19 @@ export async function agentsModelDownload(parameters = {}, { log = () => {}, run
  * A connector's documents (M37): Notion or Slack, read with the token saved under a credential's
  * name. The token is read here, inside the root task, and goes into one request header and nowhere
  * else (M13.7); what comes back is text, bounded, for the web process to keep.
+ * @param {{ connector?: string, credentialName?: string, channels?: string[] }} [parameters]
+ * @param {{ log?: (line: string, stream?: string) => void, credentials?: ReturnType<typeof createCredentialStore>, fetcher?: typeof fetch }} [options]
  */
 export async function agentsConnectorSync(parameters = {}, { log = () => {}, credentials = createCredentialStore(), fetcher = fetch } = {}) {
   const connector = connectors[parameters.connector];
   if (!connector) throw new Error("The connector is notion or slack");
+  // Only a token the owner saved for this connector: never one BoxPilot keeps for itself.
+  const reserved = managedCredentialProblem(parameters.credentialName);
+  if (reserved) throw new Error(reserved);
   const token = await credentials.read(parameters.credentialName);
   if (token === null || token === undefined) throw new Error(`No credential is named ${parameters.credentialName}; save it under Settings first`);
+  // fetch refuses such a header with an error that quotes the token; say so here, without it.
+  if (headerUnsafe.test(String(token))) throw new Error(`The credential ${parameters.credentialName} holds a line break, which no request header can carry; save it again as one line`);
   log(`Reading ${connector.title} with the credential ${parameters.credentialName}`, "stdout");
   const documents = await connector.fetch({ token, channels: parameters.channels ?? [] }, { fetcher });
   const bounded = boundSync(documents);
@@ -148,6 +173,10 @@ export async function agentsConnectorSync(parameters = {}, { log = () => {}, cre
   return { connector: connector.id, documents: bounded.documents, truncated: bounded.truncated };
 }
 
+/**
+ * @param {{ repo?: string, file?: string, projector?: string | null, current?: string | null }} [parameters]
+ * @param {AgentsTaskOptions} [options]
+ */
 export async function agentsModelRemove(parameters = {}, { log = () => {}, run, paths = agentsPaths } = {}) {
   const model = readModelParameters(parameters);
   if (parameters.current === `${model.repo}/${model.file}`) throw new Error("That is the model agents use now; switch to another first");

@@ -5,9 +5,9 @@
 #
 #   sudo bash tests/ubuntu/upgrade-db-copy.sh <git-ref>
 #
-# DISPOSABLE MACHINES ONLY (CI runs it on GitHub's Ubuntu VMs): it upgrades /opt/boxpilot four
-# times, mounts a full filesystem, makes one upgrade fail its health check on purpose, and starts
-# two at once.
+# DISPOSABLE MACHINES ONLY (CI runs it on GitHub's Ubuntu VMs): it upgrades /opt/boxpilot several
+# times, mounts a full filesystem, makes one upgrade fail its health check on purpose, starts two at
+# once, moves the web service to another port and re-runs the installer.
 #
 #   1. A copy that cannot be made refuses the upgrade. The copy goes to a full tmpfs: the script
 #      exits non-zero and says why, and nothing moved - the same tree, no new .prev tree, no
@@ -18,6 +18,13 @@
 #   3. An upgrade whose health check fails rolls back and names the copy that matches the old code.
 #   4. Two upgrades at once (as happened on the owner's server): the second refuses and names the
 #      first by its process, downloads and stops nothing, and the first finishes with one copy.
+#   5. A helper that does not come up rolls the upgrade back.
+#   6. On a port other than 8787 (as --port leaves the env file) the upgrade checks that port with
+#      nothing telling it so, and re-running the installer with no options keeps the port, the
+#      access mode, and the backup mount point's owner.
+#   7. With the env file on a port something else holds (the service cannot start), re-running the
+#      installer with a free --port moves it there; asking for the held port fails and puts the env
+#      file back as it was, with BoxPilot answering where it did.
 set -uo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root, on a disposable machine" >&2; exit 2; }
@@ -117,6 +124,78 @@ check "the first ran to the end on its own" '[ "$first_status" -eq 0 ] && grep -
 check "one database copy came of the two, not two" '[ "$(ls /var/lib/boxpilot/boxpilot-rollback-*.sqlite3 | wc -l)" -eq $((copies_before + 1)) ]'
 check "the upgraded BoxPilot answers" 'answers "$VERSION"'
 check "the lock is free again" 'flock -n /run/boxpilot-upgrade.lock true'
+
+echo "5. A helper that does not come up rolls the upgrade back, though the web service answers"
+# Looking for its socket where it never is stands in for a helper that fails at start: its restart
+# exits 0 either way, and the web service's health check cannot see it.
+out="$(BOXPILOT_NODE_BIN="$NODE" BOXPILOT_HELPER_SOCKET=/run/boxpilot/not-the-helper.sock sh "$SCRIPT" "$REF" 2>&1)"; status=$?
+show "$out"
+check "the upgrade failed" '[ "$status" -ne 0 ]'
+check "it said the helper did not stay up" 'grep -q "boxpilot-helper did not stay up with its socket at /run/boxpilot/not-the-helper.sock" <<<"$out"'
+check "it rolled back" 'grep -q "rolling back to previous tree" <<<"$out"'
+check "the rollback asked the restored version, and said it answers" 'grep -q "ERROR: upgrade failed; previous tree restored, and BoxPilot ${VERSION} answers at http://127.0.0.1:8787/api/v1/health" <<<"$out"'
+check "the previous tree answers again" 'answers "$VERSION"'
+check "the helper is up again, with its socket" 'systemctl is-active --quiet boxpilot-helper.service && [ -S /run/boxpilot/helper.sock ]'
+
+echo "6. On another port the upgrade checks that port, and a re-run installer keeps it and the access"
+# The upgrade's check used to be 127.0.0.1:8787 whatever the port, so on a box installed with --port
+# every update rolled back; and a re-run of the installer put 8787 and the default access back.
+ENV_FILE=/etc/boxpilot/boxpilot.env
+env_line() { grep -x "$1=.*" "$ENV_FILE" | tail -n 1; }
+cp -p "$ENV_FILE" "${ENV_FILE}.before-port-test"
+sed -i 's/^BOXPILOT_PORT=.*/BOXPILOT_PORT=9087/' "$ENV_FILE"
+systemctl restart boxpilot.service
+HEALTH=http://127.0.0.1:9087/api/v1/health
+check "BoxPilot ${VERSION} answers on port 9087" 'answers "$VERSION"'
+out="$(BOXPILOT_NODE_BIN="$NODE" sh "$SCRIPT" "$REF" 2>&1)"; status=$?
+show "$out"
+check "the upgrade succeeded, told nothing about the port" '[ "$status" -eq 0 ] && grep -q " is live;" <<<"$out"'
+check "it did not roll back" '! grep -q "rolling back" <<<"$out"'
+check "the upgraded BoxPilot answers on 9087" 'answers "$VERSION"'
+host_before="$(env_line BOXPILOT_HOST)"; cookie_before="$(env_line BOXPILOT_COOKIE_SECURE)"
+# As a NAS share's folder would be: not root's. A re-run used to hand it to root (and with the NAS
+# off, wait out its automount and fail).
+chown nobody:nogroup /mnt/boxpilot/backup
+out="$(sh "${ROOT}/scripts/boxpilot-install.sh" --ref "$REF" --no-token 2>&1)"; status=$?
+show "$out"
+check "the installer re-run with no options finished" '[ "$status" -eq 0 ] && grep -q "BoxPilot is installed and running" <<<"$out"'
+check "the port stays 9087" '[ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=9087 ]'
+check "the access stays as it was (${host_before}, ${cookie_before})" '[ "$(env_line BOXPILOT_HOST)" = "$host_before" ] && [ "$(env_line BOXPILOT_COOKIE_SECURE)" = "$cookie_before" ]'
+check "the backup mount point keeps its owner" '[ "$(stat -c %U /mnt/boxpilot/backup)" = nobody ]'
+check "BoxPilot answers on 9087" 'answers "$VERSION"'
+# Back as the smoke test installed it.
+mv "${ENV_FILE}.before-port-test" "$ENV_FILE"
+chown root:root /mnt/boxpilot/backup
+systemctl restart boxpilot.service
+HEALTH=http://127.0.0.1:8787/api/v1/health
+check "BoxPilot answers on 8787 again" 'answers "$VERSION"'
+
+echo "7. A re-run with a new --port is checked on that port; one the service cannot listen on is put back"
+# The installer used to write a new --port only after the upgrade, which restarted the service on the
+# port the env file already named and checked that: a box stuck on a held port rolled back and
+# stopped before the good port was ever written.
+"$NODE" -e 'require("net").createServer().listen(9088, "127.0.0.1")' &
+holder=$!
+for _ in $(seq 1 50); do (exec 3<>/dev/tcp/127.0.0.1/9088) 2>/dev/null && break; sleep 0.1; done
+cp -p "$ENV_FILE" "${ENV_FILE}.before-port-test"
+sed -i 's/^BOXPILOT_PORT=.*/BOXPILOT_PORT=9088/' "$ENV_FILE"
+systemctl restart boxpilot.service || true
+out="$(sh "${ROOT}/scripts/boxpilot-install.sh" --ref "$REF" --port 8787 --no-token 2>&1)"; status=$?
+show "$out"
+check "env file on a held port; the installer re-run with --port 8787 finished" '[ "$status" -eq 0 ] && grep -q "BoxPilot is installed and running" <<<"$out"'
+check "the env file says 8787" '[ "$(env_line BOXPILOT_PORT)" = BOXPILOT_PORT=8787 ]'
+check "BoxPilot answers on 8787" 'answers "$VERSION"'
+cp -p "$ENV_FILE" "${ENV_FILE}.before-held-port"
+out="$(sh "${ROOT}/scripts/boxpilot-install.sh" --ref "$REF" --port 9088 --no-token 2>&1)"; status=$?
+show "$out"
+check "the installer re-run with the held --port 9088 failed" '[ "$status" -ne 0 ]'
+check "it put the env file back as it was" 'cmp -s "${ENV_FILE}.before-held-port" "$ENV_FILE" && grep -q "back as it was" <<<"$out"'
+check "BoxPilot answers on 8787 again" 'answers "$VERSION"'
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+mv "${ENV_FILE}.before-port-test" "$ENV_FILE"
+rm -f "${ENV_FILE}.before-held-port"
+systemctl restart boxpilot.service
+check "BoxPilot answers on 8787 at the end" 'answers "$VERSION"'
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"

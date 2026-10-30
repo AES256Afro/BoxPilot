@@ -4,9 +4,9 @@ import { countOf } from "../../data";
 import { Button, EmptyState, Notice, PageHeader, Panel, StatusChip, Table, Tabs, Tag, mayStart, riskOf, useUrlParam, type TableColumn } from "../../ui";
 import {
   fetchLibvirtFoundation, fetchVirtualization, fetchVmExports, fetchVmProtection, fetchVmRecoveries, fetchVmRetention, formatMemory,
-  type ConsoleGuidance, type DomainList, type LibvirtFoundation, type LibvirtResources, type VirtualDomain, type VirtualizationStatus,
+  type ConsoleGuidance, type DomainList, type LibvirtFoundation, type LibvirtResources, type VirtualDomain, type VirtualizationStatus, type VmPlanInput,
 } from "../../virtualization";
-import { CloudVmSheet, PlanVmSheet } from "./NewVmSheets";
+import { CloudVmSheet, PlanVmSheet, type CloudVmDraft } from "./NewVmSheets";
 import { useVmStats, gibFromKiB, rateLabel } from "./useVmStats";
 import { VmBackups, type VmBackupData } from "./VmBackups";
 import { foundationState, VmHost } from "./VmHost";
@@ -27,7 +27,8 @@ import "./vms.css";
 
 const tabIds = ["machines", "backups", "media", "host"] as const;
 type TabId = (typeof tabIds)[number];
-type SheetState = { kind: "vm"; name: string } | { kind: "cloud" } | { kind: "plan" } | null;
+// A new VM's form comes back with what it held (`seed`) when its approval is cancelled or its job fails.
+type SheetState = { kind: "vm"; name: string } | { kind: "cloud"; seed?: CloudVmDraft } | { kind: "plan"; seed?: VmPlanInput } | null;
 
 const emptyBackups: VmBackupData = { exports: [], destination: null, backups: [], retention: null, recoveries: [], unread: [] };
 
@@ -224,15 +225,16 @@ export default function VmsPage({ csrfToken = "", role = "owner", onOpenRepair =
       )}
 
       {openDomain && <VmSheet domain={openDomain} rate={rates[openDomain.name]} role={role} onClose={() => setSheet(null)} start={start} />}
-      {sheet?.kind === "cloud" && <CloudVmSheet onClose={() => setSheet(null)} start={start} />}
+      {sheet?.kind === "cloud" && <CloudVmSheet seed={sheet.seed} onClose={() => setSheet(null)} start={start} onReopen={(seed) => setSheet({ kind: "cloud", seed })} />}
       {sheet?.kind === "plan" && (
-        <PlanVmSheet csrfToken={csrfToken} onClose={() => setSheet(null)} onStage={(input) => start({
+        <PlanVmSheet csrfToken={csrfToken} seed={sheet.seed} onClose={() => setSheet(null)} onStage={(input) => start({
           operationId: "vm.create",
           title: `Create VM ${input.name}`,
           parameters: { ...input },
           // High risk: the password, and the new VM's name typed out, as for deleting one.
           confirmText: input.name,
           preview: <span>Creates <code>{input.name}</code> exactly as planned through the restricted helper, {input.vcpus} vCPU, {formatMemory(input.memoryMiB * 1024)} RAM, {input.diskGiB} GiB disk from <code>{input.isoFile}</code>. Checked against the live host first. If it fails, the new VM and its disks are removed.</span>,
+          onClosed: (job) => { if (job?.state !== "completed") setSheet({ kind: "plan", seed: input }); },
         })} />
       )}
     </div>

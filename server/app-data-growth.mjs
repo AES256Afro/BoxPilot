@@ -48,6 +48,9 @@ function dropStaleKeys(history, cutoff) {
  * How much a folder has grown across the window: the newest reading minus the oldest one still
  * inside it. Null when there is nothing to compare against, which is honest - a folder measured
  * once has no growth, it has a size.
+ *
+ * @param {{ at: string, bytes: number }[]} samples
+ * @param {{ now?: Date | number, windowDays?: number }} [options]
  */
 export function growthOverWindow(samples, { now, windowDays = 7 } = {}) {
   const at = now instanceof Date ? now.getTime() : Number(now);
@@ -68,16 +71,22 @@ export function growthOverWindow(samples, { now, windowDays = 7 } = {}) {
  * Only folders on that mount are considered, so the answer to "what is filling /mnt/the-dump" never
  * includes something living somewhere else. Folders that shrank are kept - a library that was
  * cleared out is worth seeing next to one that doubled.
+ *
+ * @param {Record<string, any[]>} history
+ * @param {{ now?: Date | number, mount?: string | null, windowDays?: number, limit?: number, series?: boolean }} [options]
  */
-export function growthByApp(history, { now, mount = null, windowDays = 7, limit = 6 } = {}) {
+export function growthByApp(history, { now, mount = null, windowDays = 7, limit = 6, series = false } = {}) {
   const rows = [];
+  // M31.4: the daily sizes behind the figure, oldest first, so the page can draw the slope.
+  const daily = (samples) => samples.filter((sample) => Number.isFinite(sample?.bytes) && Number.isFinite(Date.parse(sample?.at)))
+    .sort((left, right) => Date.parse(left.at) - Date.parse(right.at)).map((sample) => ({ at: sample.at, bytes: sample.bytes }));
   for (const samples of Object.values(history && typeof history === "object" ? history : {})) {
     const newest = Array.isArray(samples) ? samples.at(-1) : null;
     if (!newest) continue;
     if (mount && newest.mount !== mount) continue;
     const growth = growthOverWindow(samples, { now, windowDays });
     if (!growth) continue;
-    rows.push({ appId: newest.appId, path: newest.path, mount: newest.mount, ...growth, ...(Array.isArray(newest.sharedWith) && newest.sharedWith.length > 1 ? { sharedWith: newest.sharedWith } : {}) });
+    rows.push({ appId: newest.appId, path: newest.path, mount: newest.mount, ...growth, ...(Array.isArray(newest.sharedWith) && newest.sharedWith.length > 1 ? { sharedWith: newest.sharedWith } : {}), ...(series ? { series: daily(samples) } : {}) });
   }
   return rows
     .sort((left, right) => (right.grewBytes ?? -Infinity) - (left.grewBytes ?? -Infinity) || right.bytes - left.bytes)
@@ -140,6 +149,8 @@ export function mountFor(path, mounts) {
  * the disk instead of reading a number off it. A run that fails is dropped: a gap in the history is
  * a comparison that cannot be made, which the growth window already handles, and is far better than
  * a fabricated reading.
+ *
+ * @param {{ helper?: any, store?: any, readPressure?: typeof readScanPressure, pressureRetryMs?: number, now?: () => Date, intervalMs?: number, initialDelayMs?: number, minimumGapMs?: number, maxDays?: number, timeoutMs?: number, report?: (message: string) => void, setInterval?: typeof globalThis.setInterval, setTimeout?: typeof globalThis.setTimeout, clearInterval?: typeof globalThis.clearInterval, clearTimeout?: typeof globalThis.clearTimeout }} options
  */
 export function createAppDataSampler({ helper, store, readPressure = readScanPressure, pressureRetryMs = 30 * 60_000, now = () => new Date(), intervalMs = 24 * 60 * 60 * 1000, initialDelayMs = 20 * 60 * 1000, minimumGapMs = 20 * 60 * 60 * 1000, maxDays = 30, timeoutMs = 40 * 60_000, report = (message) => console.warn(message), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   /** The newest reading anywhere in the history, so a restart cannot start the clock over. */

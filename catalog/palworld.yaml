@@ -7,7 +7,7 @@ description: "Dedicated Palworld server with password, player limit, and admin p
 website: https://www.pocketpair.jp/palworld
 risk: low
 image:
-  reference: thijsvanloef/palworld-server-docker:v2.7.2
+  reference: thijsvanloef/palworld-server-docker:v2.7.2@sha256:39059e157ea5148f7c4f66c2913c9e844fd62b9fd9de1e7200de8bb4d9bd7a8f
   version: "2.7.2"
 ports:
   - id: game

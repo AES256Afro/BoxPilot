@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { normalizeMountEvidence, normalizeSmartEvidence, parseBlockInventory } from "./storage-evidence.mjs";
 import { createMaintenanceService, unavailableMaintenanceEvidence } from "./maintenance.mjs";
 import { createUpsService, unavailableUpsEvidence } from "./ups.mjs";
+import { readPowerEvents, readPowerPolicy } from "./power-events.mjs";
 
 const execFile = promisify(execFileCallback);
 const serviceUnits = ["boxpilot.service", "boxpilot-helper.service", "docker.service", "tailscaled.service", "libvirtd.service", "virtqemud.service"];
@@ -36,6 +37,11 @@ function filesystemSummary(value) {
   return { totalBytes, freeBytes, usedBytes: Math.max(0, totalBytes - freeBytes), usedPercent: totalBytes ? Math.round(((totalBytes - freeBytes) / totalBytes) * 100) : 0 };
 }
 
+/**
+ * `family` was a number on Node 18.0 to 18.3, so the address filter accepts either.
+ *
+ * @param {{ helper?: any, runCommand?: typeof fixedCommand, readOsRelease?: () => Promise<string>, getFilesystem?: typeof statfs, getNetworkInterfaces?: () => Record<string, { address: string, family: string | number, internal: boolean, cidr?: string | null }[] | undefined>, readStorageHealth?: () => Promise<string>, maintenance?: ReturnType<typeof createMaintenanceService>, ups?: ReturnType<typeof createUpsService>, powerEvents?: () => any, powerPolicy?: () => any, now?: () => Date, webStartedAt?: () => Date }} [options]
+ */
 export function createInventoryService({
   helper,
   runCommand = fixedCommand,
@@ -45,8 +51,29 @@ export function createInventoryService({
   readStorageHealth = () => readFile(process.env.BOXPILOT_STORAGE_HEALTH_PATH ?? storageHealthPath, "utf8"),
   maintenance = createMaintenanceService(),
   ups = createUpsService(),
+  // The power-event log and what BoxPilot set up for the UPS (M39.1): Home's news and System's panel.
+  powerEvents = () => readPowerEvents({ limit: 20 }),
+  powerPolicy = () => readPowerPolicy(),
   now = () => new Date(),
+  // When this (web) process started: a web unit owed a restart since then has had it.
+  webStartedAt = () => new Date(Date.now() - process.uptime() * 1000),
 } = {}) {
+  /**
+   * What BoxPilot's own drained restart still owes, from the helper's runtime read (sweep 5): one that
+   * gave up after hours of a busy server, or failed. The helper says it for both units; the web unit is
+   * owed only while this process is older than that. Not available when the helper did not say.
+   */
+  async function inspectSelfRestart() {
+    const runtime = await helper.request("system.runtime.inspect", {}, { timeoutMs: 10_000 }).catch(() => null);
+    const status = runtime?.selfRestart;
+    if (!status || typeof status !== "object") return { available: false, restart: null };
+    const owed = status.unfinished;
+    if (!owed || !Array.isArray(owed.units)) return { available: true, restart: null };
+    const since = Date.parse(owed.at ?? "");
+    const units = owed.units.filter((unit) => unit !== "boxpilot.service" || !Number.isFinite(since) || webStartedAt().getTime() < since);
+    return { available: true, restart: units.length ? { ...owed, units } : null };
+  }
+
   /**
    * One `systemctl show` for every unit rather than one per unit. systemctl answers several units in
    * a single call, separating them with a blank line and naming each with Id=, so six processes
@@ -95,15 +122,20 @@ export function createInventoryService({
       .filter((entry) => !entry.internal && (entry.family === "IPv4" || entry.family === 4))
       .map((entry) => ({ interface: name, address: entry.address, cidr: entry.cidr ?? null })));
 
-    let docker = { available: false, containers: [], images: [], networks: [], volumes: [], projects: [] };
-    try { docker = await helper.request("container.docker.inventory", {}); } catch { docker = { ...docker, error: "Docker inventory is unavailable through the restricted helper" }; }
-    const [services, tailscale, blockResult, smartResult, maintenanceResult, upsResult] = await Promise.all([
+    const noDocker = { available: false, containers: [], images: [], networks: [], volumes: [], projects: [] };
+    // Docker's read goes with the others (M50): awaited on its own first, every miss cost Docker's
+    // time plus the slowest of the rest instead of the longer of the two.
+    const [docker, services, tailscale, blockResult, smartResult, maintenanceResult, upsResult, eventsResult, policyResult, boxpilot] = await Promise.all([
+      helper.request("container.docker.inventory", {}).catch(() => ({ ...noDocker, error: "Docker inventory is unavailable through the restricted helper" })),
       inspectServices(serviceUnits),
       inspectTailscale(),
       runCommand("lsblk", ["--json", "--bytes", "--paths", "--output", "NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS,ROTA,RO,TRAN,MODEL"]),
       readStorageHealth().then((contents) => ({ ok: true, contents })).catch(() => ({ ok: false, contents: "" })),
       maintenance.inspect().catch(() => unavailableMaintenanceEvidence()),
       ups.inspect().catch(() => unavailableUpsEvidence()),
+      powerEvents().catch(() => ({ available: "unreadable", events: [] })),
+      powerPolicy().catch(() => null),
+      inspectSelfRestart(),
     ]);
     const blockDevices = blockResult.ok ? parseBlockInventory(blockResult.stdout) : parseBlockInventory("");
     let smartValue = null;
@@ -135,10 +167,11 @@ export function createInventoryService({
       },
       storage: { root: rootStorage, filesystems, blockDevices, smart },
       maintenance: maintenanceResult,
-      power: { ups: upsResult },
+      power: { ups: upsResult, events: eventsResult.events, eventsAvailable: eventsResult.available, policy: policyResult },
       network: { addresses, tailscale },
       services,
       docker,
+      boxpilot,
     };
   }
 

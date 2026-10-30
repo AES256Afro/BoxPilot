@@ -99,3 +99,24 @@ describe("libvirt service", () => {
   });
 
 });
+
+describe("the domain list's summary (M50)", () => {
+  it("runs dominfo alone per VM and says what Home shows: name, state, size, autostart", async () => {
+    const seen = [];
+    const runCommand = async (_binary, args) => {
+      seen.push(args[2]);
+      if (args[2] === "list") return { ok: true, stdout: "ubuntu-lab\nwindows-test\n", stderr: "" };
+      if (args[2] === "dominfo") return { ok: true, stdout: `Name: ${args[3]}\nUUID: ${args[3]}-id\nState: ${args[3] === "ubuntu-lab" ? "running" : "shut off"}\nCPU(s): 2\nMax memory: 4194304 KiB\nPersistent: yes\nAutostart: enable`, stderr: "" };
+      throw new Error(`unexpected virsh ${args[2]}`);
+    };
+    const service = createLibvirtService({ runCommand });
+    const result = await service.listDomains({ summary: true });
+    expect(result).toMatchObject({ connected: true, summary: true, error: null });
+    expect(result.domains).toEqual([
+      { name: "ubuntu-lab", uuid: "ubuntu-lab-id", state: "running", vcpus: 2, memoryKiB: 4194304, persistent: true, autostart: true, managed: true },
+      { name: "windows-test", uuid: "windows-test-id", state: "stopped", vcpus: 2, memoryKiB: 4194304, persistent: true, autostart: true, managed: true },
+    ]);
+    expect(seen.sort()).toEqual(["dominfo", "dominfo", "list"]);
+    expect(result.domains[0]).not.toHaveProperty("snapshots");
+  });
+});

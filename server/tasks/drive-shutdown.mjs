@@ -1,7 +1,8 @@
-import { readdir, readFile, readlink, rename, unlink, writeFile } from "node:fs/promises";
+import { readdir, readFile, readlink, rename, unlink } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { mountpointFor } from "../backup-mount.mjs";
 import { fixedRun } from "../exec.mjs";
-import { deviceFor, exfatVolumeFlags, parseManagedFstab, processesUsing, readBootSector, unmountFromHost, withDockerOrder } from "./storage.mjs";
+import { bindHolds, deviceFor, exfatVolumeFlags, parseManagedFstab, processesUsing, readBootSector, unmountFromHost, withDockerOrder } from "./storage.mjs";
 import { startMountUnit } from "./mount-agreement.mjs";
 
 /**
@@ -181,8 +182,6 @@ export function parseContainers(text) {
   }));
 }
 
-const under = (source, mountpoint) => source === mountpoint || source.startsWith(`${mountpoint}/`);
-
 /** A container's StopSignal as process.kill takes it: Docker accepts "SIGQUIT", "QUIT" and "3" alike. */
 export function stopSignalOf(container) {
   const value = String(container?.stopSignal ?? "").trim().toUpperCase();
@@ -240,15 +239,22 @@ export const rebootPreparationBudgetMs = 150_000;
  *
  * Every wait is bounded and the whole is bounded by `budgetMs`: this is the belt, the reboot that
  * follows is the braces, and nothing here may keep the server from rebooting.
+ *
+ * The UPS's shutdown on a low battery (M39.1) runs the same steps with `allContainers` and
+ * `occasion: "shutdown"`: every app is stopped the way a shutdown stops it, not only those on a
+ * drive, because the power is about to go and a database on the system disk is as much at risk
+ * as one on a drive; and the log says "the shutdown" rather than "the reboot".
  */
 export async function prepareDrivesForReboot(_parameters = {}, {
   run = fixedRun, log = null, files = { readFile }, host = hostView,
   sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
   clock = () => Date.now(), budgetMs = rebootPreparationBudgetMs,
+  allContainers = false, occasion = "reboot",
 } = {}) {
   const deadline = clock() + budgetMs;
   const left = (cap) => Math.max(1_000, Math.min(cap, deadline - clock()));
   const outOfTime = () => clock() >= deadline;
+  const the = occasion === "shutdown" ? "the shutdown" : "the reboot";
   const content = await files.readFile(fstabPath, "utf8").catch(() => "");
   const drives = [];
   for (const entry of managedDriveEntries(content).filter((candidate) => candidate.drive)) {
@@ -259,8 +265,8 @@ export async function prepareDrivesForReboot(_parameters = {}, {
   const mounted = drives.filter((drive) => drive.mounted);
   const summary = { drives, containers: { stopped: [], signalled: [], killed: [], stillRunning: [] }, dockerStopped: false };
   if (mounted.length === 0) {
-    log?.(drives.length ? "No BoxPilot drive is mounted; nothing to unmount before the reboot" : "BoxPilot manages no drives here; nothing to unmount before the reboot", "stdout");
-    return summary;
+    log?.(drives.length ? `No BoxPilot drive is mounted; nothing to unmount before ${the}` : `BoxPilot manages no drives here; nothing to unmount before ${the}`, "stdout");
+    if (!allContainers) return summary;
   }
 
   // 1. The containers using the drives, and Docker.
@@ -272,9 +278,11 @@ export async function prepareDrivesForReboot(_parameters = {}, {
     if (inspected.ok) containers = parseContainers(inspected.stdout);
     else log?.(`Could not read the running containers, so none was stopped: ${tail(inspected.stderr)}`, "stderr");
   }
-  const bound = containers.filter((container) => container.sources.some((source) => mounted.some((drive) => under(source, drive.mountpoint))));
+  // A container bound to a folder above a drive (/mnt, or /) holds it as surely as one bound inside it;
+  // before a power-off (M39.1) every container is stopped, whatever it holds.
+  const bound = allContainers ? containers : containers.filter((container) => container.sources.some((source) => mounted.some((drive) => bindHolds(source, drive.mountpoint))));
   if (bound.length) {
-    log?.(`Stopping Docker so ${bound.map((container) => container.name).join(", ")} stop the way they do at shutdown; their restart policies start them again after the reboot`, "stdout");
+    log?.(`Stopping Docker so ${bound.map((container) => container.name).join(", ")} stop the way they do at shutdown; their restart policies start them again ${occasion === "shutdown" ? "when the server starts" : "after the reboot"}`, "stdout");
     const stopped = await run(binaries.systemctl, ["stop", "docker.socket", "docker.service"], { timeout: left(90_000) });
     summary.dockerStopped = stopped.ok;
     if (!stopped.ok) log?.(`Docker did not stop: ${tail(stopped.stderr)}`, "stderr");
@@ -308,7 +316,7 @@ export async function prepareDrivesForReboot(_parameters = {}, {
   }
 
   // 2. Everything written so far, on the drives.
-  if (!outOfTime()) {
+  if (!outOfTime() && (mounted.length || allContainers)) {
     log?.("$ sync", "stdout");
     const synced = await run(binaries.sync, [], { timeout: left(60_000) });
     if (!synced.ok) log?.(`sync did not finish: ${tail(synced.stderr)}`, "stderr");
@@ -317,13 +325,13 @@ export async function prepareDrivesForReboot(_parameters = {}, {
   // 3. Each drive, unmounted in the host's namespace (file-sharing clients let go of it first
   // when they are what holds it), and whether it really let go.
   for (const drive of mounted) {
-    if (outOfTime()) { drive.state = "out-of-time"; log?.(`Out of time before ${drive.mountpoint}; the reboot unmounts it`, "stderr"); continue; }
+    if (outOfTime()) { drive.state = "out-of-time"; log?.(`Out of time before ${drive.mountpoint}; ${the} unmounts it`, "stderr"); continue; }
     const unmounted = await unmountFromHost(drive.mountpoint, { run, log, files, sleep, tries: outOfTime() ? 1 : 30 });
     const still = await run(binaries.findmnt, ["--task", "1", "-n", "--mountpoint", drive.mountpoint], { timeout: 15_000 });
     if (still.ok && still.stdout.trim()) {
       drive.state = "busy";
       drive.holders = drive.majMin ? await host.processesUsing(drive.majMin) : [];
-      log?.(`${drive.mountpoint} did not unmount (${tail(unmounted.result?.stderr).replace(/\.+$/, "") || "still mounted"}); it is in use${drive.holders.length ? ` by ${drive.holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}` : ""}. The reboot stops those and unmounts it`, "stderr");
+      log?.(`${drive.mountpoint} did not unmount (${tail(unmounted.result?.stderr).replace(/\.+$/, "") || "still mounted"}); it is in use${drive.holders.length ? ` by ${drive.holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}` : ""}. ${occasion === "shutdown" ? "The shutdown" : "The reboot"} stops those and unmounts it`, "stderr");
       continue;
     }
     // Gone from the host is not gone: a container, or a service with a private copy of the
@@ -332,7 +340,7 @@ export async function prepareDrivesForReboot(_parameters = {}, {
     drive.holders = drive.majMin ? await host.namespaceHolders(drive.majMin) : [];
     if (drive.holders.length) {
       drive.state = "busy";
-      log?.(`${drive.mountpoint} is unmounted here but still open in ${drive.holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}; the reboot stops those`, "stderr");
+      log?.(`${drive.mountpoint} is unmounted here but still open in ${drive.holders.map((holder) => `${holder.command} (${holder.pid})`).join(", ")}; ${the} stops those`, "stderr");
       continue;
     }
     drive.state = "unmounted";
@@ -350,15 +358,29 @@ export function parseExtState(text) {
 }
 
 /**
+ * A timestamp property from `systemctl show --timestamp=utc` ("Tue 2026-09-29 16:53:05 UTC"), as
+ * an ISO string; null when the unit has never been active (systemd 249 says "n/a", later ones
+ * nothing) or for anything else.
+ *
+ * Not --timestamp=unix, which is systemd 251's: Ubuntu 22.04's 249 refuses it ("Invalid value:
+ * unix."). utc reads the same on 249, 255 and 259, whatever the server's time zone.
+ */
+export function parseSystemdUtcTimestamp(text) {
+  const match = String(text ?? "").trim().match(/^[A-Z][a-z]{2} (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC$/);
+  return match ? new Date(`${match[1]}T${match[2]}Z`).toISOString() : null;
+}
+
+/**
  * What each managed drive's own filesystem says about how it was last unmounted, read without
  * writing anything: the exFAT VolumeDirty mark from the boot sector, and an ext2/3/4 superblock's
  * state from dumpe2fs -h. With when each drive's current mount began, so a kernel warning can be
  * told apart from one printed at a mount that has since been undone (a check, a repair by hand, a
  * reconnect): this boot's log keeps every warning it ever printed.
  *
- * On a mounted exFAT drive a set mark is not conclusive: the first write after mounting sets it
- * and it stays set until the unmount (tests/ubuntu/drive-shutdown-order.sh, part 3). A clear one
- * is: nothing marked the drive, and nothing has written to it since it was mounted.
+ * On a mounted exFAT drive a set mark is not conclusive: a write sets it, and it stays set until
+ * the unmount (before Linux 6.16, until the next sync). A clear one is conclusive: a mark the drive
+ * carried when it was mounted stays set through writes and syncs, on every kernel, until a
+ * repairing check clears it (tests/ubuntu/drive-shutdown-order.sh, part 3).
  */
 export async function storageVolumeState(_parameters = {}, { run = fixedRun, files = { readFile }, readSector = readBootSector, now = () => new Date() } = {}) {
   const content = await files.readFile(fstabPath, "utf8").catch(() => "");
@@ -374,9 +396,8 @@ export async function storageVolumeState(_parameters = {}, { run = fixedRun, fil
     const fstype = mountedType ?? entry.fstype;
     let mountedAt = null;
     if (mountedFrom) {
-      const shown = await run(binaries.systemctl, ["show", "--timestamp=unix", "--property=ActiveEnterTimestamp", "--value", mountUnitName(entry.mountpoint)], { timeout: 15_000 });
-      const seconds = shown.ok ? shown.stdout.trim().match(/^@(\d+)$/)?.[1] : null;
-      mountedAt = seconds ? new Date(Number(seconds) * 1000).toISOString() : null;
+      const shown = await run(binaries.systemctl, ["show", "--timestamp=utc", "--property=ActiveEnterTimestamp", "--value", mountUnitName(entry.mountpoint)], { timeout: 15_000 });
+      mountedAt = shown.ok ? parseSystemdUtcTimestamp(shown.stdout) : null;
     }
     let exfat = null;
     let ext = null;
@@ -412,6 +433,8 @@ export async function storageVolumeState(_parameters = {}, { run = fixedRun, fil
  * Returns `{ drives, docker, dockerError, missing }`: each drive's outcome, what happened to Docker
  * ("started", "failed", "left-stopped", or "untouched" when the preparation did not stop it), and
  * the mount points that did not come back.
+ * @param {{ drives?: any[], dockerStopped?: boolean }} summary what prepareDrivesForReboot returned
+ * @param {{ run?: typeof fixedRun, log?: ((line: string, stream?: string) => void) | null, sleep?: (ms: number) => Promise<unknown>, clock?: () => number, settleMs?: number }} [options]
  */
 export async function resumeAfterCancelledReboot(summary, { run = fixedRun, log = null, sleep, clock, settleMs } = {}) {
   const drives = [];

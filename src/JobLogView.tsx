@@ -11,6 +11,18 @@ import { Notice } from "./ui/Notice";
 import type { Status } from "./ui/types";
 import "./shell/jobs.css";
 
+/**
+ * A job's steps in words (M50): the server names them for itself ("preflight", "checkpoint",
+ * "rerun"), and Activity showed those names with "completed" beside each.
+ */
+const stepNames: Record<string, string> = {
+  preflight: "Checked the request", checkpoint: "Tier and runner", rerun: "Ran again", retry: "More time", agent: "Asked by an agent", budget: "Time allowed",
+  run: "Ran", verify: "Checked the result", approval: "Approval", rollback: "Rolled back", undo: "Undone",
+};
+export const stepWords = (name: string): string => stepNames[name] ?? name.replace(/[_-]+/g, " ");
+const stateNames: Record<string, string> = { completed: "done", running: "running", failed: "failed", pending: "waiting", skipped: "skipped", cancelled: "cancelled", awaiting_approval: "waiting for approval" };
+export const stateWords = (state: string): string => stateNames[state] ?? state.replace(/[_-]+/g, " ");
+
 /** How a step ended, as a mark: done, failed, needs the owner, or still going. */
 function stepStatus(step: JobStep): Status {
   if (step.state === "completed") return "good";
@@ -77,8 +89,10 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
       const controller = new AbortController();
       const deadline = setTimeout(() => controller.abort(), 15_000);
       fetch(`/api/v1/jobs/${encodeURIComponent(id)}/output`, { signal: controller.signal })
-        .then((response) => readJson<{ output: string }>(response))
-        .then((body) => { if (typeof body.output !== "string") throw new Error("incomplete output"); if (!cancelled) setOutput(jobOutputText("", body.output)); })
+        // Gone from the history since the job was read: say so, as for the job itself, rather than
+        // offering a "Try reading again" that can only find it gone again.
+        .then((response) => { if (response.status === 404) { if (!cancelled) setGoneId(id); return null; } return readJson<{ output: string }>(response); })
+        .then((body) => { if (body === null) return; if (typeof body.output !== "string") throw new Error("incomplete output"); if (!cancelled) setOutput(jobOutputText("", body.output)); })
         .catch(() => { if (!cancelled) setOutputError("Saved output could not be read. Try again; this does not mean the job recorded no output."); })
         .finally(() => { clearTimeout(deadline); if (!cancelled) setReadingOutput(false); });
       return () => { cancelled = true; clearTimeout(deadline); controller.abort(); };
@@ -92,7 +106,7 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
   }, [id, job !== null, finished, retry]);
 
   const retryButton = <Button onClick={() => setRetry((value) => value + 1)}>Try reading again</Button>;
-  if (id && goneId === id) return <p className="jobs-quiet">{title ?? "This job"} is no longer in the history, which keeps the last 500 jobs for 90 days.</p>;
+  if (id && goneId === id) return <p className="jobs-quiet">{title ?? job?.title ?? "This job"} is no longer in the history, which keeps the last 500 jobs for 90 days.</p>;
   if (!job) return jobError ? <Notice tone="danger" live action={retryButton}>{jobError}</Notice> : <p className="jobs-quiet">Reading…</p>;
 
   const name = title ?? job.title;
@@ -105,8 +119,8 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
           {job.steps.map((step, index) => (
             <li key={`${step.name}-${index}`} className="jobs-step ui-marked" data-status={stepStatus(step)}>
               <span className="ui-mark jobs-step__mark" aria-hidden="true" />
-              <span className="jobs-step__name">{step.name}</span>
-              <span className="jobs-step__state">{step.state}</span>
+              <span className="jobs-step__name">{stepWords(step.name)}</span>
+              <span className="jobs-step__state">{stateWords(step.state)}</span>
               <span className="jobs-step__detail">{step.detail}</span>
             </li>
           ))}

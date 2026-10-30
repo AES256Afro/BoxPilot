@@ -67,6 +67,20 @@ describe("first-run setup profiles", () => {
     expect(resolved.steps.find((step) => step.id === "app-qbittorrent").status).toBe("done");
   });
 
+  it("tags an app step with its manifest's tier when that is higher than app.install's, as the approval will ask", async () => {
+    // AdGuard Home is the house's DNS: installing it is high since the security audit, not medium.
+    const bare = { "app.inspect": { applications: [{ id: "adguard-home", installed: false }, { id: "uptime-kuma", installed: false }] }, "prerequisite.docker.inspect": { installed: true }, "prerequisite.restic.inspect": null, "prerequisite.smartmontools.inspect": null, "prerequisite.virtualization.inspect": null, "apt.unattended.inspect": { enabled: true }, "virtualization.foundation.inspect": null };
+    const installRisk = async ({ id }) => ({ "adguard-home": "high", "uptime-kuma": "low" })[id] ?? null;
+    const { profiles } = await createSetupService({ helper: helperWith(bare), scheduler: { list: () => [] }, installRisk }).describe();
+    const dns = profiles.find((profile) => profile.id === "dns-appliance");
+    expect(dns.steps.find((step) => step.id === "app-adguard-home")).toMatchObject({ status: "ready", risk: "high" });
+    // Lower than app.install's own medium never lowers it: no tag, and the page says medium.
+    expect(dns.steps.find((step) => step.id === "app-uptime-kuma").risk).toBeUndefined();
+    // Without the lookup (or when it fails), the steps are as before.
+    const plain = (await createSetupService({ helper: helperWith(bare), scheduler: { list: () => [] }, installRisk: async () => { throw new Error("catalog down"); } }).describe()).profiles.find((profile) => profile.id === "dns-appliance");
+    expect(plain.steps.find((step) => step.id === "app-adguard-home").risk).toBeUndefined();
+  });
+
   it("marks a box with no apps and no schedules as first run and tolerates missing collectors", async () => {
     const helper = helperWith({ "app.inspect": { applications: [] }, "prerequisite.docker.inspect": new Error("helper offline"), "prerequisite.restic.inspect": null, "prerequisite.smartmontools.inspect": null, "prerequisite.virtualization.inspect": null, "apt.unattended.inspect": null, "virtualization.foundation.inspect": null });
     const setup = createSetupService({ helper, scheduler: { list: () => [] } });
@@ -86,5 +100,22 @@ describe("why a step is blocked", () => {
     // Genuinely no candidate.
     const noCandidate = service.resolveStep(step, { prerequisites: { docker: { installed: false, providerPresent: false, candidateVersion: null, repairAvailable: false } } });
     expect(noCandidate.detail).toContain("package lists");
+  });
+});
+
+describe("whether this is a first run, read on its own (M50)", () => {
+  it("asks the helper for the apps alone, and says it does not know when that probe fails", async () => {
+    const asked = [];
+    const helperAnswering = (answers) => ({ request: async (operation) => { asked.push(operation); if (!(operation in answers)) throw new Error(`no answer for ${operation}`); return answers[operation]; } });
+    const fresh = createSetupService({ helper: helperAnswering({ "app.inspect": { applications: [{ id: "jellyfin", installed: false }] } }), scheduler: { list: () => [] } });
+    expect(await fresh.firstRun()).toEqual({ firstRun: true, installedApps: 0, appsKnown: true });
+    expect(asked).toEqual(["app.inspect"]);
+    const lived = createSetupService({ helper: helperAnswering({ "app.inspect": { applications: [{ id: "jellyfin", installed: true }] } }), scheduler: { list: () => [] } });
+    expect(await lived.firstRun()).toEqual({ firstRun: false, installedApps: 1, appsKnown: true });
+    const scheduled = createSetupService({ helper: helperAnswering({ "app.inspect": { applications: [] } }), scheduler: { list: () => [{ id: "s1" }] } });
+    expect((await scheduled.firstRun()).firstRun).toBe(false);
+    // A probe that failed is not an empty box.
+    const unknown = createSetupService({ helper: helperAnswering({}), scheduler: { list: () => [] } });
+    expect(await unknown.firstRun()).toEqual({ firstRun: false, installedApps: 0, appsKnown: false });
   });
 });

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Every route, every role, every casing (M29.4).
  *
@@ -73,6 +72,10 @@ import { createAgentsRouter } from "./agents.mjs";
 import { createAgentRunnerRouter } from "./agent-runner.mjs";
 import { createAgentStore } from "../agents/store.mjs";
 import { createAgentService } from "../agents/service.mjs";
+import { generateKeyPairSync } from "node:crypto";
+import { createPushApprovals } from "../push-approvals.mjs";
+import { vapidKeysFrom } from "../web-push.mjs";
+import { createPushRouter } from "./push.mjs";
 
 const password = "correct horse battery";
 const roles = ["viewer", "operator", "owner"];
@@ -91,6 +94,8 @@ let agentStore;
 const routers = {};
 // The assistant's model (M34): a stand-in on a loopback port, so each test can read what it was shown.
 let fakeModel;
+// Push approvals (M25.2).
+let pushApprovals;
 
 // ---- the helper: canned answers per operation, and a record of what each request asked for ----
 
@@ -101,7 +106,7 @@ const helperAnswers = {
     installed: true, running: true, configured: true, users: ["alex"], discovery: { running: true },
     config: { managed: true, workgroup: "WORKGROUP", scope: "tailscale", interfaces: [], shares: [{ name: "media", path: "/srv/media", comment: null, readOnly: false, guest: false, users: [], recycle: true, recycleBytes: 734003200, ownerUid: 0 }] },
   }),
-  "storage.usb.events": () => ({ available: true, days: 30, ports: [{ port: "2-1", drops: [{ at: "2026-09-20T10:00:00Z" }, { at: "2026-09-25T10:00:00Z" }], lastDropAt: "2026-09-25T10:00:00Z", vendorId: "0bc2", productId: "ab38", powerFaults: 1, resets: 0 }] }),
+  "storage.usb.events": () => ({ available: true, days: 30, ports: [{ port: "2-1", drops: [{ at: "2026-09-20T10:00:00Z" }, { at: "2026-09-25T10:00:00Z" }], lastDropAt: "2026-09-25T10:00:00Z", vendorId: "1a2b", productId: "3c4d", powerFaults: 1, resets: 0 }] }),
   "storage.unclean.events": () => ({ available: true, events: [] }),
   "storage.volumes.state": () => ({ available: true, readAt: "2026-09-28T12:00:00.000Z", drives: [] }),
   "housekeeping.inspect": () => ({ groups: [{ id: "docker-unused", safe: true, bytes: 40 * 1024 ** 3 }] }),
@@ -119,13 +124,13 @@ const helper = {
 
 // ---- requests ----
 
-async function call(method, url, session, { body } = {}) {
+async function call(method, url, session, { body, csrf = true } = {}) {
   helperCalls.length = 0;
   const response = await fetch(`${base}${url}`, {
     method,
     headers: {
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-      ...(session ? { Cookie: session.cookie, "X-BoxPilot-CSRF": session.csrfToken } : {}),
+      ...(session ? { Cookie: session.cookie, ...(csrf ? { "X-BoxPilot-CSRF": session.csrfToken } : {}) } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -204,6 +209,8 @@ const directRoutes = ["POST /api/v1/operations/:id/run", "POST /api/v1/operation
 const changeRoutes = [
   "POST /api/v1/catalog/:id/precheck", "POST /api/v1/setup/autoinstall", "POST /api/v1/network/plans",
   "POST /api/v1/jobs/:id/approve", "POST /api/v1/jobs/:id/more-time", "POST /api/v1/jobs/:id/dismiss", "DELETE /api/v1/jobs/:id",
+  // M38: what a job showed once (Zulip's organization link), to the person who ran it.
+  "POST /api/v1/jobs/:id/once",
   "POST /api/v1/flows", "PUT /api/v1/flows/:id", "DELETE /api/v1/flows/:id", "POST /api/v1/flows/:id/webhook", "DELETE /api/v1/flows/:id/webhook", "POST /api/v1/flows/:id/run",
   "POST /api/v1/schedules", "PUT /api/v1/schedules/:id", "DELETE /api/v1/schedules/:id",
   "POST /api/v1/drives/:name/auto-reconnect", "DELETE /api/v1/drives/:name/auto-reconnect",
@@ -213,21 +220,30 @@ const changeRoutes = [
   "POST /api/v1/power/outages/:id/acknowledge",
   "POST /api/v1/oidc/clients", "DELETE /api/v1/oidc/clients/:id",
   "POST /api/v1/people", "PUT /api/v1/people/:id", "DELETE /api/v1/people/:id",
-  "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test",
+  "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test", "PUT /api/v1/settings/quiet-hours",
   "PUT /api/v1/settings/approval-mode", "PUT /api/v1/settings/backup-destination", "PUT /api/v1/settings/github-client-id", "PUT /api/v1/settings/assistant",
+  "PUT /api/v1/settings/storage-wake",
   "POST /api/v1/storage/shares/list", "POST /api/v1/virtualization/media/uploads", "POST /api/v1/virtualization/plans",
   // Agents (M37): making, changing, running, pausing and stopping them, their cards, notes, library
   // and evaluations, and the owner's switch. None stages or runs an operation.
   "POST /api/v1/agents", "PUT /api/v1/agents/:id", "DELETE /api/v1/agents/:id", "POST /api/v1/agents/:id/rollback",
   "POST /api/v1/agents/:id/pause", "POST /api/v1/agents/:id/resume", "POST /api/v1/agents/:id/runs",
   "DELETE /api/v1/agents/:id/notes/:noteId", "PUT /api/v1/agents/:id/evaluation", "POST /api/v1/agents/:id/evaluation/run",
-  "POST /api/v1/agents/proposals/:proposalId/decide", "POST /api/v1/agents/runs/:runId/cancel",
+  "POST /api/v1/agents/proposals/:proposalId/decide", "POST /api/v1/agents/proposals/:proposalId/steps/:step/job", "POST /api/v1/agents/runs/:runId/cancel", "POST /api/v1/agents/plans/:planId/cancel",
   "POST /api/v1/agents/module/pause", "POST /api/v1/agents/module/resume", "POST /api/v1/agents/module/kill",
   "POST /api/v1/agents/knowledge/documents", "PUT /api/v1/agents/knowledge/documents/:documentId", "DELETE /api/v1/agents/knowledge/documents/:documentId", "POST /api/v1/agents/knowledge/relearn",
   "PUT /api/v1/agents/knowledge/documents/:documentId/pin", "POST /api/v1/agents/knowledge/upload", "POST /api/v1/agents/knowledge/folder/sync", "POST /api/v1/agents/knowledge/reindex",
+  // M38: read #agent-files now (the owner's; refused while Zulip is not connected).
+  "POST /api/v1/agents/zulip/poll",
+  // M40.5: who in Zulip may ask, as which account (the owner's, with the password).
+  "PUT /api/v1/agents/zulip/people",
   "POST /api/v1/agents/import", "POST /api/v1/agents/:id/webhook", "DELETE /api/v1/agents/:id/webhook",
   "PUT /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/notes/:noteId", "DELETE /api/v1/agents/:id/memory/episodes/:episodeId",
+  // M46: the example book is pruned by the owner and the maker.
+  "DELETE /api/v1/agents/:id/examples/:exampleId",
   "PUT /api/v1/settings/agents",
+  // Push approvals (M25.2): a device's subscription, its removal, a test push, and the owner's choices.
+  "POST /api/v1/push/subscriptions", "DELETE /api/v1/push/subscriptions/:id", "POST /api/v1/push/test", "PUT /api/v1/settings/push",
 ];
 
 /**
@@ -237,7 +253,9 @@ const changeRoutes = [
 const runnerRoutes = [
   "POST /api/v1/agent-runner/hello", "POST /api/v1/agent-runner/next", "POST /api/v1/agent-runner/usage",
   "POST /api/v1/agent-runner/runs/:runId/heartbeat", "POST /api/v1/agent-runner/runs/:runId/steps",
-  "POST /api/v1/agent-runner/runs/:runId/tools", "POST /api/v1/agent-runner/runs/:runId/finish", "POST /api/v1/agent-runner/runs/:runId/vectors",
+  "POST /api/v1/agent-runner/runs/:runId/tools", "POST /api/v1/agent-runner/runs/:runId/finish", "POST /api/v1/agent-runner/runs/:runId/vectors", "POST /api/v1/agent-runner/runs/:runId/findings",
+  // M45.3: a run on Claude's model calls, sent on to the model gateway.
+  "POST /api/v1/agent-runner/runs/:runId/model",
 ];
 
 /** Asking an agent someone may borrow (M37): a POST that only reads, as the asker, like the assistant. */
@@ -295,6 +313,15 @@ const dataRoutes = {
       expect(body.flows.length, role).toBe(2);
       if (role === "owner") expect(flow(fixtures.ownerFlow.id)).toMatchObject({ createdBy: accounts.owner.id, lastJobIds: [fixtures.ownerJob.id] });
       else expect(flow(fixtures.ownerFlow.id)).toMatchObject({ createdBy: null, lastJobIds: [], lastRunElsewhere: true, lastResult: "stopped at step 1 (Refresh package lists)" });
+      // A request's address is cut to where it goes, and an owner-only step keeps only its name.
+      const [, request, removal] = flow(fixtures.ownerFlow.id).steps;
+      if (role === "owner") {
+        expect(request.parameters).toMatchObject({ url: "https://ntfy.example/owner-marker-topic", credentialName: "ntfy-token" });
+        expect(removal.parameters).toEqual({ name: "ntfy-old" });
+      } else {
+        expect(request).toMatchObject({ operationId: "http.request", parameters: { url: "https://ntfy.example", method: "POST" }, parametersHidden: true });
+        expect(removal).toMatchObject({ operationId: "credentials.remove", parameters: {}, parametersHidden: true });
+      }
       if (role === "viewer") expect(flow(fixtures.operatorFlow.id)).toMatchObject({ createdBy: null, lastJobIds: [], lastRunElsewhere: true, lastResult: "completed" });
       else expect(flow(fixtures.operatorFlow.id)).toMatchObject({ createdBy: accounts.operator.id, lastJobIds: [fixtures.operatorJob.id] });
     },
@@ -314,6 +341,7 @@ const dataRoutes = {
   "GET /api/v1/virtualization/retention": [{ ...open, check: ({ role, body }) => expect(body.retentionRuns.length, role).toBe(1) }],
   "GET /api/v1/virtualization/recoveries": [{ ...open, check: ({ role, body }) => expect(body.recoveries.length, role).toBe(1) }],
   "GET /api/v1/settings/notifications": [open],
+  "GET /api/v1/settings/quiet-hours": [open],
   "GET /api/v1/settings/watch": [{
     ...open,
     check: ({ role, body }) => {
@@ -347,8 +375,21 @@ const dataRoutes = {
     },
   }],
   "GET /api/v1/settings/weekly-report": [open],
+  // Push approvals (M25.2): the key to subscribe with and your own devices, for whoever can approve;
+  // where the pushes link to, for the owner alone.
+  "GET /api/v1/push": [{
+    ...open,
+    check: ({ role, body }) => {
+      expect(body.canSubscribe, role).toBe(role !== "viewer");
+      expect(body.publicKey === null, role).toBe(role === "viewer");
+      expect(body.devices.map((device) => device.label), role).toEqual(role === "owner" ? ["owner-marker phone"] : []);
+      expect(body.settings.openAt, role).toBe(role === "owner" ? "https://homebox.example.ts.net" : null);
+      expect(JSON.stringify(body), role).not.toContain("push.apple.com");
+    },
+  }],
   "GET /api/v1/settings/weekly-report/preview": [ownerOnly],
   "GET /api/v1/settings/approval-mode": [open],
+  "GET /api/v1/settings/storage-wake": [open],
   "GET /api/v1/settings/vpn-profile": [ownerOnly],
   "GET /api/v1/settings/cloud-destination": [open],
   "GET /api/v1/settings/backup-destination": [open],
@@ -364,7 +405,9 @@ const dataRoutes = {
       expect(body.lastMeasured === null, role).toBe(role === "viewer");
     },
   }],
-  "GET /api/v1/storage/shares/discover": [open],
+  // The SMART figures the Overview shows every account, over time (M31.2).
+  "GET /api/v1/storage/smart-history": [open],
+  "GET /api/v1/storage/shares/discover": [operatorUp],
   "GET /api/v1/storage/nfs": [open],
   "GET /api/v1/storage/samba": [{
     ...open,
@@ -375,6 +418,7 @@ const dataRoutes = {
     },
   }],
   "GET /api/v1/power/ups/detect": [open],
+  "GET /api/v1/power/overview": [{ ...open, check: ({ role, body }) => expect(body.guidance.steps.length, role).toBeGreaterThan(3) }],
   // When the server went down without shutting down (2026-09-29): every role reads it; who said "Got it" is the owner's.
   "GET /api/v1/power/outages": [{ ...open, check: ({ role, body }) => expect(body.outages[0].acknowledged, role).toMatchObject({ by: role === "owner" ? accounts.owner.id : null }) }],
   "GET /api/v1/setup/checklist": [{ ...open, check: ({ role, body }) => expect(body.items.find((item) => item.id === "shares").done, role).toBe(true) }],
@@ -389,7 +433,7 @@ const dataRoutes = {
       expect(live.killSwitchDrill, role).toMatchObject({ held: true, by: who });
     },
   }],
-  "GET /api/v1/ssh-keys/github/:user": [{ viewer: 400, operator: 400, owner: 400, params: () => ({ user: "-not-a-user-" }) }],
+  "GET /api/v1/ssh-keys/github/:user": [{ viewer: 403, operator: 400, owner: 400, params: () => ({ user: "-not-a-user-" }) }],
   "GET /api/v1/remediations": [{
     ...open,
     check: ({ role, body, calls }) => {
@@ -418,6 +462,7 @@ const dataRoutes = {
   "GET /api/v1/inventory": [open],
   "GET /api/v1/network/topology": [open],
   "GET /api/v1/network/tailnet": [open],
+  "GET /api/v1/network/dns-resilience": [open],
   "GET /api/v1/network/reachability": [open],
   "GET /api/v1/backups": [{
     ...open,
@@ -473,8 +518,10 @@ const dataRoutes = {
       expect(body.cardsWaiting, role).toBe(role === "owner" ? 1 : 0);
     },
   }],
-  "GET /api/v1/agents/catalog": [{ ...open, check: ({ role, body }) => expect(body.templates.length, role).toBe(5) }],
+  "GET /api/v1/agents/catalog": [{ ...open, check: ({ role, body }) => expect(body.templates.length, role).toBe(13) }],
   "GET /api/v1/agents/usage": [{ ...open, check: ({ role, body }) => expect(body.caps.cpuQuotaPercent, role).toBe(400) }],
+  // M45.3: Claude's state is everyone's to read; it never holds the key.
+  "GET /api/v1/agents/cloud": [{ ...open, check: ({ role, body }) => { expect(body.connected, role).toBe(false); expect(JSON.stringify(body)).not.toMatch(/sk-ant-/); } }],
   "GET /api/v1/agents/runtime": [{
     ...open,
     check: ({ role, body, calls }) => {
@@ -484,7 +531,11 @@ const dataRoutes = {
   }],
   "GET /api/v1/agents/glance": [operatorUp],
   "GET /api/v1/agents/proposals": [{ ...open, check: ({ role, body }) => expect(body.proposals.length, role).toBe(role === "owner" ? 1 : 0) }],
+  // One card, read again as its step's dialog closes: the owner's card is the owner's to see.
+  "GET /api/v1/agents/proposals/:proposalId": [{ viewer: 404, operator: 404, owner: 200, params: () => ({ proposalId: fixtures.ownerCard }), check: ({ body }) => expect(body.steps.map((step) => step.status)).toEqual(["ready"]) }],
   "GET /api/v1/agents/knowledge": [operatorUp],
+  // M38: the team chat's panel; the posts themselves only for the owner.
+  "GET /api/v1/agents/zulip": [{ ...operatorUp, check: ({ role, body }) => { if (role !== "viewer") expect(Array.isArray(body.recent), role).toBe(true); } }],
   "GET /api/v1/agents/runs/:runId": [
     { viewer: 404, operator: 404, owner: 200, params: () => ({ runId: fixtures.ownerRun }) },
     { viewer: 404, operator: 200, owner: 200, params: () => ({ runId: fixtures.operatorRun }) },
@@ -511,6 +562,10 @@ const dataRoutes = {
   "GET /api/v1/agents/:id/evaluation": [{ viewer: 403, operator: 200, owner: 200, params: () => ({ id: fixtures.helper.id }) }],
   // What an agent remembers is for the owner and the person who made it; a definition to export too.
   "GET /api/v1/agents/:id/memory": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body.facts.map((note) => note.title)).toEqual(["Owner note"]) }],
+  // M46: the example book, the owner's and the maker's, seeded from the template.
+  "GET /api/v1/agents/:id/examples": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body.counts.seeds).toBeGreaterThan(0) }],
+  // M46.3: the book as training data leaves the box, so it is the owner's alone; JSON Lines, not JSON.
+  "GET /api/v1/agents/:id/examples/export": [{ viewer: 404, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ text }) => expect(text.split("\n")[0]).toContain('"messages"') }],
   "GET /api/v1/agents/:id/export": [{ viewer: 403, operator: 403, owner: 200, params: () => ({ id: fixtures.keeper.id }), check: ({ body }) => expect(body).toMatchObject({ format: "boxpilot-agent", version: 1 }) }],
 };
 
@@ -553,6 +608,7 @@ beforeAll(async () => {
   routers.createOperationsRouter = createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth });
   routers.createJobsRouter = createJobsRouter({ state, jobs, scheduler, flows, autoReconnect: createAutoReconnect({ store: state, flows }), helper, jobLogReader: { read: async (_id, offset) => ({ text: "", offset, exists: false }) }, auth, streamBudget: createStreamBudget({ perAccount: 1_000, total: 1_000 }) });
   routers.createVirtualizationRouter = createVirtualizationRouter({
+    auth,
     libvirt, libvirtFoundation: { inspect: async () => ({ connectionReady: true }) }, vmPlanner: { getOptions: async () => ({}) }, vmMedia: { inspect: async () => ({ media: [] }) }, vmCreation: { preview: async () => ({ ok: false, errors: [] }) },
     vmExports: createVmExportService({ store: state, libvirt, helper }), vmProtection: createVmProtectionService({ store: state, helper }), vmRetention: createVmRetentionService({ store: state, helper }), vmRecoveries: createVmRecoveryService({ store: state, helper }), audit,
   });
@@ -563,10 +619,11 @@ beforeAll(async () => {
     run: async () => ({ ok: true, stdout: "[]", stderr: "" }), probe: async () => false, reverse: async () => [],
     collect: async () => ({ devices: [], mounts: [], fstab: [], snapshots: [{ path: "/dev/vg0/data-snap", name: "data-snap" }] }),
   });
-  routers.createPowerRouter = createPowerRouter({ detect: async () => [], exists: async () => false, state, auth });
+  routers.createPowerRouter = createPowerRouter({ detect: async () => [], exists: async () => false, events: async () => ({ available: "none", events: [] }), policy: async () => null, boardVendor: async () => null, ups: { inspect: async () => ({ configured: false, state: "unavailable" }) }, state, auth });
   routers.createChecklistRouter = createChecklistRouter({ state, helper, notifications, inventory, network, driveChecks: async () => null });
   routers.createHostRouter = createHostRouter({
     state, helper, catalogService, inventory, network, notifications,
+    dnsResilience: { check: async () => ({ state: "unknown", status: "unknown", headline: "Not known what your router hands out", detail: "", source: "none", servers: [] }) },
     controllerProtection: createControllerProtectionService({ store: state, helper }), controllerRetention: createControllerRetentionService({ store: state, helper }),
     githubProvenance: { inspect: async () => ({ repositories: [] }) }, releaseUpdates: { inspect: async () => ({ current: "0.0.0" }) },
     setup: createSetupService({ helper, scheduler }), supportBundle, audit, auth, identity, tlsDir,
@@ -589,9 +646,14 @@ beforeAll(async () => {
   routers.createAssistantRouter = createAssistantRouter({ assistant, state, auth });
   // Agents (M37), with the runner's key issued the way turning Agents on issues it.
   agentStore = createAgentStore({ databasePath: state.databasePath });
-  agents = createAgentService({ state, store: agentStore, registry, helper, inventory, redactor: createRedactor(), tokenPath: path.join(directory, "agents", "runner.token"), hostLoad: () => 0 });
+  // A machine of 16 processors on 8 cores, whatever runs the test: agents may use at most processors less two (M40).
+  agents = createAgentService({ state, store: agentStore, registry, helper, inventory, redactor: createRedactor(), tokenPath: path.join(directory, "agents", "runner.token"), hostLoad: () => 0, processors: 16, physicalCoreCount: 8 });
   routers.createAgentsRouter = createAgentsRouter({ agents, state, auth });
   routers.createAgentRunnerRouter = createAgentRunnerRouter({ agents });
+  // Push approvals (M25.2), with a VAPID key made here rather than read from the state directory.
+  const vapid = vapidKeysFrom(generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey);
+  pushApprovals = createPushApprovals({ store: state, loadVapid: () => vapid });
+  routers.createPushRouter = createPushRouter({ push: pushApprovals, auth });
 
   const app = express();
   app.use(securityHeaders({}));
@@ -606,7 +668,7 @@ beforeAll(async () => {
   app.use("/api/v1", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireCsrf(request, response, next)));
   app.use("/api/v1", apiRolePolicy());
   app.use("/api/v1/people", auth.requireRole("owner"));
-  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter", "createRunbookRouter", "createAssistantRouter", "createAgentsRouter"]) {
+  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter", "createRunbookRouter", "createAssistantRouter", "createAgentsRouter", "createPushRouter"]) {
     app.use("/api/v1", routers[name]);
   }
   app.use((_request, response) => { response.status(404).json({ error: "Not found" }); });
@@ -630,7 +692,8 @@ beforeAll(async () => {
   const ownerSchedule = state.createSchedule({ operationId: "apt.refresh", parameters: { note: "owner-marker-schedule" }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id, nextDueAt: new Date(Date.now() + day).toISOString() });
   const operatorSchedule = state.createSchedule({ operationId: "apt.refresh", parameters: { note: "operator-marker-schedule" }, frequency: "daily", minute: 0, hour: 4, createdBy: operator.id, nextDueAt: new Date(Date.now() + day).toISOString() });
 
-  fixtures.ownerFlow = state.createFlow({ name: "Nightly", steps: [{ operationId: "apt.refresh", parameters: {} }], createdBy: owner.id });
+  // A push to a topic whose path is the password (ntfy), and an owner-only step: both the owner's to read (sweep 1).
+  fixtures.ownerFlow = state.createFlow({ name: "Nightly", steps: [{ operationId: "apt.refresh", parameters: {} }, { operationId: "http.request", parameters: { url: "https://ntfy.example/owner-marker-topic", method: "POST", body: "owner-marker body", credentialName: "ntfy-token" } }, { operationId: "credentials.remove", parameters: { name: "ntfy-old" } }], createdBy: owner.id });
   state.markFlowRun(fixtures.ownerFlow.id, { result: "stopped at step 1 (Refresh package lists): owner-marker failure", jobIds: [fixtures.ownerJob.id] });
   fixtures.operatorFlow = state.createFlow({ name: "Tidy", steps: [{ operationId: "apt.refresh", parameters: {} }], createdBy: operator.id });
   state.markFlowRun(fixtures.operatorFlow.id, { result: "completed", jobIds: [fixtures.operatorJob.id] });
@@ -697,10 +760,15 @@ beforeAll(async () => {
   await agents.runnerTool(ownerClaim.run.id, ownerClaim.lease, "plan_propose", JSON.stringify({ title: "Refresh owner-marker", reason: "owner-marker reason", steps: [{ operationId: "apt.refresh", parameters: {} }] }));
   await agents.runnerFinish(ownerClaim.run.id, ownerClaim.lease, { outcome: "completed", answer: "owner-marker answer" });
   fixtures.ownerRun = ownerClaim.run.id;
+  fixtures.ownerCard = agents.listProposals(ownerCaller)[0].id;
   agents.startRun(operatorCaller, fixtures.helper.id, { kind: "ask", question: "operator-marker question" });
   const operatorClaim = await agents.runnerNext(runnerId, { waitMs: 0 });
   await agents.runnerFinish(operatorClaim.run.id, operatorClaim.lease, { outcome: "completed", answer: "operator-marker answer" });
   fixtures.operatorRun = operatorClaim.run.id;
+
+  // The owner's phone, with pushes on (M25.2); nobody else's devices, and no endpoint, may be shown.
+  const p256dh = Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 7)]).toString("base64url");
+  pushApprovals.subscribe({ id: owner.id, role: "owner" }, { subscription: { endpoint: "https://web.push.apple.com/owner-marker-endpoint", keys: { p256dh, auth: Buffer.alloc(16, 1).toString("base64url") } }, origin: "https://homebox.example.ts.net", label: "owner-marker phone" });
 
   for (const role of roles) sessions[role] = await signIn(role);
 });
@@ -768,6 +836,14 @@ describe("changes", () => {
         expect((await call(method, variant.url, sessions.viewer, { body: {} })).status, `viewer ${method} ${variant.url}`).toBe(403);
         if (ownerOnlyChange.test(template)) expect((await call(method, variant.url, sessions.operator, { body: {} })).status, `operator ${method} ${variant.url}`).toBe(403);
       }
+    }
+  });
+
+  it("refuses every change, question and ask without the CSRF token, to the owner as to anyone (M50)", async () => {
+    for (const route of [...changeRoutes, ...questionRoutes, ...agentAskRoutes, ...agentOwnRoutes]) {
+      const [method, template] = route.split(" ");
+      const variant = variantsOf(template)[0];
+      expect((await call(method, variant.url, sessions.owner, { body: {}, csrf: false })).status, `${method} ${variant.url} without CSRF`).toBe(403);
     }
   });
 
@@ -883,7 +959,7 @@ describe("the agents runner's own door (M37)", () => {
     expect(next.status).toBe(200);
     expect(await next.json()).toMatchObject({ claim: null, enabled: true, paused: false });
     expect((await post("/api/v1/agent-runner/usage", { token: runnerToken })).status).toBe(200);
-    for (const action of ["tools", "steps", "finish"]) expect((await post(`/api/v1/agent-runner/runs/${fixtures.ownerRun}/${action}`, { token: runnerToken })).status, action).toBe(409);
+    for (const action of ["tools", "steps", "finish", "model"]) expect((await post(`/api/v1/agent-runner/runs/${fixtures.ownerRun}/${action}`, { token: runnerToken })).status, action).toBe(409);
   });
 
   it("opens nothing else: every other route treats its key as no one", async () => {

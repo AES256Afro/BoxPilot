@@ -17,7 +17,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createOpenAiClient } from "../assistant/model-client.mjs";
 import { productVersion } from "../version.mjs";
-import { createRunner, createRunnerApi } from "./runner.mjs";
+import { createRunner, createRunnerApi, runnerApiBase } from "./runner.mjs";
 import { createRuntime } from "./runtime.mjs";
 import { createUsageReader } from "./usage.mjs";
 
@@ -31,7 +31,7 @@ async function readToken() {
   return token;
 }
 
-const base = (process.env.BOXPILOT_AGENTS_API ?? `http://127.0.0.1:${process.env.BOXPILOT_PORT ?? "8787"}`).replace(/\/$/, "");
+const base = runnerApiBase(process.env);
 if (!/^http:\/\/(127\.\d+\.\d+\.\d+|localhost|\[::1\]):\d+$/.test(base)) {
   console.error("[boxpilot-agents] BOXPILOT_AGENTS_API must be BoxPilot on this machine, like http://127.0.0.1:8787");
   process.exit(2);

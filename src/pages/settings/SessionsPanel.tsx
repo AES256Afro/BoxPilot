@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Notice, Panel, StatusChip, Table, Tag, type TableColumn } from "../../ui";
+import { Button, Notice, Panel, Sheet, StatusChip, Table, Tag, type TableColumn } from "../../ui";
 
 /**
  * Settings → Where you're signed in (M19.4): every live session for this account, with where and
@@ -53,6 +53,8 @@ export default function SessionsPanel({ csrfToken }: { csrfToken: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Signing out every other device asks first (M49): a slip signed a phone out, its approval pushes with it.
+  const [confirmOthers, setConfirmOthers] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -103,7 +105,7 @@ export default function SessionsPanel({ csrfToken }: { csrfToken: string }) {
       title="Where you're signed in"
       count={sessions ? sessions.length : undefined}
       meta={sessions ? <><b>{others}</b> other{others === 1 ? "" : "s"}</> : undefined}
-      actions={others > 0 ? <Button disabled={busy} onClick={() => void revokeOthers()}>Sign out everywhere else ({others})</Button> : undefined}
+      actions={others > 0 ? <Button disabled={busy} onClick={() => setConfirmOthers(true)}>Sign out everywhere else ({others})</Button> : undefined}
       footer="A sign-in from an address this account has not used before is sent to your notification target."
       className="settings-panel settings-panel--wide"
     >
@@ -119,6 +121,13 @@ export default function SessionsPanel({ csrfToken }: { csrfToken: string }) {
           {message && <Notice tone="success" live>{message}</Notice>}
           {error && <Notice tone="danger" live>{error}</Notice>}
         </div>
+      )}
+      {confirmOthers && (
+        <Sheet side="center" size="sm" kicker="Where you're signed in" title={`Sign out everywhere else (${others})?`} onClose={() => setConfirmOthers(false)}
+          footer={<><Button variant="ghost" onClick={() => setConfirmOthers(false)}>Keep them</Button><Button variant="primary" busy={busy} onClick={() => void revokeOthers().then(() => setConfirmOthers(false))}>Sign {others === 1 ? "it" : "them"} out</Button></>}>
+          <p>Every other device signs out at once and has to sign in again, a phone's approval pushes included. This one stays signed in.</p>
+          <ul className="settings-list">{(sessions ?? []).filter((entry) => entry.id !== currentId).map((entry) => <li key={entry.id}>{deviceLabel(entry.userAgent)}</li>)}</ul>
+        </Sheet>
       )}
     </Panel>
   );

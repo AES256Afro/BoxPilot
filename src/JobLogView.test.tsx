@@ -89,6 +89,13 @@ describe("the job log, viewable from wherever the action lives", () => {
     expect(await screen.findByText("recovered output")).toBeTruthy();
   });
 
+  it("says a job handed in whose output is gone from the history is gone, with no retry that could only fail", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ error: "Job not found", code: "job_not_found" }, 404)));
+    render(<JobLogView job={job({ title: "Back up Immich" })} />);
+    expect(await screen.findByText(/Back up Immich is no longer in the history/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try reading again" })).toBeNull();
+  });
+
   it("recovers a failed job lookup and clears a prior missing-job state when the id changes", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => input.toString().includes("missing") ? json({}, 404) : input.toString().endsWith("/output") ? json({ output: "found" }) : json({ job: job({}) }));
     vi.stubGlobal("fetch", fetchMock);

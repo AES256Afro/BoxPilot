@@ -92,8 +92,11 @@ function collectorNotice() {
  * an account that is not the owner (M29.4): it counts that account's own failures, because the
  * recovery kit's job list is every account's and Activity shows them only their own. Without a
  * reader, such a view counts none rather than everyone's.
+ *
+ * @param {{ recoveryKit?: any, inventory?: any, listJobs?: ((createdBy: string) => any) | null, now?: () => Date, version?: string }} options
  */
 export function createActionCenterService({ recoveryKit, inventory = null, listJobs = null, now = () => new Date(), version = productVersion } = {}) {
+  /** @param {{ createdBy?: string }} [options] */
   async function inspect({ createdBy } = {}) {
     let kit;
     try {

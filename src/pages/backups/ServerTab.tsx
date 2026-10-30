@@ -96,7 +96,7 @@ export default function ServerTab({ csrfToken, role, loading, backups, protectio
         ) : undefined}
       >
         {protection && !ready && (
-          <Notice tone="info" className="backups-inset" title="Encrypted second copies are not ready">{protection.destination?.blockers?.[0] ?? "The restic repository needs setting up in a terminal."}</Notice>
+          <Notice tone="info" className="backups-inset" title="Encrypted second copies are not ready">{protection.destination?.blockers?.[0] ?? "They need restic on this server: Repair Center offers to install it, under Prerequisites, and sets the repository up from there."}</Notice>
         )}
         <Table
           caption="Backups of BoxPilot's database"

@@ -1,0 +1,813 @@
+/*
+ * Home + Ops (M41), the default look, as docs/design-directions/05-looks.html drew it (blendHome,
+ * blendStorage, settings). The Launcher is the frame of every page: its wallpaper behind
+ * everything, a floating glass sidebar, frosted glass panels, Figtree and the white or ink pills.
+ * The Ops console supplies what goes inside: the number strip, a tier on every action, JetBrains
+ * Mono for figures, compact tables. The accent chosen in Appearance (--look-accent) is what is
+ * measured; amber is something to do.
+ *
+ * How: the console's own family (--cc-*), which hundreds of rules draw from, is pointed at the
+ * Launcher's (--lx-*, --wall-*), so every page reads as glass on wallpaper; then the surfaces the
+ * console draws square (panels, the strip, tabs, buttons, tables, the bar, the sidebar, the sheets)
+ * are drawn as the drawing's glass. Sizes are the drawing's: 1em there is 19.46 px at 1440 wide.
+ * Every selector starts with :root[data-look="blend"] (src/looks/looksCss.test.ts).
+ */
+
+/* ── The values: light ─────────────────────────────────────────────────────── */
+:root[data-look="blend"] {
+  --font-sans: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-condensed: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-display: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Small capitals over a figure or a column, as the drawing sets them. */
+  --blend-label: "IBM Plex Sans Condensed", "Arial Narrow", "Roboto Condensed", ui-sans-serif, sans-serif;
+
+  /* The frame: 19.5 px from the window, the sidebar 245 px, the page 19.5 px beside it. */
+  --blend-gutter: 19.5px;
+  --blend-side: 245px;
+  --sidebar-width: calc(var(--blend-side) + 2 * var(--blend-gutter));
+  --blend-radius: 21px;
+  --blend-glass-filter: blur(var(--look-blur)) saturate(1.3);
+
+  /* The Launcher's, daylight: what the drawing's glass is made of. */
+  --blend-shadow: 0 12px 31px rgba(40, 60, 80, 0.16);
+  --blend-inset: rgba(255, 255, 255, 0.6);
+  --blend-line-strong: rgba(19, 33, 44, 0.22);
+  --blend-sheet: rgba(248, 250, 252, 0.9);
+  --blend-tier-medium: #f59e0b;
+  --blend-mark: #2f6fe4;
+  --blend-mark-deep: #1846b0;
+
+  /* The console's family, pointed at the Launcher's. */
+  --cc-canvas: #eef0f1;
+  --cc-topbar: var(--lx-glass-solid);
+  --cc-rail: var(--lx-glass-solid);
+  --cc-panel: var(--lx-glass);
+  --cc-raised: var(--lx-glass-raised);
+  --cc-inset: var(--blend-inset);
+  --cc-line: var(--lx-hairline);
+  --cc-hairline: var(--lx-hairline);
+  --cc-line-strong: var(--blend-line-strong);
+  --cc-text: var(--lx-ink);
+  --cc-text-strong: var(--lx-ink);
+  --cc-muted: var(--lx-ink-muted);
+  --cc-icon: var(--lx-ink-muted);
+  --cc-amber: var(--lx-warning);
+  --cc-amber-ink: var(--lx-warning-ink);
+  --cc-amber-bg: var(--lx-warning-bg);
+  --cc-amber-border: rgba(180, 83, 9, 0.35);
+  --cc-cyan: var(--look-accent);
+  --cc-cyan-fill: color-mix(in srgb, var(--look-accent) 14%, transparent);
+  --cc-green: var(--lx-good);
+  --cc-green-bg: var(--lx-good-bg);
+  --cc-green-border: rgba(21, 128, 61, 0.35);
+  --cc-red: var(--lx-danger);
+  --cc-red-text: var(--lx-danger-text);
+  --cc-red-bg: var(--lx-danger-bg);
+  --cc-red-border: rgba(200, 30, 30, 0.35);
+  --cc-track: var(--lx-track);
+
+  /* What the components read: the Launcher's ink, the chosen accent for selection and measure. */
+  --canvas: var(--cc-canvas);
+  --surface: var(--lx-glass);
+  --surface-raised: var(--lx-glass-raised);
+  --surface-muted: var(--blend-inset);
+  --surface-hover: var(--lx-glass-raised);
+  --surface-header: transparent;
+  --surface-inset: var(--blend-inset);
+  --surface-overlay: var(--blend-sheet);
+  --code-bg: var(--blend-inset);
+  --border: var(--lx-hairline);
+  --border-subtle: var(--lx-hairline);
+  --border-strong: var(--blend-line-strong);
+  --border-input: var(--blend-line-strong);
+  --text: var(--lx-ink);
+  --text-strong: var(--lx-ink);
+  --text-muted: var(--lx-ink-muted);
+  --text-secondary: var(--lx-ink);
+  --accent: var(--look-accent);
+  --accent-text-on: var(--look-accent-ink);
+  --accent-faint: color-mix(in srgb, var(--look-accent) 10%, transparent);
+  --accent-bg: color-mix(in srgb, var(--look-accent) 12%, transparent);
+  --accent-border: color-mix(in srgb, var(--look-accent) 40%, transparent);
+  --accent-focus: var(--lx-focus);
+  --link: var(--lx-ink);
+  --meter-track: var(--lx-track);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --status-good: var(--lx-good);
+  --status-good-text: var(--lx-good-text);
+  --status-good-bg: var(--lx-good-bg);
+  --status-good-border: transparent;
+  --status-warning: var(--lx-warning);
+  --status-warning-text: var(--lx-warning-text);
+  --status-warning-bg: var(--lx-warning-bg);
+  --status-warning-border: transparent;
+  --status-danger: var(--lx-danger);
+  --status-danger-text: var(--lx-danger-text);
+  --status-danger-bg: var(--lx-danger-bg);
+  --status-danger-border: transparent;
+  --status-neutral: var(--lx-ink-muted);
+  --status-neutral-text: var(--lx-ink);
+  --status-neutral-bg: var(--lx-glass-raised);
+  --status-neutral-border: transparent;
+  --status-unknown: var(--lx-ink-muted);
+  --status-unknown-text: var(--lx-ink-muted);
+  --status-unknown-bg: transparent;
+  --status-unknown-border: var(--lx-ink-muted);
+  --risk-low: var(--lx-good);
+  --risk-low-text: var(--lx-good-text);
+  --risk-low-bg: var(--lx-good-bg);
+  --risk-low-border: transparent;
+  --risk-medium: var(--blend-tier-medium);
+  --risk-medium-text: var(--lx-warning-text);
+  --risk-medium-bg: var(--lx-warning-bg);
+  --risk-medium-border: transparent;
+  --risk-high: var(--lx-pill-high);
+  --risk-high-text: var(--lx-danger-text);
+  --risk-high-bg: var(--lx-danger-bg);
+  --risk-high-border: transparent;
+  --modal-bg: rgba(19, 33, 44, 0.28);
+  color-scheme: light;
+}
+
+/* ── The values: dark (following the device, then chosen) ─────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root[data-look="blend"]:not([data-theme="light"]) {
+    --blend-shadow: 0 12px 31px rgba(0, 0, 0, 0.28);
+    --blend-inset: rgba(0, 0, 0, 0.2);
+    --blend-line-strong: rgba(255, 255, 255, 0.24);
+    --blend-sheet: rgba(29, 44, 57, 0.92);
+    --cc-canvas: #172430;
+    --cc-amber-border: rgba(251, 191, 36, 0.4);
+    --cc-green-border: rgba(74, 222, 128, 0.35);
+    --cc-red-border: rgba(253, 164, 164, 0.4);
+    --modal-bg: rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
+  }
+}
+:root[data-look="blend"][data-theme="dark"] {
+  --blend-shadow: 0 12px 31px rgba(0, 0, 0, 0.28);
+  --blend-inset: rgba(0, 0, 0, 0.2);
+  --blend-line-strong: rgba(255, 255, 255, 0.24);
+  --blend-sheet: rgba(29, 44, 57, 0.92);
+  --cc-canvas: #172430;
+  --cc-amber-border: rgba(251, 191, 36, 0.4);
+  --cc-green-border: rgba(74, 222, 128, 0.35);
+  --cc-red-border: rgba(253, 164, 164, 0.4);
+  --modal-bg: rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+/* Solid panels (Reduce transparency, or a device that asks for it): no glass anywhere. */
+:root[data-look="blend"][data-solid] { --blend-sheet: var(--lx-glass-solid); }
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-look="blend"] {
+    --lx-glass: var(--lx-glass-solid);
+    --lx-glass-raised: var(--lx-glass-solid);
+    --blend-sheet: var(--lx-glass-solid);
+    --look-blur: 0px;
+  }
+}
+
+/* ── The wallpaper behind every page, fixed, and nothing painted over it ──── */
+:root[data-look="blend"] body { background: linear-gradient(160deg, var(--wall-base-start), var(--wall-base-end)) fixed; }
+:root[data-look="blend"] .app-shell {
+  position: relative;
+  isolation: isolate;
+  color: var(--lx-ink);
+  background: transparent;
+  font-family: var(--font-sans);
+}
+:root[data-look="blend"] .app-shell::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  height: auto;
+  background:
+    radial-gradient(62% 82% at 10% 6%, var(--wall-glow-sea), transparent 64%),
+    radial-gradient(50% 68% at 94% 8%, var(--wall-glow-sun), transparent 62%),
+    radial-gradient(70% 70% at 62% 108%, var(--wall-glow-deep), transparent 65%),
+    linear-gradient(160deg, var(--wall-base-start), var(--wall-base-end));
+  content: "";
+  pointer-events: none;
+}
+:root[data-look="blend"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--lx-focus);
+  outline-offset: 2px;
+}
+:root[data-look="blend"] ::selection { color: var(--look-accent-ink); background: var(--look-accent); }
+
+/* ── The sidebar: a floating glass column, as the drawing's ──────────────── */
+@media (min-width: 761px) {
+  :root[data-look="blend"] .sidebar-nav {
+    top: var(--blend-gutter);
+    bottom: calc(var(--blend-gutter) + var(--shell-bottom-inset, 0px));
+    left: var(--blend-gutter);
+    gap: 1px;
+    width: var(--blend-side);
+    padding: 17.5px 11.7px;
+    border: 1px solid var(--lx-glass-border);
+    border-radius: var(--blend-radius);
+    color: var(--lx-ink);
+    background: var(--lx-glass);
+    box-shadow: var(--blend-shadow);
+    -webkit-backdrop-filter: var(--blend-glass-filter);
+    backdrop-filter: var(--blend-glass-filter);
+    font-family: var(--font-sans);
+    scrollbar-color: var(--blend-line-strong) transparent;
+  }
+}
+:root[data-look="blend"] .sidebar-host { gap: 11.7px; margin-bottom: 3.9px; padding: 2px 9.7px 15.6px; border-bottom-color: var(--lx-hairline); }
+:root[data-look="blend"] .sidebar-host__mark {
+  width: 33.5px;
+  height: 33.5px;
+  border-radius: 10px;
+  color: #ffffff;
+  background: linear-gradient(160deg, var(--blend-mark), var(--blend-mark-deep));
+  font: 800 15.2px/1 var(--font-sans);
+}
+:root[data-look="blend"] .sidebar-host__name { color: var(--lx-ink); font-size: 17.5px; font-weight: 700; line-height: 1.2; }
+:root[data-look="blend"] .sidebar-host__facts { gap: 5px; color: var(--lx-ink-muted); font-size: 12.45px; }
+:root[data-look="blend"] .sidebar-host__facts::before { width: 7.5px; height: 7.5px; background: var(--lx-good); }
+:root[data-look="blend"] .sidebar-host__facts[data-status="warning"]::before { background: var(--lx-warning); }
+:root[data-look="blend"] .sidebar-host__facts[data-status="danger"]::before { background: var(--lx-danger); }
+:root[data-look="blend"] .sidebar-host__facts:is([data-status="unknown"], [data-status="neutral"])::before { box-sizing: border-box; border: 1.5px dashed var(--lx-ink-muted); background: transparent; }
+:root[data-look="blend"] .sidebar-group { gap: 1px; }
+:root[data-look="blend"] .sidebar-group__title { margin: 0; padding: 10px 10px 3.7px; color: var(--lx-ink-muted); font: 600 10.5px/1.2 var(--blend-label); letter-spacing: 0.13em; }
+:root[data-look="blend"] .sidebar-group__list,
+:root[data-look="blend"] .sidebar-foot { gap: 1px; }
+:root[data-look="blend"] .sidebar-foot { padding-top: 8px; }
+:root[data-look="blend"] .sidebar-item {
+  gap: 8.9px;
+  min-height: 0;
+  padding: 5px 8.1px;
+  border-radius: 8.1px;
+  color: var(--lx-ink);
+  font: 500 14.8px/1.3 var(--font-sans);
+}
+:root[data-look="blend"] .sidebar-item:hover { color: var(--lx-ink); background: var(--lx-glass); }
+:root[data-look="blend"] .sidebar-item[aria-current="page"] { color: var(--lx-ink); background: var(--lx-glass-raised); font-weight: 700; box-shadow: inset 0 0 0 1px var(--lx-glass-border); }
+:root[data-look="blend"] .sidebar-item__icon { width: 17.7px; height: 17.7px; opacity: 0.85; }
+:root[data-look="blend"] .sidebar-item__badge { padding: 1.4px 5.2px; color: var(--lx-warning-text); background: var(--lx-warning-bg); font: 700 11.5px/1.2 var(--font-mono); }
+
+/* ── The top bar: none, as drawn. The page's name opens the page, the search is a glass pill ── */
+:root[data-look="blend"] .topbar {
+  position: relative;
+  top: auto;
+  z-index: 10;
+  align-items: flex-start;
+  gap: 10px 16px;
+  min-height: 0;
+  padding: var(--blend-gutter) var(--blend-gutter) 0 0;
+  border-bottom: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-look="blend"] .topbar-left { flex: 1 1 auto; align-items: center; gap: 14px; min-width: 0; }
+/* The page's name is the page's head: big, in Figtree, as the drawing's "Storage". The server's
+   name is in the sidebar, so the bar's copy of it is only read out. */
+:root[data-look="blend"] .cc-crumb { align-items: center; gap: 8px; min-width: 0; }
+:root[data-look="blend"] .cc-crumb :is(.cc-crumb__host, .cc-crumb__sep) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+:root[data-look="blend"] .topbar-slot { min-width: 0; }
+:root[data-look="blend"] .cc-crumb h1 {
+  flex: 0 1 auto;
+  min-width: 0;
+  /* Room for the descenders under the one line, which cuts off rather than wrapping. */
+  margin-bottom: -0.1em;
+  padding-bottom: 0.1em;
+  overflow: hidden;
+  color: var(--lx-ink);
+  font: 800 44.8px/1 var(--font-display);
+  letter-spacing: -0.025em;
+  text-overflow: ellipsis;
+  text-transform: none;
+}
+:root[data-look="blend"] .cc-crumb .ui-info-toggle { width: 28px; height: 28px; }
+:root[data-look="blend"] .cc-kv { display: none; }
+/* Home and Ops are both in the sidebar; the switch is the phone's way to them. */
+@media (min-width: 761px) {
+  :root[data-look="blend"] .view-switch { display: none; }
+}
+:root[data-look="blend"] .view-switch,
+:root[data-look="blend"] .ui-theme-switch {
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 999px;
+  background: var(--lx-glass);
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+}
+:root[data-look="blend"] :is(.view-switch__option, .ui-theme-switch__option) { border: 0; border-radius: 999px; color: var(--lx-ink-muted); }
+:root[data-look="blend"] :is(.view-switch__option, .ui-theme-switch__option):hover { color: var(--lx-ink); }
+:root[data-look="blend"] .app-shell :is(.view-switch__option[aria-current="page"], .ui-theme-switch__option[aria-checked="true"]) { border-color: transparent; color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: none; }
+/* The search, at the top right as drawn: "Search…" and Ctrl K in a glass pill. */
+:root[data-look="blend"] .command-trigger {
+  order: 2;
+  flex: 0 1 340px;
+  max-width: 340px;
+  min-height: 34px;
+  margin: 17.5px 0 -7px;
+  padding: 0 13px;
+  gap: 9.7px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 999px;
+  color: var(--lx-ink-muted);
+  background: var(--lx-glass);
+  box-shadow: none;
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+  font: 400 14.8px/1 var(--font-sans);
+}
+:root[data-look="blend"] .command-trigger:hover { color: var(--lx-ink); border-color: var(--lx-glass-border); }
+:root[data-look="blend"] .command-trigger__icon { width: 15px; height: 15px; }
+:root[data-look="blend"] .command-trigger__keys { padding: 0.6px 4.6px; border: 1px solid currentColor; border-radius: 3.5px; color: inherit; background: transparent; font: 600 11.5px/1.2 var(--font-mono); opacity: 0.75; }
+/* After the search, only the bell and the account menu: the menu holds Activity, light or dark,
+   Settings and Sign out, whose own controls stay mounted (hidden) so they still open from
+   anywhere. The elevated session's lock stays in sight while it lasts. */
+:root[data-look="blend"] .topbar-right { order: 3; flex: none; gap: 4px; margin: 19.5px 0 -5px; }
+:root[data-look="blend"] .topbar :is(.ui-theme-switch, .bar-activity, .bar-sign-out, .signed-in-user, .bar-tiers, .bar-role) { display: none; }
+:root[data-look="blend"] .account-menu { display: flex; }
+:root[data-look="blend"] .account-menu__button { width: 34px; height: 34px; border-radius: 50%; }
+:root[data-look="blend"] .account-menu__avatar { width: 28px; height: 28px; color: var(--lx-avatar-ink); background: var(--lx-avatar); font: 700 12.5px/1 var(--font-sans); }
+:root[data-look="blend"] .account-menu__button[aria-expanded="true"] .account-menu__avatar { box-shadow: 0 0 0 2px var(--lx-badge-ring), 0 0 0 4px var(--lx-pill); }
+:root[data-look="blend"] .account-menu__list {
+  min-width: 216px;
+  padding: 7px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 16px;
+  color: var(--lx-ink);
+  background: var(--blend-sheet);
+  box-shadow: var(--blend-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  backdrop-filter: blur(24px) saturate(1.3);
+  font-family: var(--font-sans);
+}
+:root[data-look="blend"] .account-menu__who { border-bottom-color: var(--lx-hairline); color: var(--lx-ink-muted); }
+:root[data-look="blend"] .account-menu__group { border-color: var(--lx-hairline); }
+:root[data-look="blend"] .account-menu__item { border-radius: 9px; color: var(--lx-ink); font-size: 14px; }
+:root[data-look="blend"] .account-menu__item:is(:hover, :focus-visible) { color: var(--lx-ink); background: var(--lx-glass-raised); }
+:root[data-look="blend"] .account-menu__item--choice { border-radius: 999px; font-size: 13px; }
+:root[data-look="blend"] .account-menu__item--choice[aria-checked="true"] { color: var(--lx-pill-ink); background: var(--lx-pill); }
+:root[data-look="blend"] .account-menu__item--out { color: var(--lx-danger-text); }
+:root[data-look="blend"] .bar-button { min-height: 30px; padding: 0 9px; border-radius: 999px; color: var(--lx-ink-muted); font: 600 13px/1 var(--font-sans); }
+:root[data-look="blend"] .bar-button:hover,
+:root[data-look="blend"] .bar-button[aria-expanded="true"] { color: var(--lx-ink); background: var(--lx-glass); }
+:root[data-look="blend"] .bar-button[data-live] { color: var(--lx-ink); }
+:root[data-look="blend"] .bar-badge { color: var(--lx-warning-ink); background: var(--lx-warning); }
+:root[data-look="blend"] .bar-label { border-color: var(--lx-glass-border); border-radius: 999px; color: var(--lx-ink-muted); font-family: var(--font-sans); }
+:root[data-look="blend"] .connection-pill { border-color: var(--lx-glass-border); color: var(--lx-ink-muted); background: var(--lx-glass); font-family: var(--font-sans); }
+:root[data-look="blend"] .connection-pill::before { background: var(--lx-good); }
+:root[data-look="blend"] .signed-in-user { color: var(--lx-ink); font-family: var(--font-sans); font-size: 13px; }
+:root[data-look="blend"] .ui-theme-switch { padding: 2px; }
+
+/* ── The page: beside the sidebar, under the name, the drawing's gaps ─────── */
+:root[data-look="blend"] .content {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 5.5px var(--blend-gutter) calc(var(--shell-bottom-inset, 0px) + var(--blend-gutter)) 0;
+}
+:root[data-look="blend"] .content--console { gap: 16.5px; }
+/* The drawing's gap between panels, in each page's own column. */
+:root[data-look="blend"] .content--console > :is(div, section) { row-gap: 16.5px; }
+:root[data-look="blend"] .settings-grid { gap: 16.5px; }
+:root[data-look="blend"] .cc { gap: 16.5px; }
+
+/* The page's head under its name: the verdict chip, a sentence, the facts in mono. */
+:root[data-look="blend"] .ui-page-header { gap: 6px 12px; }
+:root[data-look="blend"] .ui-page-header__actions { gap: 6px; }
+:root[data-look="blend"] .ui-page-header__actions .ui-button { min-height: 26px; font-size: 12.5px; }
+:root[data-look="blend"] .ui-page-header__actions .ui-info-toggle { width: 26px; height: 26px; }
+:root[data-look="blend"] .ui-page-header__facts { gap: 5px 10px; }
+:root[data-look="blend"] .ui-page-header__summary { color: var(--lx-ink); font-size: 15.6px; line-height: 1.3; }
+:root[data-look="blend"] .ui-page-header__meta { color: var(--lx-ink); font-size: 14.3px; line-height: 1.4; }
+:root[data-look="blend"] .ui-page-header__meta b { color: var(--lx-ink); font-weight: 500; }
+:root[data-look="blend"] .ui-page-header__about { border-left-color: var(--lx-glass-border); color: var(--lx-ink-muted); }
+:root[data-look="blend"] .ui-info-toggle { width: 28px; height: 28px; border: 1px solid var(--lx-glass-border); border-radius: 50%; color: var(--lx-ink-muted); background: var(--lx-glass); }
+:root[data-look="blend"] .ui-info-toggle:hover,
+:root[data-look="blend"] .ui-info-toggle[aria-expanded="true"] { color: var(--lx-ink); background: var(--lx-glass-raised); }
+
+/* ── Chips and tiers: the drawing's small tags ───────────────────────────── */
+:root[data-look="blend"] .ui-chip { gap: 5px; padding: 3.5px 7px; border: 0; border-radius: 5px; font: 700 11px/1.25 var(--font-sans); }
+:root[data-look="blend"] .ui-chip .ui-mark { width: 7px; height: 7px; }
+:root[data-look="blend"] .ui-chip--unknown { border: 1px dashed var(--lx-ink-muted); }
+:root[data-look="blend"] .ui-risk { gap: 4px; padding: 3.6px 5px; border: 0; border-radius: 3.5px; font: 700 11.3px/1 var(--font-mono); letter-spacing: 0.06em; }
+:root[data-look="blend"] .ui-tag { padding: 1.3px 5px; border-radius: 3.5px; color: var(--lx-ink-muted); background: var(--lx-glass-raised); font-size: 10.6px; }
+:root[data-look="blend"] .ui-tag--tier { border: 0; font-weight: 700; }
+:root[data-look="blend"] .ui-tag--info { color: var(--look-accent); background: var(--cc-cyan-fill); }
+:root[data-look="blend"] .cc-tag { border-radius: 3.5px; color: var(--lx-ink-muted); background: var(--lx-glass-raised); }
+
+/* ── Glass: panels, cards, notices and the strip ─────────────────────────── */
+:root[data-look="blend"] :is(.ui-panel, .ui-card, .ui-metric-strip, .ui-job, .ui-kv--strip) {
+  border: 1px solid var(--lx-glass-border);
+  border-radius: var(--blend-radius);
+  background: var(--lx-glass);
+  box-shadow: var(--blend-shadow);
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+}
+:root[data-look="blend"] .ui-panel__head { gap: 4px 10px; min-height: 0; padding: 17px 19.5px 9px; border-bottom: 0; }
+:root[data-look="blend"] .ui-panel__title { gap: 9px; color: var(--lx-ink-muted); font: 700 12.45px/1.2 var(--font-sans); letter-spacing: 0.1em; }
+:root[data-look="blend"] .ui-panel__count { color: var(--lx-ink); font-family: var(--font-mono); font-weight: 600; }
+:root[data-look="blend"] .ui-panel__meta { color: var(--lx-ink-muted); font: 700 12.45px/1.3 var(--font-sans); }
+:root[data-look="blend"] .ui-panel__meta b { color: var(--lx-ink); font-weight: 700; }
+:root[data-look="blend"] .ui-panel__body { padding: 0 12px 12px; }
+/* Rows drawn to the body's edge keep their words in line with the heading. */
+:root[data-look="blend"] .ui-panel__body > :is(.need-list, p) { padding-inline: 7.5px; }
+:root[data-look="blend"] .ui-panel--padded > .ui-panel__body { gap: 11.7px; padding: 4px 19.5px 17.5px; }
+:root[data-look="blend"] .ui-panel__foot { padding: 9px 19.5px 12px; border-top-color: var(--lx-hairline); color: var(--lx-ink-muted); font: 400 12.5px/1.45 var(--font-sans); }
+:root[data-look="blend"] .ui-card { padding: 17.5px 19.5px; }
+:root[data-look="blend"] .cc .ops-quiet,
+:root[data-look="blend"] .ops-quiet { padding: 4px 0 8px; color: var(--lx-ink-muted); }
+:root[data-look="blend"] .cc .ops-grid { gap: 16.5px; }
+
+:root[data-look="blend"] .ui-notice {
+  gap: 6px 12px;
+  padding: 14px 19.5px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 16px;
+  background: var(--lx-glass);
+  box-shadow: none;
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+}
+:root[data-look="blend"] .ui-notice--success { background: linear-gradient(var(--lx-good-bg), var(--lx-good-bg)), var(--lx-glass); }
+:root[data-look="blend"] .ui-notice--warning { background: linear-gradient(var(--lx-warning-bg), var(--lx-warning-bg)), var(--lx-glass); }
+:root[data-look="blend"] .ui-notice--danger { background: linear-gradient(var(--lx-danger-bg), var(--lx-danger-bg)), var(--lx-glass); }
+:root[data-look="blend"] .ui-notice__title { font-size: 14.8px; }
+:root[data-look="blend"] .ui-notice__text { color: var(--lx-ink-muted); font-size: 12.5px; }
+
+/* The strip: one glass band, a figure to a cell, hairlines between (drawing: .bl-strip). */
+:root[data-look="blend"] .ui-metric-strip { gap: 0; overflow: hidden; border-radius: 19.5px; }
+:root[data-look="blend"] .ui-metric-strip .ui-metric {
+  min-height: 0;
+  padding: 12.6px 16.5px 13.6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: -1px 0 0 var(--lx-hairline), 0 -1px 0 var(--lx-hairline);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-look="blend"] .ui-metric {
+  position: relative;
+  gap: 3px;
+  padding: 12.6px 16.5px 13.6px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 19.5px;
+  background: var(--lx-glass);
+  box-shadow: var(--blend-shadow);
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+}
+:root[data-look="blend"] .ui-metric--link:hover { background: var(--lx-glass-raised); box-shadow: none; }
+:root[data-look="blend"] .ui-metric-strip .ui-metric--link:hover { background: var(--lx-glass); box-shadow: -1px 0 0 var(--lx-hairline), 0 -1px 0 var(--lx-hairline); }
+:root[data-look="blend"] .ui-metric__label { color: var(--lx-ink-muted); font: 600 10.5px/1.2 var(--blend-label); letter-spacing: 0.12em; }
+:root[data-look="blend"] .ui-metric__value { margin-top: 3px; color: var(--lx-ink); font-family: var(--font-mono); font-size: 25.3px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+:root[data-look="blend"] .ui-metric__value small { margin-left: 2px; color: var(--lx-ink-muted); font-size: 12.6px; font-weight: 500; }
+:root[data-look="blend"] .ui-metric[data-status] .ui-metric__value { color: var(--lx-ink); }
+:root[data-look="blend"] .ui-metric__caption { padding-right: 0; color: var(--lx-ink-muted); font-size: 11.7px; line-height: 1.35; }
+:root[data-look="blend"] .ui-metric__bar { height: 5.8px; margin-top: 4px; border-radius: 999px; background: var(--lx-track); }
+:root[data-look="blend"] .ui-metric__bar > i,
+:root[data-look="blend"] .ui-metric[data-status="good"] .ui-metric__bar > i,
+:root[data-look="blend"] .ui-metric[data-status="neutral"] .ui-metric__bar > i { border-radius: 999px; background: var(--look-accent); }
+:root[data-look="blend"] .ui-metric[data-status="warning"] .ui-metric__bar > i { background: var(--lx-warning); }
+:root[data-look="blend"] .ui-metric[data-status="danger"] .ui-metric__bar > i { background: var(--lx-danger); }
+:root[data-look="blend"] .ui-metric__graphic { position: absolute; top: 14.6px; right: 13.6px; bottom: auto; width: 66px; height: 23px; }
+:root[data-look="blend"] .cc .ui-metric__caption { padding-right: 0; }
+:root[data-look="blend"] .ui-metric:has(.ui-metric__graphic) .ui-metric__label { padding-right: 70px; }
+:root[data-look="blend"] .ui-spark__line { stroke: var(--look-accent); stroke-width: 1.6; }
+:root[data-look="blend"] .ui-spark__area { fill: transparent; }
+:root[data-look="blend"] .ui-metric[data-status] { border-left: 1px solid var(--lx-glass-border); }
+:root[data-look="blend"] .ui-metric-strip .ui-metric[data-status] { border-left: 0; }
+
+/* Key facts as a strip, and facts in mono. */
+:root[data-look="blend"] .ui-kv--strip .ui-kv__item { border-right-color: var(--lx-hairline); box-shadow: none; }
+:root[data-look="blend"] :is(.ui-kv--columns, .ui-kv--strip) .ui-kv__label { font-family: var(--blend-label); font-size: 10.5px; letter-spacing: 0.12em; }
+:root[data-look="blend"] .ui-kv__label { color: var(--lx-ink-muted); }
+:root[data-look="blend"] .ui-kv--rows .ui-kv__item { border-top-color: var(--lx-hairline); }
+:root[data-look="blend"] .ui-facts { color: var(--lx-ink-muted); }
+:root[data-look="blend"] .ui-facts b { color: var(--lx-ink); }
+
+/* ── Buttons: the Launcher's pills. Ink with white words (white with ink in the dark), the tier's
+   stripe on the leading edge; a quiet one is a glass pill. ── */
+:root[data-look="blend"] .ui-button,
+:root[data-look="blend"] a.ui-button {
+  min-height: 28px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--lx-pill-ink);
+  background: var(--lx-pill);
+  font: 600 13px/1.1 var(--font-sans);
+  text-decoration: none;
+}
+:root[data-look="blend"] .ui-button:hover:not(:disabled) { border-color: transparent; background: var(--lx-pill-hover); }
+:root[data-look="blend"] .ui-button--primary { color: var(--lx-pill-ink); background: var(--lx-pill); }
+:root[data-look="blend"] .ui-button--primary:hover:not(:disabled) { background: var(--lx-pill-hover); }
+:root[data-look="blend"] :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 21px; }
+:root[data-look="blend"] :is(.ui-button--risk-medium, .ui-button--risk-high)::before { top: calc(50% - 6.5px); bottom: auto; left: 11px; width: 2.7px; height: 13px; border-radius: 1px; }
+:root[data-look="blend"] .ui-button.ui-button--risk-medium::before { background: var(--blend-tier-medium); }
+:root[data-look="blend"] .ui-button.ui-button--risk-high::before { background: var(--lx-pill-high); }
+:root[data-look="blend"] .ui-button .ui-button__lock { color: var(--lx-pill-high); }
+:root[data-look="blend"] .ui-button .ui-button__tier { border-color: var(--lx-pill-high); border-radius: 999px; color: var(--lx-pill-high); background: transparent; font-family: var(--font-sans); }
+:root[data-look="blend"] .ui-button--ghost,
+:root[data-look="blend"] a.ui-button--ghost {
+  border: 1px solid var(--lx-glass-border);
+  color: var(--lx-ink);
+  background: var(--lx-glass-raised);
+}
+:root[data-look="blend"] .ui-button--ghost:hover:not(:disabled) { border-color: var(--lx-glass-border); color: var(--lx-ink); background: var(--lx-glass-raised); text-decoration: underline; }
+:root[data-look="blend"] .ui-button--ghost .ui-button__lock { color: var(--lx-danger-text); }
+:root[data-look="blend"] .ui-button--ghost .ui-button__tier { border-color: currentColor; color: var(--lx-danger-text); }
+:root[data-look="blend"] .ui-button:disabled { opacity: 0.45; }
+:root[data-look="blend"] .ui-copy .ui-button { min-height: 26px; }
+:root[data-look="blend"] .ui-sheet__close,
+:root[data-look="blend"] .approve-close,
+:root[data-look="blend"] .ui-notice__dismiss { border: 1px solid var(--lx-glass-border); border-radius: 50%; color: var(--lx-ink-muted); background: var(--lx-glass-raised); }
+
+/* ── Tables: compact and mono inside the glass (drawing: .bl-table) ───────── */
+:root[data-look="blend"] .ui-table { font-size: 12px; }
+:root[data-look="blend"] .ui-table th {
+  height: auto;
+  padding: 2px 7.2px 6px;
+  border-bottom: 1px solid var(--lx-hairline);
+  color: var(--lx-ink-muted);
+  background: transparent;
+  font: 600 10.4px/1.3 var(--blend-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+:root[data-look="blend"] .ui-table td { height: 29px; padding: 5px 7.2px; border-bottom: 1px solid var(--lx-hairline); color: var(--lx-ink); font-family: var(--font-mono); font-size: 12px; font-weight: 500; }
+:root[data-look="blend"] .ui-table tbody tr:last-child td { border-bottom: 0; }
+:root[data-look="blend"] .ui-table :is(th, td):first-child { padding-left: 7.5px; }
+:root[data-look="blend"] .ui-table :is(th, td):last-child { padding-right: 7.5px; }
+:root[data-look="blend"] .ui-table th[aria-sort]:first-child .ui-table__sort { padding-left: 7.5px; }
+:root[data-look="blend"] .ui-table tbody tr:hover td { background: color-mix(in srgb, var(--lx-glass-raised) 60%, transparent); }
+:root[data-look="blend"] .ui-table .ops-link { color: var(--lx-ink); }
+:root[data-look="blend"] .ui-table .ui-table__empty { font-family: var(--font-sans); }
+:root[data-look="blend"] .ui-table .ui-button { min-height: 26px; font-size: 12.5px; }
+
+/* ── Tabs and segmented: a glass pill with the one in use as the ink pill (drawing: .seg) ── */
+:root[data-look="blend"] .ui-tabs { gap: 16.5px; }
+:root[data-look="blend"] .ui-tabs__list {
+  width: fit-content;
+  max-width: 100%;
+  gap: 2px;
+  padding: 3.5px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: 999px;
+  background: var(--lx-glass);
+  box-shadow: var(--blend-shadow);
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+  scrollbar-width: none;
+}
+:root[data-look="blend"] .ui-tabs__tab { gap: 6px; min-height: 30px; margin: 0; padding: 0 14px; border: 0; border-radius: 999px; color: var(--lx-ink-muted); font: 600 13.5px/1 var(--font-sans); }
+:root[data-look="blend"] .ui-tabs__tab:hover { color: var(--lx-ink); background: var(--lx-glass); }
+:root[data-look="blend"] .ui-tabs__tab[aria-selected="true"] { color: var(--lx-pill-ink); background: var(--lx-pill); }
+:root[data-look="blend"] .ui-tabs__count { color: inherit; font-size: 11.5px; opacity: 0.7; }
+:root[data-look="blend"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: inherit; opacity: 0.8; }
+:root[data-look="blend"] .ui-segmented { gap: 1px; padding: 3.5px; border: 1px solid var(--lx-glass-border); border-radius: 999px; background: var(--lx-glass); }
+:root[data-look="blend"] .ui-segmented__option { min-height: 26px; padding: 0 11px; border-radius: 999px; color: var(--lx-ink); font: 600 12.5px/1 var(--font-sans); }
+:root[data-look="blend"] .ui-segmented__option[aria-checked="true"] { color: var(--lx-pill-ink); background: var(--lx-pill); box-shadow: none; }
+
+/* ── Inputs, switches, checks: glass wells and the drawing's switch ──────── */
+:root[data-look="blend"] :is(.ui-input, .ui-textarea, .ui-select__control) { border-color: var(--blend-line-strong); border-radius: 10px; color: var(--lx-ink); background: var(--blend-inset); }
+:root[data-look="blend"] .ui-secret .ui-input { border-radius: 10px 0 0 10px; }
+:root[data-look="blend"] .ui-secret__toggle { border-color: var(--blend-line-strong); border-radius: 0 10px 10px 0; color: var(--lx-ink); background: var(--lx-glass-raised); }
+:root[data-look="blend"] .ui-switch__control { border-radius: 999px; }
+:root[data-look="blend"] .ui-switch__track { width: 40px; height: 23px; border: 0; background: var(--lx-track); }
+:root[data-look="blend"] .ui-switch__thumb { top: 2.5px; left: 2.5px; width: 18px; height: 18px; background: #ffffff; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); }
+:root[data-look="blend"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: transparent; background: var(--lx-good); }
+:root[data-look="blend"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #ffffff; transform: translateX(17px); }
+:root[data-look="blend"] .ui-switch__state { color: var(--lx-ink-muted); font-family: var(--font-sans); font-weight: 700; }
+:root[data-look="blend"] .ui-check__mark { border-color: var(--blend-line-strong); border-radius: 5px; background: var(--blend-inset); }
+:root[data-look="blend"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: var(--look-accent); background: var(--look-accent); }
+:root[data-look="blend"] .ui-check__mark::after { border-color: var(--look-accent-ink); }
+:root[data-look="blend"] .ui-code { border-color: var(--lx-hairline); border-radius: 12px; }
+:root[data-look="blend"] .ui-code__bar { background: transparent; }
+:root[data-look="blend"] .ui-progress__track { height: 5.8px; border-radius: 999px; }
+:root[data-look="blend"] .ui-progress__fill { background: var(--look-accent); }
+:root[data-look="blend"] .ui-empty__icon { border-color: var(--lx-ink-muted); border-radius: 10px; }
+
+/* ── What needs you, on any page: the words, the tier, the pill ──────────── */
+:root[data-look="blend"] .need { gap: 6px 12px; padding: 11px 0; border-top: 1px solid var(--lx-hairline); box-shadow: none; }
+:root[data-look="blend"] .need:first-child { padding-top: 4px; border-top: 0; }
+:root[data-look="blend"] .need[data-severity="neutral"] { box-shadow: none; }
+:root[data-look="blend"] .need__title { color: var(--lx-ink); font-size: 14.8px; font-weight: 600; line-height: 1.25; }
+:root[data-look="blend"] .need__detail { color: var(--lx-ink-muted); font-size: 12px; line-height: 1.4; }
+:root[data-look="blend"] .need.need--lead { align-items: flex-start; }
+:root[data-look="blend"] .need--lead .need__tier-tag { flex: 0 0 66px; }
+:root[data-look="blend"] .need--lead .need__tier-tag .ui-risk { justify-content: flex-start; width: auto; }
+
+/* ── The sheets, Activity, notifications and the approval dialog: glass over the page ── */
+:root[data-look="blend"] .look-console {
+  --surface: var(--blend-sheet);
+  --surface-raised: var(--lx-glass-raised);
+  --surface-muted: var(--blend-inset);
+  --surface-hover: var(--lx-glass-raised);
+  --surface-header: transparent;
+  --surface-inset: var(--blend-inset);
+  --code-bg: var(--blend-inset);
+  --accent: var(--look-accent);
+  --accent-text-on: var(--look-accent-ink);
+  --accent-faint: color-mix(in srgb, var(--look-accent) 10%, transparent);
+  --accent-bg: color-mix(in srgb, var(--look-accent) 12%, transparent);
+  --link: var(--lx-ink);
+  --radius-control: 999px;
+  --risk-medium: var(--blend-tier-medium);
+  --risk-medium-text: var(--lx-warning-text);
+  --risk-medium-bg: var(--lx-warning-bg);
+  --risk-high: var(--lx-pill-high);
+  --risk-high-text: var(--lx-danger-text);
+  color: var(--lx-ink);
+  font-family: var(--font-sans);
+}
+:root[data-look="blend"] .look-console :focus-visible:not([tabindex="-1"]) { outline: 2px solid var(--lx-focus); }
+:root[data-look="blend"] :is(.ui-sheet, .approve-dialog, .command-dialog) {
+  border: 1px solid var(--lx-glass-border);
+  color: var(--lx-ink);
+  background: var(--blend-sheet);
+  box-shadow: 0 24px 60px rgba(19, 33, 44, 0.28);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  backdrop-filter: blur(24px) saturate(1.3);
+}
+:root[data-look="blend"] :is(.ui-sheet--center, .approve-dialog, .command-dialog) { border-radius: var(--blend-radius); }
+@media (min-width: 641px) {
+  :root[data-look="blend"] .ui-sheet--right { height: calc(100% - 24px - var(--shell-bottom-inset, 0px)); margin: 12px 12px calc(12px + var(--shell-bottom-inset, 0px)); border-width: 1px; border-radius: var(--blend-radius); }
+}
+:root[data-look="blend"] .ui-sheet__head,
+:root[data-look="blend"] .approve-foot { border-color: var(--lx-hairline); background: transparent; }
+:root[data-look="blend"] .ui-sheet__title,
+:root[data-look="blend"] .approve-title { color: var(--lx-ink); font-family: var(--font-sans); font-weight: 700; }
+:root[data-look="blend"] :is(.ui-sheet__kicker, .approve-kicker, .approve-section__title) { font-family: var(--blend-label); font-size: 10.5px; letter-spacing: 0.12em; }
+:root[data-look="blend"] .approve-preview,
+:root[data-look="blend"] .approve-staged,
+:root[data-look="blend"] .approve-once { border-color: var(--lx-hairline); border-radius: 12px; }
+:root[data-look="blend"] .approve-tier__name { font-family: var(--font-mono); }
+:root[data-look="blend"] .approve-foot .ui-button { min-height: 32px; padding: 0 16px; border-radius: 999px; }
+:root[data-look="blend"] .approve-foot .ui-button:is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 24px; }
+:root[data-look="blend"] .command-input { border-bottom-color: var(--lx-hairline); }
+:root[data-look="blend"] .command-option { border-radius: 10px; }
+:root[data-look="blend"] .command-option[aria-selected="true"] { color: var(--lx-ink); background: var(--lx-glass-raised); box-shadow: inset 3px 0 0 var(--look-accent); }
+:root[data-look="blend"] .command-close { border-color: var(--lx-glass-border); border-radius: 999px; background: var(--lx-glass-raised); }
+:root[data-look="blend"] .notifications-entry[data-new] { box-shadow: inset 3px 0 0 var(--lx-warning); }
+
+/* Storage: the lead under the map offers the Drives tab's "Use the rest of the disk" as the drawing
+   does, so the tab's own card for it is not drawn a second time. */
+:root[data-look="blend"] .storage-page:has(.blend-sneed) .ui-tabs__panel:has(> .ui-panel .storage-device) > .ui-notice--info { display: none; }
+
+/* Ops' grid is denser than any other page: its panels keep a narrower edge, so its tables fit.
+   Beside the sidebar the page is as wide as the console's at 1280 px, so it takes that layout
+   (styles.css: two columns of short panels, the tables across the page) until there is room. */
+:root[data-look="blend"] .cc .ops-grid .ui-panel__head { padding: 14px 14px 7px; }
+:root[data-look="blend"] .cc .ops-grid .ui-panel__body { padding: 0 11px 10px; }
+:root[data-look="blend"] .cc .ops-grid .ui-panel--padded > .ui-panel__body { padding: 4px 14px 14px; }
+@media (min-width: 761px) and (max-width: 1640px) {
+  :root[data-look="blend"] .ops-grid { grid-auto-flow: row dense; }
+  :root[data-look="blend"] .ops-grid > :is(.ops-alerts, .ops-inbox, .ops-disks, .ops-services) { grid-column: span 6; }
+  :root[data-look="blend"] .ops-grid > :is(.ops-containers, .ops-jobs, .ops-backups, .ops-setup, .ops-power) { grid-column: span 12; }
+}
+/* A figure's line sits beside the figure, so its label keeps the cell's width ("Hottest sensor"). */
+:root[data-look="blend"] .ui-metric-strip .ui-metric__graphic { top: 36px; }
+:root[data-look="blend"] .ui-metric-strip .ui-metric:has(.ui-metric__graphic) .ui-metric__label { padding-right: 0; }
+
+/* ── Settings → Appearance: the whole page on one big pane of glass, as the drawing (settings)
+   draws it: the pane runs from the top of the window to the bottom beside the sidebar, and the
+   page's name, its tabs and the looks sit on it. ── */
+@media (min-width: 761px) {
+  :root[data-look="blend"] .settings-page:has(.settings-appearance) { padding: 0 29.2px 24px; }
+  :root[data-look="blend"] .settings-page:has(.settings-appearance)::before {
+    position: absolute;
+    z-index: -1;
+    top: var(--blend-gutter);
+    right: var(--blend-gutter);
+    bottom: calc(var(--blend-gutter) + var(--shell-bottom-inset, 0px));
+    left: var(--sidebar-width);
+    border: 1px solid var(--lx-glass-border);
+    border-radius: var(--blend-radius);
+    background: var(--lx-glass);
+    box-shadow: var(--blend-shadow);
+    content: "";
+    -webkit-backdrop-filter: var(--blend-glass-filter);
+    backdrop-filter: var(--blend-glass-filter);
+    pointer-events: none;
+  }
+  :root[data-look="blend"]:has(.settings-appearance) .topbar { padding: calc(var(--blend-gutter) + 20px) calc(var(--blend-gutter) + 29.2px) 0 29.2px; }
+  :root[data-look="blend"] .settings-page:has(.settings-appearance) .ui-tabs__list { background: var(--lx-glass-raised); box-shadow: none; }
+  :root[data-look="blend"] .settings-page .settings-appearance { padding: 4px 0 0; border: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+/* Where there is room and Settings has its tabs (the sidebar lists the sections otherwise), the
+   tabs share the row under the name with its facts, so the looks start near the top of the pane as drawn; the selected tab names the section, and its own heading is
+   read out rather than drawn a second time under the page's. */
+@media (min-width: 1180px) {
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px 14px; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) > .ui-page-header { grid-row: 1; grid-column: 1; flex-wrap: nowrap; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) > .ui-page-header > .ui-page-header__facts { flex: 1 1 auto; flex-wrap: nowrap; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) .ui-page-header__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) > .ui-page-header > .ui-page-header__about { position: absolute; z-index: 5; top: 100%; right: 0; left: 0; margin-top: 6px; background: var(--blend-sheet); }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) > .ui-page-header { position: relative; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"] > .settings-tabs:has(.settings-appearance) { display: contents; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) .ui-tabs__list { grid-row: 1; grid-column: 2; justify-self: end; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) .ui-tabs__tab { padding: 0 10px; font-size: 12.5px; }
+  :root[data-look="blend"] .settings-page[data-sections="tabs"]:has(.settings-appearance) .ui-tabs__panel { grid-row: 2; grid-column: 1 / -1; }
+  :root[data-look="blend"] .settings-page .settings-appearance__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  :root[data-look="blend"] .settings-page .settings-appearance__lead { margin-top: 0; }
+}
+:root[data-look="blend"] .settings-appearance {
+  gap: 17.5px;
+  padding: 23.4px 29.2px 24px;
+  border: 1px solid var(--lx-glass-border);
+  border-radius: var(--blend-radius);
+  background: var(--lx-glass);
+  box-shadow: var(--blend-shadow);
+  -webkit-backdrop-filter: var(--blend-glass-filter);
+  backdrop-filter: var(--blend-glass-filter);
+  --settings-shadow: rgba(0, 0, 0, 0.12);
+}
+:root[data-look="blend"] .settings-appearance__title { color: var(--lx-ink); font-size: 40.9px; letter-spacing: -0.02em; }
+:root[data-look="blend"] .settings-appearance__lead { margin-top: -7px; color: var(--lx-ink-muted); font-size: 15.2px; }
+:root[data-look="blend"] .settings-appearance__label { color: var(--lx-ink-muted); font: 600 10.9px/1 var(--blend-label); letter-spacing: 0.13em; }
+:root[data-look="blend"] .settings-looks { gap: 15.6px 13.6px; }
+:root[data-look="blend"] .settings-look { gap: 2px; }
+:root[data-look="blend"] .settings-look__picture { margin-bottom: 5.8px; border-color: var(--lx-glass-border); border-radius: 10.7px; box-shadow: 0 3.9px 9.7px rgba(0, 0, 0, 0.12); }
+:root[data-look="blend"] .settings-look[aria-checked="true"] .settings-look__picture { box-shadow: 0 0 0 3.9px var(--lx-pill), 0 3.9px 9.7px rgba(0, 0, 0, 0.12); }
+:root[data-look="blend"] .settings-look__name { color: var(--lx-ink); font-size: 12.45px; font-weight: 600; }
+:root[data-look="blend"] .settings-look__caption { color: var(--lx-ink-muted); font-size: 10.1px; font-weight: 500; }
+:root[data-look="blend"] .settings-look__picture--soon { border-color: var(--lx-ink-muted); color: var(--lx-ink-muted); box-shadow: none; }
+:root[data-look="blend"] .settings-appearance__now { min-height: 48px; padding: 8.6px 11.5px 8.6px 12.5px; border-color: var(--lx-glass-border); border-radius: 10px; background: var(--lx-glass-raised); font-size: 14.4px; }
+:root[data-look="blend"] .settings-appearance__now .ui-button { min-height: 27px; font-size: 13px; }
+:root[data-look="blend"] .settings-appearance__rows { gap: 0 39px; }
+:root[data-look="blend"] .settings-appearance__row { gap: 3px 16px; padding: 11.7px 0; border-top-color: var(--lx-hairline); }
+:root[data-look="blend"] .settings-appearance__row > b { color: var(--lx-ink); font-size: 14.4px; }
+:root[data-look="blend"] .settings-appearance__row > small { color: var(--lx-ink-muted); font-size: 11.7px; }
+:root[data-look="blend"] .settings-appearance__row .ui-segmented__option { min-height: 25px; padding: 0 8.7px; font-size: 12.45px; }
+:root[data-look="blend"] .settings-swatches { gap: 6.8px; }
+:root[data-look="blend"] .settings-swatch { width: 24.3px; height: 24.3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lx-ink) 24%, transparent); }
+:root[data-look="blend"] .settings-wallpaper { width: 46.7px; height: 29.2px; border-radius: 6.8px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lx-ink) 24%, transparent); }
+:root[data-look="blend"] :is(.settings-swatch, .settings-wallpaper)[aria-checked="true"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lx-ink) 24%, transparent), 0 0 0 2.9px var(--lx-badge-ring), 0 0 0 5.8px var(--lx-pill); }
+:root[data-look="blend"] .settings-appearance__switch .ui-switch__track { width: 44.8px; height: 25.3px; }
+:root[data-look="blend"] .settings-appearance__switch .ui-switch__thumb { top: 3.2px; left: 3.2px; width: 19px; height: 19px; }
+:root[data-look="blend"] .settings-appearance__switch .ui-switch__control[aria-checked="true"] .ui-switch__thumb { transform: translateX(19.5px); }
+:root[data-look="blend"] .settings-appearance__switch .ui-switch__state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ── Narrower: a slimmer sidebar ─────────────────────────────────────────── */
+@media (min-width: 761px) and (max-width: 1100px) {
+  :root[data-look="blend"] { --blend-side: 208px; }
+  :root[data-look="blend"] .cc-crumb h1 { font-size: 36px; }
+  :root[data-look="blend"] .command-trigger { flex-basis: 40px; min-width: 40px; }
+  :root[data-look="blend"] .command-trigger__label,
+  :root[data-look="blend"] .command-trigger__keys { display: none; }
+}
+@media (min-width: 761px) and (max-height: 820px) {
+  :root[data-look="blend"] .sidebar-item { padding-block: 3.5px; }
+  :root[data-look="blend"] .sidebar-group__title { padding-top: 7px; }
+}
+
+/* ── A phone: the dock is the way around, glass as the Launcher's ────────── */
+@media (max-width: 760px) {
+  :root[data-look="blend"] { --blend-gutter: 16px; }
+  :root[data-look="blend"] .topbar { flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px 0; }
+  :root[data-look="blend"] .topbar-left { flex: 1 1 100%; justify-content: space-between; gap: 10px; }
+  :root[data-look="blend"] .topbar-slot { flex: 0 1 auto; }
+  :root[data-look="blend"] .cc-crumb { min-width: 0; }
+  :root[data-look="blend"] .cc-crumb h1 { flex: 0 1 auto; min-width: 0; font-size: 28px; }
+  :root[data-look="blend"] .view-switch__option { padding: 0 11px; font-size: 12.5px; }
+  :root[data-look="blend"] .view-switch__option svg { display: none; }
+  :root[data-look="blend"] .command-trigger { order: 2; flex: 0 0 40px; width: 40px; min-width: 40px; max-width: 40px; margin: 0; padding: 0; justify-content: center; }
+  :root[data-look="blend"] .command-trigger__label,
+  :root[data-look="blend"] .command-trigger__keys { display: none; }
+  :root[data-look="blend"] .topbar-right { order: 3; flex: 1 1 auto; justify-content: flex-end; margin: 0; }
+  :root[data-look="blend"] .content { padding: 10px 16px calc(var(--shell-bottom-inset, 0px) + 112px); }
+  :root[data-look="blend"] .ui-dock.shell-dock ul {
+    border: 1px solid var(--lx-glass-border);
+    border-radius: 24px;
+    background: var(--lx-glass);
+    box-shadow: var(--blend-shadow);
+    -webkit-backdrop-filter: var(--blend-glass-filter);
+    backdrop-filter: var(--blend-glass-filter);
+  }
+  :root[data-look="blend"] .shell-dock .ui-dock__icon { border-color: transparent; border-radius: 13px; color: var(--lx-ink); background: var(--lx-glass-raised); }
+  :root[data-look="blend"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { border-color: transparent; color: var(--lx-pill-ink); background: var(--lx-pill); }
+  :root[data-look="blend"] .shell-dock .ui-dock__label { color: var(--lx-ink); }
+  :root[data-look="blend"] .ui-dock__badge { color: var(--lx-warning-ink); background: var(--lx-warning); box-shadow: 0 0 0 2px var(--lx-badge-ring); }
+  :root[data-look="blend"] .ui-tabs__list { width: auto; overflow-x: auto; }
+  :root[data-look="blend"] .settings-appearance { padding: 16px; }
+  :root[data-look="blend"] .settings-appearance__title { font-size: 32px; }
+  :root[data-look="blend"] .ui-metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :root[data-look="blend"] .ui-metric__graphic { position: static; width: 100%; height: 22px; margin-top: 4px; }
+  :root[data-look="blend"] .ui-metric:has(.ui-metric__graphic) .ui-metric__label { padding-right: 0; }
+}
+@media (max-width: 620px) {
+  :root[data-look="blend"] .app-shell .topbar-slot { display: flex; }
+  :root[data-look="blend"] .topbar .ui-theme-switch { display: none; }
+}

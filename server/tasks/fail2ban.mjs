@@ -1,4 +1,5 @@
-import { access, copyFile, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, unlink } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 
 /**

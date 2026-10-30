@@ -55,6 +55,9 @@ describe("the caps in words", () => {
   it("counts the processors a CPUQuota adds up to, from what the server reports", () => {
     expect([100, 400, 150, 800].map(processorWords)).toEqual(["one processor", "four processors", "1.5 processors", "eight processors"]);
     expect(capsWords({ cpuQuotaPercent: 400, memoryMaxBytes: 8 * 1024 ** 3 })).toBe("four processors at most, idle priority, 8 GiB");
+    // M40: the raised number while someone waits, when there is one.
+    expect(capsWords({ cpuQuotaPercent: 400, waitingQuotaPercent: 800, memoryMaxBytes: 8 * 1024 ** 3 })).toBe("four processors at most, eight while you wait, idle priority, 8 GiB");
+    expect(capsWords({ cpuQuotaPercent: 200, waitingQuotaPercent: 200 })).toBe("two processors at most, idle priority");
     expect(capsWords(null)).toBe("capped processors and memory, idle priority");
   });
 

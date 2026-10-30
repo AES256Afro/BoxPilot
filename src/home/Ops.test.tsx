@@ -98,10 +98,10 @@ describe("Ops", () => {
   it("shows the job queue with what each job acted on", async () => {
     renderOps();
     const table = await screen.findByRole("table", { name: "Recent jobs" });
-    const running = (await within(table).findByRole("button", { name: "app.update" })).closest("tr")!;
+    const running = (await within(table).findByRole("button", { name: "app.update: open its log" })).closest("tr")!;
     expect(within(running).getByText("Running")).toBeTruthy();
     expect(within(running).getByText("jellyfin")).toBeTruthy();
-    const waiting = within(table).getByRole("button", { name: "storage.remount" }).closest("tr")!;
+    const waiting = within(table).getByRole("button", { name: "Reconnect a drive: open its log" }).closest("tr")!;
     expect(within(waiting).getByText("Awaiting approval")).toBeTruthy();
     expect(within(waiting).getByText("media")).toBeTruthy();
     // The failed backup comes from the longer history, read once beside the live feed.
@@ -199,7 +199,8 @@ describe("Ops", () => {
     expect(within(power).getByText("The UPS is on mains power")).toBeTruthy();
     expect(within(power).getByText("96%")).toBeTruthy();
     expect(within(power).getByText("45m 00s")).toBeTruthy();
-    expect(within(power).getByText("CHRG OL")).toBeTruthy();
+    // NUT's tokens in words (M48.7): "CHRG OL" said nothing to anyone.
+    expect(within(power).getByText("charging, on mains")).toBeTruthy();
 
     const setup = await screen.findByRole("region", { name: /^Setup/ });
     expect(within(setup).getByRole("heading").textContent).toContain("1/2");

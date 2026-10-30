@@ -19,7 +19,9 @@
 import { createHash } from "node:crypto";
 import { backupMountpoint, legacyBackupMountpoint, mountpointFor } from "./backup-mount.mjs";
 import { coversEveryAddress, findPortConflicts, freePortNear, holderWords, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
+import { dnsAppIds } from "./dns-resilience.mjs";
 import { nameLookupVerdict, stubAddress, stubLinkTarget, tailscaleBackupPath, tailscaleResolver } from "./name-lookups.mjs";
+import { checkableFilesystems } from "./tasks/storage.mjs";
 
 export const severities = Object.freeze(["critical", "warning", "info"]);
 
@@ -34,9 +36,10 @@ const ownerless = ["exfat", "vfat", "ntfs", "ntfs3", "msdos"];
  * schedule to create rather than a job to run (Back up nightly). `manual` is the one thing the owner
  * does when nothing here can do it, or says what a fix cannot.
  */
-function finding({ id, severity, title, detail, evidence = [], fixes = [], manual = null }) {
+function finding({ id, severity, title, detail, evidence = [], fixes = [], manual = null, view = null }) {
   const offered = fixes.filter(Boolean);
-  return { id, severity, title, detail, evidence, fix: offered[0] ?? null, fixes: offered, manual };
+  // `view`: the page that holds what the owner does about it, when that is not Repair (M39.2).
+  return { id, severity, title, detail, evidence, fix: offered[0] ?? null, fixes: offered, manual, ...(view ? { view } : {}) };
 }
 
 /** "A", "A and B", "A, B and C". */
@@ -257,6 +260,9 @@ export function drivesNeedingCheck(facts = {}) {
       const drop = droppedWith(mount);
       const evidence = uncleanEvidence(uncleanByDevice.get(mount.source) ?? null, volumeByTarget.get(mount.target) ?? null);
       const checkerMissing = mount.fstype === "exfat" && tools?.fsckExfat === false;
+      // storage.check has no read-only checker for NTFS, XFS or btrfs and refuses them, so offering
+      // it there gave the finding one fix that failed the same way every time it was pressed.
+      const checkable = checkableFilesystems.includes(mount.fstype);
       const lastCheck = last ? `last check ${new Date(last.checkedAt).toLocaleString()}${last.clean ? (last.markedDirty ? " (clean, still marked)" : " (clean)") : " (problems found)"}` : "never checked";
       // The exFAT mark a clean check already found: Linux keeps it until a repairing check and
       // repeats its warning at every mount, so a later warning is that mark again, not news, and a
@@ -275,11 +281,13 @@ export function drivesNeedingCheck(facts = {}) {
           title: unclean ? `${mount.target} was not unmounted cleanly and has not been checked since` : `${mount.target} has not been checked since its drive dropped`,
           detail: `${unclean
             ? "This drive was not unmounted cleanly before it was last mounted - after a power cut, a reboot that did not wait for it, or an unplug - and its filesystem says so. Whatever was being written then may have left the directory table damaged, which shows up later as files that vanish or a folder that will not open."
-            : "A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open."} The filesystem's own checker can read the whole table without changing anything. ${checkerMissing
-            ? "This drive is exFAT and fsck.exfat is not installed, so the checker comes first: install it, and this becomes the check itself."
-            : "The apps using the drive are paused for the check and started again after it."}`,
+            : "A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open."} ${!checkable
+            ? `BoxPilot has no read-only checker for ${mount.fstype ?? "this"} filesystems. Check it on a computer that has one (Windows' chkdsk for NTFS), with the drive unmounted here first.`
+            : `The filesystem's own checker can read the whole table without changing anything. ${checkerMissing
+              ? "This drive is exFAT and fsck.exfat is not installed, so the checker comes first: install it, and this becomes the check itself."
+              : "The apps using the drive are paused for the check and started again after it."}`}`,
           evidence: [...(uncleanDue ? evidence.lines : []), ...(drop ? [`last drop ${new Date(drop).toLocaleString()}`] : []), lastCheck, ...(checkerMissing ? ["fsck.exfat not found in /usr/sbin or /sbin"] : [])],
-          fixes: [checkerMissing
+          fixes: !checkable ? [] : [checkerMissing
             ? installDriveToolsFix(driveTools)
             : { operationId: "storage.check", parameters: { name }, label: "Check the drive", preview: `${pauses}, runs the read-only checker, mounts it again and starts ${apps.length ? listOf(apps) : "them"} again. Nothing is repaired or written.` }],
         })];
@@ -413,6 +421,21 @@ export function unwritableShares(facts = {}) {
     .filter((share) => !share.readOnly && share.ownerUid === 0 && !share.forceUser)
     .map((share) => {
       const drive = ownerlessDriveUnder(share.path, mounts);
+      // An exFAT, FAT or NTFS drive BoxPilot did not mount: the folder cannot be handed over (the
+      // drive keeps no owners, and samba.share.writable refuses it) and storage.writable changes only
+      // drives BoxPilot mounted, so either fix failed every time it was pressed. Said instead.
+      const onMount = mountFor(share.path, mounts);
+      const foreignOwnerless = !drive && onMount && ownerless.includes(String(onMount.fstype ?? "").toLowerCase()) ? onMount : null;
+      if (foreignOwnerless) {
+        return finding({
+          id: `share-unwritable:${share.name}`,
+          severity: "warning",
+          title: `Nobody can write to the ${share.name} share`,
+          detail: `${share.path} is on ${foreignOwnerless.target}, a ${foreignOwnerless.fstype} drive mounted without an owner and not by BoxPilot, so everything on it belongs to root and everyone connecting is read-only there. BoxPilot changes only the drives it mounted: add uid=${appUser},gid=${appUser} to its line in /etc/fstab and mount it again, or unmount it and mount it from Storage with "apps can write".`,
+          evidence: [`${share.path} is owned by root`, "the share is set read-write", `${foreignOwnerless.target} is ${foreignOwnerless.fstype}, mounted without uid=, and not by BoxPilot`],
+          fixes: [],
+        });
+      }
       return finding({
         id: `share-unwritable:${share.name}`,
         severity: "warning",
@@ -567,11 +590,39 @@ export function vpnLeaks({ apps = [] } = {}) {
     }));
 }
 
-/** A backup whose last restore rehearsal failed: it would not restore if it were needed. */
-export function failedRehearsals({ apps = [] } = {}) {
+/**
+ * A backup whose last restore rehearsal failed: it would not restore if it were needed. Once a newer
+ * backup exists (its fix, "Take a fresh backup", worked), the problem is no longer that the backup
+ * is bad but that the new one has not been rehearsed: the finding used to stay critical, offering
+ * the backup that had just succeeded, until someone rehearsed it by hand from the app's card.
+ */
+export function failedRehearsals({ apps = [], protection = null } = {}) {
+  const newestOf = (id) => {
+    const entry = protection?.available && Array.isArray(protection.apps) ? protection.apps.find((app) => app.id === id) : null;
+    const at = entry?.newestAt ? Date.parse(entry.newestAt) : Number.NaN;
+    return Number.isFinite(at) ? at : null;
+  };
   return apps
     .filter((app) => app.backupVerification && app.backupVerification.verified === false)
-    .map((app) => finding({
+    .map((app) => {
+      const newest = newestOf(app.id);
+      const checked = Date.parse(app.backupVerification.checkedAt ?? "");
+      if (newest !== null && Number.isFinite(checked) && newest > checked) {
+        return finding({
+          id: `backup-rehearsal:${app.id}`,
+          severity: "warning",
+          title: `${app.name}'s new backup has not been rehearsed yet`,
+          detail: `The last rehearsal could not unpack an older backup (${app.backupVerification.reason}), and a fresh one has been taken since. Rehearse it to know it would restore.`,
+          evidence: [`${app.backupVerification.backup} failed on ${app.backupVerification.checkedAt}`, `a newer backup was taken on ${new Date(newest).toISOString()}`],
+          fixes: [{
+            operationId: "app.backup.verify",
+            parameters: { id: app.id },
+            label: "Rehearse the new backup",
+            preview: `Checks ${app.name}'s newest backup against its checksum and unpacks the whole archive into scratch space, then deletes the scratch copy. ${app.name} keeps running and nothing it holds is changed.`,
+          }],
+        });
+      }
+      return finding({
       id: `backup-rehearsal:${app.id}`,
       severity: "critical",
       title: `${app.name}'s backup would not restore`,
@@ -583,7 +634,8 @@ export function failedRehearsals({ apps = [] } = {}) {
         label: "Take a fresh backup",
         preview: `Stops ${app.name} briefly, archives its data and configuration, and starts it again. Rehearse the new copy afterwards to confirm it opens.`,
       }],
-    }));
+      });
+    });
 }
 
 /**
@@ -618,6 +670,43 @@ export function nothingCanReachYou({ notifications = null, apps = [], ntfy = nul
     fixes,
     manual: "Or set any other target under Settings, Notifications: an ntfy server elsewhere, Gotify, or a webhook. There is a Send test button to prove it arrives.",
   })];
+}
+
+/**
+ * The house's DNS leaning on this server alone (M39.2, ADR-008). On 2026-09-29 the server lost power
+ * and every device lost its lookups with it, because the router handed out nothing but this server.
+ * Said only on evidence (server/dns-resilience.mjs): a DHCP lease naming nothing else, a router whose
+ * rehearsal failed, or second servers that do not answer. A router passing lookups here whose fallback
+ * nobody has tried is said as not known, with the rehearsal as its fix. The steps are on the router,
+ * which BoxPilot does not sign in to, so they live on the Network page.
+ */
+export function dnsLeansOnThisServer({ dnsResilience = null, apps = [] } = {}) {
+  const verdict = dnsResilience;
+  if (!verdict || !["single-point", "unproven"].includes(verdict.state)) return [];
+  const counted = (verdict.servers ?? []).filter((server) => server.verdict !== "skipped");
+  // With no lease to read, Pi-hole's own log said it: counts only.
+  const askers = verdict.source === "pihole-log" && verdict.askers ? verdict.askers : null;
+  const heard = askers
+    ? (askers.lanClients > 0 ? `${askers.lanClients} ${askers.lanClients === 1 ? "device" : "devices"} on your network asked Pi-hole here directly in the last ${askers.window}` : `only the router asked Pi-hole here in the last ${askers.window}`)
+    : null;
+  const evidence = [
+    // The first line is the one Home shows under the title: what the devices are given.
+    ...(heard ? [heard] : counted.length ? [`devices are given ${counted.map((server) => `${server.address} (${server.label})`).join(" and ")}`] : []),
+    ...counted.map((server) => `${server.address}: ${server.note}`),
+    ...(verdict.via ? [`what the router hands out, read from ${verdict.via}`] : []),
+  ];
+  const app = apps.find((entry) => dnsAppIds.includes(entry.id) && entry.container?.running);
+  const rehearse = app && verdict.router && verdict.lanAddress ? {
+    operationId: "dns.fallback.rehearse",
+    parameters: { router: verdict.router, lanAddress: verdict.lanAddress, app: app.id },
+    label: verdict.state === "unproven" ? "Rehearse it" : "Rehearse again",
+    preview: `Stops ${app.name} for about half a minute and asks your router at ${verdict.router} for names it cannot have cached. If the router has a fallback, devices notice a slower lookup at most; if it has none, nothing on your network can look names up until ${app.name} is back, up to a minute. ${app.name} is started again and BoxPilot waits until it answers.`,
+  } : null;
+  const manual = "Give your router a second resolver it falls back to: Network, Names & DNS has the steps for GL.iNet, for OpenWrt, and for any other router. BoxPilot does not sign in to your router; check again there once it is done.";
+  if (verdict.state === "single-point") {
+    return [finding({ id: "dns-single-point", severity: "warning", title: verdict.headline, detail: verdict.detail, evidence, fixes: [rehearse], manual, view: "network" })];
+  }
+  return [finding({ id: "dns-fallback-unproven", severity: "info", title: verdict.headline, detail: verdict.detail, evidence, fixes: [rehearse], manual, view: "network" })];
 }
 
 /**
@@ -900,9 +989,23 @@ function when(iso) {
  * The same judgement as src/backupProtection.ts: a backup older than `staleAfterDays` is stale, and
  * an app whose volumes are all caches is never counted.
  */
+/**
+ * The apps the schedules back up (M48.4): one answer for Repair and for the agents' backups.coverage,
+ * which disagreed - one counted app.backup.many, the other a schedule's older `subject` field.
+ */
+export function scheduledBackupApps(schedules = []) {
+  const apps = new Set();
+  for (const schedule of Array.isArray(schedules) ? schedules : []) {
+    if (!schedule || schedule.enabled === false) continue;
+    if (schedule.operationId === "app.backup") { const id = schedule.parameters?.id ?? schedule.parameters?.subject; if (typeof id === "string") apps.add(id); }
+    if (schedule.operationId === "app.backup.many") for (const id of Array.isArray(schedule.parameters?.ids) ? schedule.parameters.ids : []) if (typeof id === "string") apps.add(id);
+  }
+  return apps;
+}
+
 export function backupsDue({ protection = null, schedules = [], now = Date.now(), staleAfterDays = 14 } = {}) {
   if (!protection?.available || !Array.isArray(protection.apps)) return [];
-  const scheduled = new Set(schedules.filter((schedule) => schedule.operationId === "app.backup" && schedule.enabled !== false).map((schedule) => schedule.parameters?.id ?? schedule.parameters?.subject).filter((id) => typeof id === "string"));
+  const scheduled = scheduledBackupApps(schedules);
   const due = protection.apps.filter((app) => app.protectable).map((app) => {
     const newest = app.newestAt ? Date.parse(app.newestAt) : Number.NaN;
     const ageDays = Number.isFinite(newest) ? Math.floor((now - newest) / 86_400_000) : null;
@@ -1041,6 +1144,8 @@ export function bootPartitionUnclean({ mounts = [], unclean = null, tools = null
   if (!event) return [];
   const check = bootChecks?.[partition.source];
   if (check?.clean && Date.parse(check.checkedAt) > Date.parse(event.at)) return [];
+  // The last check, since the mark was made, found more than the mark: offering it again would refuse again (M48.4).
+  const stuck = Boolean(check) && check.clean === false && Date.parse(check.checkedAt) > Date.parse(event.at);
   const host = hostname || "the server";
   const checker = tools?.fsckFat !== false;
   const checkedAtBoot = (fstab.find((row) => row.mountpoint === partition.target)?.pass ?? 0) > 0;
@@ -1054,9 +1159,9 @@ export function bootPartitionUnclean({ mounts = [], unclean = null, tools = null
       `kernel, ${new Date(event.at).toLocaleString()}: ${event.message}`,
       `${target} is ${partition.fstype} on ${partition.source}`,
       ...(checker ? [] : ["fsck.fat not found in /usr/sbin or /sbin"]),
-      ...(check ? [`last check ${new Date(check.checkedAt).toLocaleString()}${check.clean ? " (clean)" : " (found more than the mark)"}`] : []),
+      ...(check ? [`last check ${new Date(check.checkedAt).toLocaleString()}${check.clean ? " (clean)" : ` (found more than the mark${Array.isArray(check.beyond) && check.beyond.length ? `: ${check.beyond.join(" / ")}` : ""})`}`] : []),
     ],
-    fixes: [checker
+    fixes: stuck ? [] : [checker
       ? {
         operationId: "storage.boot-mark.clear",
         parameters: {},
@@ -1104,6 +1209,7 @@ export function detectRemediations(facts = {}) {
     ...unwritableShares(facts),
     ...permissionlessMounts(facts),
     ...nothingCanReachYou(facts),
+    ...dnsLeansOnThisServer(facts),
     ...windowsCannotDiscover(facts),
     ...backupDestinationToMove(facts),
   ];

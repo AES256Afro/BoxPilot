@@ -128,7 +128,7 @@ const uncleanMessages = [
 ];
 export function parseUncleanMounts(text) {
   const latest = new Map();
-  for (const line of String(text ?? "").split("\n")) {
+  for (const line of String(text ?? "").split(/\r?\n/)) {
     // "exFAT-fs (sda2): ...", "EXT4-fs (sdb1): ...", and ntfs3's "ntfs3: sdc1: ..." / "ntfs3(sdc1): ...".
     const match = line.match(/^(\S+)\s+\S+\s+kernel:\s+(?:(exFAT-fs|FAT-fs|EXT[234]-fs) \(([A-Za-z0-9_-]+)\)|(ntfs3)(?:\(([A-Za-z0-9_-]+)\)|: ([A-Za-z0-9_-]+))):\s+(.*)$/);
     if (!match) continue;
@@ -190,7 +190,8 @@ export function storageOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.fs-snapshot.create", { kind: parameters.kind, target: parameters.target, name: parameters.name }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "storage.fs-snapshot.delete", title: "Delete a filesystem snapshot", risk: "medium", timeoutMs: minutes(2), confirm: (parameters) => String(parameters.name ?? ""),
+      // The owner's, as rolling back to one is: an operator could otherwise remove every restore point.
+      id: "storage.fs-snapshot.delete", title: "Delete a filesystem snapshot", risk: "medium", minimumRole: "owner", timeoutMs: minutes(2), confirm: (parameters) => String(parameters.name ?? ""),
       description: "Removes one snapshot: a btrfs snapshot under the managed .boxpilot-snapshots folder, or a ZFS snapshot by its @name. The filesystem's live data is untouched.",
       parameters: { fields: {
         kind: { type: "string", enum: [...snapshotKinds] },
@@ -266,20 +267,22 @@ export function storageOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.check", { name: parameters.name }, { timeoutMs: minutes(33), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      // Its own operation and its own confirmation, not a step of the check: it writes to the drive.
-      id: "storage.dirty-mark.clear", title: "Clear a drive's not-properly-unmounted mark", risk: "medium", timeoutMs: minutes(35),
-      description: "For an exFAT drive whose check came back clean but which still carries the mark Linux keeps until a repairing check clears it. With the drive unmounted as for a check, runs the read-only check again and, only if it still finds nothing wrong, fsck.exfat -y, which on a consistent drive changes the mark and nothing else. A drive with real damage is refused and left as it is.",
-      parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.clear-mark", { name: parameters.name }, { timeoutMs: minutes(33), logPath: jobLog?.path ?? null }),
-    }),
-    defineOperation({
       // The EFI system partition after a power cut (2026-09-29): Linux repeats "Volume was not
       // properly unmounted" at every boot until a repairing check clears the mark. Not a managed
       // drive, so not storage.dirty-mark.clear: nothing BoxPilot mounted, and no app uses it.
       id: "storage.boot-mark.clear", title: "Check and clear the boot partition's mark", risk: "medium", timeoutMs: minutes(8),
-      description: "For the FAT boot partition (/boot/efi) still marked \"not properly unmounted\" after a power cut. Refused while packages are being installed or the bootloader updated, since they write there. Unmounts it (refused, with nothing changed, if anything has a file open on it), reads it with fsck.fat -n, and only if the mark is all that is wrong clears it with fsck.fat -a and checks again that nothing is left. Then mounts it again from fstab and reads it. Anything beyond the mark is left as it is, with the check's words.",
+      description: "For the FAT boot partition (/boot/efi) still marked \"not properly unmounted\" after a power cut. Refused while packages are being installed or the bootloader updated, since they write there. Unmounts it (refused, with nothing changed, if anything has a file open on it), reads it with fsck.fat -n, and only if the mark is all it finds repairs it with fsck.fat -a, then mounts it again and records the check.",
       parameters: { fields: {} },
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("storage.boot-mark-clear", {}, { timeoutMs: minutes(7), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      // Its own operation and its own confirmation, not a step of the check: it writes to the drive.
+      // Two checker passes of up to 25 minutes each, the read-only one and fsck.exfat -y, and the stop,
+      // unmount, mount and start around them: a 33-minute limit could run out mid-repair.
+      id: "storage.dirty-mark.clear", title: "Clear a drive's not-properly-unmounted mark", risk: "medium", timeoutMs: minutes(60),
+      description: "For an exFAT drive whose check came back clean but which still carries the mark Linux keeps until a repairing check clears it. With the drive unmounted as for a check, runs the read-only check again and, only if it still finds nothing wrong, fsck.exfat -y, which on a consistent drive changes the mark and nothing else. A drive with real damage is refused and left as it is.",
+      parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.clear-mark", { name: parameters.name }, { timeoutMs: minutes(58), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.remount", title: "Reconnect a drive", risk: "medium", timeoutMs: minutes(10),
@@ -327,8 +330,10 @@ export function storageOperations() {
       parameters: { fields: {
         device: { type: "string", maxLength: 32, pattern: devicePattern },
         label: { type: "string", optional: true, nullable: true, maxLength: 16, pattern: labelPattern },
+        // Which disk this was when it was staged, read by the web process (index.mjs prepare hook).
+        identity: { type: "object", optional: true, nullable: true, validate: (value) => (Object.entries(value).every(([key, field]) => ["serial", "wwn", "size", "model"].includes(key) && (field === null || (typeof field === "string" && field.length <= 128))) ? null : "must name only the disk's serial, wwn, size and model") },
       } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.format", { device: parameters.device, label: parameters.label ?? null }, { timeoutMs: minutes(32), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.format", { device: parameters.device, label: parameters.label ?? null, identity: parameters.identity ?? null }, { timeoutMs: minutes(32), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.swapfile.set", title: "Create or remove the swap file", risk: "medium", timeoutMs: minutes(10),
@@ -356,7 +361,7 @@ export function storageOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-snapshot-create", { path: parameters.path, sizeGiB: parameters.sizeGiB ?? 10, suffix: parameters.suffix ?? null }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "storage.lvm.snapshot.delete", title: "Remove a snapshot", risk: "medium", timeoutMs: minutes(6),
+      id: "storage.lvm.snapshot.delete", title: "Remove a snapshot", risk: "medium", minimumRole: "owner", confirm: (parameters) => snapshotNameFromPath(parameters.path), timeoutMs: minutes(6),
       description: "Removes a BoxPilot snapshot and frees its space in the volume group.",
       parameters: { fields: { path: { type: "string", maxLength: 120, pattern: /^\/dev\/mapper\/[A-Za-z0-9._+-]+-boxpilot--snap--[A-Za-z0-9._+-]+$/ } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-snapshot-delete", { path: parameters.path }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),

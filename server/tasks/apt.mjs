@@ -3,7 +3,8 @@
  * (which has network access, unlike the helper). Each task validates its own parameters
  * again — the spec file is written by the helper, but defense in depth is cheap.
  */
-import { access, writeFile } from "node:fs/promises";
+import { access } from "node:fs/promises";
+import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { parseNeedrestart } from "../needrestart.mjs";
 import { inspectPackageHealth } from "../package-health.mjs";
@@ -12,7 +13,6 @@ export const packageNamePattern = /^[a-z0-9][a-z0-9+.-]{0,99}$/;
 const aptGet = "/usr/bin/apt-get";
 const needrestartBinary = "/usr/sbin/needrestart";
 const systemctl = "/usr/bin/systemctl";
-const systemdRun = "/usr/bin/systemd-run";
 /**
  * apt runs with needrestart's hook suspended (NEEDRESTART_SUSPEND is its documented off switch).
  *
@@ -24,19 +24,31 @@ const systemdRun = "/usr/bin/systemd-run";
  * one second after the service waiting for it was stopped.
  *
  * Suspending the hook does not mean skipping the restarts. The task takes them over after apt is
- * done: everything else immediately, BoxPilot itself on a short detached timer, so its restart
- * lands after the job's result has been recorded instead of in the middle of it.
+ * done: everything else immediately, BoxPilot itself by the helper once the job's result has been
+ * recorded and the work beside it has finished, instead of in the middle of either.
  */
 const aptEnvironment = { NEEDRESTART_SUSPEND: "1", DEBIAN_FRONTEND: "noninteractive" };
 
-/** Restart what the upgrade left stale: everything now, BoxPilot itself after the job has landed. */
+/**
+ * A package whose shipped configuration file changed asks, at configure time, whether to keep the
+ * operator's edited copy or take the maintainer's. DEBIAN_FRONTEND covers debconf, not that prompt,
+ * which dpkg puts on a terminal the runner has not got: the package was left unpacked and
+ * unconfigured (`iU`), apt refused every later change, and the System page could only say "Repair".
+ * systemd-resolved did exactly that on a host whose resolved.conf turns the stub listener off for
+ * Pi-hole. Keep the operator's file (confold) and take the maintainer's only where nothing was
+ * edited (confdef): the answers an operator at the terminal gives.
+ */
+const keepConffiles = ["--force-confdef", "--force-confold"];
+const aptKeepConffiles = keepConffiles.flatMap((option) => ["-o", `Dpkg::Options::=${option}`]);
+
+/** Restart what the upgrade left stale: everything now, and name BoxPilot's own units for the helper. */
 async function restartStaleServices(run, log = null) {
   const present = await run(needrestartBinary, ["--help"], { timeout: 15_000 }).then((result) => result.ok, () => false);
-  if (!present) return { servicesNeedingRestart: null, servicesRestarted: [], selfRestartScheduled: false };
+  if (!present) return { servicesNeedingRestart: null, servicesRestarted: [], selfRestartNeeded: [] };
   const scan = await run(needrestartBinary, ["-b"], { timeout: 120_000, maxBuffer: 2 * 1024 * 1024 });
-  if (!scan.ok) return { servicesNeedingRestart: null, servicesRestarted: [], selfRestartScheduled: false };
+  if (!scan.ok) return { servicesNeedingRestart: null, servicesRestarted: [], selfRestartNeeded: [] };
   const listed = parseNeedrestart(scan.stdout);
-  const own = listed.filter((unit) => /^boxpilot(-helper)?\.service$/.test(unit));
+  const own = ["boxpilot.service", "boxpilot-helper.service"].filter((unit) => listed.includes(unit));
   const others = listed.filter((unit) => !own.includes(unit));
   const restarted = [];
   for (const unit of others) {
@@ -51,17 +63,11 @@ async function restartStaleServices(run, log = null) {
     if (result.ok) { restarted.push(unit); log?.(`Restarted ${unit}, which was running pre-upgrade libraries`, "stdout"); }
     else log?.(`Could not restart ${unit}: ${result.stderr.split("\n").slice(-1)[0]}`, "stderr");
   }
-  let selfRestartScheduled = false;
-  if (own.length) {
-    // Detached on purpose: this restart must land after the job has recorded its result, and the
-    // transient timer survives everything between here and there.
-    const schedule = await run(systemdRun, ["--on-active=30", "--unit=boxpilot-restart-after-upgrade", "--description=Restart BoxPilot to pick up upgraded libraries (scheduled by the upgrade job it would otherwise have interrupted)", systemctl, "restart", ...own], { timeout: 30_000 });
-    selfRestartScheduled = schedule.ok;
-    log?.(schedule.ok
-      ? "BoxPilot itself is running pre-upgrade libraries; it restarts in 30 seconds, after this job has finished recording."
-      : `BoxPilot needs a restart to pick up upgraded libraries, and scheduling one failed: ${schedule.stderr.split("\n").slice(-1)[0]}. Restart it from the System page.`, schedule.ok ? "stdout" : "stderr");
-  }
-  return { servicesNeedingRestart: listed, servicesRestarted: restarted, selfRestartScheduled };
+  // BoxPilot's own units are named, not restarted: the helper restarts them once this job and the
+  // work beside it have finished, and holds back anything new until it has (self-restart.mjs). A
+  // timer here, 30 seconds out, killed whatever had started behind the job in the meantime.
+  if (own.length) log?.(`BoxPilot itself (${own.join(", ")}) is running pre-upgrade libraries and needs a restart.`, "stdout");
+  return { servicesNeedingRestart: listed, servicesRestarted: restarted, selfRestartNeeded: own };
 }
 const dpkgQuery = "/usr/bin/dpkg-query";
 const rebootRequiredPath = "/run/reboot-required";
@@ -111,8 +117,8 @@ function summarizeAptOutput(stdout) {
 export async function repairPackageState({ run: baseRun = fixedRun, log = null, allowRemovals = true } = {}) {
   const run = withLog(baseRun, log);
   // Budget: the apt.upgrade task allows 180 min; these inner limits sum to less so a stuck step fails inside the job instead of outliving it.
-  const configure = await run("/usr/bin/dpkg", ["--configure", "-a"], { timeout: 20 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
-  const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes", ...(allowRemovals ? [] : ["--no-remove"])], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  const configure = await run("/usr/bin/dpkg", ["--configure", "-a", ...keepConffiles], { timeout: 20 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes", ...(allowRemovals ? [] : ["--no-remove"]), ...aptKeepConffiles], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   return {
     ok: configure.ok && fixBroken.ok,
     configured: configure.ok,
@@ -145,6 +151,14 @@ export async function aptUpdate(_parameters = {}, { run: baseRun = fixedRun, log
   return { updated: true, rebootRequired: await rebootRequired() };
 }
 
+/**
+ * Packages whose removal cuts off SSH, Tailscale or the firewall, or takes sudo, systemd or Docker
+ * with it. apt-get reads a trailing "-" on an install as a removal and a trailing "+" on a removal as
+ * an install, so the name is compared without either.
+ */
+export const protectedPackages = Object.freeze(["openssh-server", "openssh-client", "openssh-sftp-server", "ssh", "ufw", "nftables", "iptables", "fail2ban", "tailscale", "sudo", "systemd", "systemd-sysv", "docker-ce", "docker.io", "containerd", "containerd.io", "netplan.io"]);
+export const packageBase = (name) => String(name ?? "").replace(/[-+]$/, "").replace(/:[a-z0-9-]+$/, "");
+
 /** Upgrade everything (`--with-new-pkgs upgrade`) or only the listed packages (`install --only-upgrade`). */
 export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
@@ -152,7 +166,9 @@ export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, 
   const repair = await repairPackageState({ run });
   if (refreshFirst) await aptUpdate({}, { run });
   const before = packages ? await installedVersions(run, packages) : {};
-  const args = packages ? ["install", "--yes", "--only-upgrade", ...packages] : ["upgrade", "--yes", "--with-new-pkgs"];
+  // --no-remove: a name ending in "-" is a removal to apt, and an upgrade removes nothing. `upgrade`
+  // itself never removes a package; it holds one back instead.
+  const args = packages ? ["install", "--yes", "--no-remove", "--only-upgrade", ...aptKeepConffiles, ...packages] : ["upgrade", "--yes", "--with-new-pkgs", ...aptKeepConffiles];
   const result = await run(aptGet, args, { timeout: 110 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get ${args[0]} failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = packages ? await installedVersions(run, packages) : {};
@@ -160,14 +176,20 @@ export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, 
   return { upgraded: true, scope: packages ? "selected" : "all", packages: packages ?? [], before, after, summary: summarizeAptOutput(result.stdout), packageStateRepaired: repair.ok, rebootRequired: await rebootRequired(), ...staleness };
 }
 
-/** Install packages without recommends. */
+/**
+ * Install packages without recommends.
+ * @param {{ packages?: string[], refreshFirst?: boolean }} [parameters]
+ */
 export async function aptInstall({ packages, refreshFirst = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
   const problem = validPackageList(packages); if (problem) throw new Error(`packages ${problem}`);
   await repairPackageState({ run });
   if (refreshFirst) await aptUpdate({}, { run });
   const before = await installedVersions(run, packages);
-  const result = await run(aptGet, ["install", "--yes", "--no-install-recommends", ...packages], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  // --no-remove: a package that Conflicts with an installed one makes apt remove that one, which is
+  // apt.remove (or, for SSH and the firewall, a high job) by another door. apt refuses instead.
+  const result = await run(aptGet, ["install", "--yes", "--no-remove", "--no-install-recommends", ...aptKeepConffiles, ...packages], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  if (!result.ok && /remove is disabled|Packages need to be removed/i.test(result.stderr)) throw new Error(`Installing ${packages.join(", ")} would remove a package that is installed now (one it replaces or conflicts with), so nothing was installed. Remove that package first, then install.`);
   if (!result.ok) throw new Error(`apt-get install failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = await installedVersions(run, packages);
   const missing = packages.filter((name) => !after[name]);
@@ -176,13 +198,36 @@ export async function aptInstall({ packages, refreshFirst = true } = {}, { run: 
   return { installed: true, packages, before, after, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired(), ...staleness };
 }
 
-/** Remove (or purge) packages, then autoremove what they pulled in. */
-export async function aptRemove({ packages, purge = false, autoremove = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
+/**
+ * The protected packages apt's own plan (`apt-get -s`) would remove that the request did not name.
+ * Throws when apt cannot plan it, which is refused like any other failure: nothing has run.
+ */
+async function protectedInPlan(run, args, named) {
+  const plan = await run(aptGet, ["-s", ...args], { timeout: 5 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  if (!plan.ok) throw new Error(`apt-get could not plan it: ${plan.stderr.split("\n").slice(-3).join(" ")}`);
+  const asked = new Set(named.map(packageBase));
+  const taken = [...new Set(plan.stdout.split("\n").map((line) => /^(?:Remv|Purg) (\S+)/.exec(line)?.[1]).filter(Boolean).map(packageBase))];
+  return taken.filter((name) => protectedPackages.includes(name) && !asked.has(name));
+}
+
+/**
+ * Remove (or purge) packages, then autoremove what they pulled in.
+ * @param {{ packages?: string[], purge?: boolean, autoremove?: boolean, keepProtected?: boolean }} [parameters]
+ */
+export async function aptRemove({ packages, purge = false, autoremove = true, keepProtected = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
   const problem = validPackageList(packages); if (problem) throw new Error(`packages ${problem}`);
   await repairPackageState({ run });
+  const verb = purge ? "purge" : "remove";
+  // Removing a library takes everything that depends on it: libssl3 takes openssh-server. A protected
+  // package named in the request already made the job the owner's (escalation.mjs); one apt would
+  // take along without being named is refused, from apt's own plan, before anything is removed.
+  if (keepProtected) {
+    const alongside = await protectedInPlan(run, [verb, ...(autoremove ? ["--auto-remove"] : []), ...packages], packages);
+    if (alongside.length) throw new Error(`Removing ${packages.join(", ")} would also remove ${alongside.join(", ")}, which keeps SSH, Tailscale, the firewall, sudo, systemd or Docker working. Nothing was removed. Removing ${alongside.length === 1 ? "it" : "them"} is the owner's, by name.`);
+  }
   const before = await installedVersions(run, packages);
-  const result = await run(aptGet, [purge ? "purge" : "remove", "--yes", ...(autoremove ? ["--auto-remove"] : []), ...packages], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  const result = await run(aptGet, [verb, "--yes", ...(autoremove ? ["--auto-remove"] : []), ...packages], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get ${purge ? "purge" : "remove"} failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = await installedVersions(run, packages);
   const remaining = packages.filter((name) => after[name]);
@@ -193,6 +238,9 @@ export async function aptRemove({ packages, purge = false, autoremove = true } =
 /** `apt-get autoremove --purge`. */
 export async function aptAutoremove(_parameters = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
+  // A protected package marked automatic and no longer needed would go with the rest.
+  const alongside = await protectedInPlan(run, ["autoremove", "--purge"], []);
+  if (alongside.length) throw new Error(`Autoremove would remove ${alongside.join(", ")}, which keeps SSH, Tailscale, the firewall, sudo, systemd or Docker working. Nothing was removed. Mark ${alongside.length === 1 ? "it" : "them"} as installed by hand (apt-mark manual), or remove ${alongside.length === 1 ? "it" : "them"} by name as the owner.`);
   const result = await run(aptGet, ["autoremove", "--yes", "--purge"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get autoremove failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   return { autoremoved: true, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired() };
@@ -200,14 +248,17 @@ export async function aptAutoremove(_parameters = {}, { run: baseRun = fixedRun,
 
 const autoUpgradesPath = "/etc/apt/apt.conf.d/20auto-upgrades";
 
-/** Turn nightly unattended security upgrades on or off, installing the package when needed. */
+/**
+ * Turn nightly unattended security upgrades on or off, installing the package when needed.
+ * @param {{ enabled?: boolean }} [parameters]
+ */
 export async function aptUnattendedSet({ enabled } = {}, { run: baseRun = fixedRun, log = null, files = { writeFile }, exists = (target) => access(target).then(() => true, () => false) } = {}) {
   if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
   const run = withLog(baseRun, log);
   let installedNow = false;
   if (enabled && !(await exists("/usr/bin/unattended-upgrade"))) {
     await repairPackageState({ run });
-    const install = await run(aptGet, ["install", "--yes", "--no-install-recommends", "unattended-upgrades"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 , env: aptEnvironment });
+    const install = await run(aptGet, ["install", "--yes", "--no-install-recommends", ...aptKeepConffiles, "unattended-upgrades"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 , env: aptEnvironment });
     if (!install.ok) throw new Error(`Could not install unattended-upgrades: ${install.stderr.split("\n").slice(-3).join(" ")}`);
     installedNow = true;
   }

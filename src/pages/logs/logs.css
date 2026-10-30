@@ -9,6 +9,7 @@
 .logs-source__unit { display: flex; flex: 1 1 18rem; gap: 6px; min-width: 0; max-width: 30rem; }
 .logs-source__unit .ui-input { flex: 1 1 auto; }
 .logs-source__container { flex: 0 1 16rem; min-width: 10rem; }
+.logs-source__none { flex-basis: 100%; margin: 0; color: var(--text-muted); font-size: 13px; }
 
 /* The output: the controls across the top of the panel, the lines filling the rest of the screen. */
 .logs-toolbar { padding: 8px 12px; border-bottom: 1px solid var(--border); }
