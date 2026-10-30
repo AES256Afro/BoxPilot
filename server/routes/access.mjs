@@ -100,6 +100,8 @@ const everyonesFamilies = new Set([
   "storage.root.full", "storage.mount.full", "storage.smart", "storage.mount.detached", "storage.mount.readonly", "storage.forecast",
   "smart.errors", "smart.wear", "power.ups", "power.lost", "system.services", "system.reboot", "docker.unhealthy", "docker.restarting",
   "joblog.unreadable", "release.available", "drive.reconnected", "boxpilot.restart",
+  // M42.2: a public name is the internet's to know; its state names no account's work.
+  "hosted.down", "hosted.cert",
 ]);
 
 /**

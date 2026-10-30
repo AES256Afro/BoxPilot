@@ -2604,9 +2604,25 @@ Share, without the Cloudflare dashboard and without opening a port on the router
 - **Next: a login in front.** Cloudflare Access on a published name (one-time PIN to an email
   address, or a Google or GitHub login), chosen per app on the same form, so an app without a good
   sign-in of its own can still be shared.
-- **Next: say what is public where it is looked for.** A public app marked on Home and on the
-  Network page, and its public address on that app's Reach tab beside the home network and tailnet
-  ones, with Unpublish there too.
+- ✅ **M42.2 Hosted domains** (`claude/hosted-domains-status`). A page beside Network with one row
+  per public name this server answers for. The names come from BoxPilot's own tunnel record, a
+  hand-made cloudflared config and Nginx Proxy Manager's site files (`hosted-domains.sources`, an
+  internal read in the helper), installed apps whose manifest names the setting that holds their
+  public address (`publicHostname: { env }`, on thirteen manifests), and names added by hand
+  (`POST /hosted-domains/manual`, operator). For each, from the web process on the owner's cadence
+  (5, 15, 30 or 60 minutes, `PUT /hosted-domains/settings`): DNS, and whether it points at Cloudflare
+  when it should (a proxied name never shows its CNAME, so Cloudflare's published ranges are the
+  test); the certificate's end and whether it verifies; one GET from the internet's side through
+  Cloudflare and back down the tunnel, and one at `127.0.0.1:<port>` with the name in Host; the
+  Cloudflare Tunnel app's state and its connections from its log; the app's backups from the
+  protection read. A name that resolves into the house is said and never probed. One verdict in
+  words (up, needs a look, down) with what to do; a week of samples for uptime over a day and a week
+  (`hostedDomainsHistory`); `hosted.down:<name>` after two checks down (one at the slower cadences)
+  and `hosted.cert:<name>` inside the last fourteen days, through the health-alert ledger, cleared
+  when they pass. `server/hosted-domains.mjs` is pure down to the service; the probes are
+  `server/hosted-domains-probes.mjs`. The demo shows three names, one in trouble.
+- **Next: say what is public where it is looked for.** A public app marked on Home and on that
+  app's Reach tab beside the home network and tailnet ones, with Unpublish there too.
 
 ## M43 — Agent templates
 

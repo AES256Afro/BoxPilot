@@ -3,6 +3,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { createMaintenanceService } from "./maintenance.mjs";
 import { createNvidiaInspector } from "./nvidia.mjs";
+import { unitFailureMessage } from "./unit-failure.mjs";
 
 const execFile = promisify(execFileCallback);
 const defaultDpkgQuery = "/usr/bin/dpkg-query";
@@ -177,7 +178,7 @@ export function createPrerequisiteHelper({
     } finally {
       if (!before.installed) await clearApproval();
     }
-    if (!start.ok) throw new Error(before.installed ? "The fixed storage evidence scan failed" : "The fixed smartmontools installation service failed");
+    if (!start.ok) throw new Error(await unitFailureMessage({ run, systemctlBinary, unit: service, subject: before.installed ? "The fixed storage evidence scan" : "The fixed smartmontools installation service" }));
     const after = await inspectSmartmontools();
     if (!after.installed || after.installedVersion !== expectedVersion) throw new Error("smartmontools did not match the approved version after installation");
     let evidence = null;
@@ -270,7 +271,7 @@ export function createPrerequisiteHelper({
     } finally {
       await clearApproval();
     }
-    if (!start.ok) throw new Error("The fixed drive-check tools installation service failed");
+    if (!start.ok) throw new Error(await unitFailureMessage({ run, systemctlBinary, unit: "boxpilot-smartmontools-install.service", subject: "The fixed drive-check tools installation service" }));
     const after = await inspectDriveTools();
     for (const name of wanted) {
       if (after.packages[name]?.installedVersion !== approved[name]) throw new Error(`${name} did not match the approved version after installation`);
@@ -361,7 +362,7 @@ export function createPrerequisiteHelper({
       } finally {
         await clearResticApproval();
       }
-      if (!start.ok) throw new Error("The fixed restic installation service failed");
+      if (!start.ok) throw new Error(await unitFailureMessage({ run, systemctlBinary, unit: "boxpilot-restic-install.service", subject: "The fixed restic installation service" }));
     }
     const after = await inspectRestic();
     if (!after.installed || after.installedVersion !== expectedVersion) throw new Error("restic did not match the approved version after installation");
@@ -396,7 +397,7 @@ export function createPrerequisiteHelper({
     } finally {
       await clearDockerApproval();
     }
-    if (!start.ok) throw new Error("The fixed Docker Engine installation service failed");
+    if (!start.ok) throw new Error(await unitFailureMessage({ run, systemctlBinary, unit: "boxpilot-docker-install.service", subject: "The fixed Docker Engine installation service" }));
     const after = await inspectDocker();
     if (!after.installed || after.installedPackageVersion !== expectedVersion || !after.engineVersion || !after.serviceActive) {
       throw new Error("Docker Engine did not match the approved package and active-service proof after installation");
@@ -495,7 +496,7 @@ export function createPrerequisiteHelper({
     } finally {
       await clearVirtualizationApproval();
     }
-    if (!start.ok) throw new Error("The fixed virtualization installation service failed");
+    if (!start.ok) throw new Error(await unitFailureMessage({ run, systemctlBinary, unit: "boxpilot-virtualization-install.service", subject: "The fixed virtualization installation service" }));
     const after = await inspectVirtualization();
     if (!after.installed || expectedKeys.some((name) => after.installedPackages[name] !== expectedPackages[name])) {
       throw new Error("The virtualization stack did not match the approved package, KVM, service, QEMU, and system-URI proof after installation");
@@ -563,7 +564,7 @@ export function createPrerequisiteHelper({
     } finally {
       await clearAptApproval();
     }
-    if (!start.ok) throw new Error("The fixed APT metadata refresh service failed");
+    if (!start.ok) throw new Error(await unitFailureMessage({ run, systemctlBinary, unit: "boxpilot-apt-refresh.service", subject: "The fixed APT metadata refresh service" }));
     const after = await inspectAptMetadata();
     if (after.packageManagerState !== "ready" || after.state !== "current" || after.updatedAt === before.updatedAt) throw new Error("APT metadata was not verified current after the approved refresh");
     return {

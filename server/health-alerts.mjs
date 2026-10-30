@@ -50,6 +50,9 @@ function reportedConditions() {
     // The boot before this one ended without a shutdown (server/power-loss.mjs): raised once at the
     // start after it, cleared when someone says "Got it" on Home.
     "power.lost": "The server lost power or stopped without shutting down",
+    // M42.2: raised and cleared by the hosted-domains checks, once per name.
+    "hosted.down": "A hosted domain is down",
+    "hosted.cert": "A hosted domain's certificate expires soon",
   };
 }
 const reportedFamilies = new Set(Object.keys(reportedConditions()));
