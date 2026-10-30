@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { bootWritersRunning, clearBootPartitionMark, fsckOutput, parseFsckFat } from "./boot-partition.mjs";
+import { bootWritersRunning, clearBootPartitionMark, fsckOutput, isShutdownWaiter, parseFsckFat } from "./boot-partition.mjs";
 
 // fsck.fat 4.2's words for a marked FAT32 partition, as Ubuntu 24.04's dosfstools printed them on
 // the CI runner. It exits 1, and with nothing on stderr fixedRun puts Node's "Command failed" there.
@@ -138,5 +138,26 @@ describe("Check and clear the boot partition's mark", () => {
     const names = { 1: "systemd", 812: "unattended-upgr", 900: "sshd", 901: "grub-install" };
     const running = await bootWritersRunning({ list: async () => [...Object.keys(names), "self", "sys"], read: async (file) => `${names[file.split("/")[2]]}\n` });
     expect(running).toEqual([{ pid: 812, name: "unattended-upgr" }, { pid: 901, name: "grub-install" }]);
+  });
+
+  it("does not take unattended-upgrades' shutdown waiter for an upgrade in progress (2026-10-14)", async () => {
+    // Both are "unattended-upgr" to the kernel; only the command line tells them apart.
+    const comm = { 1546: "unattended-upgr", 2210: "unattended-upgr", 2300: "unattended-upgr" };
+    const cmdline = {
+      1546: "/usr/bin/python3\0/usr/share/unattended-upgrades/unattended-upgrade-shutdown\0--wait-for-signal\0",
+      2210: "/usr/bin/python3\0/usr/bin/unattended-upgrade\0",
+    };
+    const read = async (file) => {
+      const [, , pid, kind] = file.split("/");
+      if (kind === "comm") return `${comm[pid]}\n`;
+      if (pid in cmdline) return cmdline[pid];
+      throw Object.assign(new Error("gone"), { code: "ENOENT" });
+    };
+    const running = await bootWritersRunning({ list: async () => Object.keys(comm), read });
+    // The real run is a writer; the waiter is not; one whose command line cannot be read stays a writer.
+    expect(running).toEqual([{ pid: 2210, name: "unattended-upgr" }, { pid: 2300, name: "unattended-upgr" }]);
+    expect(isShutdownWaiter(cmdline[1546])).toBe(true);
+    expect(isShutdownWaiter("/usr/bin/python3\0/usr/share/unattended-upgrades/unattended-upgrade-shutdown\0")).toBe(false);
+    expect(isShutdownWaiter(cmdline[2210])).toBe(false);
   });
 });

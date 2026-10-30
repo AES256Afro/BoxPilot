@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
+import { gunzipSync, gzipSync } from "node:zlib";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { craftedTarGz, paxBody } from "../test/crafted-tar.mjs";
@@ -75,6 +76,29 @@ describe("reading a few files out of a backup without unpacking it", () => {
   it("keeps the first of two members with one name (the restore checks what tar actually kept)", async () => {
     const file = await archive([{ name: "compose.yaml", body: "first" }, { name: "./compose.yaml", body: "second" }]);
     expect(asText(await readArchiveMembers(file, ["compose.yaml"]))).toEqual({ "compose.yaml": "first" });
+  });
+
+  /**
+   * A size field is what says where the next header begins. Reading a bad one as 0 walked into the
+   * middle of the member and took its contents for headers, and the wanted file came back empty —
+   * a restore dialog showing "no settings" for a backup that carries plenty.
+   */
+  it("reads nothing, rather than an empty file, when a size field is not a size", async () => {
+    for (const crafted of [
+      [{ name: "PaxHeader", type: "pax", body: paxBody({ size: "-100000000" }) }, { name: "compose.yaml", body: "services: {}\n" }],
+      [{ name: "PaxHeader", type: "pax", body: paxBody({ size: "999999999999999999999" }) }, { name: "compose.yaml", body: "services: {}\n" }],
+    ]) {
+      expect(asText(await readArchiveMembers(await archive(crafted), ["compose.yaml"]))).toEqual({});
+    }
+  });
+
+  it("stops at a header whose octal size field is not octal, keeping what it already read", async () => {
+    const file = await archive([{ name: "boxpilot.json", body: "{}" }, { name: "compose.yaml", body: "services: {}\n" }]);
+    const bytes = gunzipSync(await readFile(file));
+    // The second member's header starts at 1024; its size field is bytes 124..136 of it.
+    bytes.write("-0000012\0  ", 1024 + 124, 11, "ascii");
+    await writeFile(file, gzipSync(bytes));
+    expect(asText(await readArchiveMembers(file, ["compose.yaml", "boxpilot.json"]))).toEqual({ "boxpilot.json": "{}" });
   });
 
   it("fails on a file that is not a gzipped archive", async () => {
