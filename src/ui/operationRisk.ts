@@ -44,6 +44,7 @@ export const operationRisk = {
   "app.uninstall": "medium",
   "app.update": "medium",
   "app.update.many": "medium",
+  "app.update.available": "medium",
   "app.vpn.killswitch.drill": "medium",
   "app.zulip.organization.link": "medium",
   "apt.autoremove": "medium",

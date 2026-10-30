@@ -197,11 +197,12 @@ describe("operations that re-render an app's compose file carry the devices the 
   it("covers every app operation that ends in writing the project", async () => {
     const { deviceResolvingOperations } = await import("../catalog/devices.mjs");
     // app.reinstall writes the project again when its compose file is gone too (M35).
-    const rerendering = appOperations().filter((operation) => /apps\.(install|reinstall|update|reconfigure|rollbackApp|setPassword)\(/.test(String(operation.run))).map((operation) => operation.id);
+    // updateEach( is app.update for each app (the bulk operations share it).
+    const rerendering = appOperations().filter((operation) => /apps\.(install|reinstall|update|reconfigure|rollbackApp|setPassword)\(|updateEach\(/.test(String(operation.run))).map((operation) => operation.id);
     expect(rerendering.length).toBeGreaterThan(4);
     // Several apps in one job are given each app's devices (devicesByApp, the index.mjs prepare hook).
     const perApp = rerendering.filter((id) => operations[id].parameters.fields.devicesByApp);
-    expect(perApp).toEqual(["app.update.many"]);
+    expect(perApp.sort()).toEqual(["app.update.available", "app.update.many"]);
     expect([...deviceResolvingOperations].sort()).toEqual(rerendering.filter((id) => !perApp.includes(id)).sort());
     for (const id of deviceResolvingOperations) expect(operations[id].parameters.fields.devices, id).toBeTruthy();
   });
@@ -299,6 +300,34 @@ describe("updating several apps in one job (M36)", () => {
     await expect(operations["app.update.many"].run({ ids }, { apps, progress: vi.fn(), timeScale: 1, now: () => clock })).rejects.toThrow("not started in the time left: a5, a6. a1, a2, a3, a4 were updated.");
     expect(apps.update.mock.calls.map(([{ id }]) => id)).toEqual(["a1", "a2", "a3", "a4"]);
     expect(operations["app.update.many"].timeoutMs).toBe(12 * 60 * 60_000);
+  });
+
+  it("updates, unattended, every app with an update ready, each backed up first, and leaves the rest alone", async () => {
+    const calls = [];
+    const apps = {
+      inspect: vi.fn(async () => ({ applications: [
+        { id: "theyspy", installed: true, updateAvailable: true },
+        { id: "jellyfin", installed: true, updateAvailable: true },
+        { id: "plex", installed: true, updateAvailable: false },
+        { id: "immich", installed: false, updateAvailable: false },
+        { id: "ollama", installed: true, updateAvailable: true },
+      ] })),
+      update: vi.fn(async ({ id, devices }, options) => { calls.push([id, devices, options.checkpoint]); return { updated: true }; }),
+    };
+    const progress = vi.fn();
+    const result = await operations["app.update.available"].run({ exclude: ["ollama"], devicesByApp: { jellyfin: ["/dev/dri/renderD128"], plex: ["/dev/dri/renderD128"] } }, { apps, progress, timeScale: 1 });
+    expect(result).toEqual({ updated: true, apps: ["theyspy", "jellyfin"] });
+    // A backup (checkpoint) before each update, always; devices only for the apps that glob for them.
+    expect(calls).toEqual([["theyspy", null, true], ["jellyfin", ["/dev/dri/renderD128"], true]]);
+    expect(operations["app.update.available"].risk).toBe("medium");
+    expect(operations["app.update.available"].timeoutMs).toBe(12 * 60 * 60_000);
+
+    const quiet = { inspect: async () => ({ applications: [{ id: "plex", installed: true, updateAvailable: false }] }), update: vi.fn() };
+    await expect(operations["app.update.available"].run({}, { apps: quiet, progress })).resolves.toEqual({ updated: false, apps: [] });
+    expect(quiet.update).not.toHaveBeenCalled();
+    const spec = operations["app.update.available"].parameters;
+    expect(validateParameters(spec, {}, "t")).toBeNull();
+    expect(validateParameters(spec, { exclude: ["../etc"] }, "t")).toContain("up to 50");
   });
 
   it("takes 1 to 20 different apps, and devices only as /dev paths per named app", () => {

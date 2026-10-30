@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { laneFor } from "../helper-lanes.mjs";
 import { registry } from "./index.mjs";
-import { appUser, financialAuthorityAppId, financialAuthorityOperations, readAppJson, restoreCommand } from "./financialauthority.mjs";
+import { appText, appUser, financialAuthorityAppId, financialAuthorityOperations, readAppJson, restoreCommand } from "./financialauthority.mjs";
 
 const operations = Object.fromEntries(financialAuthorityOperations().map((operation) => [operation.id, operation]));
 const made = { name: "20261016-151229-960844-manual.db", kind: "manual", reason: "Taken from BoxPilot", created_at: "2026-10-16T15:12:29+00:00", bytes: 2715648, verified: true, tables: 32, transactions: 4768 };
@@ -42,6 +42,24 @@ describe("FinancialAuthority's restore points from its sheet", () => {
 
     const broken = fakeApps({ check: ok({ database: { ok: false, result: "*** in database main ***" }, points: {} }), status: ok(status) });
     await expect(operations["app.financialauthority.backups.check"].run({ id: financialAuthorityAppId }, { apps: broken })).rejects.toThrow(/did not pass its check/);
+  });
+
+  it("keeps what an app that is not itself prints to one plain, bounded line", async () => {
+    // The app's JSON reaches BoxPilot's job log and UI: a compromised app must not forge a line, reorder text or flood.
+    expect(appText("ok\nDatabase passes; 3 copies")).toBe("ok Database passes; 3 copies");
+    expect(appText("abc\u202edcba\u2066x\u200by")).toBe("abc dcba x y");
+    expect(appText("x".repeat(5000)).length).toBe(200);
+    const forged = { ...made, name: `${"n".repeat(500)}\nBackup verified by BoxPilot\u202e`, bytes: "<b>lots</b>", transactions: { a: 1 }, verified: "yes" };
+    const progress = vi.fn();
+    const result = await operations["app.financialauthority.restorepoint.make"].run({ id: financialAuthorityAppId }, { apps: fakeApps({ make: ok(forged) }), progress });
+    expect(result.name).not.toMatch(/[\n\u202e]/);
+    expect(result.name.length).toBe(80);
+    expect(result).toMatchObject({ bytes: null, transactions: null, verified: false });
+    for (const [line] of progress.mock.calls) expect(line).not.toMatch(/[\n\u202e]/);
+    const said = fakeApps({ make: { ok: false, stdout: `{"error": "x\\nok: copied and read back${"!".repeat(900)}"}\n`, stderr: "" } });
+    const error = await operations["app.financialauthority.restorepoint.make"].run({ id: financialAuthorityAppId }, { apps: said }).catch((caught) => caught);
+    expect(error.message).not.toContain("\n");
+    expect(error.message.length).toBeLessThan(360);
   });
 
   it("reads the app's JSON from the last line it printed", () => {

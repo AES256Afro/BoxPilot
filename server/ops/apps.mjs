@@ -18,6 +18,40 @@ const urlOf = (serve) => serveUrl(serve);
  * switch to replace or withdraw: an operator could otherwise give an app port 443 and take over the
  * address BoxPilot is reached at, or take it down.
  */
+
+/**
+ * Updates apps one at a time, each exactly as Update application does (a backup first, the new
+ * image, the previous one restored if unhealthy). One that fails does not stop the others; the
+ * error names it at the end, and any app there was no time left to start.
+ */
+async function updateEach(ids, devicesByApp, { apps, progress, timeScale, now = Date.now }) {
+  const parameters = { ids, devicesByApp };
+  const done = []; const failed = []; const notStarted = [];
+  // An app is started only while what is left of the budget covers one update at its worst
+  // (app.update's own budget): the job's deadline must not pass while the helper still holds
+  // the remaining apps' lanes and changes them with no job watching.
+  const startedAt = now();
+  const budget = moreTimeCeilingMs * (timeScale ?? 1);
+  const worstCase = (checkpointMs + minutes(40)) * (timeScale ?? 1);
+  for (const id of parameters.ids) {
+    if (now() - startedAt + worstCase > budget) { notStarted.push(id); continue; }
+    progress?.(`── ${id} ──`, "stdout");
+    try {
+      await apps.update({ id, devices: parameters.devicesByApp?.[id] ?? null }, { progress, checkpoint: true, timeScale });
+      done.push(id);
+    } catch (error) {
+      failed.push({ id, error: error.message });
+      progress?.(`${id}: ${error.message}`, "stderr");
+    }
+  }
+  if (notStarted.length) progress?.(`Not started, to stay within the job's time: ${notStarted.join(", ")}`, "stderr");
+  if (failed.length || notStarted.length) {
+    const parts = [...failed.map((entry) => `${entry.id}: ${entry.error}`), ...(notStarted.length ? [`not started in the time left: ${notStarted.join(", ")}`] : [])];
+    throw new Error(`${parts.join("; ")}${done.length ? `. ${done.join(", ")} ${done.length === 1 ? "was" : "were"} updated.` : ""}`);
+  }
+  return { updated: true, apps: done };
+}
+
 export function servesThisApp(serve, port) {
   try {
     const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(String(serve?.target ?? "")) ? serve.target : `http://${serve?.target}`);
@@ -86,7 +120,7 @@ export async function serveTailnetOnly(deployed, { run, progress = null }) {
 const idField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
 // An app's install values. secretEnvOf: env entries its manifest (named by `id`) calls a password or
 // secret are secrets, which jobs stage in memory and schedules and flows refuse to store (M29.1).
-const valuesField = { type: "object", optional: true, secretEnvOf: "id", validate:(value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup", "exposure", "networkMode"].includes(key)) ? null : "may only contain ports, env, volumes, setup, exposure, and networkMode") };
+const valuesField = { type: "object", optional: true, secretEnvOf: "id", validate:(value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup", "exposure", "networkMode", "clearSecrets"].includes(key)) ? null : "may only contain ports, env, volumes, setup, exposure, networkMode, and clearSecrets") };
 // Concrete device paths resolved by the web process (the helper's sandbox has no real /dev); the deployer keeps only those matching the manifest.
 const devicesField = { type: "array", optional: true, nullable: true, validate: (value) => (value.length > 32 || value.some((entry) => typeof entry !== "string" || !/^\/dev\/[A-Za-z0-9._/-]{1,64}$/.test(entry) || /\/\.\.?(\/|$)/.test(entry)) ? "must be up to 32 /dev paths" : null) };
 const minutes = (value) => value * 60_000;
@@ -463,31 +497,30 @@ export function appOperations() {
         // Found by the web process for each app that globs for a device (index.mjs prepare hook), never the browser's.
         devicesByApp: { type: "object", optional: true, nullable: true, validate: (value) => (Object.entries(value).every(([id, devices]) => idField.pattern.test(id) && Array.isArray(devices) && devicesField.validate(devices) === null) ? null : "must map app ids to /dev paths") },
       } },
-      run: async (parameters, { apps, progress, timeScale, now = Date.now }) => {
-        const done = []; const failed = []; const notStarted = [];
-        // An app is started only while what is left of the budget covers one update at its worst
-        // (app.update's own budget): the job's deadline must not pass while the helper still holds
-        // the remaining apps' lanes and changes them with no job watching.
-        const startedAt = now();
-        const budget = moreTimeCeilingMs * (timeScale ?? 1);
-        const worstCase = (checkpointMs + minutes(40)) * (timeScale ?? 1);
-        for (const id of parameters.ids) {
-          if (now() - startedAt + worstCase > budget) { notStarted.push(id); continue; }
-          progress?.(`── ${id} ──`, "stdout");
-          try {
-            await apps.update({ id, devices: parameters.devicesByApp?.[id] ?? null }, { progress, checkpoint: true, timeScale });
-            done.push(id);
-          } catch (error) {
-            failed.push({ id, error: error.message });
-            progress?.(`${id}: ${error.message}`, "stderr");
-          }
+      run: (parameters, context) => updateEach(parameters.ids, parameters.devicesByApp, context),
+    }),
+    defineOperation({
+      // Unattended updates (scheduled from Automations): every installed app whose catalog image is
+      // newer than the one it runs, each exactly as Update application does: a backup (checkpoint)
+      // first, which the update refuses to go on without, the new image, and the previous one put
+      // back if the app does not come up healthy. Nothing to update is a quiet success.
+      id: "app.update.available", title: "Update every app that has an update", risk: "medium", timeoutMs: moreTimeCeilingMs,
+      description: "Backs up each app that has a newer image in the catalog, then updates it exactly as Update application does, one at a time; an app that does not become healthy is put back on its previous image. Apps that are up to date are left alone, and so are any listed in exclude.",
+      parameters: { fields: {
+        exclude: { type: "array", optional: true, validate: (value) => (value.length <= 50 && value.every((entry) => typeof entry === "string" && idField.pattern.test(entry)) ? null : "must list up to 50 app ids") },
+        // Found by the web process for every app that globs for a device (index.mjs prepare hook).
+        devicesByApp: { type: "object", optional: true, nullable: true, validate: (value) => (Object.entries(value).every(([id, devices]) => idField.pattern.test(id) && Array.isArray(devices) && devicesField.validate(devices) === null) ? null : "must map app ids to /dev paths") },
+      } },
+      run: async (parameters, context) => {
+        const { applications } = await context.apps.inspect({});
+        const skip = new Set(parameters.exclude ?? []);
+        const ids = applications.filter((app) => app.installed && app.updateAvailable && !skip.has(app.id)).map((app) => app.id).slice(0, 20);
+        if (!ids.length) {
+          context.progress?.("Every app is up to date.", "stdout");
+          return { updated: false, apps: [] };
         }
-        if (notStarted.length) progress?.(`Not started, to stay within the job's time: ${notStarted.join(", ")}`, "stderr");
-        if (failed.length || notStarted.length) {
-          const parts = [...failed.map((entry) => `${entry.id}: ${entry.error}`), ...(notStarted.length ? [`not started in the time left: ${notStarted.join(", ")}`] : [])];
-          throw new Error(`${parts.join("; ")}${done.length ? `. ${done.join(", ")} ${done.length === 1 ? "was" : "were"} updated.` : ""}`);
-        }
-        return { updated: true, apps: done };
+        context.progress?.(`Updating ${ids.join(", ")}, each backed up first.`, "stdout");
+        return updateEach(ids, parameters.devicesByApp, context);
       },
     }),
     defineOperation({
