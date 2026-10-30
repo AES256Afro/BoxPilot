@@ -213,14 +213,18 @@ export function createJobService(store, helper, {
       throw Object.assign(new Error("This approval expired after 30 minutes. Close it and stage the operation again with its credentials."), { code: "approval_expired" });
     }
     if (policy.passwordRequired && !passwordProvided) throw Object.assign(new Error(`Enter the owner password: ${policy.tier}-risk job needs the owner password`), { code: "password_required" });
-    let elevatedUntil = session?.elevatedUntil ?? null;
-    if (passwordProvided && session?.tokenHash && typeof store.elevateSession === "function") {
-      elevatedUntil = store.elevateSession(session.tokenHash, new Date(now() + elevationTtlMs)) ?? elevatedUntil;
-    }
     const role = session?.owner?.role ?? owner.role ?? "owner";
     if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot approve jobs");
     if (policy.tier === "high" && role !== "owner") throw new Error("Only the owner can approve high-risk jobs");
     if (policy.minimumRole === "owner" && role !== "owner") throw new Error("Only the owner can approve this job");
+    // Only once the approver is allowed to approve this job: the password used to unlock the elevated
+    // window before the role was looked at, so an operator demoted to viewer who still had a job of
+    // their own staged got a session marked unlocked out of an approval that was then refused. The
+    // /elevate route has always refused a viewer; this is the same rule at the other door.
+    let elevatedUntil = session?.elevatedUntil ?? null;
+    if (passwordProvided && session?.tokenHash && typeof store.elevateSession === "function") {
+      elevatedUntil = store.elevateSession(session.tokenHash, new Date(now() + elevationTtlMs)) ?? elevatedUntil;
+    }
     if (policy.confirmText && confirmText !== policy.confirmText) throw new Error(`Type ${policy.confirmText} to confirm this ${policy.tier}-risk job`);
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
