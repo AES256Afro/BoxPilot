@@ -23,6 +23,9 @@ volumes:
     label: Notebook, backups, and attachments
     container: /data
     path: data
+# The setting that holds the app's public address, so Hosted domains watches it once it is set.
+publicHostname:
+  env: KEEL_PUBLIC_URL
 env:
   - name: TZ
     label: Time zone

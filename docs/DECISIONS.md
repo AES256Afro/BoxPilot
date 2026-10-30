@@ -1256,9 +1256,33 @@ is the remaining half: which bytes inside that repository.
    resolved next to the tag it chose (the registry's `Docker-Content-Digest` for the multi-arch
    index), so the weekly catalog-updates pull request shows both moving together. A one-off run
    pins the 168 manifests that have no digest yet.
-2. **`catalog-check-images` fails on drift.** It already does a HEAD on each manifest. It would also
-   compare `Docker-Content-Digest` with the pinned digest and fail when a tag now points elsewhere,
-   naming the image. A moved tag becomes a reviewed change instead of a silent one.
+2. **`catalog-check-images` fails on the drift that reaches this project.** It already does a HEAD
+   on each manifest. It also compares `Docker-Content-Digest` with the pinned digest; when they
+   differ it reads both indexes and compares the per-platform manifest digests for the platforms
+   BoxPilot runs on, `linux/amd64` and `linux/arm64` (any variant; `unknown/unknown` attestation
+   entries are not images). A targeted platform whose manifest moved or went is `MOVED` and fails,
+   naming the platform. When only the other platforms moved it is `RESTACK`: a word of its own
+   beside `ok`, `MISSING` and `NODIGST`, which names what was rebuilt and does not fail the run.
+   Nothing unverifiable reads as a pass — a pinned index the registry no longer serves, a reference
+   that is not an index, and a tag the registry gives no digest for all still fail. So a moved tag
+   becomes a reviewed change instead of a silent one, and a pin that is stale but harmless moves in
+   the weekly catalog-updates pull request instead of an emergency one.
+
+   The *pin* stays the index digest, so every server installs the same bytes and Docker resolves
+   the platform under it; it is the *check* that is platform-aware, and `catalog-pin-digests.mjs`
+   keeps writing the index digest. An index is rewritten whole when any one platform under it is
+   re-pushed, so its digest changing is not by itself the image changing. On 2026-10-22 five pins
+   drifted in one day — monica, phpmyadmin, memcached (twice, hours apart), guacamole and redis —
+   and each failed every open catalog pull request until someone re-pinned it (#568, #569, #571,
+   #572). Three of them were provably nothing for the machines BoxPilot runs on: monica and
+   phpmyadmin had rebuilt `linux/ppc64le` alone, with amd64 byte for byte the manifest already
+   pinned; and for `redis:8.10.2-alpine`, 14 of the index's 16 manifests were the same objects as
+   before — only `linux/ppc64le` and its attestation were new, while amd64 and arm64/v8 were the
+   manifests the old index named, their configs still reading the same created time. memcached's
+   arm64 did move, and Guacamole's publisher rebuilt both arches, so those two stay failures under
+   this rule. Replaying all five against the registry gives exactly that: three `RESTACK`, two
+   `MOVED`. By the evening `postgres:16.15-alpine` had restacked on `linux/ppc64le` too, which is
+   one more red weekly run across the eleven manifests that share it.
 3. **Update history stores the digest that ran.** Before an update, the deployer reads the running
    container's `RepoDigests` and records `repo@sha256:…` beside the tag in `updateHistory`. Rollback
    deploys that digest when it is the same repository as the catalog's (`catalogImagePin` already
@@ -1268,10 +1292,18 @@ is the remaining half: which bytes inside that repository.
 ### Consequences
 
 - What a server runs is reproducible from the manifest, and a rollback is the bytes that ran.
-- A publisher's silent rebuild shows up as a failed check and then a catalog pull request. The cost
-  is one more review in the weekly update when that happens.
+- A publisher's silent rebuild of what a server runs shows up as a failed check and then a catalog
+  pull request. The cost is one more review in the weekly update when that happens.
+- A rebuild of a platform no BoxPilot server pulls is reported and not escalated, so the weekly run
+  and the open catalog pull requests stay green through it. Three of 2026-10-22's five drifts were
+  that, and would have waited for the weekly `--refresh` instead of stopping every catalog branch.
 - Digests are per index, so multi-arch images keep working: Docker picks the platform under the
-  pinned index.
+  pinned index, and the check reads that index to tell a rebuild this project runs from one it does
+  not. It costs two manifest GETs for an image that drifted, and nothing for one that did not.
+- A `RESTACK` leaves the pin stale until the next `--refresh`, and an install in between pulls the
+  index that was pinned: still served, still the same amd64 and arm64 bytes. If a publisher ever
+  collects that index, installs fail and the check says the registry no longer serves the pinned
+  digest, which is a failure, not a restack.
 - Not covered: signature verification (cosign) and catalog signing, which remain on the roadmap
   (M3.1 "signature check") and need keys the owner holds.
 

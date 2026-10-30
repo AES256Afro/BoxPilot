@@ -267,6 +267,41 @@ jobs:
         if: ${{ !cancelled() }}
         run: sudo bash tests/ubuntu/env-file-parity.sh "$(command -v node)"
 
+  # Every unit that runs node, started under its own [Service] sandbox on real systemd, before a
+  # host sees it: boxpilot-libvirt-foundation.service core-dumped at every start on 2026-10-22
+  # because MemoryDenyWriteExecute=true refuses the mprotect(PROT_EXEC) V8's JIT needs, and nothing
+  # had run node under that unit's directives before a host did. Both LTS releases, since what a
+  # directive does is systemd's and the kernel's. The second step keeps the test honest on the same
+  # machine: a unit with that directive has to fail, or the test would pass the next one too.
+  node-units-sandbox:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: node starts under the sandbox of every unit that runs it
+        run: sudo bash tests/ubuntu/node-units-sandbox.sh "$(command -v node)"
+
+      - name: The test catches the directive that took the libvirt foundation unit down
+        if: ${{ !cancelled() }}
+        run: |
+          known_bad="$(mktemp -d)"
+          printf '[Service]\nType=oneshot\nExecStart=/usr/local/bin/node /opt/boxpilot/scripts/known-bad.mjs\nNoNewPrivileges=true\nMemoryDenyWriteExecute=true\n' > "${known_bad}/known-bad.service"
+          if sudo env BOXPILOT_UNIT_DIR="$known_bad" bash tests/ubuntu/node-units-sandbox.sh "$(command -v node)"; then
+            echo "the test passed a unit node cannot start under" >&2
+            exit 1
+          fi
+
   # M45.3: the model gateway's unit on real systemd: the key from LoadCredential, the socket only the
   # web service's user opens, a sandbox without anyone else's secrets, and a call that reaches
   # api.anthropic.com and is refused for its (fake) key, so nothing is billed.

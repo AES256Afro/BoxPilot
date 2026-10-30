@@ -59,6 +59,8 @@ import { createStorageRouter } from "./storage.mjs";
 import { createPowerRouter } from "./power.mjs";
 import { createChecklistRouter } from "./checklist.mjs";
 import { createHostRouter } from "./host.mjs";
+import { createHostedDomainsRouter } from "./hosted-domains.mjs";
+import { createHostedDomainsService } from "../hosted-domains.mjs";
 import { createOidcAdminRouter, createOidcRouter } from "./oidc.mjs";
 import { createRunbookRouter } from "./runbook.mjs";
 import { createRunbookService } from "../runbook-service.mjs";
@@ -223,6 +225,8 @@ const changeRoutes = [
   "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test", "PUT /api/v1/settings/quiet-hours",
   "PUT /api/v1/settings/approval-mode", "PUT /api/v1/settings/backup-destination", "PUT /api/v1/settings/github-client-id", "PUT /api/v1/settings/assistant",
   "PUT /api/v1/settings/storage-wake",
+  // M42.2: the owner's cadence for the hosted-domains checks, and names added or removed by hand.
+  "PUT /api/v1/hosted-domains/settings", "POST /api/v1/hosted-domains/manual", "DELETE /api/v1/hosted-domains/manual/:hostname",
   "POST /api/v1/storage/shares/list", "POST /api/v1/virtualization/media/uploads", "POST /api/v1/virtualization/plans",
   // Agents (M37): making, changing, running, pausing and stopping them, their cards, notes, library
   // and evaluations, and the owner's switch. None stages or runs an operation.
@@ -464,6 +468,7 @@ const dataRoutes = {
   "GET /api/v1/network/tailnet": [open],
   "GET /api/v1/network/dns-resilience": [open],
   "GET /api/v1/network/reachability": [open],
+  "GET /api/v1/hosted-domains": [open],
   "GET /api/v1/backups": [{
     ...open,
     check: ({ role, body }) => {
@@ -630,6 +635,8 @@ beforeAll(async () => {
     collect: async () => ({ devices: [], mounts: [], fstab: [] }), inspectNames: async () => null,
   });
   routers.createOidcAdminRouter = createOidcAdminRouter({ oidc, auth });
+  // M42.2: the hosted-domains checks, with no helper and probes that never touch the network.
+  routers.createHostedDomainsRouter = createHostedDomainsRouter({ hostedDomains: createHostedDomainsService({ store: state, probes: { resolve: async () => ({ resolved: false, addresses: [], viaCloudflare: false, private: false, error: "ENOTFOUND" }), probe: async () => ({ outcome: "error", status: null, ms: 0, server: null, tls: null, error: "not probed in a test" }) } }), auth });
   const runbook = createRunbookService({
     store: state, helper, catalogService, inventory, network, notifications, identity, tlsDir,
     collect: async () => ({ availability: { devices: true, mounts: true, fstab: true }, devices: [], mounts: [], fstab: [], shares: [] }),
@@ -668,7 +675,7 @@ beforeAll(async () => {
   app.use("/api/v1", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireCsrf(request, response, next)));
   app.use("/api/v1", apiRolePolicy());
   app.use("/api/v1/people", auth.requireRole("owner"));
-  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createOidcAdminRouter", "createRunbookRouter", "createAssistantRouter", "createAgentsRouter", "createPushRouter"]) {
+  for (const name of ["createPeopleRouter", "createOperationsRouter", "createJobsRouter", "createVirtualizationRouter", "createSettingsRouter", "createFirewallRouter", "createStorageRouter", "createPowerRouter", "createChecklistRouter", "createHostRouter", "createHostedDomainsRouter", "createOidcAdminRouter", "createRunbookRouter", "createAssistantRouter", "createAgentsRouter", "createPushRouter"]) {
     app.use("/api/v1", routers[name]);
   }
   app.use((_request, response) => { response.status(404).json({ error: "Not found" }); });
