@@ -63,7 +63,7 @@ export function sinceWithinWeek(since) {
   return minutes >= 1 && minutes <= 7 * 1440;
 }
 
-export function createToolRunner({ state, store, registry, helper = null, inventory = null, knowledge = null, secretEnvNamesFor = null, now = () => new Date(), helperTimeoutMs = 30_000, webSearch = () => ({ enabled: false, endpoint: null }), fetcher = fetch, repairScan = null }) {
+export function createToolRunner({ state, store, registry, helper = null, inventory = null, knowledge = null, secretEnvNamesFor = null, now = () => new Date(), helperTimeoutMs = 30_000, webSearch = () => ({ enabled: false, endpoint: null }), fetcher = fetch, repairScan = null, appGlances = null }) {
   let appsRead = null;
   /** app.inspect, shared for fifteen seconds: a run asks several tools that all start from it. */
   function readApps() {
@@ -233,6 +233,15 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     async "pihole.stats"(_input, context) {
       if (!appAllowed(context.spec, "pi-hole")) throw new ToolError("This agent may not look at Pi-hole");
       return describePihole(await read("app.pihole.inspect", {}, context));
+    },
+
+    // M51.1: BaselineWatch's latest digest, read by the web service over the app's own API (the
+    // catalog app installed, running and answering). Its words are a third party's feeds: the
+    // harness boxes them as untrusted like every tool's output.
+    async "baselinewatch.digest"(_input, context) {
+      if (!appAllowed(context.spec, "baselinewatch")) throw new ToolError("This agent may not look at BaselineWatch");
+      if (!appGlances) throw new ToolError("BaselineWatch cannot be read here");
+      return appGlances.digest("baselinewatch");
     },
 
     async "theyspy.status"(_input, context) {
