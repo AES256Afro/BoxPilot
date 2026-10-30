@@ -31,7 +31,7 @@ export interface Verification { verified: boolean; backup: string; reason: strin
 export interface LiveUrl { id: string; label: string; host: number; exposure: string; path?: string | null }
 export interface LiveState {
   id: string; installed: boolean; dataPresent: boolean;
-  state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; exposure?: "lan" | "tailnet"; networkMode?: string }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
+  state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; exposure?: "lan" | "tailnet"; networkMode?: string }; pinnedRollback: boolean; uninstalledAt: string | null; secretsSaved?: string[] } | null;
   container: { exists: boolean; running: boolean; status: string; health: string; restarts: number; image: string | null };
   sidecars?: Array<{ id: string; running: boolean; status: string; restarts: number }>;
   urls: LiveUrl[];
@@ -55,7 +55,7 @@ export interface CatalogResponse {
   host: { lanAddress: string | null; tailscaleDnsName: string | null };
 }
 
-export type Values = { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; networkMode?: string };
+export type Values = { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; networkMode?: string; clearSecrets?: string[] };
 export interface Serve { dnsName: string; port: number; target: string | null }
 export interface AppStats { cpuPercent: number; memBytes: number; containers: number }
 export interface Tunnel { running: boolean; exit: { ip: string; location: string | null } | null; forwardedPort: number | null }
