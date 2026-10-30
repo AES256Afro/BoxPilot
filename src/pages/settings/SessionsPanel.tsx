@@ -124,7 +124,7 @@ export default function SessionsPanel({ csrfToken }: { csrfToken: string }) {
       )}
       {confirmOthers && (
         <Sheet side="center" size="sm" kicker="Where you're signed in" title={`Sign out everywhere else (${others})?`} onClose={() => setConfirmOthers(false)}
-          footer={<><Button variant="ghost" onClick={() => setConfirmOthers(false)}>Keep them</Button><Button variant="primary" busy={busy} onClick={() => void revokeOthers().then(() => setConfirmOthers(false))}>Sign out {others === 1 ? "it" : "them"}</Button></>}>
+          footer={<><Button variant="ghost" onClick={() => setConfirmOthers(false)}>Keep them</Button><Button variant="primary" busy={busy} onClick={() => void revokeOthers().then(() => setConfirmOthers(false))}>Sign {others === 1 ? "it" : "them"} out</Button></>}>
           <p>Every other device signs out at once and has to sign in again, a phone's approval pushes included. This one stays signed in.</p>
           <ul className="settings-list">{(sessions ?? []).filter((entry) => entry.id !== currentId).map((entry) => <li key={entry.id}>{deviceLabel(entry.userAgent)}</li>)}</ul>
         </Sheet>

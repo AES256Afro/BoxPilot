@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+/** @param {{ helper?: any, newId?: () => string }} [options] */
 export function createLibvirtFoundationService({ helper, newId = randomUUID } = {}) {
   async function inspect() {
     try {

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The read tools state their facts outright (M40). The owner asked "List the drives connected to
  * BoxPilot" and got "/dev/sda (primary drive): 528 GB total, 31% used", because storage.health had

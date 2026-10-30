@@ -18,6 +18,8 @@ export function invalidateOperationEvidence(job, { registry, inventory, prerequi
     for (const name of ["app.inspect", "container.docker.inventory", "app.backups.counts"]) reads.add(name);
   }
   if (system || /^(samba|storage|share)\./.test(operation ?? "")) reads.add("samba.inspect");
+  // The Repair scan's held drive evidence (helper-client.mjs heldReadMs): a mount, a check or a repair changes it.
+  if (system || /^(storage|share)\./.test(operation ?? "")) for (const name of ["storage.usb.events", "storage.unclean.events", "storage.volumes.state"]) reads.add(name);
   if (system || /^nfs\./.test(operation ?? "")) reads.add("nfs.inspect");
   if (/^(firewall|network)\./.test(operation ?? "")) reads.add("firewall.inspect");
   if (/^host\./.test(operation ?? "")) reads.add("host.snapshot.inspect");

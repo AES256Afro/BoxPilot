@@ -4,14 +4,33 @@
  * configuration by the setup task; the settings store keeps the non-secret description.
  */
 export const cloudProviders = Object.freeze({
-  b2: { label: "Backblaze B2", fields: ["account", "bucket", "path"], secrets: ["key"], help: "Create an application key in Backblaze (Account → App Keys). Account = the key ID, key = the application key." },
-  s3: { label: "S3-compatible (AWS, Wasabi, MinIO, Cloudflare R2)", fields: ["endpoint", "region", "bucket", "path", "accessKeyId"], secrets: ["secretAccessKey"], help: "For AWS leave the endpoint empty and set the region. For Wasabi, R2, MinIO, or another S3 service, set their endpoint URL." },
-  webdav: { label: "WebDAV (Nextcloud, Hetzner Storage Box, ...)", fields: ["url", "user", "path"], secrets: ["password"], help: "The WebDAV URL of your account, for example https://cloud.example.com/remote.php/dav/files/USERNAME/." },
-  drive: { label: "Google Drive", fields: ["path"], secrets: ["token"], help: "On any computer with rclone, run: rclone authorize \"drive\". Sign in, then paste the token it prints (starts with {\"access_token\")." },
-  onedrive: { label: "Microsoft OneDrive", fields: ["path"], secrets: ["token"], help: "On any computer with rclone, run: rclone authorize \"onedrive\". Sign in, then paste the token it prints." },
-  dropbox: { label: "Dropbox", fields: ["path"], secrets: ["token"], help: "On any computer with rclone, run: rclone authorize \"dropbox\". Sign in, then paste the token it prints." },
+  b2: { label: "Backblaze B2", fields: ["account", "bucket", "path"], secrets: ["key", "passphrase"], help: "Create an application key in Backblaze (Account → App Keys). Account = the key ID, key = the application key." },
+  s3: { label: "S3-compatible (AWS, Wasabi, MinIO, Cloudflare R2)", fields: ["endpoint", "region", "bucket", "path", "accessKeyId"], secrets: ["secretAccessKey", "passphrase"], help: "For AWS leave the endpoint empty and set the region. For Wasabi, R2, MinIO, or another S3 service, set their endpoint URL." },
+  webdav: { label: "WebDAV (Nextcloud, Hetzner Storage Box, ...)", fields: ["url", "user", "path"], secrets: ["password", "passphrase"], help: "The WebDAV URL of your account, for example https://cloud.example.com/remote.php/dav/files/USERNAME/." },
+  drive: { label: "Google Drive", fields: ["path"], secrets: ["token", "passphrase"], help: "On any computer with rclone, run: rclone authorize \"drive\". Sign in, then paste the token it prints (starts with {\"access_token\")." },
+  onedrive: { label: "Microsoft OneDrive", fields: ["path"], secrets: ["token", "passphrase"], help: "On any computer with rclone, run: rclone authorize \"onedrive\". Sign in, then paste the token it prints." },
+  dropbox: { label: "Dropbox", fields: ["path"], secrets: ["token", "passphrase"], help: "On any computer with rclone, run: rclone authorize \"dropbox\". Sign in, then paste the token it prints." },
 });
 export const cloudProviderIds = Object.freeze(Object.keys(cloudProviders));
+
+/**
+ * The mirror is encrypted before it leaves the server. Application backups carry each app's .env (its generated
+ * passwords, session secrets and data keys) next to the data those keys seal, and machine snapshots carry every
+ * app's settings, so a plain copy in a bucket was the whole server for whoever reads the bucket. rclone's crypt
+ * remote wraps the provider's: contents encrypted (XSalsa20-Poly1305) under the owner's passphrase, names left
+ * readable so the bucket still shows which backup is which. The passphrase is kept obscured in the root-only
+ * rclone.conf for the nightly copy; the owner keeps it off this server too, or the copies cannot be read after
+ * a loss of this server.
+ */
+export const sealedRemote = "boxpilot-sealed";
+export const minimumPassphraseLength = 12;
+/** Where the sealed copies go, beside (never over) anything an older plain mirror left in the folder. */
+export const sealedFolder = "sealed";
+export function sealedTarget() { return `${sealedRemote}:`; }
+/** Whether a saved rclone.conf has the encrypted remote the mirror writes through. */
+export function isSealedConfig(text) {
+  return new RegExp(`^\\[${sealedRemote}\\]\\ntype = crypt$`, "m").test(String(text ?? ""));
+}
 
 const patterns = {
   account: /^[A-Za-z0-9_-]{1,64}$/,
@@ -65,6 +84,9 @@ export function renderRcloneConfig(destination, secrets = {}) {
       break;
     default:
       lines.push(`type = ${destination.provider}`, `token = ${secrets.token ?? ""}`);
+  }
+  if (secrets.passphraseObscured) {
+    lines.push("", `[${sealedRemote}]`, "type = crypt", `remote = ${cloudTarget(destination)}/${sealedFolder}`, "filename_encryption = off", "directory_name_encryption = false", `password = ${secrets.passphraseObscured}`);
   }
   return `${lines.join("\n")}\n`;
 }

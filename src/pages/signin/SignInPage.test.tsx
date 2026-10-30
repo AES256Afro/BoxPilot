@@ -1,9 +1,12 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AuthScreen, { SignInLoading, SignInUnavailable, signedOutWords } from "./SignInPage";
+import { resetSigninStyleForTests, setSigninStyle } from "./signinStyle";
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
+  resetSigninStyleForTests();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -62,7 +65,7 @@ describe("signing in again after a session ended (M36)", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ tailscale: { available: false, login: null, displayName: null, node: null, linked: false }, github: { configured: false } }), { status: 200, headers: { "Content-Type": "application/json" } })));
     render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} notice={{ reason: "expired", page: "System" }} />);
     expect(screen.getByRole("heading", { name: "Your session ended" })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("Your session ended: a sign-in lasts twelve hours, and restarts and updates do not end it. Sign in to go back to System.");
+    expect(screen.getByRole("status").textContent).toBe("Your session ended: a sign-in lasts twelve hours after you last used BoxPilot (three days at most), and restarts and updates do not end it. Sign in to go back to System.");
   });
 
   it("tells a session ended elsewhere from one that ran out", () => {
@@ -104,5 +107,181 @@ describe("the sign-in page's ways in (M33.13)", () => {
     cleanup();
     render(<SignInLoading />);
     expect(screen.getByRole("heading", { name: "Loading BoxPilot..." })).toBeTruthy();
+  });
+});
+
+describe("the ways in, each to its end", () => {
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  const session = { authenticated: true, owner: { id: "o1", username: "alex", role: "owner" }, csrfToken: "csrf", expiresAt: "2026-10-18T23:00:00Z" };
+  const linked = { tailscale: { available: true, login: "alex@example.com", displayName: "Alex", node: "workbook", linked: true }, github: { configured: false }, passkey: { registered: false } };
+
+  it("asks for the password once when Tailscale signs in from a new browser, and says when it was refused", async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (!url.endsWith("/auth/tailscale")) return json(linked);
+      const body = JSON.parse(String(init?.body ?? "{}")); bodies.push(body);
+      if (!body.password) return json({ error: "Confirm your password once in this browser", code: "device_password_required", username: "alex" }, 401);
+      if (body.password !== "correct horse battery") return json({ error: "Wrong password", code: "device_password_required", username: "alex" }, 401);
+      return json(session);
+    }));
+    const onAuthenticated = vi.fn();
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={onAuthenticated} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue as Alex (Tailscale)" }));
+    const confirm = await screen.findByRole("button", { name: "Confirm and sign in" });
+    expect(screen.getByText(/First time in this browser/).textContent).toContain("alex");
+    // Twelve characters at least, as the server asks.
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Password for alex"), { target: { value: "not the one!" } });
+    fireEvent.click(confirm);
+    expect((await screen.findByRole("alert")).textContent).toBe("That password was not accepted");
+    fireEvent.change(screen.getByLabelText("Password for alex"), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and sign in" }));
+    await vi.waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith(expect.objectContaining({ authenticated: true, bootstrapRequired: false })));
+    expect(bodies).toEqual([{}, { password: "not the one!" }, { password: "correct horse battery" }]);
+    expect(screen.queryByRole("button", { name: "Confirm and sign in" })).toBeNull();
+  });
+
+  it("says why Tailscale sign-in failed when it is not a password question", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (input.toString().endsWith("/auth/tailscale") ? json({ error: "This tailnet identity is linked to a disabled account" }, 403) : json(linked))));
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue as Alex (Tailscale)" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("This tailnet identity is linked to a disabled account");
+    expect(screen.queryByRole("button", { name: "Confirm and sign in" })).toBeNull();
+  });
+
+  it("signs in with a recovery code, says when one is refused, and goes back to the password", async () => {
+    const codes: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!input.toString().endsWith("/auth/passkey/recovery")) return json({ ...linked, tailscale: { available: false, linked: false } });
+      const { code } = JSON.parse(String(init?.body)); codes.push(code);
+      return code === "AAAAA-BBBBB-CCCCC-DDDDD" ? json(session) : json({ error: "That recovery code was used already" }, 401);
+    }));
+    const onAuthenticated = vi.fn();
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={onAuthenticated} />);
+    fireEvent.click(screen.getByRole("button", { name: "Use a recovery code instead" }));
+    const use = screen.getByRole("button", { name: "Use recovery code" });
+    expect((use as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Recovery code"), { target: { value: "ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ" } });
+    fireEvent.click(use);
+    expect((await screen.findByRole("alert")).textContent).toBe("That recovery code was used already");
+    fireEvent.change(screen.getByLabelText("Recovery code"), { target: { value: "AAAAA-BBBBB-CCCCC-DDDDD" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use recovery code" }));
+    await vi.waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith(expect.objectContaining({ authenticated: true, bootstrapRequired: false })));
+    expect(codes).toEqual(["ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ", "AAAAA-BBBBB-CCCCC-DDDDD"]);
+    cleanup();
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Use a recovery code instead" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("button", { name: "Use a recovery code instead" })).toBeTruthy();
+    expect(screen.queryByLabelText("Recovery code")).toBeNull();
+  });
+
+  it("says why the password was refused", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (input.toString().endsWith("/auth/login") ? json({ error: "Wrong username or password" }, 401) : json({ tailscale: { available: false, linked: false }, github: { configured: false } }))));
+    const onAuthenticated = vi.fn();
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={onAuthenticated} />);
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "alex" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Wrong username or password");
+    expect(onAuthenticated).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
+  });
+});
+
+describe("GitHub sign-in to its end", () => {
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  const session = { authenticated: true, owner: { id: "o1", username: "alex", role: "owner" }, csrfToken: "csrf", expiresAt: "2026-10-18T23:00:00Z" };
+  function serveFlow(answers: Array<Response | (() => Response)>, start: () => Response = () => json({ flowId: "f1", userCode: "WXYZ-9876", verificationUri: "https://github.com/login/device", expiresIn: 900, intervalSeconds: 5 })) {
+    let polled = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/auth/github/start")) return start();
+      if (url.endsWith("/auth/github/poll")) { const next = answers[Math.min(polled, answers.length - 1)]; polled += 1; return typeof next === "function" ? next() : next.clone(); }
+      return json({ tailscale: { available: false, linked: false }, github: { configured: true }, passkey: { registered: false } });
+    }));
+    return () => polled;
+  }
+
+  it("keeps asking at GitHub's interval while it is pending, then signs in", async () => {
+    const polled = serveFlow([json({ status: "pending" }), json({ status: "pending" }), json({ status: "complete", session })]);
+    const onAuthenticated = vi.fn();
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={onAuthenticated} />);
+    const start = await screen.findByRole("button", { name: "Sign in with GitHub" });
+    vi.useFakeTimers();
+    await act(async () => { fireEvent.click(start); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("Waiting for you to authorize on GitHub…")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "https://github.com/login/device" })).toBeTruthy();
+    // One poll each interval GitHub gave (five seconds), never sooner.
+    for (const [after, count] of [[4_999, 0], [1, 1], [4_998, 1], [2, 2], [5_000, 3]] as const) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(after); });
+      expect(polled()).toBe(count);
+    }
+    expect(onAuthenticated).toHaveBeenCalledWith(session);
+  });
+
+  for (const [answer, words] of [
+    [{ status: "expired" }, "The GitHub code expired; try again."],
+    [{ status: "denied" }, "GitHub authorization was denied."],
+    [{ status: "failed", error: "That GitHub account is not linked to a BoxPilot user" }, "That GitHub account is not linked to a BoxPilot user"],
+  ] as const) {
+    it(`says so and offers GitHub again when the code is ${answer.status}`, async () => {
+      serveFlow([json(answer)]);
+      render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+      const start = await screen.findByRole("button", { name: "Sign in with GitHub" });
+      vi.useFakeTimers();
+      await act(async () => { fireEvent.click(start); await vi.advanceTimersByTimeAsync(5_000); });
+      expect(screen.getByRole("alert").textContent).toBe(words);
+      expect(screen.queryByText("WXYZ-9876")).toBeNull();
+      expect((screen.getByRole("button", { name: "Sign in with GitHub" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+  }
+
+  it("says why when GitHub sign-in cannot start", async () => {
+    serveFlow([], () => json({ error: "Too many GitHub sign-ins are waiting; try again in a minute" }, 429));
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in with GitHub" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Too many GitHub sign-ins are waiting; try again in a minute");
+    expect((screen.getByRole("button", { name: "Sign in with GitHub" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("which sign-in screen this browser shows", () => {
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+  const ways = { tailscale: { available: false, linked: false }, github: { configured: true }, passkey: { registered: false } };
+
+  it("shows the terminal unless this browser chose the classic card", () => {
+    const { container } = render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    expect(container.querySelector(".signin-page--terminal")).toBeTruthy();
+    cleanup();
+    act(() => setSigninStyle("classic"));
+    const classic = render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    expect(classic.container.querySelector(".signin-page--terminal")).toBeNull();
+    expect(classic.container.querySelector(".signin-card")).toBeTruthy();
+    expect(window.localStorage.getItem("boxpilot-signin-style")).toBe("classic");
+  });
+
+  it("presses a way in when its number is typed, but not while typing in a field", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith("/auth/github/start")
+      ? json({ flowId: "f1", userCode: "WXYZ-9876", verificationUri: "https://github.com/login/device", expiresIn: 900, intervalSeconds: 5 })
+      : json(ways));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    await screen.findByRole("button", { name: "Sign in with GitHub" });
+    fireEvent.keyDown(screen.getByLabelText("Username"), { key: "1" });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/github/start"))).toBe(false);
+    fireEvent.keyDown(document.body, { key: "1" });
+    await vi.waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/github/start"))).toBe(true));
+  });
+
+  it("ignores number keys on the classic card", async () => {
+    act(() => setSigninStyle("classic"));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => json(ways));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    await screen.findByRole("button", { name: "Sign in with GitHub" });
+    fireEvent.keyDown(document.body, { key: "1" });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/github/start"))).toBe(false);
   });
 });

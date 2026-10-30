@@ -139,7 +139,7 @@ export function createBaselineWatchReader({ fetcher = fetch, now = () => new Dat
     ]);
     const [items, vulns, changes, triage, digest] = asked.map((outcome) => (outcome.status === "fulfilled" ? outcome.value : null));
     // Every read failing the same way is the app not answering; one of five failing is one unknown figure.
-    if (asked.every((outcome) => outcome.status === "rejected")) return { available: false, reason: `BaselineWatch did not answer: ${asked[0].reason?.message ?? "unknown"}.`, since, readAt: readAt.toISOString(), metrics: [], digest: null };
+    if (asked.every((outcome) => outcome.status === "rejected")) return { available: false, reason: `BaselineWatch did not answer: ${/** @type {PromiseRejectedResult} */ (asked[0]).reason?.message ?? "unknown"}.`, since, readAt: readAt.toISOString(), metrics: [], digest: null };
     return { available: true, reason: null, ...summarizeGlance({ items, vulns, changes, triage, digest }, { since, now: readAt }) };
   }
 

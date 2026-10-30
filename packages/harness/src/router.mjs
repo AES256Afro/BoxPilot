@@ -70,7 +70,7 @@ export function moveAfterPlan({ plan = null, localProblem = null, promptTokens =
  * Whether a finished answer from the local model is worth asking the remote model again, and why.
  * A failed run, a question back to the person, and a run that was itself a second opinion are not.
  *
- * @param {{ outcome: string, degradedReason?: string | null, check?: { unsure?: boolean, mismatches?: number } | null, clarify?: boolean, secondOpinion?: boolean }} input
+ * @param {{ outcome?: string, degradedReason?: string | null, check?: { unsure?: boolean, mismatches?: number } | null, clarify?: boolean, secondOpinion?: boolean }} [input]
  * @returns {{ ask: boolean, reason: string | null }}
  */
 export function secondOpinion({ outcome, degradedReason = null, check = null, clarify = false, secondOpinion: already = false } = {}) {

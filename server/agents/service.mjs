@@ -17,40 +17,41 @@
  * The audit trail records who started what, when, how long it took and how it ended; never a
  * question, an answer or a tool's output.
  */
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
-import path from "node:path";
 import { validatePlan } from "../assistant/plan.mjs";
 import { finalRedaction } from "../assistant/prompt.mjs";
-import { boxAttribute, boxLine, checkCitations, detectInjection, isLocalAddress, isLoopbackAddress, normalizeEndpoint, readStructuredAnswer, sanitizeUntrusted, stripWrapperBlocks, verifyAnswer, wrapFinding, wrapNote, wrapToolOutput } from "../../packages/harness/src/index.mjs";
+import { boxAttribute, boxLine, checkCitations, detectInjection, isLocalAddress, isLoopbackAddress, normalizeEndpoint, readStructuredAnswer, sanitizeUntrusted, stripWrapperBlocks, verifyAnswer, wrapNote, wrapToolOutput } from "../../packages/harness/src/index.mjs";
 import { createRedactor, loadRedactionPolicy } from "../redaction.mjs";
-import { budgetState, createRateLimit, defaultQuietHours, inQuietHours, nextQuietStart, nextScheduledRun, normalizeQuietHours, quietHoursStart, startOfLocalDay, tomorrowMorning } from "./budget.mjs";
+import { budgetState, createRateLimit, defaultQuietHours, inQuietHours, nextQuietStart, nextScheduledRun, normalizeQuietHours, startOfLocalDay, tomorrowMorning } from "./budget.mjs";
 import { coreLimits, defaultCores, effectiveCores, physicalCores, runnerCaps, runnerUnit, threadsFor } from "./caps.mjs";
-import { createAgentChat, zulipSettingKey } from "./chat.mjs";
-import { ConnectorError, boundSync, cleanDocumentText, connectors, readFolderSetting, scanFolder, textOfUpload } from "./connectors.mjs";
-import { ageWords, compactFinding, findingAnswers, findingFreshMs, findingKind, findingReaderKinds, findingScore, sharingOf, wantsFresh } from "./findings.mjs";
+import { createAgentChat } from "./chat.mjs";
+import { connectors, readFolderSetting, scanFolder } from "./connectors.mjs";
+import { findingReaderKinds, sharingOf } from "./findings.mjs";
 import { readUnderstanding, understandingSummary } from "./intent.mjs";
-import { cosine, decodeVector, encodeVector, episodeOf, foldThread, hybridSearch, memoryTiers, readVector } from "./memory.mjs";
+import { decodeVector, episodeOf, foldThread, hybridSearch, memoryTiers, readVector } from "./memory.mjs";
 import { defaultModelId, downloadPreview, findNewerQwen, modelById, modelLibrary, testedUnslothVersion, unslothModelSpec } from "./models.mjs";
-import { agentsNamed, chainOf, checkHandoff, nameKey, reservedNameProblem, specialistsFor, treeOf } from "./orchestrator.mjs";
-import { exportDefinition, readDefinition } from "./portable.mjs";
+import { agentsNamed, chainOf, checkHandoff, specialistsFor, treeOf } from "./orchestrator.mjs";
 import { plannerTaskMessage, systemMessage, taskMessage } from "./prompt.mjs";
-import { SpecError, agentEvents, budgetCeilings, diffSpecs, normalizeSpec, outputFormats, previousRunSecondsDefault, scopeWarnings, specText } from "./spec.mjs";
-import { digestToken, finishedStates } from "./store.mjs";
-import { agentTemplates, builtInQuestions, evaluationFacts, seedExamples, templateById, templateQuestions } from "./templates.mjs";
-import { preferencePairs, toJsonl, trainingRecords } from "./examples-export.mjs";
-import { actingRecords } from "./acting-export.mjs";
-import { appUpdatesOf, drivesOf, failedServicesOf, placementOf, stoppedAppsOf, unhealthyAppsOf } from "./tool-text.mjs";
+import { agentEvents, budgetCeilings, normalizeSpec, outputFormats, scopeWarnings } from "./spec.mjs";
+import { finishedStates } from "./store.mjs";
+import { agentTemplates, templateById, templateQuestions } from "./templates.mjs";
 import { describeTools, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolCategories } from "./tool-catalog.mjs";
 import { ToolError, createToolRunner, readableSources } from "./tools.mjs";
-import { gradeFact } from "./grade.mjs";
-import { neutralizeLinks, questionFrom } from "./zulip.mjs";
-import { createStandIns, hideRequest, showResult } from "../../packages/harness/src/safety/stand-ins.mjs";
-import { routerDefaults, secondOpinion, startRoute } from "../../packages/harness/src/router.mjs";
+import { neutralizeLinks } from "./zulip.mjs";
+import { secondOpinion } from "../../packages/harness/src/router.mjs";
 import { houseNames } from "./cloud.mjs";
-import { actLimits, grantNow, grantProblem, grantsOf, planLimits, readPlanSteps } from "./grants.mjs";
-import { normalizeApprovalMode } from "../ops/risk.mjs";
+import { grantProblem } from "./grants.mjs";
+import { createAgentActing } from "./acting.mjs";
+import { createAgentEvaluation } from "./evaluation.mjs";
+import { createAgentExamples } from "./examples.mjs";
+import { createAgentFindings } from "./findings-service.mjs";
+import { createAgentLibrary } from "./library.mjs";
+import { createAgentMigrations } from "./migrations.mjs";
+import { createRunnerKey } from "./runner-key.mjs";
+import { createAgentAdmin } from "./agent-admin.mjs";
+import { createCardSteps } from "./card-steps.mjs";
+import { createCloudRuns } from "./cloud-runs.mjs";
+import { createTeamChat } from "./team-chat.mjs";
 
 export { gradeDrives, gradeFact } from "./grade.mjs";
 
@@ -224,6 +225,16 @@ export function normalizeRuntimeSettings(input, current = defaultRuntimeSettings
   };
 }
 
+/**
+ * @param {{
+ *   state?: any, store?: any, registry?: any, helper?: any, inventory?: any, knowledge?: any,
+ *   secretEnvNamesFor?: ((appId: string) => Promise<string[]> | string[]) | null, healthAlerts?: any, redactor?: any, loadRedaction?: typeof loadRedactionPolicy,
+ *   tokenPath?: string | null, fetchJson?: any, now?: () => Date, limits?: Partial<typeof serviceLimits>, hostLoad?: () => number,
+ *   fetcher?: typeof fetch | null, productVersion?: string | null, chatOptions?: object | null, processors?: number,
+ *   physicalCoreCount?: number | null, folderScan?: typeof scanFolder, cloud?: any, houseNamesFor?: typeof houseNames,
+ *   jobs?: any, repairScan?: any, appGlances?: any,
+ * }} [options]
+ */
 export function createAgentService({
   state,
   store,
@@ -285,12 +296,6 @@ export function createAgentService({
   let previousAlerts = null;
   let droppedRuns = 0;
   let stopModelRequested = false;
-  // A nightly evaluation being started (its facts are read first): a tick meanwhile starts none
-  // beside it. Only this is held to one at a time; the tick itself is not (2026-10 sweep 2).
-  let nightlyStarting = false;
-  // The night an agent's evaluation was last skipped for want of budget, so it is said once a night.
-  const nightlySkipped = new Map();
-  let issuing = null;   // the runner's key being issued, so two callers never make two keys
   // Step kinds whose output the model is given, numbered T1, T2 ... in the order they happened.
   const outputKinds = ["tool", "memory", "proposal", "note", "notify", "handoff", "action"];
   const outputsSoFar = (runId) => store.countOutputs(runId, outputKinds);
@@ -823,13 +828,6 @@ export function createAgentService({
   /** Whether a document is the owner's own words: pasted or uploaded by them, not brought in by a folder or a connector. */
   const ownersDocument = (document) => ["upload", "pdf"].includes(document.source) && state.findOwnerById?.(document.createdBy)?.role === "owner";
 
-  /** A document in the pieces it is embedded as: at most 1,200 characters, twenty pieces. */
-  function chunksOf(document) {
-    const pieces = [];
-    for (let at = 0; at < document.text.length && pieces.length < 20; at += limits.docChunkChars) pieces.push(document.text.slice(at, at + limits.docChunkChars));
-    return pieces;
-  }
-
   /** The memory items with their vectors, for one embedding model. */
   function withVectors(items, model) {
     const kinds = [...new Set(items.map((item) => item.key.split(":")[0]))];
@@ -1039,451 +1037,12 @@ export function createAgentService({
   /** An agent's two switches: its spec's, or - saved before M44 - its template's defaults. */
   const sharingFor = (agent, spec = agent?.spec) => sharingOf(spec, agent?.template ?? null);
 
-  /**
-   * Findings a run reading as `readRole` may use: fresh, learned by a run that read no more than it
-   * may, from an agent that still exists and still shares. One agent's (`agentId`) or every other
-   * agent's (`exceptAgentId`).
-   */
-  /**
-   * The findings a run may be offered: fresh, shared by their agent, within the run's role; and, for
-   * a run on Claude (M48.3), only from agents that may themselves leave the box - an agent kept on
-   * the local model wrote its findings on the promise that nothing of its leaves.
-   */
-  function usableFindings(readRole, { agentId = null, exceptAgentId = null, toCloud = false } = {}) {
-    const at = now().getTime();
-    const agents = new Map(store.listAgents().map((entry) => [entry.id, entry]));
-    return store.listFindings({ agentId, exceptAgentId }).filter((finding) => {
-      const writer = agents.get(finding.agentId);
-      if (!writer || !sharingFor(writer).shareFindings || !finding.freshUntil || Date.parse(finding.freshUntil) <= at || !roleAtLeast(readRole, finding.readRole)) return false;
-      return !toCloud || (writer.spec?.model?.route ?? "local") !== "local";
-    });
-  }
-
-  /** Whether a run's calls go to Claude: claimed there, or made by an agent whose route is Claude. */
-  const runGoesToCloud = (run, spec) => cloudRuns.has(run.id) || spec?.model?.route === "claude";
-
-  const findingAge = (finding) => ageWords(now().getTime() - Date.parse(finding.updatedAt));
-
-  /**
-   * The findings a run is offered before it plans: the other agents' fresh ones it may read that
-   * bear on what it was asked (or, for its routine work, on its job), at most three, each a step of
-   * the trace numbered F1, F2 as the model sees it. None when the agent does not use findings, for
-   * an evaluation (it measures the agent) or a supervisor's follow-up, or when the person asked for
-   * a fresh check - which the trace says.
-   */
-  function offerFindings(run, spec, agent) {
-    if (!sharingFor(agent, spec).useFindings || !findingReaderKinds.includes(run.kind)) return [];
-    const root = run.rootRunId && run.rootRunId !== run.id ? store.getRun(run.rootRunId) : null;
-    if (wantsFresh(run.question, root?.question)) {
-      const step = store.addStep(run.id, { kind: "system", name: "findings", flags: { detail: "Asked for a fresh check, so the other agents' findings were not offered." } });
-      if (step) emit(run.id, "step", step);
-      return [];
-    }
-    const toCloud = runGoesToCloud(run, spec);
-    const candidates = usableFindings(run.readRole, { exceptAgentId: agent.id, toCloud });
-    if (toCloud) {
-      const heldBack = usableFindings(run.readRole, { exceptAgentId: agent.id }).length - candidates.length;
-      if (heldBack > 0) { const step = store.addStep(run.id, { kind: "system", name: "findings", flags: { detail: `${heldBack} ${heldBack === 1 ? "finding was" : "findings were"} not offered: ${heldBack === 1 ? "its agent stays" : "their agents stay"} on the local model, so nothing of theirs goes to Claude.` } }); if (step) emit(run.id, "step", step); }
-    }
-    if (!candidates.length) return [];
-    const query = run.question ?? [run.trigger?.title, spec.job, spec.purpose, ...(spec.prompt?.steps ?? [])].filter(Boolean).join(" ");
-    const ranked = candidates.map((finding) => ({ finding, ...findingScore(query, finding) })).filter((entry) => entry.shared > 0)
-      .sort((a, b) => b.score - a.score || b.shared - a.shared || b.finding.updatedAt.localeCompare(a.finding.updatedAt))
-      .slice(0, limits.findingsInPrompt);
-    const names = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
-    return ranked.map(({ finding }, position) => offerFinding(run, finding, position + 1, names, "words"));
-  }
-
-  /**
-   * One finding offered to a run as F<index>: boxed as untrusted data, a step in the trace saying
-   * which and how it was matched (`by`: "words" before the plan, "meaning" once the request was
-   * embedded, M47.3), and this run flagged when the finding reads like an instruction.
-   */
-  function offerFinding(run, finding, index, names, by) {
-    const from = names.get(finding.agentId) ?? "another agent";
-    const cleaned = sanitizeUntrusted(`${finding.title}\n${finding.body}`, { maxChars: limits.findingPromptChars, redact });
-    const doubts = { unsure: Boolean(finding.source?.unsure), partial: Boolean(finding.source?.partial) };
-    // Another agent's words, read here: a flag of this run's own (hop 0) - but not a person's own
-    // question, its title (sweep 3).
-    const flagged = findingReadsLikeInstruction(finding, run);
-    if (flagged) flagInjection(run.id, { hop: 0 });
-    const step = store.addStep(run.id, {
-      kind: "finding", name: from, output: cleaned.text,
-      input: { id: `F${index}`, noteId: finding.id, agentId: finding.agentId, agent: from, writtenAt: finding.updatedAt, freshUntil: finding.freshUntil, by, ...doubts },
-      flags: { finding: `F${index}`, ...(flagged ? { injection: true } : {}) },
-    });
-    if (step) emit(run.id, "step", step);
-    return {
-      id: `F${index}`, title: `${from}'s finding`, text: cleaned.text,
-      wrapped: wrapFinding({ index, from, writtenAt: finding.updatedAt.slice(0, 16), age: findingAge(finding), text: cleaned.text, ...doubts, flags: { injection: flagged } }),
-    };
-  }
-
-  /**
-   * Findings by meaning (M47.3, M44's "Next"): once the runner has embedded the request, it asks for
-   * the other agents' fresh findings nearest to it that words did not find before the plan, up to
-   * the places left. The vector comes from the runner; the findings' own were made by the memory
-   * index (a finding is a note). Nothing when the agent does not use findings, the run is not one
-   * that reads them, or no finding is near enough.
-   */
-  function runnerFindings(runId, lease, { vector = null } = {}) {
-    const run = heldRun(runId, lease);
-    const agent = store.getAgent(run.agentId, { includeDeleted: true });
-    const spec = store.getVersion(run.agentId, run.version)?.spec ?? agent?.spec;
-    if (!agent || !spec || !sharingFor(agent, spec).useFindings || !findingReaderKinds.includes(run.kind)) return { findings: [] };
-    const queryVector = readVector(vector);
-    if (!queryVector) return { findings: [] };
-    const already = offeredFindings(run.id);
-    const room = limits.findingsInPrompt - already.length;
-    if (room <= 0) return { findings: [] };
-    const root = run.rootRunId && run.rootRunId !== run.id ? store.getRun(run.rootRunId) : null;
-    if (wantsFresh(run.question, root?.question)) return { findings: [] };
-    const seen = new Set(store.listSteps(run.id).filter((step) => step.kind === "finding").map((step) => step.input?.noteId));
-    const candidates = usableFindings(run.readRole, { exceptAgentId: agent.id, toCloud: runGoesToCloud(run, spec) }).filter((finding) => !seen.has(finding.id));
-    if (!candidates.length) return { findings: [] };
-    const items = withVectors(candidates.map((finding) => ({ key: `note:${finding.id}`, finding })), embedModelName()).filter((item) => item.vector);
-    const query32 = Float32Array.from(queryVector);
-    let length = 0;
-    for (const value of query32) length += value * value;
-    length = Math.sqrt(length) || 1;
-    for (let index = 0; index < query32.length; index += 1) query32[index] /= length;
-    const ranked = items.map((item) => ({ finding: item.finding, score: cosine(item.vector, query32) })).filter((entry) => entry.score !== null && entry.score >= limits.findingsMinCosine)
-      .sort((a, b) => b.score - a.score || b.finding.updatedAt.localeCompare(a.finding.updatedAt)).slice(0, room);
-    if (!ranked.length) return { findings: [] };
-    const names = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
-    const offered = ranked.map(({ finding }, position) => offerFinding(run, finding, already.length + position + 1, names, "meaning"));
-    audit("agents.findings.by-meaning", { subjectId: run.agentId, details: { runId: run.id, offered: offered.length } });
-    return { findings: offered };
-  }
-
-  /**
-   * Whether a finding, read by `run`, reads like an instruction: what the agent found, always; its
-   * title - what it was asked, a person's words, or its agent's job - unless those are the owner's or
-   * this run's own person's (sweep 3: "Asked: Forget all the earlier messages..." flagged every run
-   * of the person who asked it that was offered the finding). Another person's words still count.
-   */
-  function findingReadsLikeInstruction(finding, run) {
-    if (detectInjection(finding.body).suspected) return true;
-    if (!detectInjection(finding.title).suspected) return false;
-    const asked = finding.source?.runId ? store.getRun(finding.source.runId) : null;
-    const person = asked?.requestedBy ?? null;
-    if (person) return !(person === run.requestedBy || state.findOwnerById?.(person)?.role === "owner");
-    // A routine finding's title is its agent's job: its maker's words.
-    return !(finding.finding === "routine" && makerOf(store.getAgent(finding.agentId))?.role === "owner");
-  }
-
-  /** The findings a run was offered, as the check holds claims to them: { id: "F1", title, text }. */
-  const offeredFindings = (runId) => store.listSteps(runId).filter((step) => step.kind === "finding" && typeof step.flags?.finding === "string").map((step) => ({ id: step.flags.finding, title: `${step.name}'s finding`, text: step.output ?? "" }));
-
-  /**
-   * The specialist's own fresh finding that answers a subtask, when the supervisor uses findings,
-   * the specialist shares them, and nobody asked for a fresh check: never one its check was unsure
-   * of, or one cut short by a limit.
-   */
-  function findingForHandoff(run, spec, agent, target, task) {
-    if (!sharingFor(agent, spec).useFindings || !sharingFor(target).shareFindings) return null;
-    const root = run.rootRunId && run.rootRunId !== run.id ? store.getRun(run.rootRunId) : null;
-    if (wantsFresh(task, run.question, root?.question)) return null;
-    return usableFindings(run.readRole, { agentId: target.id })
-      .filter((finding) => !finding.source?.unsure && !finding.source?.partial && findingAnswers(task, finding))
-      .map((finding) => ({ finding, ...findingScore(task, finding) }))
-      .sort((a, b) => b.score - a.score || b.finding.updatedAt.localeCompare(a.finding.updatedAt))[0]?.finding ?? null;
-  }
-
-  /**
-   * What a finished run leaves for the other agents: its routine result, or an answer it checked
-   * against its tools, as its finding of that kind - the last one replaced. Never one whose tools
-   * read something that looked like an instruction; one its check was not sure of says so, and so
-   * does one cut short by a limit.
-   */
-  function rememberFinding(agent, spec, run) {
-    try {
-      const kind = findingKind(run);
-      if (!kind || !sharingFor(agent, spec).shareFindings) return null;
-      if (run.state !== "completed" || !run.answer || run.flags?.clarify || run.flags?.injection) return null;
-      // A supervisor that handed work on answers in its follow-up run: that answer is the finding.
-      if (run.kind !== "continue" && store.listChildren(run.id).some((entry) => entry.kind === "handoff")) return null;
-      const check = run.flags?.check ?? null;
-      if (kind === "answer" && !check) return null;
-      if (sanitizeUntrusted(run.answer).flags.injection) return null;
-      // A follow-up answers what its own supervisor's run was asked: the person's question at the
-      // root, the hand-off's task one level down (sweep 3: that one was filed under the root's question).
-      const asked = run.kind === "continue" ? store.getRun(run.parentRunId) : null;
-      const question = kind === "answer" ? clip(String(asked?.question ?? run.question ?? "").replace(/\s+/g, " ").trim(), 300) : null;
-      const unsure = Boolean(check?.unsure);
-      const partial = Boolean(run.flags?.limitReached);
-      const statements = (count) => `${count} ${count === 1 ? "statement" : "statements"}`;
-      const doubts = [
-        unsure ? `Not sure of all of it: ${statements(check.mismatches)} did not match what ${spec.name}'s tools said.` : null,
-        partial ? "It reached a limit before it finished, so this may be incomplete." : null,
-      ].filter(Boolean).join(" ");
-      // The question is its title (and in its source, for matching): the body is what it found.
-      const body = `${doubts ? `${doubts}\n\n` : ""}${compactFinding(redact(run.answer), limits.findingChars - doubts.length - 2)}`;
-      const title = clip(kind === "routine" ? spec.job : `Asked: ${question}`, 120);
-      const finding = store.writeFinding(agent.id, {
-        kind, title, body: clip(body, limits.findingChars), readRole: run.readRole,
-        freshUntil: new Date(now().getTime() + findingFreshMs(spec, kind)).toISOString(),
-        source: {
-          agentId: agent.id, agentName: spec.name, runId: run.id, runKind: run.kind, finishedAt: run.finishedAt, kind, question,
-          confidence: typeof run.flags?.confidence === "number" ? run.flags.confidence : null,
-          checked: check?.checked ?? 0, mismatches: check?.mismatches ?? 0, unsure, partial,
-        },
-      });
-      audit("agents.finding.shared", { actorId: run.requestedBy, subjectId: agent.id, details: { runId: run.id, kind, unsure, partial, readRole: run.readRole } });
-      // An answer good enough to keep as a finding is a plan worth showing again (M46).
-      if (kind === "answer" && !unsure) rememberExample(run, "finding-kept");
-      return finding;
-    } catch { return null; /* a finding is a help, never a reason for a run to fail */ }
-  }
-
-  // ---- examples: the work a person approved (M46) ----
-
-  /**
-   * Keep a run as an example once a person approved what it did: the request and the plan the
-   * model made for it (the tools it read), with the answer. `signal` says what the approval was: a
-   * card staged, a thumbs up, an answer kept as a finding, an evaluation question answered right. A
-   * run that read something like an instruction, asked back, or made no plan leaves none. The
-   * request is redacted, and one that itself reads like an instruction is not kept: these lines go
-   * back into prompts.
-   */
-  function rememberExample(run, signal) {
-    try {
-      if (!run || !["ask", "manual", "eval", "schedule"].includes(run.kind) || run.state !== "completed") return null;
-      if (run.flags?.injection || run.flags?.clarify) return null;
-      const steps = store.listSteps(run.id);
-      const plan = steps.find((step) => step.kind === "plan")?.input;
-      const tools = [...new Set((Array.isArray(plan) ? plan : []).map((entry) => entry?.tool).filter((tool) => typeof tool === "string"))];
-      if (!tools.length) return null;
-      // What the planner understood, for an export to carry the model's own answer (M46.3).
-      const understood = steps.find((step) => step.kind === "intent" && step.state === "done")?.input ?? null;
-      const intent = understood ? { goal: clip(String(understood.goal ?? ""), 300), subject: clip(String(understood.subject ?? ""), 120), constraints: (Array.isArray(understood.constraints) ? understood.constraints : []).slice(0, 5).map((entry) => clip(String(entry), 200)), confidence: typeof understood.confidence === "number" ? understood.confidence : null } : null;
-      const spec = store.getVersion(run.agentId, run.version)?.spec ?? store.getAgent(run.agentId, { includeDeleted: true })?.spec;
-      const request = clip(redact(String(run.question ?? run.trigger?.title ?? spec?.job ?? "").replace(/\s+/g, " ").trim()), 300);
-      if (!request || detectInjection(request).suspected) return null;
-      const kept = store.addExample({
-        agentId: run.agentId, source: run.id, signal, request, intent,
-        // Eight, as a plan holds (M47.2): six cut a seven-read survey short and made a false preference pair (M48.4).
-        plan: plan.slice(0, 8).map((entry) => ({ step: clip(String(entry?.step ?? ""), 200), tool: typeof entry?.tool === "string" ? entry.tool : null })),
-        answer: run.answer ? clip(redact(String(run.answer)), 600) : null,
-        route: run.usage?.route ? "claude" : "local", model: run.usage?.model ?? run.flags?.model ?? null, readRole: run.readRole,
-      });
-      if (kept?.added) audit("agents.example.kept", { actorId: run.requestedBy, subjectId: run.agentId, details: { runId: run.id, signal, tools } });
-      return kept;
-    } catch { return null; /* an example is a help, never a reason for a run to fail */ }
-  }
-
-  /** A staged card's run, kept as an example. */
-  const rememberProposal = (proposal) => { if (proposal?.state === "staged" && proposal.runId) rememberExample(store.getRun(proposal.runId), "card-staged"); };
-
-  /** The examples an agent's template ships with (M46), each with every tool the agent may use when a person asks. */
-  function seedAgentExamples(agent) {
-    try {
-      let added = 0;
-      for (const seed of seedExamples(agent.template, agent.spec)) {
-        const kept = store.addExample({ agentId: agent.id, source: `seed:${seed.id}`, signal: "seed", request: seed.request, plan: seed.tools.map((tool) => ({ step: `Read ${toolById(tool)?.title ?? tool}`, tool })), readRole: "viewer" });
-        if (kept?.added) added += 1;
-      }
-      return added;
-    } catch { return 0; }
-  }
-
-  /**
-   * The examples the runner chooses the planner's demonstrations from (M46): this agent's, at the
-   * run's role, whose every tool the run was offered, each with its vector when the memory index has
-   * made one. All of them while there are few; past that, the ones nearest by words and every seed.
-   */
-  function exampleCandidates(agent, run, offered) {
-    const allowed = new Set(offered.map((tool) => tool.id));
-    const examples = store.listExamples(agent.id, { limit: 400 }).filter((example) => roleAtLeast(run.readRole, example.readRole) && example.plan.some((entry) => entry.tool) && example.plan.every((entry) => !entry.tool || allowed.has(entry.tool)));
-    if (!examples.length) return [];
-    const vectors = store.vectorsOf(["example"]);
-    const model = embedModelName();
-    const candidate = (example) => {
-      const stored = vectors.get(`example:${example.id}`);
-      const vector = stored && stored.model === model ? decodeVector(stored.vector) : null;
-      const tools = [...new Set(example.plan.map((entry) => entry.tool).filter(Boolean))];
-      return { key: example.id, text: example.request, tools, label: tools[0] ?? null, ...(vector ? { vector: Array.from(vector, (value) => Math.round(value * 1e4) / 1e4) } : {}) };
-    };
-    if (examples.length <= limits.examplePool) return examples.map(candidate);
-    const query = [run.question, run.trigger?.title].filter(Boolean).join(" ");
-    const chosen = new Set(hybridSearch(examples.map((example) => ({ key: example.id, title: "", text: example.request, weight: example.seed ? 1.1 : 1 })), { query, limit: limits.examplePool }).map((item) => item.key));
-    for (const example of examples) if (example.seed) chosen.add(example.id);
-    return examples.filter((example) => chosen.has(example.id)).slice(0, limits.examplePool * 2).map(candidate);
-  }
-
-  /**
-   * The house's names for the stand-ins (M48.3): this server's and its accounts' (houseNamesFor), and
-   * its public names too - the tunnel's hostnames, recorded whenever tunnel.exposure reads them
-   * (the tunnel's state file is root's), and the Zulip site - each with its registrable domain, so
-   * "photos.smithfamily.net" and "smithfamily.net" leave as stand-ins like the host name does.
-   */
-  function houseNamesAll() {
-    const base = houseNamesFor();
-    const known = state.getSetting?.(knownDomainsKey, null);
-    const zulip = state.getSetting?.(zulipSettingKey, null);
-    const siteHost = (() => { try { return zulip?.site ? new URL(String(zulip.site)).hostname : null; } catch { return null; } })();
-    const domains = new Set(base.domains ?? []);
-    for (const host of [...(Array.isArray(known?.hosts) ? known.hosts : []), zulip?.host ?? null, siteHost]) {
-      const name = String(host ?? "").toLowerCase().replace(/\.$/, "");
-      if (!name || !name.includes(".")) continue;
-      domains.add(name);
-      const labels = name.split(".");
-      if (labels.length > 2) domains.add(labels.slice(-2).join("."));
-    }
-    return { ...base, domains: [...domains] };
-  }
-
-  /** An example a person may read: one kept from a run that read no more than they may (M48.3, as the planner's pool and memoryOf). */
-  const mayReadExample = (person, example) => roleAtLeast(person.role, example.readRole ?? "owner");
-
-  /**
-   * The example book as the Memory tab shows it: the owner's and the maker's to read and prune. A
-   * maker who is an operator sees only the examples kept from runs that read as an operator or a
-   * viewer: an example kept from the owner's own question holds the owner's answer (M48.3; sweep 2's
-   * rule for runs, canSeeRun). The run behind an example is the owner's to open.
-   */
-  function examplesOf(caller, agentId) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId);
-    if (!canEdit(person, agent)) refuse(403, "An agent's examples are for the owner and the person who made it", "forbidden");
-    const vectors = store.vectorKeys(["example"]);
-    const counts = store.countExamples(agent.id);
-    const visible = store.listExamples(agent.id).filter((example) => mayReadExample(person, example));
-    return {
-      examples: visible.map((example) => ({
-        id: example.id, request: example.request, tools: [...new Set(example.plan.map((entry) => entry.tool).filter(Boolean))], plan: example.plan, answer: example.answer,
-        signal: example.signal, seed: example.seed, runId: example.seed || person.role !== "owner" ? null : example.source, route: example.route, readRole: example.readRole, createdAt: example.createdAt, embedded: vectors.has(`example:${example.id}`),
-      })),
-      // M46.6: how many thumbs down have an approved neighbour with another plan: the pairs an export would carry.
-      // M46.7: how many approved runs rebuild as a whole conversation the answer can be learned from.
-      counts: person.role === "owner"
-        ? { total: Number(counts?.count ?? 0), seeds: Number(counts?.seeds ?? 0), ...trainingCountsOf(agent) }
-        : { total: visible.length, seeds: visible.filter((example) => example.seed).length, pairs: 0, acting: 0 },
-    };
-  }
-
-  /**
-   * The book as training data (M46.3): the owner's alone, since it leaves the box. Chat-shaped JSON
-   * Lines with this house's names as stand-ins (`examples-export.mjs`); `cover` picks a covering
-   * subset of that many, `seeds: false` leaves the template's own examples out.
-   */
-  /** The book with each example's vector, when the index made one with the model in use. */
-  function examplesWithVectors(agentId) {
-    const vectors = store.vectorsOf(["example"]);
-    const model = embedModelName();
-    return store.listExamples(agentId, { limit: 1_000 }).map((example) => {
-      const stored = vectors.get(`example:${example.id}`);
-      return { ...example, vector: stored && stored.model === model ? decodeVector(stored.vector) : null };
-    });
-  }
-
-  /**
-   * The runs someone gave a thumbs down, as a preference pair's rejected side (M46.6): the request,
-   * what the planner understood, the note. Only runs that still exist and were planned.
-   */
-  function rejectedRuns(agentId) {
-    const rejected = [];
-    for (const given of store.listFeedback(agentId, { limit: 500 })) {
-      if (given.verdict !== "down") continue;
-      const run = store.getRun(given.runId);
-      if (!run || !["ask", "manual", "eval", "schedule"].includes(run.kind)) continue;
-      // The understanding is the intent step's input; the plan it carried is the plan step's (as rememberExample reads them).
-      const steps = store.listSteps(run.id);
-      const intent = steps.find((step) => step.kind === "intent" && step.state === "done")?.input ?? null;
-      const plan = steps.find((step) => step.kind === "plan")?.input;
-      const request = clip(redact(String(run.question ?? run.trigger?.title ?? "").replace(/\s+/g, " ").trim()), 300);
-      if (!request || !intent || !Array.isArray(plan)) continue;
-      rejected.push({ id: run.id, request, understanding: { ...intent, plan }, note: given.note ?? null, vector: null });
-    }
-    return rejected;
-  }
-
-  const pairsFor = (agent) => preferencePairs({ agent: { name: agent.name, spec: agent.spec }, examples: examplesWithVectors(agent.id), rejected: rejectedRuns(agent.id), names: houseNamesAll() });
-
-  /**
-   * The approved runs behind the book's examples (M46.7), each with its steps and the spec it ran as,
-   * for the acting conversation's records. Seeds have no run.
-   */
-  function approvedRuns(agentId) {
-    const runs = [];
-    for (const example of store.listExamples(agentId, { limit: 1_000 })) {
-      if (example.seed) continue;
-      const run = store.getRun(example.source);
-      if (!run) continue;
-      runs.push({ run, steps: store.listSteps(run.id), spec: store.getVersion(run.agentId, run.version)?.spec ?? null, signal: example.signal });
-    }
-    return runs;
-  }
-  const actingFor = (agent) => actingRecords({ agent: { name: agent.name, spec: agent.spec }, runs: approvedRuns(agent.id), names: houseNamesAll() });
-  /**
-   * How many preference pairs and acting records an export would carry (M48.5): built in full only
-   * when the book or the thumbs changed since last asked, since each build reads every approved run's
-   * trace and the Memory tab asks on every open and after every change.
-   */
-  const trainingCounts = new Map();
-  function trainingCountsOf(agent) {
-    const stamp = store.trainingStamp(agent.id);
-    const cached = trainingCounts.get(agent.id);
-    if (cached && cached.stamp === stamp) return cached.counts;
-    const counts = { pairs: pairsFor(agent).length, acting: actingFor(agent).length };
-    trainingCounts.set(agent.id, { stamp, counts });
-    return counts;
-  }
-
-  function exportExamples(caller, agentId, { cover = null, seeds = true, pairs = false, acting = false } = {}) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId);
-    if (person.role !== "owner") refuse(403, "Only the owner exports examples: they leave this server", "forbidden");
-    const slug = String(agent.name).replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "agent";
-    const date = now().toISOString().slice(0, 10);
-    // M46.7: the acting conversations instead, when asked: each approved run's tool outputs and answer.
-    if (acting === true || acting === "true" || acting === "1") {
-      const records = actingFor(agent);
-      audit("agents.examples.exported", { actorId: person.id, subjectId: agent.id, details: { acting: records.length } });
-      return { filename: `boxpilot-acting-${slug}-${date}.jsonl`, records: records.length, jsonl: toJsonl(records) };
-    }
-    // M46.6: the preference pairs instead, when asked: each thumbs down beside the approved plan it should have had.
-    if (pairs === true || pairs === "true" || pairs === "1") {
-      const records = pairsFor(agent);
-      audit("agents.examples.exported", { actorId: person.id, subjectId: agent.id, details: { pairs: records.length } });
-      return { filename: `boxpilot-pairs-${slug}-${date}.jsonl`, records: records.length, jsonl: toJsonl(records) };
-    }
-    const examples = examplesWithVectors(agent.id);
-    const size = Number.isInteger(Number(cover)) && Number(cover) > 0 ? Math.min(Number(cover), 1_000) : null;
-    const records = trainingRecords({ agent: { name: agent.name, spec: agent.spec }, examples, names: houseNamesAll(), cover: size, seeds: seeds !== false && seeds !== "false" && seeds !== "0" });
-    audit("agents.examples.exported", { actorId: person.id, subjectId: agent.id, details: { records: records.length, cover: size, seeds: records.some((record) => record.meta.seed) } });
-    return { filename: `boxpilot-examples-${slug}-${date}.jsonl`, records: records.length, jsonl: toJsonl(records) };
-  }
-
-  function forgetExample(caller, agentId, exampleId) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId);
-    if (!canEdit(person, agent)) refuse(403, "An agent's examples are for the owner and the person who made it", "forbidden");
-    const example = store.getExample(agent.id, exampleId);
-    if (!example || !mayReadExample(person, example)) refuse(404, "There is no such example", "example_not_found");
-    store.deleteExample(agent.id, example.id);
-    audit("agents.example.forgotten", { actorId: person.id, subjectId: agent.id, details: { exampleId: example.id, signal: example.signal } });
-    return { deleted: true };
-  }
-
   /** A finding as the Memory tab shows it. */
   const presentFinding = (finding, names) => ({
     id: finding.id, kind: finding.finding, title: finding.title, body: finding.body, from: names.get(finding.agentId) ?? finding.source?.agentName ?? "another agent", agentId: finding.agentId,
     updatedAt: finding.updatedAt, freshUntil: finding.freshUntil, stale: stale(finding), readRole: finding.readRole, runId: finding.source?.runId ?? null,
     unsure: Boolean(finding.source?.unsure), partial: Boolean(finding.source?.partial),
   });
-
-  /** The claim for an index run: the texts whose embeddings are missing or out of date. */
-  function indexPayload(run, lease, { cpu: cpuInfo = null } = {}) {
-    const items = pendingEmbeddings().slice(0, limits.indexBatch);
-    return {
-      run: { id: run.id, kind: "index", question: null, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt: new Date(Date.parse(run.startedAt) + 600_000).toISOString() },
-      lease, agent: { id: memoryIndexAgentId, name: "Memory index", version: 0, outputs: {} },
-      index: { model: embedModelName(), items: items.map((item) => ({ key: item.key, text: item.text.slice(0, 2_000) })) },
-      messages: [], tools: [], runtime: runtimeClaim(null, cpuInfo),
-      limits: { steps: 0, tokens: 0, runSeconds: 600, remainingModelMs: moduleBudget().modelMsLeft, toolCallsPerStep: 0, maxToolCalls: 0, heartbeatMs: limits.heartbeatMs },
-    };
-  }
 
   function claimPayload(run, lease, { cpu: cpuInfo = null } = {}) {
     if (run.kind === "index") return indexPayload(run, lease, { cpu: cpuInfo });
@@ -1642,135 +1201,6 @@ export function createAgentService({
     };
   }
 
-  // ---- embeddings: what the index runs fill in ----
-
-  const textHash = (text) => createHash("sha256").update(String(text)).digest("hex").slice(0, 32);
-
-  /** Everything memory search may compare by meaning, whose vector is missing or out of date. */
-  function pendingEmbeddings() {
-    const model = embedModelName();
-    const items = [];
-    for (const agent of store.listAgents()) {
-      for (const note of store.listNotes(agent.id, { limit: 200 })) items.push({ key: `note:${note.id}`, text: `${note.title}\n${note.body}` });
-      // Its findings (M47.3): notes of their own kind, kept apart from the list above, matched by meaning once embedded.
-      for (const finding of store.listFindings({ agentId: agent.id })) items.push({ key: `note:${finding.id}`, text: `${finding.title}\n${finding.body}` });
-      for (const episode of store.listEpisodes(agent.id, { limit: 200 })) items.push({ key: `episode:${episode.id}`, text: episode.text });
-      // The example book (M46): the request alone, which is what a new request is compared with.
-      for (const example of store.listExamples(agent.id, { limit: 400 })) items.push({ key: `example:${example.id}`, text: example.request });
-    }
-    for (const document of store.listDocuments({ enabled: true })) chunksOf(document).forEach((text, index) => items.push({ key: `doc:${document.id}#${index}`, text: `${document.title}\n${text}` }));
-    const kinds = ["note", "episode", "doc", "example"];
-    const vectors = store.vectorKeys(kinds);
-    return items.filter((item) => { const stored = vectors.get(item.key); return !stored || stored.model !== model || stored.textHash !== textHash(item.text); });
-  }
-
-  /** The runner's embeddings for an index run: each checked, stored against the text it was made from. */
-  function runnerVectors(runId, lease, entries) {
-    const run = heldRun(runId, lease);
-    if (run.kind !== "index") refuse(409, "Only an index run sends embeddings", "not_index");
-    const pending = new Map(pendingEmbeddings().map((item) => [item.key, item]));
-    const model = embedModelName();
-    let saved = 0;
-    for (const entry of (Array.isArray(entries) ? entries : []).slice(0, limits.indexBatch)) {
-      const item = pending.get(entry?.key);
-      const vector = readVector(entry?.vector);
-      if (!item || !vector) continue;
-      const [kind, itemId] = [item.key.slice(0, item.key.indexOf(":")), item.key.slice(item.key.indexOf(":") + 1)];
-      store.setVector(kind, itemId, { model, vector: encodeVector(vector), textHash: textHash(item.text) });
-      saved += 1;
-    }
-    return { saved };
-  }
-
-  /**
-   * Whether the memory index's or the image describer's last run failed in these quiet hours: it is
-   * not queued again until the next ones, rather than starting the model every minute of the night
-   * to fail the same way (2026-10 sweep).
-   */
-  function failedTonight(agentId) {
-    const began = quietHoursStart(now(), moduleSettings().quietHours);
-    const [last] = began ? store.listRuns({ agentId, limit: 1 }) : [];
-    return Boolean(last && ["degraded", "failed", "timeout", "interrupted"].includes(last.state) && Date.parse(last.finishedAt ?? last.queuedAt) >= began.getTime());
-  }
-
-  /**
-   * In quiet hours, when something waits to be embedded and nothing is indexing: one index run,
-   * within every agent's budget for the day, and none after one failed tonight. `force` is the
-   * owner's "index now", which goes whenever the budget allows.
-   */
-  function queueIndexing({ force = false } = {}) {
-    const settings = moduleSettings();
-    if (!settings.enabled || modulePaused(settings) || settings.embeddings === false || runtimeSettings().driver === "llama-server") return null;
-    if (store.activeRuns().some((run) => run.kind === "index")) return null;
-    if (moduleBudget().refusal || (!force && failedTonight(memoryIndexAgentId))) return null;
-    if (!pendingEmbeddings().length) return null;
-    const owner = state.listOwners?.().find((entry) => entry.role === "owner") ?? null;
-    const run = store.enqueueRun({ agentId: memoryIndexAgentId, version: 0, kind: "index", trigger: { title: "Index memory for meaning search", quietHours: !force }, readRole: "owner", readAs: owner?.id ?? null });
-    wake();
-    return run;
-  }
-
-  /**
-   * In quiet hours, when an image from #agent-files waits to be described (M38): one describe run,
-   * one image, within the day's model time for every agent. The model reads the image and says what
-   * it shows; that becomes the document's text, which search then finds.
-   */
-  function queueDescribing() {
-    const settings = moduleSettings();
-    // llama-server sees only when it is handed the model's projector (--mmproj); Unsloth finds it itself.
-    if (!settings.enabled || modulePaused(settings) || settings.killedAt || (runtimeSettings().driver === "llama-server" && !runtimeSettings().projector)) return null;
-    if (store.activeRuns().some((run) => run.kind === "describe") || failedTonight(imageDescribeAgentId)) return null;
-    const budget = moduleBudget();
-    if (!store.listUndescribed({ limit: 1 }).length || budget.refusal || budget.modelMsLeft < 60_000) return null;
-    // A model server that said it cannot see is asked again a day later, or after the model or the runtime changed (M40.6).
-    const sight = visionNow();
-    if (sight?.vision === false && now().getTime() - Date.parse(sight.at) < 86_400_000) return null;
-    const owner = state.listOwners?.().find((entry) => entry.role === "owner") ?? null;
-    const run = store.enqueueRun({ agentId: imageDescribeAgentId, version: 0, kind: "describe", trigger: { title: "Describe an image from #agent-files", quietHours: true }, readRole: "owner", readAs: owner?.id ?? null });
-    wake();
-    return run;
-  }
-
-  function describePayload(run, lease, { cpu: cpuInfo = null } = {}) {
-    const items = store.listUndescribed({ limit: 1 }).map((document) => {
-      const media = store.getDocumentMedia(document.id);
-      return media ? { key: document.id, title: document.title, dataUrl: `data:${media.mediaType ?? "image/png"};base64,${media.media.toString("base64")}` } : null;
-    }).filter(Boolean);
-    return {
-      run: { id: run.id, kind: "describe", question: null, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt: new Date(Date.parse(run.startedAt) + 600_000).toISOString() },
-      lease, agent: { id: imageDescribeAgentId, name: "Image describer", version: 0, outputs: {} },
-      describe: { items, prompt: describePrompt },
-      messages: [], tools: [], runtime: runtimeClaim(null, cpuInfo),
-      limits: { steps: 0, tokens: 2_000, runSeconds: 600, remainingModelMs: moduleBudget().modelMsLeft, toolCallsPerStep: 0, maxToolCalls: 0, heartbeatMs: limits.heartbeatMs },
-    };
-  }
-
-  /** A describe run's end: each image's text is the model's description, redacted and boxed as data. */
-  function finishDescribe(run, result) {
-    const usage = { modelMs: Math.round(finite(result.usage?.modelMs, 3_600_000)), loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)), wallMs: Math.max(0, now().getTime() - Date.parse(run.startedAt)) };
-    // Whether the model server can see (M40.6), as it said: kept for Knowledge and Usage, and so a
-    // model that cannot is not started again every minute of quiet hours to fail at it.
-    if (typeof result.vision?.vision === "boolean") state.setSetting?.(visionKey, { vision: result.vision.vision, reason: typeof result.vision.reason === "string" ? clip(result.vision.reason.replace(/[\u0000-\u001f\u007f]/g, " "), 200) : null, model: runtimeSettings().repo, driver: runtimeSettings().driver, at: now().toISOString() }, { updatedBy: null });
-    let described = 0;
-    for (const entry of Array.isArray(result.descriptions) ? result.descriptions.slice(0, 4) : []) {
-      const document = store.getDocument(entry?.key);
-      if (!document?.mediaType) continue;
-      const words = typeof entry.text === "string" ? sanitizeUntrusted(entry.text, { maxChars: 1_500, redact }).text.trim() : "";
-      // A model that cannot see spends none of the image's three tries: it waits for one that can.
-      if (!words) { if (result.vision?.vision !== false) store.describeDocument(document.id, { text: null }); continue; }
-      const context = document.text.split(" Not described yet")[0];
-      store.describeDocument(document.id, { text: `${context}\n\nWhat it shows, as the model described it: ${words}` });
-      described += 1;
-    }
-    const outcome = ["completed", "degraded", "failed"].includes(result.outcome) ? result.outcome : "failed";
-    const finished = store.finishRun(run.id, { state: outcome, reason: outcome === "failed" ? clip(String(result.error ?? "Describing failed"), 300) : null, usage, outputKind: "describe", answer: `Described ${described} ${described === 1 ? "image" : "images"} from #agent-files.` });
-    if (!finished) refuse(409, "The run has already finished", "run_finished");
-    runEnded(finished);
-    audit("agents.images.described", { details: { runId: run.id, outcome: finished.state, described, modelMs: usage.modelMs } });
-    wake();
-    return { state: finished.state };
-  }
-
   /**
    * A claimed run's processors (M40): the number it should have, set on the runner's unit, and the
    * model's threads for what was set. A raise that could not be set leaves the run the background
@@ -1823,13 +1253,13 @@ export function createAgentService({
       }
       const left = deadline - now().getTime();
       if (left <= 0 || signal?.aborted) return null;
-      await new Promise((resolve) => {
+      await /** @type {Promise<void>} */ (new Promise((resolve) => {
         const timer = setTimeout(done, Math.min(left, 5_000));
         timer.unref?.();
         function done() { clearTimeout(timer); waiters.delete(done); signal?.removeEventListener?.("abort", done); resolve(); }
         waiters.add(done);
         signal?.addEventListener?.("abort", done, { once: true });
-      });
+      }));
     }
   }
 
@@ -1859,114 +1289,7 @@ export function createAgentService({
     }
   }
 
-  // ---- runs on Claude (M45.3) ----
-
-  /** Runs given Claude, while they run: the model, how hard it thinks, the data policy, the stand-ins and the spend. */
-  const cloudRuns = new Map();
-  /** The public host names tunnel.exposure has read (M48.3): kept so the stand-ins hide them too. */
-  const knownDomainsKey = "agentsKnownDomains";
-  const lowEffortKinds = new Set(["schedule", "event", "webhook", "eval", "learn"]);
-  /** What a plan's run on Claude may spend in tokens, all its calls together (M45.6): Claude paces itself to it. */
-  const planTaskBudget = 40_000;
-  const cents = (value) => Math.round(Number(value) * 1_000_000) / 1_000_000;
-
-  /**
-   * The model a run starts on, and the one it may change to (M45.3, M45.4). Claude when its agent
-   * says so (or the run is a second opinion), Claude is connected with the month not spent, and the
-   * asker may send their words to it; the local model otherwise, with a step saying why. An auto
-   * agent starts on the local model with Claude held ready: the runner moves when the plan says to,
-   * and what the run reads is held to Claude's rules from the start. A run on Claude names the local
-   * model too, to go on with if Claude stops answering.
-   */
-  function claimedModel(spec, run, cpuInfo) {
-    const route = spec?.model?.route ?? "local";
-    const secondOpinionOf = run.trigger?.secondOpinionOf ?? null;
-    const local = runtimeClaim(spec, cpuInfo);
-    // An evaluation held to one route (M45.7): the local side never reaches Claude, the Claude side always tries.
-    const evalRoute = run.kind === "eval" ? run.trigger?.route ?? null : null;
-    if (evalRoute === "local" || (route === "local" && !secondOpinionOf && evalRoute !== "claude")) return { runtime: local, router: null };
-    const said = (text) => {
-      const step = store.addStep(run.id, { kind: "system", name: "model", output: text });
-      if (step) emit(run.id, "step", step);
-    };
-    // A plan's check and report (M45.6) run on Claude for an auto agent: a long plan is where the local model is weakest.
-    const planRunOnClaude = route === "auto" && Boolean(run.trigger?.plan?.id);
-    const start = startRoute({ route: route === "claude" ? "remote" : route, remote: claudeAllowed(spec, run), secondOpinion: Boolean(secondOpinionOf) || planRunOnClaude || evalRoute === "claude" });
-    if (start.start === "local" && !start.mayMove) {
-      // An auto agent says nothing while Claude is not connected: until then it is a local agent.
-      if (route === "claude" || secondOpinionOf || evalRoute === "claude" || cloud?.settings().connected) said(`${start.reason}: this run uses the local model.`);
-      return { runtime: local, router: null };
-    }
-    for (const [runId] of cloudRuns) if (store.getRun(runId)?.state !== "running") cloudRuns.delete(runId);
-    const chosen = cloud.settings();
-    const effort = lowEffortKinds.has(run.kind) ? "low" : "medium";
-    const dataPolicy = spec.model.dataPolicy === "as-is" ? "as-is" : "redacted";
-    const mode = start.start === "remote" ? "claude" : "auto";
-    cloudRuns.set(run.id, { mode, model: chosen.model, effort, dataPolicy, standIns: createStandIns(houseNamesAll()), costUsd: 0, calls: 0, reason: null, ...(run.trigger?.plan?.id ? { taskBudget: planTaskBudget } : {}) });
-    const names = dataPolicy === "redacted" ? "Names that identify this house leave it as stand-ins; the answer is turned back here." : "What it reads leaves this server as it is, without secrets.";
-    const documents = spec.model.claudeReadsDocuments === true ? " Your documents may be read and sent." : " Your documents stay on this server.";
-    said(mode === "claude"
-      ? `${secondOpinionOf ? "A second opinion: " : ""}On ${chosen.model} through the model gateway, thinking at ${effort} effort. ${names}${documents}`
-      : `On the local model, with ${chosen.model} ready if the plan needs it. ${names}${documents}`);
-    const claude = {
-      driver: "claude", model: chosen.model, effort, dataPolicy, cpu: null, threads: null, extra: {}, embeddings: false, temperature: null,
-      maxTokens: runtimeSettings().maxTokens,
-      // What the runner works out a call's time from: Claude reads far faster than this server's model.
-      speed: { promptPerSecond: 5_000, generatePerSecond: 50 },
-    };
-    return mode === "claude" ? { runtime: claude, router: { mode, local, claude } } : { runtime: local, router: { mode, local, claude, ...routerDefaults } };
-  }
-
-  /** Whether Claude may take this run now: set up, connected with the month not spent, and allowed for whoever asked. */
-  function claudeAllowed(spec, run) {
-    if (!cloud) return { ok: false, reason: "Claude is not set up on this server" };
-    if (run.readRole === "viewer" && !spec?.model?.claudeForViewers) return { ok: false, reason: "A viewer asked, and this agent does not send a viewer's words to Claude" };
-    return cloud.usable();
-  }
-
-  const roles = new Set(["system", "user", "assistant", "tool"]);
-  /** A runner's model request, held to what one may be: the conversation, its tools, and how it may answer. */
-  function readModelRequest(body) {
-    const request = body?.request;
-    if (!request || typeof request !== "object" || !Array.isArray(request.messages) || !request.messages.length || request.messages.length > 400) refuse(400, "A model request carries its messages", "bad_request");
-    if (request.messages.some((message) => !roles.has(message?.role))) refuse(400, "A message has no known role", "bad_request");
-    const tools = Array.isArray(request.tools) ? request.tools.slice(0, 64) : [];
-    const format = request.extra?.response_format?.type === "json_schema" ? request.extra.response_format : null;
-    return {
-      messages: request.messages,
-      tools,
-      toolChoice: request.toolChoice === "none" ? "none" : "auto",
-      maxTokens: Math.max(64, Math.min(64_000, Math.round(Number(request.maxTokens) || 1024))),
-      ...(format ? { extra: { response_format: format } } : {}),
-    };
-  }
-
-  /**
-   * One model call of a run on Claude (POST /agent-runner/runs/:id/model): the asker's words
-   * redacted, names replaced with stand-ins when the agent's data policy says so, the cap checked,
-   * the call made through the gateway, and the answer turned back before the runner reads it.
-   */
-  async function runnerModel(runId, lease, body = {}) {
-    heldRun(runId, lease);
-    const cloudRun = cloudRuns.get(runId);
-    if (!cloudRun || !cloud) refuse(409, "This run was not given Claude", "not_cloud");
-    const request = readModelRequest(body);
-    // The person's own words may hold a secret they typed; everything else was redacted where BoxPilot wrote or read it.
-    const messages = request.messages.map((message) => (message.role === "user" && typeof message.content === "string" ? { ...message, content: redact(message.content) } : message));
-    const outgoing = { ...request, model: cloudRun.model, effort: cloudRun.effort, messages, ...(cloudRun.taskBudget ? { taskBudget: cloudRun.taskBudget } : {}) };
-    const sent = cloudRun.dataPolicy === "redacted" ? hideRequest(outgoing, cloudRun.standIns) : outgoing;
-    let result;
-    try {
-      result = await cloud.chat(sent, { timeoutMs: Math.max(5_000, Math.min(10 * 60_000, Number(body?.timeoutMs) || 3 * 60_000)) });
-    } catch (error) {
-      refuse(502, clip(String(error?.message ?? error), 300), `model_${String(error?.code ?? "error").replace(/[^a-z-]/g, "")}`);
-    }
-    cloudRun.costUsd = cents(cloudRun.costUsd + (Number(result?.costUsd) || 0));
-    cloudRun.calls += 1;
-    // Why an auto run moved to Claude (M45.4), as the runner said it with its first call there.
-    if (!cloudRun.reason && typeof body?.reason === "string" && body.reason.trim()) cloudRun.reason = clip(redact(body.reason), 200);
-    return cloudRun.dataPolicy === "redacted" ? showResult(result, cloudRun.standIns) : result;
-  }
+  // ---- the runner's calls on a run: its lease, heartbeat and steps ----
 
   /** Every runner call on a run proves it holds the run's lease; a finished run is told to stop. */
   function heldRun(runId, lease) {
@@ -2139,6 +1462,7 @@ export function createAgentService({
    * notes.read: { text, flagged, hop } - the flag the notes it read (its own) bring the run: by
    * where they came from, or by their words when another account wrote them (rememberedFlag).
    */
+  /** @returns {{ text: string, flagged: boolean, hop: any, items?: object[] }} */
   function readNotes(run, spec, { query = null }) {
     if (!spec.memory?.enabled) return { text: "This agent keeps no notes.", flagged: false, hop: null };
     if (!sourcesFor(spec, run.readRole).notes) return { text: "Notes are switched off as knowledge for this agent.", flagged: false, hop: null };
@@ -2158,6 +1482,8 @@ export function createAgentService({
    * embedding, made by the runner with the model server's /v1/embeddings; without it (or with no
    * stored vectors from the same model) the search is by words alone. { text, flagged, hop }: the
    * flag what it found brings the run, by where it came from (rememberedFlag).
+   *
+   * @returns {{ text: string, flagged: boolean, hop: any, items?: object[] }}
    */
   function searchMemory(run, spec, { query, tier = "any", limit = 5 }, vector) {
     const agent = store.getAgent(run.agentId, { includeDeleted: true });
@@ -2299,345 +1625,6 @@ export function createAgentService({
     return answer("proposal", { text: `Saved as an approval card: ${tiers}.${checked.dropped.length ? ` Left out: ${checked.dropped.map((entry) => `${entry.operationId ?? "a step"} - ${entry.reason}`).join("; ")}.` : ""} Nothing runs until a person approves each step.`, input: { title, steps: checked.steps.map((step) => step.operationId) }, flags: { proposalId: proposal.id, ...flags } });
   }
 
-  // ---- acting under grants (M45.5, ADR-013) ----
-
-  /**
-   * The runs that may act: a person's question or console run, or the agent's own schedule or a
-   * server event. Not a webhook's: its caller chooses when a run starts, never what it does (ADR-002),
-   * and what it sent is read by the run.
-   */
-  const actingKinds = new Set(["ask", "manual", "schedule", "event"]);
-  /** The tools that read this server's live state: what a run reads before it changes anything (ADR-012). */
-  const liveCategories = new Set(["boxpilot", "records", "app"]);
-
-  /** Whether this run may act at all, whatever it would act on: `{ ok, reason }`. */
-  function mayAct(run, spec) {
-    if (!jobs) return { ok: false, reason: "Acting is not set up on this server" };
-    if (!actingKinds.has(run.kind)) return { ok: false, reason: "This kind of run only reads and answers" };
-    if (!roleAtLeast(run.readRole, "operator")) return { ok: false, reason: "A run a viewer started never changes anything" };
-    if (!Object.keys(grantsOf(spec)).length) return { ok: false, reason: "This agent has leave to carry out nothing" };
-    return { ok: true, reason: null };
-  }
-
-  /** The operations this agent may carry out now: granted, and still allowed that grant by the registry. */
-  const actable = (spec) => Object.entries(grantsOf(spec)).filter(([operationId, level]) => level !== "propose" && !grantProblem(registry.get(operationId), level)).map(([operationId, level]) => ({ operationId, level, operation: registry.get(operationId) }));
-
-  /** The acting tool as this agent's runs see it: its operations named, each with its leave. */
-  function actTool(tool, spec) {
-    const list = actable(spec);
-    const named = list.map((entry) => `${entry.operationId} (${entry.level === "run" ? "runs at once" : "a person approves first"}, ${entry.operation.risk} risk)`).join("; ");
-    if (!tool.params.operationId) return { ...tool, brief: `${tool.brief} Yours: ${named}.` };
-    return { ...tool, brief: `${tool.brief} Yours: ${named}.`, params: { ...tool.params, operationId: { ...tool.params.operationId, enum: list.map((entry) => entry.operationId) } } };
-  }
-
-  const approvalModeNow = () => normalizeApprovalMode(state.getSetting?.("approvalMode", null) ?? process.env.BOXPILOT_APPROVAL_MODE ?? "tiered");
-
-  /**
-   * operations.run: one operation the agent has leave to carry out, staged as a job in its maker's
-   * name. Every fence is checked here, whatever the runner sent: the run may act, it read nothing
-   * that looked like an instruction, the operation is granted and still may be, the run read live
-   * facts first, the limits hold, and the maker may still change the server. Run starts the job at
-   * once under the maker's delegated consent, as a schedule does; Ask leaves it for a person. The
-   * run is told to end; a follow-up run reads what became of the job and checks its effect.
-   */
-  /** A run that read trusted words reading like an instruction carries out nothing (M45.7); the run view says so. */
-  const holdFromActing = (runId) => { try { if (!store.getRun(runId)?.flags?.actHeld) store.mergeRunFlags(runId, { actHeld: true }); } catch { /* the run goes on; acting is refused by the fence anyway */ } };
-
-  /**
-   * Whether this run may stage anything now, whatever it would stage: it may act, it read nothing
-   * that looked like an instruction, and it read the server's live state first (ADR-012). The reason
-   * it may not, or null.
-   */
-  function actFence(run, spec) {
-    const may = mayAct(run, spec);
-    if (!may.ok) return { text: `${may.reason}. Propose it instead.` };
-    // A run that read something that looked like an instruction stages nothing (ADR-013).
-    const flags = store.getRun(run.id)?.flags ?? {};
-    if (flags.injection) return { text: "This run read something that looked like an instruction, so it changes nothing. Propose it instead: a person will look.", flags: { tainted: true } };
-    if (flags.actHeld) return { text: "This run read words in your notes or the owner's documents that read like an instruction, so it carries out nothing on them. Propose it instead.", flags: { held: true } };
-    const readLive = store.listSteps(run.id).some((step) => step.kind === "tool" && step.state === "done" && liveCategories.has(toolById(step.name)?.category));
-    if (!readLive) return { text: "Read the live facts this changes with one of your tools first, then carry it out." };
-    return null;
-  }
-
-  /**
-   * One operation staged in the agent's maker's name, every fence that is about the operation checked
-   * again now: granted by the agent's current definition and still allowed that grant, the day's
-   * limit, the maker still able to change the server and allowed this operation, and the job's own
-   * tier. Run starts it at once; Ask leaves it for a person.
-   * `{ job, grant, operation, maker }`, or `{ refused, flags }` with a sentence for the model.
-   */
-  async function stageOperation(agent, spec, { runId, operationId, parameters = {} }) {
-    const level = grantsOf(spec)[operationId] ?? "propose";
-    const operation = registry.get(operationId);
-    if (level === "propose") return { refused: `This agent has no leave to carry out ${operationId}. Propose it instead.` };
-    const problem = grantProblem(operation, level);
-    if (problem) return { refused: `${problem}. Propose it instead.` };
-    if (store.countActionsSince(agent.id, startOfLocalDay(now()).toISOString()) >= actLimits.perDay) return { refused: `${agent.name} has carried out ${actLimits.perDay} operations today, its most. Propose it instead.`, flags: { limit: true } };
-    // The job is its maker's, as a schedule's is (ADR-002): someone who may still change the server.
-    const maker = agent.createdBy ? state.findOwnerById?.(agent.createdBy) : null;
-    if (!maker || !["owner", "operator"].includes(maker.role)) return { refused: "The person who made this agent can no longer change the server, so it changes nothing. Propose it instead." };
-    if (operation.minimumRole === "owner" && maker.role !== "owner") return { refused: `Only the owner may carry out ${operation.title}, and this agent was made by an operator. Propose it instead.` };
-    let job;
-    try {
-      job = await jobs.createOperationJob(operationId, parameters, maker.id, { role: maker.role, origin: { agentId: agent.id, agentName: agent.name, runId } });
-    } catch (error) {
-      return { refused: `It could not be staged: ${clip(redact(String(error?.message ?? error)), 300)}` };
-    }
-    const grant = grantNow(level, { risk: job.risk, mode: approvalModeNow(), confirms: Boolean(operation.confirm?.(job.parameters ?? {})) });
-    const withdraw = (reason) => { try { jobs.cancelJob(job.id, maker.id, { role: maker.role, reason }); } catch { /* already moved on */ } };
-    if (grant === "propose") {
-      withdraw("An agent may not carry this out: it is high risk here");
-      return { refused: `${operation.title} is high risk here, so it is a card, not something an agent carries out. Propose it instead.` };
-    }
-    if (grant === "run") {
-      try {
-        await jobs.approveAndStart(job.id, maker.id, {});
-      } catch (error) {
-        withdraw(`It could not start: ${clip(String(error?.message ?? error), 200)}`);
-        return { refused: `It could not start: ${clip(redact(String(error?.message ?? error)), 300)}` };
-      }
-    }
-    return { job, grant, operation, maker };
-  }
-
-  /**
-   * operations.run: one operation the agent has leave to carry out, staged as a job in its maker's
-   * name. Every fence is checked here, whatever the runner sent. The run is told to end; a follow-up
-   * run reads what became of the job and checks its effect.
-   */
-  async function actFor(run, spec, { operationId, parameters = {}, why }, answer) {
-    const input = { operationId, parameters };
-    const refused = (text, flags = {}) => answer("action", { state: "refused", text, input, flags: { refused: true, ...flags } });
-    const fence = actFence(run, spec);
-    if (fence) return refused(fence.text, fence.flags);
-    if (store.countSteps(run.id, "action") >= actLimits.perRun * 2 || store.actionSteps(run.id).length >= actLimits.perRun) return refused(`A run carries out at most ${actLimits.perRun} operations, and this one has. Answer with what you have.`, { limit: true });
-    const agent = store.getAgent(run.agentId);
-    const staged = await stageOperation(agent, spec, { runId: run.id, operationId, parameters });
-    if (staged.refused) return refused(staged.refused, staged.flags);
-    const { job, grant, operation, maker } = staged;
-    store.mergeRunFlags(run.id, { acted: true });
-    audit("agents.run.acted", { actorId: maker.id, subjectId: job.id, details: { agentId: agent.id, agentName: agent.name, runId: run.id, operationId, grant, risk: job.risk, requestedBy: run.requestedBy } });
-    const what = `${operation.title} (${job.risk} risk), as job ${job.id}`;
-    const text = grant === "run"
-      ? `Started ${what}, under your leave to run it. End this run now with what you did and why; a follow-up run reads how the job went and checks its effect.`
-      : `Staged ${what} for a person to approve. End this run now saying what you asked for and why; a follow-up run reads what became of it. If nobody approves it within an hour it is dropped.`;
-    return answer("action", { text, input: { operationId, parameters: job.parameters }, flags: { jobId: job.id, operationId, grant, risk: job.risk, why: clip(why, 300) } });
-  }
-
-  /** What became of a job a run staged, as its follow-up reads it. */
-  function jobOutcome(act, job) {
-    const title = job?.title ?? act.flags.operationId;
-    if (!job) return `${title}: BoxPilot no longer has this job.`;
-    const how = act.flags.grant === "run" ? "It ran under the agent's leave." : job.approvals?.length ? "A person approved it." : "It waited for a person.";
-    const head = job.state === "completed" ? `${title} finished. ${how}`
-      : job.state === "failed" ? `${title} failed: ${clip(job.error ?? "no reason given", 400)}. ${how}`
-        : job.state === "cancelled" ? `${title} did not run: ${clip(job.error ?? "it was cancelled", 300)}.`
-          : `${title} is still ${job.state}.`;
-    const result = job.state === "completed" && job.result ? `\nWhat it reported: ${clip(JSON.stringify(job.result), 1_500)}` : "";
-    return `${head} Job ${job.id}, ${job.risk} risk.${result}`;
-  }
-
-  const terminalJobStates = new Set(["completed", "failed", "cancelled"]);
-  /** Whether every job a run staged has ended. */
-  const actsSettled = (runId) => store.actionSteps(runId).every((step) => terminalJobStates.has(state.getJob?.(step.flags.jobId)?.state ?? "cancelled"));
-
-  /**
-   * Jobs agents staged that no one approved within the hour are dropped (ADR-013); each drop ends
-   * the job, which brings its run's follow-up. With `all`, everything still waiting goes: the kill switch.
-   */
-  function dropUnapprovedActs({ all = false, reason = "Nobody approved it within an hour" } = {}) {
-    const since = new Date(now().getTime() - 24 * 3_600_000).toISOString();
-    let dropped = 0;
-    for (const act of store.actionsSince(since)) {
-      // A plan's step waits until the plan's own day is over (M45.6), unless everything goes.
-      if (act.planId && !all) continue;
-      const job = state.getJob?.(act.jobId);
-      if (job?.state !== "awaiting_approval") continue;
-      if (!all && now().getTime() - Date.parse(job.createdAt) < actLimits.approvalWaitMs) continue;
-      try { jobs?.cancelJob(job.id, job.createdBy, { role: "owner", reason }); dropped += 1; } catch { /* approved or gone meanwhile */ }
-    }
-    return dropped;
-  }
-
-  // ---- plans (M45.6) ----
-
-  /**
-   * operations.plan: a plan of steps the agent has leave to carry out, kept in the store and carried
-   * out by BoxPilot one step at a time (advancePlan), each operation under the same fences as
-   * operations.run, a check between them made by a run of the agent. One open plan per agent.
-   */
-  async function planFor(run, spec, { title, steps: raw }, answer) {
-    const input = { title, steps: raw };
-    const refused = (text, flags = {}) => answer("action", { state: "refused", text, input, flags: { refused: true, ...flags } });
-    const fence = actFence(run, spec);
-    if (fence) return refused(fence.text, fence.flags);
-    const agent = store.getAgent(run.agentId);
-    if (store.openPlans(agent.id).length) return refused(`${agent.name} is already carrying out a plan. Answer with what you have; propose anything else.`);
-    const read = readPlanSteps(raw, { grantOf: (id) => grantsOf(spec)[id], operationOf: (id) => registry.get(id), validate: (id, parameters) => registry.validate(id, parameters) });
-    if (read.problem) return refused(`${read.problem}. Propose it instead.`);
-    const named = clip(redact(String(title ?? "")), 120) || "A plan";
-    const plan = store.createPlan({ agentId: agent.id, runId: run.id, title: named, steps: read.steps, deadlineAt: new Date(now().getTime() + planLimits.hours * 3_600_000).toISOString() });
-    store.mergeRunFlags(run.id, { acted: true, planId: plan.id });
-    audit("agents.plan.started", { actorId: run.requestedBy, subjectId: plan.id, details: { agentId: agent.id, runId: run.id, steps: read.steps.map((step) => step.operationId ?? "check") } });
-    void advancePlan(plan.id).catch(() => {});
-    return answer("action", {
-      text: `Saved the plan "${named}": ${read.steps.length} steps. BoxPilot carries it out one step at a time, for up to ${planLimits.hours} hours, and runs you to make each check. End this run now saying what you planned and why; a follow-up run reports how it went.`,
-      input, flags: { planId: plan.id },
-    });
-  }
-
-  const stepWords = (plan, index) => `step ${index + 1} of the plan "${plan.title}"`;
-  /** What one of a plan's operation steps is called. */
-  const stepTitle = (step) => (step.kind === "check" ? `Check: ${step.check}` : registry.get(step.operationId)?.title ?? step.operationId);
-
-  /**
-   * A plan ended: its last checkpoint written, anything still waiting on a person withdrawn, and a
-   * follow-up run to report how it went - unless a person stopped it or the kill switch did.
-   */
-  function finishPlan(plan, steps, endState, reason, { report = true } = {}) {
-    const saved = store.savePlan(plan.id, { steps, cursor: plan.cursor, state: endState, reason: reason ? clip(reason, 300) : null }, plan.updatedAt);
-    if (!saved) return null;
-    for (const step of steps) {
-      const job = step.jobId ? state.getJob?.(step.jobId) : null;
-      if (job?.state === "awaiting_approval") { try { jobs?.cancelJob(job.id, job.createdBy, { role: "owner", reason: reason ?? "The plan ended" }); } catch { /* moved on */ } }
-    }
-    audit("agents.plan.ended", { subjectId: plan.id, details: { agentId: plan.agentId, state: endState, reason } });
-    const agent = store.getAgent(plan.agentId);
-    const origin = store.getRun(plan.runId);
-    if (report && agent && origin && !moduleSettings().killedAt) {
-      store.enqueueRun({
-        agentId: agent.id, version: agent.version, kind: "continue", question: origin.question,
-        trigger: { title: endState === "done" ? `The plan "${plan.title}" finished` : `The plan "${plan.title}" stopped`, plan: { id: plan.id, purpose: "report" } },
-        requestedBy: origin.requestedBy, readRole: origin.readRole, readAs: origin.readAs, parentRunId: origin.id, rootRunId: origin.rootRunId ?? origin.id, depth: origin.depth ?? 0,
-      });
-      wake();
-    }
-    return saved;
-  }
-
-  /**
-   * One step of a plan, from its last checkpoint: stage its operation, or read how its job went, or
-   * start a run to make its check, or read that run's verdict. True when it moved on to the next step
-   * (the caller takes that one too); false when it waits (on a job, a person, a run, a pause) or ended.
-   */
-  async function stepPlan(plan) {
-    const steps = plan.steps.map((step) => ({ ...step }));
-    const agent = store.getAgent(plan.agentId);
-    if (!agent) { finishPlan(plan, steps, "cancelled", "The agent was deleted", { report: false }); return false; }
-    if (now().getTime() > Date.parse(plan.deadlineAt)) { finishPlan(plan, steps, "expired", `It did not finish within ${planLimits.hours} hours`); return false; }
-    const settings = moduleSettings();
-    // Paused, by the owner or the kill switch: it waits where it is, and goes on at a tick once resumed.
-    if (!settings.enabled || modulePaused(settings) || agentPaused(agent)) return false;
-    if (plan.cursor >= steps.length) { finishPlan(plan, steps, "done", null); return false; }
-    const index = plan.cursor;
-    const step = steps[index];
-    const checkpoint = (changes) => store.savePlan(plan.id, { steps, cursor: plan.cursor, state: plan.state, reason: plan.reason, ...changes }, plan.updatedAt);
-    const fail = (why) => { step.state = "failed"; step.note = clip(why, 300); step.endedAt = now().toISOString(); finishPlan(plan, steps, "failed", `It stopped at ${stepWords(plan, index)}: ${clip(why, 240)}`); return false; };
-    const done = (note) => { step.state = "done"; step.note = note ? clip(note, 300) : null; step.endedAt = now().toISOString(); return Boolean(checkpoint({ cursor: index + 1, state: "running" })); };
-
-    if (step.kind === "operation") {
-      if (!step.jobId) {
-        const staged = await stageOperation(agent, agent.spec, { runId: plan.runId, operationId: step.operationId, parameters: step.parameters });
-        if (staged.refused) return fail(staged.refused.replace(/ Propose it instead\.$/, ""));
-        Object.assign(step, { jobId: staged.job.id, grant: staged.grant, risk: staged.job.risk, state: staged.grant === "run" ? "running" : "waiting", startedAt: now().toISOString() });
-        // On the run that made the plan, as an act of its own: the day's limit counts it, and its job leads back here.
-        store.addStep(plan.runId, { kind: "action", name: "operations.plan", input: { operationId: step.operationId, parameters: staged.job.parameters }, output: `${staged.grant === "run" ? "Started" : "Staged for a person to approve"}: ${staged.operation.title} (${staged.job.risk} risk), ${stepWords(plan, index)}, as job ${staged.job.id}.`, flags: { jobId: staged.job.id, planId: plan.id, operationId: step.operationId, grant: staged.grant, risk: staged.job.risk } });
-        audit("agents.run.acted", { actorId: staged.maker.id, subjectId: staged.job.id, details: { agentId: agent.id, agentName: agent.name, runId: plan.runId, planId: plan.id, step: index + 1, operationId: step.operationId, grant: staged.grant, risk: staged.job.risk } });
-        if (!checkpoint({ state: "waiting" })) return false;
-        return true;
-      }
-      const job = state.getJob?.(step.jobId);
-      if (!job) return fail("BoxPilot no longer has its job");
-      if (job.state === "completed") return done(job.result ? `It finished: ${redact(JSON.stringify(job.result))}` : "It finished.");
-      if (job.state === "failed") return fail(`${job.title} failed: ${job.error ?? "no reason given"}`);
-      if (job.state === "cancelled") return fail(`${job.title} did not run: ${job.error ?? "it was cancelled"}`);
-      return false;
-    }
-
-    // A check: a run of the agent reads what it should and answers passed or failed.
-    if (!step.runId) {
-      const origin = store.getRun(plan.runId);
-      if (!origin) return fail("The run that made the plan is gone");
-      const checking = store.enqueueRun({
-        agentId: agent.id, version: agent.version, kind: "continue", question: origin.question,
-        trigger: { title: `Checking ${stepWords(plan, index)}`, plan: { id: plan.id, purpose: "check", step: index, check: step.check } },
-        requestedBy: origin.requestedBy, readRole: origin.readRole, readAs: origin.readAs, parentRunId: origin.id, rootRunId: origin.rootRunId ?? origin.id, depth: origin.depth ?? 0,
-      });
-      Object.assign(step, { runId: checking.id, state: "checking", tries: (step.tries ?? 0) + 1, startedAt: now().toISOString() });
-      checkpoint({ state: "waiting" });
-      wake();
-      return false;
-    }
-    const checking = store.getRun(step.runId);
-    if (!checking || !finishedStates.has(checking.state)) return false;
-    if (checking.flags?.injection) return fail("The check read something that looked like an instruction, so the plan goes no further");
-    const verdict = checking.flags?.planCheck ?? null;
-    if (verdict?.passed) return done(verdict.found);
-    // A check that never gave a verdict (a restart, the runner gone) is made again, once.
-    if (!verdict && (step.tries ?? 1) < planLimits.checkTries) {
-      Object.assign(step, { runId: null, state: "pending" });
-      return Boolean(checkpoint({ state: "running" }));
-    }
-    return fail(verdict ? `The check failed: ${verdict.found}` : `The check did not finish (${checking.state})`);
-  }
-
-  /** Plans being carried out right now, and those asked to go on while they were. */
-  const advancing = new Set();
-  const advanceAgain = new Set();
-  /** Carry a plan on from its last checkpoint, as far as it can go now. One at a time per plan. */
-  async function advancePlan(planId) {
-    if (advancing.has(planId)) { advanceAgain.add(planId); return; }
-    advancing.add(planId);
-    try {
-      for (let guard = 0; guard <= planLimits.steps * 2 + 2; guard += 1) {
-        const plan = store.getPlan(planId);
-        if (!plan || !["running", "waiting"].includes(plan.state)) return;
-        if (!(await stepPlan(plan))) return;
-      }
-    } finally {
-      advancing.delete(planId);
-      if (advanceAgain.delete(planId)) void advancePlan(planId).catch(() => {});
-    }
-  }
-
-  /** A plan's run (a check or the report) ended, however it ended: the plan goes on. */
-  function planRunEnded(run) {
-    if (run?.trigger?.plan?.id && run.trigger.plan.purpose === "check") void advancePlan(run.trigger.plan.id).catch(() => {});
-  }
-
-  /** What a plan's run is shown of the plan: each step so far and how it went, as tool output. */
-  function planOutputs(plan) {
-    return plan.steps.slice(0, plan.state === "done" ? plan.steps.length : plan.cursor + 1).map((step, index) => {
-      const job = step.jobId ? state.getJob?.(step.jobId) : null;
-      const head = step.kind === "check" ? `Step ${index + 1}, a check: ${step.check}` : `Step ${index + 1}: ${stepTitle(step)}${job ? ` (job ${job.id}, ${job.risk} risk)` : ""}`;
-      return { name: "operations.plan", input: { planId: plan.id, step: index + 1 }, output: `${head}\n${step.state === "done" ? "Done." : step.state === "failed" ? "Failed." : `Not done (${step.state}).`}${step.note ? ` ${step.note}` : ""}` };
-    });
-  }
-
-  /** A person stops a plan: what waits on a person is withdrawn, and nothing more is staged. */
-  function cancelPlan(caller, planId) {
-    const person = personOf(caller);
-    const plan = store.getPlan(planId);
-    const origin = plan ? store.getRun(plan.runId) : null;
-    if (!plan || !origin || !canSeeRun(person, origin)) refuse(404, "There is no plan with that id", "plan_not_found");
-    if (!["owner", "operator"].includes(person.role)) refuse(403, "Viewers cannot stop a plan", "forbidden");
-    if (!["running", "waiting"].includes(plan.state)) refuse(409, `The plan has already ${plan.state === "done" ? "finished" : "ended"}`, "plan_ended");
-    const ended = finishPlan(plan, plan.steps, "cancelled", `Stopped by ${person.role === "owner" ? "the owner" : "an operator"}`, { report: false });
-    if (!ended) refuse(409, "The plan moved on just now; try again", "plan_moved");
-    audit("agents.plan.cancelled", { actorId: person.id, subjectId: plan.id, details: { agentId: plan.agentId } });
-    return presentPlan(ended);
-  }
-
-  /** A plan as a person sees it: its steps, where it is and how each went. */
-  function presentPlan(plan) {
-    if (!plan) return null;
-    return {
-      id: plan.id, title: plan.title, state: plan.state, reason: plan.reason, cursor: plan.cursor, createdAt: plan.createdAt, deadlineAt: plan.deadlineAt,
-      steps: plan.steps.map((step) => ({ kind: step.kind, title: stepTitle(step), operationId: step.operationId ?? null, state: step.state, note: step.note ? sanitizeUntrusted(step.note, { maxChars: 300, redact }).text : null, jobId: step.jobId ?? null, grant: step.grant ?? null, risk: step.risk ?? null })),
-    };
-  }
-
   function notifyFor(run, spec, { title, message }, answer) {
     if (spec.outputs?.notify !== "important" || moduleSettings().notify === false) return answer("notify", { state: "refused", text: "This agent does not send notifications.", flags: { refused: true } });
     const history = state.getSetting?.("agentsNotified", {}) ?? {};
@@ -2698,6 +1685,7 @@ export function createAgentService({
       const step = store.addStep(run.id, { kind: "system", name: "answer", state: "failed", output: [words, cites].filter(Boolean).join(" "), flags: { detail: clip([words, cites].filter(Boolean).join(" "), 300), fabricated } });
       if (step) emit(run.id, "step", step);
     }
+    /** @type {Record<string, any>} the counters below, then what this run adds (runsSaved, route, speed ...) */
     const usage = {
       modelMs: Math.round(finite(result.usage?.modelMs, 3_600_000)),
       loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)),
@@ -2849,18 +1837,6 @@ export function createAgentService({
       return copied ? [] : [id];
     });
     return [...new Set(ids)];
-  }
-
-  /** An index run's end: its usage counts toward the day's budget like any run's. */
-  function finishIndex(run, result) {
-    const usage = { modelMs: Math.round(finite(result.usage?.modelMs, 3_600_000)), loadMs: Math.round(finite(result.usage?.loadMs, 3_600_000)), wallMs: Math.max(0, now().getTime() - Date.parse(run.startedAt)) };
-    const outcome = ["completed", "degraded", "failed"].includes(result.outcome) ? result.outcome : "failed";
-    const finished = store.finishRun(run.id, { state: outcome, reason: outcome === "failed" ? clip(String(result.error ?? "Indexing failed"), 300) : null, usage, outputKind: "index", answer: `Indexed ${Math.round(finite(result.indexed, 10_000))} pieces of memory for meaning search.` });
-    if (!finished) refuse(409, "The run has already finished", "run_finished");
-    runEnded(finished);
-    audit("agents.memory.indexed", { details: { runId: run.id, outcome: finished.state, indexed: Math.round(finite(result.indexed, 10_000)), modelMs: usage.modelMs } });
-    wake();
-    return { state: finished.state };
   }
 
   /**
@@ -3207,104 +2183,6 @@ export function createAgentService({
     return presentAgent(person, store.getAgent(agent.id));
   }
 
-  // ---- agents: create, edit, versions ----
-
-  function createAgent(caller, { template = null, spec = null } = {}) {
-    const person = personOf(caller);
-    if (!["owner", "operator"].includes(person.role)) refuse(403, "Only the owner and operators make agents", "forbidden");
-    const base = template ? templateById(template) : null;
-    if (template && !base) refuse(400, `There is no template called ${template}`, "invalid_agent");
-    if (store.listAgents().length >= 30) refuse(409, "Thirty agents is the most BoxPilot keeps. Delete one first.", "agent_limit");
-    // A new agent moves to Claude when a run needs it, once Claude is connected (M45.4): one made from
-    // a template, or from a definition that names no model. The templates name none of their own.
-    const given = spec ?? base?.spec ?? {};
-    const routed = !spec?.model?.route && cloud?.settings().connected ? { ...given, model: { ...(given.model ?? {}), route: "auto" } } : given;
-    const normalized = wrapSpecError(() => normalizeSpec(routed));
-    checkGrants(person, normalized, null);
-    refuseReservedName(normalized.name);
-    const agent = store.createAgent({ spec: normalized, template: base?.id ?? null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
-    if (base && templateQuestions[base.id]?.length) store.setQuestions(agent.id, templateQuestions[base.id], { updatedBy: person.id });
-    if (base) seedAgentExamples(agent);
-    audit("agents.created", { actorId: person.id, subjectId: agent.id, details: { template: base?.id ?? null, name: normalized.name } });
-    return presentAgent(person, agent, { detail: true });
-  }
-
-  function updateAgent(caller, agentId, { spec, note = null } = {}) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId, { edit: true });
-    const normalized = wrapSpecError(() => normalizeSpec(spec));
-    if (specText(normalized) === specText(agent.spec)) return { ...presentAgent(person, agent, { detail: true }), unchanged: true };
-    checkGrants(person, normalized, agent.spec);
-    refuseReservedName(normalized.name, agent.spec.name);
-    const version = store.addVersion(agent.id, { spec: normalized, note: typeof note === "string" ? clip(note.replace(/[\u0000-\u001f\u007f]/g, " ").trim(), 200) || null : null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
-    audit("agents.updated", { actorId: person.id, subjectId: agent.id, details: { version, fields: diffSpecs(agent.spec, normalized).map((change) => change.field) } });
-    forgetFindingsIfUnshared(agent, normalized);
-    return presentAgent(person, store.getAgent(agent.id), { detail: true });
-  }
-
-  /**
-   * Grants (M45.5): each held to the registry's rules, and raised only by the owner. A grant lets the
-   * agent change the server in its maker's name without them, so it is the owner's to give; anyone
-   * who may edit the agent may take one away or lower it.
-   */
-  function checkGrants(person, next, previous) {
-    const grants = grantsOf(next);
-    for (const [operationId, level] of Object.entries(grants)) {
-      const problem = grantProblem(registry.get(operationId), level);
-      if (problem) refuse(400, `${operationId}: ${problem}`, "invalid_agent");
-    }
-    const before = grantsOf(previous);
-    const rank = { propose: 0, ask: 1, run: 2 };
-    const raised = Object.entries(grants).some(([operationId, level]) => rank[level] > rank[before[operationId] ?? "propose"]);
-    if (raised && person.role !== "owner") refuse(403, "Only the owner gives an agent leave to carry out operations", "forbidden");
-  }
-
-  /** Sharing turned off (M44): what it shared is forgotten, so nobody reads it after the owner said no. */
-  function forgetFindingsIfUnshared(agent, spec) {
-    if (sharingFor(agent).shareFindings && !sharingFor(agent, spec).shareFindings) store.deleteFindings(agent.id);
-  }
-
-  function rollbackAgent(caller, agentId, { version } = {}) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId, { edit: true });
-    const target = store.getVersion(agent.id, Number(version));
-    if (!target) refuse(404, "That version does not exist", "version_not_found");
-    if (target.version === agent.version) refuse(409, "That is already the current version", "version_current");
-    checkGrants(person, target.spec, agent.spec);
-    refuseReservedName(target.spec.name, agent.spec.name);
-    const next = store.addVersion(agent.id, { spec: target.spec, note: `Rolled back to version ${target.version}`, createdBy: person.id, nextRunAt: nextRunFor(target.spec) });
-    audit("agents.rolled-back", { actorId: person.id, subjectId: agent.id, details: { to: target.version, version: next } });
-    forgetFindingsIfUnshared(agent, target.spec);
-    return presentAgent(person, store.getAgent(agent.id), { detail: true });
-  }
-
-  function deleteAgent(caller, agentId) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId, { edit: true });
-    for (const run of store.activeRuns().filter((entry) => entry.agentId === agent.id)) runEnded(store.finishRun(run.id, { state: run.state === "running" ? "killed" : "cancelled", reason: "The agent was deleted" }));
-    store.deleteAgent(agent.id);
-    audit("agents.deleted", { actorId: person.id, subjectId: agent.id, details: { name: agent.name } });
-    return { deleted: true };
-  }
-
-  function versionDetail(caller, agentId, version) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId);
-    if (person.role === "viewer") refuse(403, "Viewers see an agent's answers, not how it is built", "forbidden");
-    const target = store.getVersion(agent.id, Number(version));
-    if (!target) refuse(404, "That version does not exist", "version_not_found");
-    const previous = store.getVersion(agent.id, target.version - 1);
-    return { version: { ...target, createdBy: ownActor(person, target.createdBy) }, changes: previous ? diffSpecs(previous.spec, target.spec) : [], againstCurrent: diffSpecs(target.spec, agent.spec) };
-  }
-
-  const wrapSpecError = (fn) => { try { return fn(); } catch (error) { if (error instanceof SpecError) throw new AgentError(400, error.message, error.code); throw error; } };
-  /** A greeting or BoxPilot's own name, given as an agent's new name: refused (sweep 5). One it already had is kept. */
-  const refuseReservedName = (name, before = null) => {
-    const problem = before !== null && nameKey(name) === nameKey(before) ? null : reservedNameProblem(name);
-    if (problem) refuse(400, problem, "reserved_name");
-  };
-  const nextRunFor = (spec) => nextScheduledRun(spec.triggers?.schedule, now())?.toISOString() ?? null;
-
   // ---- what the pages read ----
 
   /**
@@ -3488,6 +2366,43 @@ export function createAgentService({
     return { deleted: true };
   }
 
+  function glance(caller) {
+    const person = personOf(caller);
+    if (person.role === "viewer") refuse(403, "The digest and cards are for the owner and operators", "forbidden");
+    const settings = moduleSettings();
+    let digest = null;
+    for (const agent of store.listAgents()) {
+      const run = store.listRuns({ agentId: agent.id, limit: 30 }).find((entry) => entry.outputKind === "digest" && ["completed", "degraded"].includes(entry.state) && canSeeRun(person, entry, agent));
+      if (run && (!digest || run.finishedAt > digest.at)) digest = { agentId: agent.id, agentName: agent.name, runId: run.id, at: run.finishedAt, excerpt: clip(run.answer ?? "", 600), state: run.state };
+    }
+    // queued: runs waiting for the runner, so Home and Ops can say what a stopped runner holds up.
+    return { enabled: settings.enabled, paused: modulePaused(settings), runnerOnline: runnerOnline(), queued: queueCounts().queued, digest, cardsWaiting: store.listProposals().filter((proposal) => canSeeProposal(person, proposal)).length };
+  }
+
+  function usage(caller) {
+    const person = personOf(caller);
+    // A viewer sees the agents they may ask, as the overview lists them (2026-10 sweep 2).
+    const perAgent = store.listAgents().filter((agent) => person.role !== "viewer" || canAsk(person, agent)).map((agent) => {
+      const used = usedToday(agent.id);
+      return { agentId: agent.id, name: agent.name, runs: used.runs, runsPerDay: agent.spec.budget.runsPerDay, modelSeconds: Math.round(used.modelMs / 1000), modelSecondsPerDay: agent.spec.budget.modelSecondsPerDay, tokens: used.tokens };
+    });
+    const { queued, running } = queueCounts();
+    return {
+      runner: runnerStatus(),
+      caps: capsNow(),
+      // The model's measured speed on this server: { promptPerSecond, generatePerSecond, model, threads, measuredAt }, or null.
+      modelSpeed: modelSpeed(),
+      today: { runs: perAgent.reduce((sum, entry) => sum + entry.runs, 0), modelSeconds: perAgent.reduce((sum, entry) => sum + entry.modelSeconds, 0), tokens: perAgent.reduce((sum, entry) => sum + entry.tokens, 0), perAgent },
+      // M44: this week, the runs a supervisor did not start because a specialist's finding answered,
+      // and the answers that cited another agent's finding.
+      findings: { days: 7, ...store.findingsUseSince(new Date(now().getTime() - 7 * 86_400_000).toISOString()) },
+      // M48.6: the local model's context, and how many runs this week answered early because what they read filled it.
+      context: { tokens: runtimeSettings().contextTokens ?? null, days: 7, limitedRuns: store.countRunsWithLimit("context", new Date(now().getTime() - 7 * 86_400_000).toISOString()) },
+      queue: { queued, running, dropped: droppedRuns },
+      module: presentModule(person),
+    };
+  }
+
   // ---- memory, as the owner sees and edits it ----
 
   /**
@@ -3575,6 +2490,11 @@ export function createAgentService({
   }
 
   /** Forget: a fact, a past run's episode, or the whole conversation. Really deleted, embedding and all. */
+  /**
+   * @param {any} caller
+   * @param {string} agentId
+   * @param {{ kind?: string, id?: string | null }} [body]
+   */
   function forgetMemory(caller, agentId, { kind, id = null } = {}) {
     const person = personOf(caller);
     const agent = agentFor(person, agentId);
@@ -3592,825 +2512,7 @@ export function createAgentService({
     return { forgotten: true };
   }
 
-  // ---- feedback on a run ----
-
-  /** "Was this right?": thumbs up or down on a run, by whoever may see it; it feeds the evaluation. */
-  /**
-   * "Was this right?" A verdict counts toward the agent's accuracy by version and model. A "wrong"
-   * with `expect` - words the right answer contains - also makes the question one of the agent's
-   * own golden questions (M40), for whoever may change the agent: every evaluation asks it again.
-   */
-  function giveFeedback(caller, runId, { verdict, note = null, expect = null } = {}) {
-    const person = personOf(caller);
-    const run = store.getRun(runId);
-    if (!run || ["index", "describe"].includes(run.kind) || !canSeeRun(person, run)) refuse(404, "There is no run with that id", "run_not_found");
-    if (!finishedStates.has(run.state)) refuse(409, "Say whether it was right once it has answered", "run_running");
-    if (!["up", "down"].includes(verdict)) refuse(400, "Feedback is up or down", "invalid_feedback");
-    const cleanNote = typeof note === "string" && note.trim() ? redact(clip(note.replace(/[\u0000-\u001f\u007f]/g, " ").trim(), 300)) : null;
-    const words = Array.isArray(expect) ? expect.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => redact(entry.replace(/[\u0000-\u001f\u007f]/g, " ").trim()).slice(0, 80)).slice(0, 5) : [];
-    let added = null;
-    if (words.length) {
-      if (verdict !== "down") refuse(400, "Only a wrong answer becomes a golden question", "invalid_feedback");
-      const agent = store.getAgent(run.agentId);
-      if (!agent || !canEdit(person, agent)) refuse(403, "Only whoever may change this agent adds to its evaluation", "forbidden");
-      const question = String(run.question ?? "").trim();
-      if (!question || run.kind === "eval") refuse(400, "Only a question someone asked becomes a golden question", "invalid_feedback");
-      const current = store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [];
-      const same = current.find((entry) => entry.question.toLowerCase() === question.slice(0, 300).toLowerCase());
-      const kept = same ? current.map((entry) => (entry === same ? { ...entry, expect: { includes: words } } : entry)) : [...current, { id: `q${Date.now().toString(36)}`, question: question.slice(0, 300), expect: { includes: words } }];
-      const normalized = normalizeQuestions(kept);
-      store.setQuestions(agent.id, normalized, { updatedBy: person.id });
-      added = { questionId: normalized.find((entry) => entry.question.toLowerCase() === question.slice(0, 300).toLowerCase())?.id ?? null };
-      audit("agents.evaluation.changed", { actorId: person.id, subjectId: agent.id, details: { questions: normalized.length, fromFeedback: run.id } });
-    }
-    const given = store.setFeedback(run.id, { agentId: run.agentId, version: run.version, model: run.flags?.model ?? null, verdict, note: cleanNote, givenBy: person.id });
-    audit("agents.feedback", { actorId: person.id, subjectId: run.id, details: { agentId: run.agentId, version: run.version, verdict } });
-    // A thumbs up keeps the run as an example (M46); a thumbs down takes one back.
-    if (verdict === "up") rememberExample(run, "thumbs-up");
-    else store.deleteExampleOfRun(run.agentId, run.id);
-    return { verdict: given.verdict, note: given.note, mine: true, ...(added ? { addedToEvaluation: added } : {}) };
-  }
-
-  // ---- export and import ----
-
-  function exportAgent(caller, agentId) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId, { edit: true });
-    audit("agents.exported", { actorId: person.id, subjectId: agent.id });
-    return exportDefinition(agent, { questions: store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [], productVersion, now: now() });
-  }
-
-  function importAgent(caller, { definition } = {}) {
-    const person = personOf(caller);
-    if (!["owner", "operator"].includes(person.role)) refuse(403, "Only the owner and operators make agents", "forbidden");
-    let read;
-    try { read = readDefinition(definition); } catch (error) { refuse(error.status ?? 400, error.message, error.code ?? "invalid_definition"); }
-    if (store.listAgents().length >= 30) refuse(409, "Thirty agents is the most BoxPilot keeps. Delete one first.", "agent_limit");
-    refuseReservedName(read.spec.name);
-    const agent = store.createAgent({ spec: read.spec, template: read.template, createdBy: person.id, nextRunAt: nextRunFor(read.spec) });
-    let questions = [];
-    try { questions = normalizeQuestions(read.questions); } catch { questions = []; }
-    if (questions.length) store.setQuestions(agent.id, questions, { updatedBy: person.id });
-    audit("agents.imported", { actorId: person.id, subjectId: agent.id, details: { name: read.spec.name, template: read.template, questions: questions.length } });
-    return presentAgent(person, store.getAgent(agent.id), { detail: true });
-  }
-
-  // ---- webhooks: another system (n8n, for one) starts an agent ----
-
-  const webhookFires = new Map();
-
-  /** A webhook token, shown once; only its digest is kept. The caller chooses only when, never what. */
-  function mintAgentWebhook(caller, agentId) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId, { edit: true });
-    if (!agent.spec.triggers?.webhook) refuse(409, `Turn on "a webhook" among ${agent.name}'s triggers first`, "webhook_off");
-    const token = randomBytes(32).toString("base64url");
-    store.setWebhook(agent.id, digestToken(token));
-    audit("agents.webhook.minted", { actorId: person.id, subjectId: agent.id });
-    return { token, path: `/api/v1/hooks/agents/${agent.id}/${token}` };
-  }
-
-  function clearAgentWebhook(caller, agentId) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId, { edit: true });
-    store.setWebhook(agent.id, null);
-    audit("agents.webhook.cleared", { actorId: person.id, subjectId: agent.id });
-    return { removed: true };
-  }
-
-  /**
-   * A webhook call: "accepted" | "not-found" | "rate-limited". A wrong token, a missing agent and a
-   * paused or webhook-less agent answer alike, so the URL cannot be probed. Nothing in the request
-   * reaches the run: the agent does its job, under its maker's authority, as a schedule would.
-   */
-  function fireAgentWebhook(agentId, token, { source = null } = {}) {
-    const agent = store.getAgent(agentId);
-    if (!agent || !agent.webhookHash || !agent.spec.triggers?.webhook || typeof token !== "string" || !token.length || token.length > 200) return "not-found";
-    const presented = Buffer.from(digestToken(token));
-    const stored = Buffer.from(agent.webhookHash);
-    if (presented.length !== stored.length || !timingSafeEqual(presented, stored)) return "not-found";
-    const recent = (webhookFires.get(agent.id) ?? []).filter((at) => now().getTime() - at < 60_000);
-    if (recent.length >= limits.webhookFiresPerMinute) { webhookFires.set(agent.id, recent); return "rate-limited"; }
-    webhookFires.set(agent.id, [...recent, now().getTime()]);
-    const queued = enqueueSystem(agent, "webhook", { title: `A webhook${source ? ` from ${clip(String(source).replace(/[^\w .:-]/g, ""), 40)}` : ""}` });
-    audit("agents.webhook.fired", { actorId: agent.createdBy, subjectId: agent.id, details: { queued: Boolean(queued.run), skipped: queued.skipped ?? null } });
-    return "accepted";
-  }
-
-  // ---- documents from outside: uploads, a folder, connectors ----
-
-  /** An uploaded PDF, Markdown or text file becomes a document in the library. Owner only. */
-  function uploadDocument(caller, { name, buffer, title = null } = {}) {
-    const person = personOf(caller);
-    if (person.role !== "owner") refuse(403, "Only the owner adds documents", "forbidden");
-    if (!Buffer.isBuffer(buffer) || !buffer.length) refuse(400, "Send the file", "invalid_document");
-    let read;
-    try { read = textOfUpload(buffer, name); } catch (error) { refuse(400, error.message, "invalid_document"); }
-    if (!read.text) refuse(400, "The file has no text", "invalid_document");
-    if (store.countDocuments() >= 300) refuse(409, "Three hundred documents is the most the library keeps", "document_limit");
-    const cleanTitle = clip(String(title ?? name ?? "Uploaded document").replace(/\.(pdf|md|markdown|txt)$/i, "").replace(/[\u0000-\u001f\u007f]/g, " ").trim() || "Uploaded document", 120);
-    const document = store.addDocument({ title: cleanTitle, text: redact(read.text), createdBy: person.id, source: /\.pdf$/i.test(name ?? "") || buffer.subarray(0, 5).toString("latin1") === "%PDF-" ? "pdf" : "upload" });
-    audit("agents.document.added", { actorId: person.id, subjectId: document.id, details: { characters: document.characters, source: document.source } });
-    const { text: _text, ...rest } = document;
-    return { ...rest, detail: read.detail };
-  }
-
-  /** Bring a connector's documents in: new ones added, changed ones replaced, each redacted. */
-  function ingestDocuments(source, documents, { actorId = null, removeMissing = false } = {}) {
-    let changed = 0; let removed = 0;
-    const seen = new Set();
-    for (const entry of documents) {
-      if (!entry?.externalId || !entry?.text) continue;
-      const externalId = String(entry.externalId).slice(0, 300);
-      seen.add(externalId);
-      // Its title is whoever named the page or file: one safe line, as it comes in (sweep 4).
-      const result = store.upsertDocument({ source, externalId, title: boxLine(redact(String(entry.title ?? externalId)), 120) || clip(externalId, 120), text: redact(cleanDocumentText(entry.text)), createdBy: actorId });
-      if (result.changed) changed += 1;
-    }
-    if (removeMissing) {
-      for (const document of store.listDocuments().filter((entry) => entry.source === source && entry.externalId && !seen.has(entry.externalId))) { store.deleteDocument(document.id); removed += 1; }
-    }
-    return { changed, removed };
-  }
-
-  /**
-   * The folder the owner named, read now: at most once an hour unless the owner asks, and waited on
-   * for two minutes at most (2026-10 sweep 2: a NAS whose readdir hangs held up the tick for good).
-   * A scan that never answered is not joined by another: each would hold one of the few threads
-   * Node reads files with.
-   */
-  let lastFolderScan = 0;
-  let folderScanning = null;
-  async function syncFolder({ force = false, actorId = null } = {}) {
-    const folder = moduleSettings().folder;
-    if (!folder?.enabled || !folder.path) return { skipped: "off" };
-    if (!force && now().getTime() - lastFolderScan < 3600_000) return { skipped: "recent" };
-    if (folderScanning) return { error: "The folder is still being read from the last time. Try again later." };
-    lastFolderScan = now().getTime();
-    const scanning = Promise.resolve().then(() => folderScan(folder.path));
-    folderScanning = scanning;
-    void scanning.catch(() => null).finally(() => { if (folderScanning === scanning) folderScanning = null; });
-    try {
-      const { documents, skipped } = await inTime(() => scanning, limits.folderScanTimeoutMs, new ConnectorError(`The folder did not answer within ${Math.round(limits.folderScanTimeoutMs / 1000)} seconds`));
-      const result = ingestDocuments("folder", documents, { actorId, removeMissing: true });
-      audit("agents.folder.synced", { actorId, details: { files: documents.length, changed: result.changed, removed: result.removed, skipped: skipped.length } });
-      return { files: documents.length, ...result, skipped };
-    } catch (error) {
-      return { error: error instanceof ConnectorError ? error.message : "The folder could not be read" };
-    }
-  }
-
-  function syncFolderNow(caller) {
-    const person = personOf(caller);
-    if (person.role !== "owner") refuse(403, "Only the owner syncs the folder", "forbidden");
-    return syncFolder({ force: true, actorId: person.id });
-  }
-
-  /** agents.connector.sync finished in its root task: its documents come into the library. */
-  function ingestConnector(result, { actorId = null } = {}) {
-    if (!result || !Object.hasOwn(connectors, result.connector) || !Array.isArray(result.documents)) return null;
-    const bounded = boundSync(result.documents.filter((entry) => typeof entry?.text === "string"));
-    const outcome = ingestDocuments(result.connector, bounded.documents, { actorId, removeMissing: !bounded.truncated });
-    audit("agents.connector.synced", { actorId, details: { connector: result.connector, documents: bounded.documents.length, changed: outcome.changed, removed: outcome.removed } });
-    return outcome;
-  }
-
-  function reindexMemory(caller) {
-    const person = personOf(caller);
-    if (person.role !== "owner") refuse(403, "Only the owner starts indexing", "forbidden");
-    const run = queueIndexing({ force: true });
-    return { queued: Boolean(run), pending: pendingEmbeddings().length };
-  }
-
-  function listProposals(caller) {
-    const person = personOf(caller);
-    if (person.role === "viewer") return [];
-    return store.listProposals().filter((proposal) => canSeeProposal(person, proposal)).map((proposal) => presentProposal(person, proposal)).filter((proposal) => proposal.state === "open");
-  }
-
-  function decideProposal(caller, proposalId, { decision, jobIds = [] } = {}) {
-    const person = personOf(caller);
-    if (!["owner", "operator"].includes(person.role)) refuse(403, "Viewers cannot act on cards", "forbidden");
-    const proposal = store.getProposal(proposalId);
-    if (!proposal || !canSeeProposal(person, proposal)) refuse(404, "There is no such card", "proposal_not_found");
-    if (!["dismissed", "staged"].includes(decision)) refuse(400, "A card is dismissed, or its steps staged", "invalid_decision");
-    const shaped = Array.isArray(jobIds) ? jobIds.filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 8) : [];
-    // Only jobs this person staged, or any for the owner (M50): an id was taken on its shape alone.
-    const ids = typeof state.getJob === "function" && person.role !== "owner" ? shaped.filter((id) => state.getJob(id)?.createdBy === person.id) : shaped;
-    const decided = store.decideProposal(proposal.id, { state: decision, decidedBy: person.id, jobIds: ids });
-    if (!decided) refuse(409, "That card was already decided", "proposal_decided");
-    audit("agents.proposal.decided", { actorId: person.id, subjectId: proposal.id, details: { decision, jobs: ids.length } });
-    rememberProposal(decided);
-    return presentProposal(person, decided);
-  }
-
-  // ---- a card's steps and the jobs staged for them (2026-10 sweep 3) ----
-  // Which job each step was staged as is kept here, so every page that draws the card knows it, and
-  // the card is decided once every step's job is approved, wherever that was: the card's own dialog,
-  // a push, Activity or Today. Only the dialog that staged a step used to know either.
-
-  /** A step by its job: ready to stage (no job, or one cancelled, gone or never started), waiting, approved, or failed once started. */
-  function stepStatus(job) {
-    if (!job || job.state === "cancelled") return "ready";
-    if (job.state === "awaiting_approval") return "waiting";
-    if (job.state === "failed") return job.timeout?.phase === "queued" ? "ready" : "failed";
-    return "approved";
-  }
-  const stepJob = (step) => (typeof step?.jobId === "string" ? state.getJob?.(step.jobId) ?? null : null);
-  /** A step as a person is shown it: how its job stands, and the job's id to the owner and whoever staged it. */
-  function presentStep(caller, step) {
-    const job = stepJob(step);
-    return { ...step, jobId: job && (caller.role === "owner" || job.createdBy === caller.id) ? job.id : null, jobState: job?.state ?? null, status: stepStatus(job) };
-  }
-
-  /** An open card whose every step's job was approved is decided, staged, by whoever approved the last. */
-  function settleProposal(proposal) {
-    if (proposal?.state !== "open" || !proposal.steps?.length || !proposal.steps.every((step) => step.jobId)) return proposal;
-    const jobs = proposal.steps.map(stepJob);
-    if (!jobs.every((job) => ["approved", "failed"].includes(stepStatus(job)))) return proposal;
-    const last = jobs.flatMap((job) => job.approvals ?? []).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).at(-1);
-    const decidedBy = last?.ownerId ?? jobs.at(-1).createdBy ?? null;
-    const decided = store.decideProposal(proposal.id, { state: "staged", decidedBy, jobIds: jobs.map((job) => job.id) });
-    if (!decided) return store.getProposal(proposal.id) ?? proposal;
-    audit("agents.proposal.decided", { actorId: decidedBy, subjectId: proposal.id, details: { decision: "staged", jobs: jobs.length, automatic: true } });
-    rememberProposal(decided);
-    return decided;
-  }
-
-  /** A value written the same whatever order its keys came in. */
-  const canonical = (value) => JSON.stringify(value, (_key, inner) => (inner && typeof inner === "object" && !Array.isArray(inner) ? Object.fromEntries(Object.keys(inner).sort().map((name) => [name, inner[name]])) : inner));
-
-  /**
-   * "This step was staged as this job": the caller's own job, for the step's operation with the
-   * step's settings (a prepare hook may have pinned more beside them), on a card still open. A step
-   * whose job waits or was approved is not taken again: that is how an operation ran twice.
-   */
-  function stageProposalStep(caller, proposalId, index, { jobId } = {}) {
-    const person = personOf(caller);
-    if (!["owner", "operator"].includes(person.role)) refuse(403, "Viewers cannot act on cards", "forbidden");
-    const proposal = store.getProposal(proposalId);
-    if (!proposal || !canSeeProposal(person, proposal)) refuse(404, "There is no such card", "proposal_not_found");
-    const at = Number(index);
-    const step = Number.isInteger(at) && at >= 0 ? proposal.steps[at] : undefined;
-    if (!step) refuse(404, "That card has no such step", "step_not_found");
-    if (typeof jobId !== "string" || !/^[0-9a-f-]{36}$/i.test(jobId)) refuse(400, "Say which job the step was staged as", "invalid_job");
-    const job = state.getJob?.(jobId) ?? null;
-    // Someone else's job and no job get the same answer: neither is this person's to name.
-    if (!job || job.createdBy !== person.id) refuse(404, "There is no such job", "job_not_found");
-    const same = job.type === `op:${step.operationId}` && Object.entries(step.parameters ?? {}).every(([name, value]) => canonical(value) === canonical(job.parameters?.[name]));
-    if (!same) refuse(409, "That job is not this step: it runs another operation, or with other settings", "job_mismatch");
-    // The same job again (named once staged, and again once approved) changes nothing.
-    if (step.jobId === job.id) return presentProposal(person, proposal);
-    if (proposal.state !== "open") refuse(409, "That card was already decided", "proposal_decided");
-    if (["waiting", "approved"].includes(stepStatus(stepJob(step)))) refuse(409, "This step is already staged: review the job waiting for it instead", "step_staged");
-    if (job.state === "cancelled") refuse(409, "That job was cancelled. Stage the step again", "job_cancelled");
-    if (store.listOpenProposalsForJob(job.id).length) refuse(409, "That job was staged for another step", "job_taken");
-    const recorded = store.setProposalStepJob(proposal.id, at, job.id);
-    if (!recorded) refuse(409, "That card was already decided", "proposal_decided");
-    audit("agents.proposal.step-staged", { actorId: person.id, subjectId: proposal.id, details: { step: at, operationId: step.operationId } });
-    return presentProposal(person, recorded);
-  }
-
-  /** One card, read again when a dialog for one of its steps closes. */
-  function getProposal(caller, proposalId) {
-    const person = personOf(caller);
-    const proposal = person.role === "viewer" ? null : store.getProposal(proposalId);
-    if (!proposal || !canSeeProposal(person, proposal)) refuse(404, "There is no such card", "proposal_not_found");
-    return presentProposal(person, proposal);
-  }
-
-  function glance(caller) {
-    const person = personOf(caller);
-    if (person.role === "viewer") refuse(403, "The digest and cards are for the owner and operators", "forbidden");
-    const settings = moduleSettings();
-    let digest = null;
-    for (const agent of store.listAgents()) {
-      const run = store.listRuns({ agentId: agent.id, limit: 30 }).find((entry) => entry.outputKind === "digest" && ["completed", "degraded"].includes(entry.state) && canSeeRun(person, entry, agent));
-      if (run && (!digest || run.finishedAt > digest.at)) digest = { agentId: agent.id, agentName: agent.name, runId: run.id, at: run.finishedAt, excerpt: clip(run.answer ?? "", 600), state: run.state };
-    }
-    // queued: runs waiting for the runner, so Home and Ops can say what a stopped runner holds up.
-    return { enabled: settings.enabled, paused: modulePaused(settings), runnerOnline: runnerOnline(), queued: queueCounts().queued, digest, cardsWaiting: store.listProposals().filter((proposal) => canSeeProposal(person, proposal)).length };
-  }
-
-  function usage(caller) {
-    const person = personOf(caller);
-    // A viewer sees the agents they may ask, as the overview lists them (2026-10 sweep 2).
-    const perAgent = store.listAgents().filter((agent) => person.role !== "viewer" || canAsk(person, agent)).map((agent) => {
-      const used = usedToday(agent.id);
-      return { agentId: agent.id, name: agent.name, runs: used.runs, runsPerDay: agent.spec.budget.runsPerDay, modelSeconds: Math.round(used.modelMs / 1000), modelSecondsPerDay: agent.spec.budget.modelSecondsPerDay, tokens: used.tokens };
-    });
-    const { queued, running } = queueCounts();
-    return {
-      runner: runnerStatus(),
-      caps: capsNow(),
-      // The model's measured speed on this server: { promptPerSecond, generatePerSecond, model, threads, measuredAt }, or null.
-      modelSpeed: modelSpeed(),
-      today: { runs: perAgent.reduce((sum, entry) => sum + entry.runs, 0), modelSeconds: perAgent.reduce((sum, entry) => sum + entry.modelSeconds, 0), tokens: perAgent.reduce((sum, entry) => sum + entry.tokens, 0), perAgent },
-      // M44: this week, the runs a supervisor did not start because a specialist's finding answered,
-      // and the answers that cited another agent's finding.
-      findings: { days: 7, ...store.findingsUseSince(new Date(now().getTime() - 7 * 86_400_000).toISOString()) },
-      // M48.6: the local model's context, and how many runs this week answered early because what they read filled it.
-      context: { tokens: runtimeSettings().contextTokens ?? null, days: 7, limitedRuns: store.countRunsWithLimit("context", new Date(now().getTime() - 7 * 86_400_000).toISOString()) },
-      queue: { queued, running, dropped: droppedRuns },
-      module: presentModule(person),
-    };
-  }
-
-  // ---- knowledge ----
-
-  function setKnowledgeSources(person, input) {
-    if (person.role !== "owner") refuse(403, "Only the owner turns knowledge sources on or off", "forbidden");
-    if (!input || typeof input !== "object" || Array.isArray(input)) refuse(400, "Send each source's on or off", "invalid_setting");
-    const current = knowledgeSettings();
-    for (const [key, value] of Object.entries(input)) {
-      if (!Object.hasOwn(current, key) || typeof value !== "boolean") refuse(400, `There is no knowledge source called ${key}`, "invalid_setting");
-      current[key] = value;
-    }
-    state.setSetting(agentsKnowledgeKey, current, { updatedBy: person.id });
-    return current;
-  }
-
-  async function knowledgeState(caller) {
-    const person = personOf(caller);
-    if (person.role === "viewer") refuse(403, "The learning library is for the owner and operators", "forbidden");
-    const toggles = knowledgeSettings();
-    const stats = knowledge ? await knowledge.ensure().catch(() => knowledge.stats()) : null;
-    const documents = store.listDocuments();
-    const notes = store.listAgents().flatMap((agent) => store.listNotes(agent.id).map((note) => ({ ...note, agentName: agent.name })));
-    const lastLearn = store.listAgents().map((agent) => ({ agentId: agent.id, name: agent.name, run: store.listRuns({ agentId: agent.id, kind: "learn", limit: 1 })[0] ?? null }))
-      .map((entry) => ({ agentId: entry.agentId, name: entry.name, state: entry.run?.state ?? null, at: entry.run?.finishedAt ?? entry.run?.queuedAt ?? null }));
-    return {
-      sources: [
-        { id: "docs", title: "BoxPilot's documents", enabled: toggles.docs, items: stats?.documents ?? null, size: stats ? stats.documentChunks : null, unit: "sections", indexedAt: stats?.builtAt ?? null },
-        { id: "registry", title: "Registered operations", enabled: toggles.registry, items: stats?.operations ?? null, size: stats?.operations ?? null, unit: "operations", indexedAt: stats?.builtAt ?? null },
-        { id: "catalog", title: "The app catalog", enabled: toggles.catalog, items: stats?.apps ?? null, size: stats?.apps ?? null, unit: "apps", indexedAt: stats?.builtAt ?? null },
-        { id: "notes", title: "What the agents learned (their notes)", enabled: toggles.notes, items: notes.length, size: notes.reduce((sum, note) => sum + note.body.length, 0), unit: "characters", indexedAt: notes[0]?.updatedAt ?? null },
-        { id: "documents", title: "Your documents", enabled: toggles.documents, items: documents.length, size: documents.reduce((sum, document) => sum + document.characters, 0), unit: "characters", indexedAt: documents[0]?.createdAt ?? null },
-      ],
-      documents: documents.map(({ text: _text, ...document }) => ({ ...document, createdBy: ownActor(person, document.createdBy) })),
-      search: {
-        kind: "words (BM25) and meaning (embeddings), fused",
-        embeddings: moduleSettings().embeddings === false ? "Off: search is by words only." : runtimeSettings().driver === "llama-server" ? "Not with llama.cpp's server alone: search is by words only." : `${store.countVectors()} pieces indexed by the model server's embedder; ${pendingEmbeddings().length} wait for the next quiet hours.`,
-        pending: pendingEmbeddings().length, vectors: store.countVectors(), enabled: moduleSettings().embeddings !== false,
-      },
-      connectors: presentModule(person).connectors, folder: presentModule(person).folder, webSearch: presentModule(person).webSearch,
-      learning: { quietHours: moduleSettings().quietHours, agents: lastLearn },
-      canChange: person.role === "owner",
-      // M40.6: whether the model can see the images waiting to be described, as it last said.
-      vision: visionNow(),
-    };
-  }
-
-  // ---- the team chat (M38) ----
-
-  /** The Zulip panel: whether Zulip is installed and connected, its channels, and the last post or error. */
-  async function zulipState(caller) {
-    const person = personOf(caller);
-    if (person.role === "viewer") refuse(403, "The team chat is the owner's and operators'", "forbidden");
-    let app = null;
-    if (helper) {
-      const inspected = await helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null);
-      const entry = inspected?.applications?.find((application) => application.id === "zulip") ?? null;
-      app = inspected ? { installed: Boolean(entry?.installed), running: Boolean(entry?.container?.running), port: entry?.urls?.[0]?.host ?? null } : null;
-    }
-    const accounts = person.role === "owner" ? (state.listOwners?.() ?? []).map(({ id, username, role }) => ({ id, username, role })) : [];
-    return chat.present(person, { app, accounts });
-  }
-
-  /** "Check now": #agent-files and what was asked of the bot (M40.5), without waiting for the tick. */
-  async function zulipPollNow(caller) {
-    const person = personOf(caller);
-    if (person.role !== "owner") refuse(403, "Only the owner reads #agent-files now", "forbidden");
-    if (!chat.connection()) refuse(409, "Zulip is not connected", "not_connected");
-    const asked = await chat.pollAsks({ force: true }).catch((error) => ({ error: error.message }));
-    const read = await chat.poll({ force: true });
-    await chat.drain().catch(() => null);
-    return { ...read, asked };
-  }
-
-  /**
-   * Who in Zulip may ask the agents, as which BoxPilot account, and the agent asked by default
-   * (M40.5): the owner's list, with their password like the other agents' settings.
-   */
-  async function setZulipPeople(caller, input = {}) {
-    const person = personOf(caller);
-    if (person.role !== "owner") refuse(403, "Only the owner says who may ask in Zulip", "forbidden");
-    try {
-      chat.setPeople(input, { actorId: person.id, accounts: state.listOwners?.() ?? [], agents: store.listAgents() });
-    } catch (error) {
-      if (error instanceof ConnectorError) refuse(400, error.message, "invalid_setting");
-      throw error;
-    }
-    return zulipState(person);
-  }
-
-  /**
-   * A question from Zulip (M40.5), from someone the owner mapped to a BoxPilot account: asked as that
-   * account, exactly as the Test tab's Ask asks it - their role's tools, their rate limit, their
-   * conversation - of the agent the message names, or the default one. The answer goes back to the
-   * thread it was asked in; nothing is approved in chat. A refusal is said in the thread.
-   */
-  /**
-   * Feedback from Zulip (M47.4): a reply of "+1", "-1", "right" or "wrong: ..." under an agent's
-   * answer rates the run that answer came from, as the Test tab's thumbs do, by the account the
-   * owner mapped the sender to. A thumbs up keeps the run as an example (M46); a thumbs down takes
-   * one back. The reply says what was noted, or that there is no answer above to rate.
-   */
-  function feedbackFromChat({ message, person, where, rating }) {
-    const account = state.findOwnerById?.(person.boxpilotId);
-    if (!account || !["owner", "operator", "viewer"].includes(account.role)) return { reply: "Your BoxPilot account cannot rate answers any more. The owner can set you up again." };
-    const post = store.latestAnsweredPost(where);
-    const run = post?.runId ? store.getRun(post.runId) : null;
-    if (!run) return { reply: "There is no agent's answer here to rate yet. Reply under one with +1 or -1, or wrong: what was expected." };
-    const agent = store.getAgent(run.agentId, { includeDeleted: true });
-    try {
-      giveFeedback({ id: account.id, role: account.role }, run.id, { verdict: rating.verdict, note: rating.note });
-    } catch (error) {
-      if (error instanceof AgentError) return { reply: error.message };
-      throw error;
-    }
-    audit("agents.feedback.chat", { actorId: account.id, subjectId: run.id, details: { verdict: rating.verdict, messageId: message.id } });
-    const whose = agent?.name ?? "the agent";
-    return {
-      noted: true,
-      reply: rating.verdict === "up"
-        ? `Noted: a thumbs up for ${whose}'s answer. It is kept as an example its planner learns from.`
-        : `Noted: a thumbs down for ${whose}'s answer${rating.note ? ` (${rating.note})` : ""}. It is no longer an example. Say what was expected on the Test tab to make it a golden question.`,
-    };
-  }
-
-  function askFromChat({ message, person, where }) {
-    const account = state.findOwnerById?.(person.boxpilotId);
-    if (!account) return { refused: "Your BoxPilot account is gone; the owner can set you up again." };
-    // Only an account that may sign in asks: a disabled one ("disabled") was taken for a viewer and
-    // kept getting answers (2026-10 sweep 3).
-    if (!["owner", "operator", "viewer"].includes(account.role)) return { refused: "Your BoxPilot account cannot ask agents any more. The owner can set you up again." };
-    const caller = { id: account.id, role: account.role };
-    const askable = store.listAgents().filter((agent) => canAsk(caller, agent) && !agentPaused(agent));
-    const { text, agentName, exact } = questionFrom(message.content, { agents: askable.map((agent) => agent.name) });
-    if (!text) return { refused: "Ask a question after the mention, like: Steve, which drives are connected?" };
-    const chosen = state.getSetting?.(zulipSettingKey, null)?.defaultAgentId ?? null;
-    // Two the name the message gives could mean: neither is guessed at, and the reply says whose each
-    // is (2026-10 sweep 4: the first made was asked - an operator's, say, run as the owner under that
-    // operator's words). Matched as questionFrom matches - any case, "the" before it or not (sweep 5:
-    // an operator's "The Server Keeper" took the owner's questions to the owner's Server Keeper) -
-    // and said by role, never by username: the thread may hold people who are not in BoxPilot (sweep 5).
-    // Without a name, the owner's own agents, then the asker's, come first.
-    const named = agentName ? askable.filter((entry) => nameKey(entry.name) === nameKey(agentName)) : [];
-    const whose = (entry) => { const maker = makerOf(entry); return !maker ? "one whose maker has gone" : maker.id === account.id ? "one you made" : maker.role === "owner" ? "one made by the owner" : `one made by ${maker.role === "operator" ? "an operator" : "a viewer"}`; };
-    if (named.length > 1) return { refused: `More than one agent is called ${agentName}: ${named.map(whose).join(", ")}. Ask the owner to give them different names, then ask again.` };
-    const ownersFirst = (list) => list.find((entry) => makerOf(entry)?.role === "owner") ?? list.find((entry) => entry.createdBy === account.id) ?? list[0];
-    const agent = agentName ? named[0]
-      : askable.find((entry) => entry.id === chosen) ?? ownersFirst(askable.filter((entry) => entry.template === "server-keeper")) ?? ownersFirst(askable);
-    if (!agent) return { refused: "None of BoxPilot's agents takes questions from you." };
-    // An agent whose maker reads less than the asker runs as the asker, under its maker's words: only
-    // when the message names it exactly, its full name and a colon - never "the", another case or
-    // the start of a sentence that happens to match (sweep 5: an operator's agent called "Hey" took
-    // the owner's "Hey, ..."). Otherwise the reply says whose it is and how to ask it.
-    const maker = makerOf(agent);
-    if (agentName && !exact && (!maker || !roleAtLeast(maker.role, account.role))) {
-      return { refused: `The agent ${agent.name} was made by ${maker ? (maker.role === "operator" ? "an operator" : "a viewer") : "someone who has gone"}, and it would answer as you. To ask it, start with its full name and a colon - ${agent.name}: your question - or ask without a name.` };
-    }
-    try {
-      const run = startRun(caller, agent.id, { kind: "ask", question: text }, { trigger: { title: "Asked in Zulip", chat: { ...where, messageId: message.id, kind: message.kind } } });
-      return { run, agentName: agent.name };
-    } catch (error) {
-      if (error instanceof AgentError) return { refused: error.message };
-      throw error;
-    }
-  }
-
-  function addDocument(caller, { title, text } = {}) {
-    const person = personOf(caller);
-    if (person.role !== "owner") refuse(403, "Only the owner adds documents", "forbidden");
-    const cleanTitle = typeof title === "string" ? title.replace(/[\u0000-\u001f\u007f]/g, " ").trim() : "";
-    const cleanText = typeof text === "string" ? text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim() : "";
-    if (!cleanTitle || cleanTitle.length > 120) refuse(400, "Give the document a title under 120 characters", "invalid_document");
-    if (!cleanText || cleanText.length > 64_000) refuse(400, "A document is some text, at most 64,000 characters", "invalid_document");
-    if (store.countDocuments() >= 100) refuse(409, "A hundred documents is the most the library keeps", "document_limit");
-    const document = store.addDocument({ title: cleanTitle, text: redact(cleanText), createdBy: person.id });
-    audit("agents.document.added", { actorId: person.id, subjectId: document.id, details: { characters: document.characters } });
-    const { text: _text, ...rest } = document;
-    return rest;
-  }
-
-  function removeDocument(caller, documentId) {
-    const person = personOf(caller);
-    if (person.role !== "owner") refuse(403, "Only the owner removes documents", "forbidden");
-    if (!store.deleteDocument(documentId)) refuse(404, "There is no such document", "document_not_found");
-    audit("agents.document.removed", { actorId: person.id, subjectId: documentId });
-    return { deleted: true };
-  }
-
-  function toggleDocument(caller, documentId, enabled) {
-    const person = personOf(caller);
-    if (person.role !== "owner") refuse(403, "Only the owner changes documents", "forbidden");
-    if (typeof enabled !== "boolean" || !store.setDocumentEnabled(documentId, enabled)) refuse(404, "There is no such document", "document_not_found");
-    return { enabled };
-  }
-
-  /** Pinned knowledge: a document every agent that reads documents recalls first. Owner only. */
-  function pinDocument(caller, documentId, pinned) {
-    const person = personOf(caller);
-    if (person.role !== "owner") refuse(403, "Only the owner pins documents", "forbidden");
-    if (typeof pinned !== "boolean" || !store.setDocumentPinned(documentId, pinned)) refuse(404, "There is no such document", "document_not_found");
-    audit("agents.document.pinned", { actorId: person.id, subjectId: documentId, details: { pinned } });
-    return { pinned };
-  }
-
-  /** Queue a quiet-hours learning pass for one agent, or every agent that keeps notes. */
-  function relearn(caller, agentId = null) {
-    const person = personOf(caller);
-    if (!["owner", "operator"].includes(person.role)) refuse(403, "Viewers cannot start learning", "forbidden");
-    const agents = agentId ? [agentFor(person, agentId, { edit: true })] : store.listAgents().filter((agent) => canEdit(person, agent));
-    let queued = 0;
-    for (const agent of agents.filter((entry) => entry.spec.memory?.enabled && entry.spec.tools["notes.write"] !== "off")) {
-      if (enqueueSystem(agent, "learn", { title: "Learn this server", quietHours: true }).run) queued += 1;
-    }
-    audit("agents.relearn", { actorId: person.id, details: { agents: queued } });
-    return { queued, quietHours: moduleSettings().quietHours };
-  }
-
-  // ---- evaluation ----
-
-  /**
-   * The questions an agent is evaluated on (M40): the built-in ones its own tools can answer - which
-   * drives, how full the root filesystem is, where Pi-hole runs, which apps are stopped, the OS and
-   * its version - then the owner's own (or its template's, until the owner saves some). An owner's
-   * question about the same fact takes the built-in one's place.
-   */
-  function evaluationSet(agent) {
-    const custom = store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [];
-    const covered = new Set(custom.map((question) => question.expect?.fact).filter(Boolean));
-    const builtIn = builtInQuestions(agent.spec).filter((question) => !covered.has(question.expect.fact));
-    return { builtIn, custom, all: [...builtIn, ...custom] };
-  }
-
-  function normalizeQuestions(list) {
-    if (!Array.isArray(list) || list.length > limits.evalQuestions) refuse(400, `At most ${limits.evalQuestions} golden questions`, "invalid_questions");
-    return list.map((entry, index) => {
-      const question = typeof entry?.question === "string" ? entry.question.replace(/[\u0000-\u001f\u007f]/g, " ").trim() : "";
-      if (!question || question.length > 300) refuse(400, `Question ${index + 1} needs words, under 300 characters`, "invalid_questions");
-      const expect = entry.expect ?? {};
-      if (expect.fact !== undefined) {
-        if (!evaluationFacts.includes(expect.fact)) refuse(400, `Question ${index + 1}: the fact is one of ${evaluationFacts.join(", ")}`, "invalid_questions");
-        return { id: typeof entry.id === "string" && /^[a-z0-9-]{1,40}$/.test(entry.id) ? entry.id : `q${index + 1}`, question, expect: { fact: expect.fact } };
-      }
-      const includes = Array.isArray(expect.includes) ? expect.includes.filter((text) => typeof text === "string" && text.trim()).map((text) => text.trim().slice(0, 80)).slice(0, 5) : [];
-      if (!includes.length) refuse(400, `Question ${index + 1} needs an expected fact or words the answer must contain`, "invalid_questions");
-      return { id: typeof entry.id === "string" && /^[a-z0-9-]{1,40}$/.test(entry.id) ? entry.id : `q${index + 1}`, question, expect: { includes } };
-    });
-  }
-
-  function getEvaluation(caller, agentId) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId);
-    if (person.role === "viewer") refuse(403, "Evaluations are for the owner and operators", "forbidden");
-    const runs = store.listEvalRuns(agent.id, limits.evalHistory);
-    const set = evaluationSet(agent);
-    const history = historyOf(runs);
-    const last = store.listEvalRuns(agent.id, 1)[0] ?? null;
-    return {
-      builtIn: set.builtIn,
-      questions: set.custom,
-      runs: runs.slice(0, 20).map((run) => ({ ...run, createdBy: ownActor(person, run.createdBy) })),
-      canEdit: canEdit(person, agent),
-      successCriteria: agent.spec.successCriteria ?? [],
-      accuracy: accuracyOf(agent, runs),
-      history,
-      drop: accuracyDrop(history),
-      people: peopleOf(agent),
-      nightly: { quietHours: moduleSettings().quietHours, next: nightlyDue(agent, last) ? "tonight" : "tomorrow night", compare: moduleSettings().evaluation?.compareNightly === true },
-      // M45.7: the routes side by side, newest first; and whether a comparison may be started now.
-      comparisons: comparisonsOf(runs),
-      canCompare: person.role === "owner" && claudeAllowed(agent.spec, { readRole: "owner" }).ok,
-    };
-  }
-
-  /** One side of a comparison: how many it got right, how long each question took on average, what it cost. */
-  function sideOf(evaluation) {
-    if (!evaluation) return null;
-    const graded = evaluation.results.filter((result) => !result.skipped && result.passed !== null);
-    const timed = evaluation.results.filter((result) => Number.isFinite(result.seconds));
-    return {
-      evalId: evaluation.id, state: evaluation.state, model: evaluation.model, score: evaluation.score,
-      right: graded.filter((result) => result.passed).length, questions: graded.length,
-      seconds: timed.length ? Math.round((timed.reduce((sum, result) => sum + result.seconds, 0) / timed.length) * 10) / 10 : null,
-      dollars: Math.round(evaluation.results.reduce((sum, result) => sum + (Number(result.costUsd) || 0), 0) * 10_000) / 10_000,
-      // A Claude side whose questions ran locally (Claude could not take them) says so.
-      ranLocally: evaluation.route === "claude" ? evaluation.results.filter((result) => result.route === "local").length : 0,
-    };
-  }
-
-  /** The comparisons among an agent's evaluations: each pair, newest first, its local and Claude sides. */
-  function comparisonsOf(runs) {
-    const pairs = new Map();
-    for (const evaluation of runs) {
-      if (!evaluation.pairId) continue;
-      const pair = pairs.get(evaluation.pairId) ?? { pairId: evaluation.pairId, at: evaluation.createdAt, nightly: !evaluation.createdBy, local: null, claude: null };
-      pair[evaluation.route === "claude" ? "claude" : "local"] = sideOf(evaluation);
-      pairs.set(evaluation.pairId, pair);
-    }
-    return [...pairs.values()].slice(0, 10);
-  }
-
-  /**
-   * Each finished evaluation's score, oldest first: accuracy over time. `questions` are those graded,
-   * as the score counts them, and `skipped` those that were not (sweep 4: "100% · 1/3" for one
-   * right of one graded and two never asked).
-   */
-  function historyOf(runs) {
-    return [...runs].reverse().filter((run) => run.state === "done" && run.score !== null).map((run) => ({
-      id: run.id, at: run.finishedAt ?? run.createdAt, score: run.score, version: run.version, model: run.model, nightly: !run.createdBy,
-      right: run.results.filter((result) => result.passed).length, questions: run.results.filter((result) => !result.skipped).length, skipped: run.results.filter((result) => result.skipped).length,
-    }));
-  }
-
-  /**
-   * A drop worth flagging: the latest score more than 20 points under the average of the five
-   * before it, or more than 25 under the one before it - one question of five going wrong is not
-   * yet a drop, two are - with the evaluations it is measured against.
-   */
-  function accuracyDrop(history) {
-    if (history.length < 2) return null;
-    const latest = history.at(-1);
-    const before = history.slice(-6, -1);
-    const average = before.reduce((sum, entry) => sum + entry.score, 0) / before.length;
-    const previous = before.at(-1);
-    if (latest.score < average - 0.2 - 1e-9 || latest.score < previous.score - 0.25 - 1e-9) {
-      return { from: Math.round(average * 100) / 100, to: latest.score, previous: previous.score, at: latest.at, evalId: latest.id, version: latest.version, previousVersion: previous.version, model: latest.model, previousModel: previous.model };
-    }
-    return null;
-  }
-
-  /** People's verdicts on the agent's answers, by day, for the last month. */
-  function peopleOf(agent) {
-    const since = new Date(now().getTime() - 30 * 86_400_000).toISOString();
-    const days = new Map();
-    for (const feedback of store.listFeedback(agent.id).filter((entry) => entry.givenAt >= since)) {
-      const day = feedback.givenAt.slice(0, 10);
-      if (!days.has(day)) days.set(day, { day, up: 0, down: 0 });
-      days.get(day)[feedback.verdict === "up" ? "up" : "down"] += 1;
-    }
-    return [...days.values()].sort((a, b) => a.day.localeCompare(b.day));
-  }
-
-  /**
-   * Accuracy over time, per agent version and model: the golden questions' scores and the people's
-   * thumbs, side by side, so an improvement or a regression shows against what changed.
-   */
-  function accuracyOf(agent, runs) {
-    const groups = new Map();
-    const group = (version, model) => {
-      const key = `${version}|${model ?? ""}`;
-      if (!groups.has(key)) groups.set(key, { version, model: model ?? null, evaluations: 0, score: null, up: 0, down: 0, since: null });
-      return groups.get(key);
-    };
-    for (const run of [...runs].reverse().filter((entry) => entry.state === "done" && entry.score !== null)) {
-      const entry = group(run.version, run.model);
-      entry.score = entry.score === null ? run.score : Math.round(((entry.score * entry.evaluations + run.score) / (entry.evaluations + 1)) * 100) / 100;
-      entry.evaluations += 1;
-      entry.since ??= run.createdAt;
-    }
-    for (const feedback of store.listFeedback(agent.id)) {
-      const entry = group(feedback.version, feedback.model);
-      entry[feedback.verdict === "up" ? "up" : "down"] += 1;
-      if (!entry.since || feedback.givenAt < entry.since) entry.since = feedback.givenAt;
-    }
-    return [...groups.values()].sort((a, b) => a.version - b.version || String(a.since).localeCompare(String(b.since)));
-  }
-
-  function setEvaluation(caller, agentId, { questions } = {}) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId, { edit: true });
-    const normalized = normalizeQuestions(questions);
-    store.setQuestions(agent.id, normalized, { updatedBy: person.id });
-    audit("agents.evaluation.changed", { actorId: person.id, subjectId: agent.id, details: { questions: normalized.length } });
-    return getEvaluation(person, agent.id);
-  }
-
-  /** The running app using the most processor, or null when none runs or the stats could not be read. */
-  function busiestAppOf(usage) {
-    if (!usage || usage.statsAvailable === false || !Array.isArray(usage.apps)) return null;
-    const running = usage.apps.filter((app) => app?.running);
-    if (!running.length) return null;
-    return [...running].sort((a, b) => ((b.cpuPercent ?? 0) - (a.cpuPercent ?? 0)) || ((b.memBytes ?? 0) - (a.memBytes ?? 0)))[0].id ?? null;
-  }
-
-  /** What a golden question's fact is on this server right now, read as `role` reads. */
-  async function resolveFacts({ role }, { wanted = null } = {}) {
-    // Each read within its time, or unknown: an inventory whose df or docker never answered held the
-    // nightly evaluation, and with it every later tick, for good (2026-10 sweep 2).
-    const read = (fn) => inTime(fn, limits.factsTimeoutMs, new Error("It did not answer in time")).catch(() => null);
-    // Only the reads the questions' facts need (M48.5): nine reads, seven through the root helper,
-    // ran for every evaluation whatever it asked.
-    const want = (...facts) => !wanted || facts.some((fact) => wanted.has(fact));
-    const when = (needed, fn) => (needed ? read(fn) : Promise.resolve(null));
-    const [snapshot, apps, pihole, placed, services, firewall, protection, updates, usage] = await Promise.all([
-      when(want("hostname", "operatingSystem", "rootDiskPercent", "drives"), () => inventory?.inspect()),
-      when(want("installedApps", "stoppedApps", "unhealthyApps", "appUpdates"), () => tools.readApps()),
-      // An operator read (ADR-003); an evaluation is started by the owner or an operator anyway.
-      when(want("piholePlacement", "piholeBlocking"), () => (helper && ["owner", "operator"].includes(role) ? helper.request("app.pihole.inspect", {}, { timeoutMs: 30_000 }) : null)),
-      when(want("piholePlacement"), () => tools.whereRuns("pihole")),
-      // The read services.status makes, open to every role.
-      when(want("failedServices"), () => (helper ? helper.request("service.list", {}, { timeoutMs: 30_000 }) : null)),
-      // M47: the read firewall.status makes, open to every role.
-      when(want("firewallEnabled"), () => (helper ? helper.request("firewall.inspect", {}, { timeoutMs: 30_000 }) : null)),
-      // M47.6: the reads backups.coverage and updates.status make, open to every role.
-      when(want("neverBackedUp"), () => (helper ? helper.request("app.backup.protection", {}, { timeoutMs: 30_000 }) : null)),
-      when(want("rebootRequired"), () => (helper ? helper.request("apt.upgradable.inspect", {}, { timeoutMs: 30_000 }) : null)),
-      // M47.9: the read apps.usage makes, open to every role.
-      when(want("busiestApp"), () => (helper ? helper.request("system.performance.inspect", {}, { timeoutMs: 30_000 }) : null)),
-    ]);
-    const applications = Array.isArray(apps?.applications) ? apps.applications : null;
-    return {
-      hostname: snapshot?.host?.hostname ?? null,
-      operatingSystem: snapshot?.host?.operatingSystem ?? null,
-      installedApps: applications ? applications.filter((entry) => entry?.installed).length : null,
-      rootDiskPercent: Number.isFinite(snapshot?.storage?.root?.usedPercent) ? snapshot.storage.root.usedPercent : null,
-      // Where where.runs finds it, the tool an agent asks; Pi-hole's own read when that could not look.
-      piholePlacement: placed && !(placed.unread && !placed.places.length) ? placementOf(placed.places) : pihole?.placement ?? null,
-      piholeBlocking: pihole?.available ? (pihole.blocking === true ? "on" : pihole.blocking === false ? "off" : null) : null,
-      drives: snapshot ? drivesOf(snapshot) : null,
-      stoppedApps: stoppedAppsOf(applications),
-      // M43: what the Environment Scout, the App Doctor and the Update Planner report.
-      unhealthyApps: unhealthyAppsOf(applications),
-      appUpdates: appUpdatesOf(applications),
-      failedServices: failedServicesOf(services?.units ?? null),
-      // M47: on, off, or absent when ufw is not installed.
-      firewallEnabled: firewall ? (firewall.installed === false ? "absent" : firewall.enabled === true ? "on" : firewall.enabled === false ? "off" : null) : null,
-      // M47.6: the apps that hold data worth keeping with no backup at all (unknown when the backup
-      // folder could not be read: zero would call every app unprotected), and whether apt wants a reboot.
-      neverBackedUp: protection?.available && Array.isArray(protection.apps) ? protection.apps.filter((app) => app.protectable && !(app.backups > 0)).map((app) => app.id) : null,
-      rebootRequired: updates ? (updates.rebootRequired === true ? "yes" : updates.rebootRequired === false ? "no" : null) : null,
-      // M47.9: the running app with the largest share of a core, as apps.usage lists it first; unknown when docker stats did not answer.
-      busiestApp: busiestAppOf(usage),
-    };
-  }
-
-  async function runEvaluation(caller, agentId, { compare = false } = {}) {
-    const person = personOf(caller);
-    const agent = agentFor(person, agentId, { edit: true });
-    // M45.7: every question on the local model and on Claude, side by side. Claude costs money, so
-    // it is the owner's to start, and only while Claude may take the owner's questions.
-    if (compare === true) {
-      if (person.role !== "owner") refuse(403, "Comparing with Claude spends money, so the owner starts it", "forbidden");
-      const allowed = claudeAllowed(agent.spec, { readRole: "owner" });
-      if (!allowed.ok) refuse(409, `${allowed.reason}, so there is nothing to compare with`, "claude_unavailable");
-    }
-    const settings = moduleSettings();
-    if (!settings.enabled) refuse(409, "Agents are off. Turn them on to run an evaluation.", "agents_off");
-    if (modulePaused(settings) || agentPaused(agent)) refuse(409, "Resume the agent to run an evaluation", "agent_paused");
-    const recent = store.listEvalRuns(agent.id, 1)[0];
-    if (recent && (recent.state === "running" || now().getTime() - Date.parse(recent.createdAt) < limits.evalEveryMs)) refuse(429, "An evaluation ran in the last hour. Try again later.", "evaluation_recent");
-    const questions = evaluationSet(agent).all;
-    if (!questions.length) refuse(400, "Give this agent some golden questions first", "no_questions");
-    if (queueCounts().queued + questions.length * (compare === true ? 2 : 1) > limits.queueMax) refuse(503, "Agents have too much waiting right now. Try again later.", "agents_backlog");
-    if (compare === true) {
-      const pairId = randomUUID();
-      const local = await startEvaluation(agent, questions, { person, route: "local", pairId });
-      await startEvaluation(agent, questions, { person, route: "claude", pairId });
-      audit("agents.evaluation.started", { actorId: person.id, subjectId: agent.id, details: { questions: questions.length, compare: true } });
-      return local;
-    }
-    const evaluation = await startEvaluation(agent, questions, { person });
-    audit("agents.evaluation.started", { actorId: person.id, subjectId: agent.id, details: { questions: questions.length } });
-    return evaluation;
-  }
-
-  /**
-   * An evaluation: every question asked as its own run and graded when it finishes. A person's is
-   * asked as them, now; the nightly one as the person who made the agent, in quiet hours, as
-   * background work nobody waits on.
-   */
-  async function startEvaluation(agent, questions, { person = null, reader = null, route = null, pairId = null, notAsked = [] } = {}) {
-    const asWho = person ?? reader;
-    const facts = await resolveFacts(asWho, { wanted: new Set(questions.map((question) => question.expect?.fact).filter(Boolean)) });
-    const results = [
-      ...questions.map((question) => ({ questionId: question.id, question: question.question, expected: question.expect.fact ? { fact: question.expect.fact, value: facts[question.expect.fact] ?? null } : { includes: question.expect.includes }, runId: null, passed: null, found: null })),
-      // M48.6: the questions tonight's model time does not hold, said so and left out of the score.
-      ...notAsked.map((question) => ({ questionId: question.id, question: question.question, expected: question.expect.fact ? { fact: question.expect.fact, value: null } : { includes: question.expect.includes }, runId: null, passed: null, skipped: true, found: `Not asked tonight: the night's model time holds ${questions.length} of ${questions.length + notAsked.length} questions` })),
-    ];
-    const model = route === "claude" ? cloud?.settings().model ?? "claude" : embedModelName();
-    const evaluation = store.createEvalRun({ agentId: agent.id, version: agent.version, results, createdBy: person?.id ?? null, model, route, pairId });
-    for (const result of results.filter((entry) => !entry.skipped)) {
-      const run = store.enqueueRun({
-        agentId: agent.id, version: agent.version, kind: "eval", question: result.question, requestedBy: person?.id ?? null, readRole: asWho.role, readAs: asWho.id,
-        trigger: { ...(person ? {} : { title: "Nightly evaluation", quietHours: true }), ...(route ? { route } : {}) },
-        evalInfo: { evalId: evaluation.id, questionId: result.questionId, expected: result.expected },
-      });
-      result.runId = run.id;
-    }
-    store.setEvalResults(evaluation.id, results);
-    wake();
-    return store.getEvalRun(evaluation.id);
-  }
-
-  /** Whether an agent's nightly evaluation is due: none yet, or the last one began a day ago or more. */
-  const nightlyDue = (agent, last) => !last || (last.state !== "running" && now().getTime() - Date.parse(last.createdAt) >= limits.nightlyEvalEveryMs);
-
-  /** The model time the nightly evaluation leaves for people: half of the agent's day, within every agent's day. */
-  const nightlyKeep = (agent) => Math.min(agent.spec.budget.modelSecondsPerDay * 1000, moduleBudget().modelSecondsPerDay * 1000) / 2;
+  // ---- budgets that follow the work (M48.6) ----
 
   /**
    * Budgets that follow the work (M48.6): a scheduled run that ran out of tokens, steps or time, as
@@ -4440,122 +2542,63 @@ export function createAgentService({
     } catch { /* a budget is a help, never a reason for a finish to fail */ }
   }
 
-  /** What one evaluation question takes this agent here (M48.6): the median of its recent completed ones, never below the estimate. */
-  function evalQuestionMs(agent) {
-    const floor = limits.evalSecondsPerQuestion * 1000;
-    const since = now().getTime() - 14 * 86_400_000;
-    const taken = store.listRuns({ agentId: agent.id, limit: 60 })
-      .filter((run) => run.kind === "eval" && run.state === "completed" && run.startedAt && Date.parse(run.startedAt) >= since && Number.isFinite(run.usage?.modelMs) && run.usage.modelMs > 0)
-      .map((run) => run.usage.modelMs).sort((a, b) => a - b);
-    if (taken.length < 3) return floor;
-    return Math.max(floor, taken[Math.floor(taken.length / 2)]);
-  }
+  // The parts of the service kept in modules of their own, each handed what it uses from here: made
+  // last, once everything they are handed exists.
 
-  /**
-   * What one of the nightly evaluation's runs may use: what the agent has left today above the half
-   * kept for people, and what every agent together has left above theirs. The half was only
-   * reckoned when the questions were queued, so one run could use the agent's whole day (2026-10
-   * sweep 2).
-   */
-  function nightlyModelMs(agent) {
-    const own = budgetOf(agent);
-    const all = moduleBudget();
-    return Math.max(0, Math.min(own.modelMsLeft - nightlyKeep(agent), all.modelMsLeft - all.modelSecondsPerDay * 500));
-  }
+  // ---- runs on Claude (M45.3), cloud-runs.mjs ----
+  const { cloudRuns, houseNamesAll, claimedModel, claudeAllowed, runnerModel } = createCloudRuns({
+    state, store, cloud, houseNamesFor, redact, clip, refuse, emit, runtimeClaim, runtimeSettings, heldRun,
+  });
 
-  /**
-   * The nightly evaluation (M40), from the service's tick in quiet hours: one agent at a time, each
-   * at most once a day, as the person who made it, only when its own budget and every agent's
-   * together have room for its questions and still keep half of the day's model time for people.
-   * Its questions take none of the agent's own runs (usedToday), but every agent's runs together
-   * count them, so half of those are kept for people too (2026-10 sweep).
-   */
-  async function queueNightlyEvaluation() {
-    // One at a time: two ticks could each find no evaluation queued while the first read its facts,
-    // and both start one (2026-10 sweep). A tick meanwhile goes on without it, rather than waiting.
-    if (nightlyStarting) return null;
-    nightlyStarting = true;
-    try { return await startNightlyEvaluation(); } finally { nightlyStarting = false; }
-  }
+  // ---- examples: the work a person approved (M46), examples.mjs ----
+  const { rememberExample, rememberProposal, seedAgentExamples, exampleCandidates, examplesOf, exportExamples, forgetExample } = createAgentExamples({
+    store, limits, now, audit, redact, clip, refuse, personOf, agentFor, canEdit, embedModelName, houseNamesAll,
+  });
 
-  async function startNightlyEvaluation() {
-    const settings = moduleSettings();
-    if (!settings.enabled || modulePaused(settings) || settings.killedAt) return null;
-    if (store.activeRuns().some((run) => run.kind === "eval")) return null;
-    for (const agent of store.listAgents()) {
-      if (agentPaused(agent)) continue;
-      if (!nightlyDue(agent, store.listEvalRuns(agent.id, 1)[0] ?? null)) continue;
-      const questions = evaluationSet(agent).all;
-      if (!questions.length) continue;
-      const creator = agent.createdBy ? state.findOwnerById?.(agent.createdBy) : null;
-      if (!["owner", "operator"].includes(creator?.role)) continue;
-      // What a question takes this agent on this server (M48.6): the median of its recent evaluation
-      // runs, never less than the estimate; the owner's Keeper took 135 s where 120 was assumed.
-      const perQuestionMs = evalQuestionMs(agent);
-      const own = budgetOf(agent);
-      const all = moduleBudget();
-      // How many questions tonight holds, above the half kept for people and within every agent's share.
-      const fit = Math.min(
-        Math.floor((own.modelMsLeft - nightlyKeep(agent)) / perQuestionMs),
-        Math.floor((all.modelMsLeft - all.modelSecondsPerDay * 500) / perQuestionMs),
-        Math.floor(all.runsPerDay - all.runsUsed - all.runsPerDay / 2),
-      );
-      const needed = questions.length * perQuestionMs;
-      if (own.refusal || fit < 1) {
-        // Said once a night, not every minute of quiet hours.
-        const night = startOfLocalDay(now()).toISOString();
-        if (nightlySkipped.get(agent.id) !== night) { nightlySkipped.set(agent.id, night); audit("agents.evaluation.skipped", { subjectId: agent.id, details: { reason: "budget", questions: questions.length } }); }
-        continue;
-      }
-      // M45.7: both routes, when the owner asked for it and Claude may take the maker's questions now.
-      const compare = settings.evaluation?.compareNightly === true && claudeAllowed(agent.spec, { readRole: creator.role }).ok;
-      // Only what fits is asked (M48.6): the rest are marked not asked tonight, instead of queued to be refused one by one.
-      const asked = fit < questions.length && needed > 0 ? questions.slice(0, fit) : questions;
-      const notAsked = questions.slice(asked.length);
-      if (queueCounts().queued + asked.length * (compare ? 2 : 1) > limits.queueMax) return null;
-      const reader = { id: creator.id, role: creator.role };
-      if (compare) {
-        const pairId = randomUUID();
-        const evaluation = await startEvaluation(agent, asked, { reader, route: "local", pairId, notAsked });
-        await startEvaluation(agent, asked, { reader, route: "claude", pairId, notAsked });
-        audit("agents.evaluation.started", { subjectId: agent.id, details: { questions: asked.length, notAsked: notAsked.length, nightly: true, compare: true } });
-        return evaluation;
-      }
-      const evaluation = await startEvaluation(agent, asked, { reader, notAsked });
-      audit("agents.evaluation.started", { subjectId: agent.id, details: { questions: asked.length, notAsked: notAsked.length, nightly: true } });
-      return evaluation;
-    }
-    return null;
-  }
+  // ---- findings offered to runs and left by them (M44, ADR-012), findings-service.mjs ----
+  const { usableFindings, findingAge, offerFindings, runnerFindings, findingReadsLikeInstruction, offeredFindings, findingForHandoff, rememberFinding } = createAgentFindings({
+    store, state, limits, now, audit, redact, clip, emit, cloudRuns, heldRun, flagInjection, makerOf, sharingFor, withVectors, embedModelName, rememberExample,
+  });
 
-  async function gradeEvalRun(run) {
-    const expected = run.eval.expected ?? {};
-    const answer = String(run.answer ?? "");
-    let passed = false; let found = null; let skipped = false;
-    // A nightly question cut short for want of model time says nothing of the agent's answers: not
-    // graded, and left out of the score (sweep 3), as one refused for it at hand-out is.
-    if (!run.requestedBy && run.state === "degraded" && run.flags?.degraded === "budget") { passed = null; skipped = true; found = "Not graded: the night's model time ran out before it finished"; }
-    else if (run.state !== "completed") { passed = false; found = `The run ended ${run.state}`; }
-    else if (expected.includes) {
-      const missing = expected.includes.filter((text) => !answer.toLowerCase().includes(text.toLowerCase()));
-      passed = missing.length === 0; found = passed ? "Every expected word is there" : `Missing: ${missing.join(", ")}`;
-    } else if (expected.fact && (expected.value === null || expected.value === undefined)) {
-      // M48.4: a fact this server could not read says nothing of the answer; left out of the score, not counted wrong.
-      passed = null; skipped = true; found = "Not graded: the fact could not be read on this server when the evaluation started";
-    } else if (expected.fact) {
-      ({ passed, found } = gradeFact(expected.fact, expected.value, answer));
-    }
-    // M45.7: how long it took and what it cost, for the routes side by side.
-    const measured = { seconds: Math.round(finite(run.usage?.wallMs, 86_400_000) / 100) / 10, costUsd: Math.round(finite(run.usage?.costUsd, 1_000) * 1_000_000) / 1_000_000, route: run.usage?.route ? "claude" : "local" };
-    const graded = store.gradeEval(run.eval.evalId, run.eval.questionId, { passed, found, ...measured, ...(skipped ? { skipped } : {}) });
-    // A question answered right is a plan worth showing again (M46).
-    if (passed === true) rememberExample(run, "eval-passed");
-    // The last answer is in: a drop against the evaluations before it is flagged (M40).
-    if (graded?.state === "done") {
-      const drop = accuracyDrop(historyOf(store.listEvalRuns(run.agentId, limits.evalHistory)));
-      audit("agents.evaluation.finished", { subjectId: run.agentId, details: { evalId: graded.id, score: graded.score, questions: graded.results.length, skipped: graded.results.filter((result) => result.skipped).length, nightly: !graded.createdBy, dropped: Boolean(drop && drop.evalId === graded.id) } });
-    }
-  }
+  // ---- documents, knowledge sources, and the index and describe runs, library.mjs ----
+  const { chunksOf, pendingEmbeddings, runnerVectors, queueIndexing, queueDescribing, indexPayload, describePayload, finishIndex, finishDescribe, uploadDocument, syncFolder, syncFolderNow, ingestConnector, reindexMemory, setKnowledgeSources, knowledgeState, addDocument, removeDocument, toggleDocument, pinDocument, relearn } = createAgentLibrary({
+    store, state, limits, now, audit, redact, clip, finite, inTime, refuse, wake, personOf, agentFor, canEdit, ownActor, knowledge, folderScan, moduleSettings, modulePaused, runtimeSettings, knowledgeSettings, moduleBudget, embedModelName, heldRun, runtimeClaim, runEnded, visionNow, presentModule, enqueueSystem, agentsKnowledgeKey, visionKey, describePrompt, memoryIndexAgentId, imageDescribeAgentId,
+  });
+
+  // ---- acting under grants (M45.5, ADR-013) and plans (M45.6), acting.mjs ----
+  const { mayAct, actable, actTool, holdFromActing, actFor, jobOutcome, actsSettled, dropUnapprovedActs, planFor, finishPlan, advancePlan, planRunEnded, planOutputs, cancelPlan, presentPlan } = createAgentActing({
+    store, state, registry, jobs, now, audit, redact, clip, refuse, wake, personOf, canSeeRun, moduleSettings, modulePaused, agentPaused,
+  });
+
+  // ---- evaluation (M40), evaluation.mjs ----
+  const { normalizeQuestions, getEvaluation, setEvaluation, runEvaluation, historyOf, accuracyDrop, nightlyModelMs, queueNightlyEvaluation, gradeEvalRun } = createAgentEvaluation({
+    store, state, limits, now, audit, refuse, finite, inTime, wake, tools, inventory, helper, cloud, personOf, agentFor, ownActor, canEdit, moduleSettings, modulePaused, agentPaused, claudeAllowed, queueCounts, budgetOf, moduleBudget, embedModelName, rememberExample,
+  });
+
+  // ---- agents: create, edit, versions; feedback; export and import; webhooks, agent-admin.mjs ----
+  const { createAgent, updateAgent, rollbackAgent, deleteAgent, versionDetail, nextRunFor, giveFeedback, exportAgent, importAgent, mintAgentWebhook, clearAgentWebhook, fireAgentWebhook } = createAgentAdmin({
+    store, registry, cloud, limits, now, audit, redact, clip, refuse, productVersion, AgentError, personOf, agentFor, canEdit, canSeeRun, ownActor, presentAgent, runEnded, enqueueSystem, sharingFor, seedAgentExamples, normalizeQuestions, rememberExample,
+  });
+
+  // ---- a card's steps and the jobs staged for them (2026-10 sweep 3), card-steps.mjs ----
+  const { listProposals, decideProposal, presentStep, settleProposal, stageProposalStep, getProposal } = createCardSteps({
+    store, state, audit, refuse, personOf, canSeeProposal, presentProposal, rememberProposal,
+  });
+
+  // ---- the team chat (M38), team-chat.mjs ----
+  const { zulipState, zulipPollNow, setZulipPeople, feedbackFromChat, askFromChat } = createTeamChat({
+    state, store, helper, chat, audit, refuse, AgentError, personOf, canAsk, agentPaused, makerOf, startRun, giveFeedback,
+  });
+
+  // ---- one-time changes to saved agents, at startup, migrations.mjs ----
+  const { migrateDefaults } = createAgentMigrations({
+    store, state, now, audit, nextRunFor, sharingFor, seedAgentExamples, agentsMigrationsKey,
+  });
+
+  // ---- the runner's key, runner-key.mjs ----
+  const { ensureRunnerToken, verifyRunnerToken } = createRunnerKey({
+    state, now, audit, tokenPath, runnerTokenKey,
+  });
 
   return {
     // people
@@ -4666,214 +2709,7 @@ export function createAgentService({
     return newer;
   }
 
-  // ---- the runner's key ----
-
-  function tokenFile() {
-    return tokenPath ?? path.join(path.dirname(state.databasePath ?? path.join(os.tmpdir(), "boxpilot", "x")), "agents", "runner.token");
-  }
-
-  /**
-   * The runner's key: a random value in a root-readable file (systemd's LoadCredential hands it over);
-   * only its digest is kept. One issue at a time: turning Agents on starts one in the background, and
-   * a second caller racing it would otherwise leave the file holding one key and the digest another.
-   */
-  function ensureRunnerToken({ rotate = false } = {}) {
-    const next = (issuing ?? Promise.resolve()).then(() => issueRunnerToken({ rotate }));
-    const settled = next.catch(() => null).then(() => { if (issuing === settled) issuing = null; });
-    issuing = settled;
-    return next;
-  }
-
-  async function issueRunnerToken({ rotate }) {
-    const saved = state.getSetting?.(runnerTokenKey, null);
-    if (saved?.hash && !rotate) return { issued: false, path: tokenFile() };
-    const token = randomBytes(32).toString("base64url");
-    const file = tokenFile();
-    await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-    await writeFile(file, `${token}\n`, { mode: 0o600 });
-    state.setSetting(runnerTokenKey, { hash: digestToken(token), issuedAt: now().toISOString() }, { updatedBy: null });
-    audit("agents.runner.key-issued", { details: { rotated: Boolean(saved?.hash) } });
-    return { issued: true, path: file };
-  }
-
-  function verifyRunnerToken(token) {
-    const saved = state.getSetting?.(runnerTokenKey, null);
-    if (!saved?.hash || typeof token !== "string" || token.length < 20 || token.length > 200) return false;
-    const given = Buffer.from(digestToken(token));
-    const expected = Buffer.from(saved.hash);
-    return given.length === expected.length && timingSafeEqual(given, expected);
-  }
-
   // ---- background ----
-
-  /**
-   * Once each, at startup, each a version of its own that says BoxPilot made it:
-   * - an agent saved with the old default longest run (10 minutes) gets the new 15-minute default.
-   *   An agent the owner set to anything else keeps it, and so does one they set back to 10 minutes
-   *   after this ran.
-   * - (M44) an agent saved before findings gets its two switches as its template would give them:
-   *   it shares and uses findings, except the IT Support helper and the House Guide, which only use
-   *   them. Its budget and everything else stay as the owner saved them.
-   */
-  function migrateDefaults() {
-    const done = state.getSetting?.(agentsMigrationsKey, null) ?? {};
-    const next = { ...done };
-    let changed = 0;
-    const save = (agent, spec, note, fields) => {
-      const version = store.addVersion(agent.id, { spec, note, createdBy: null, nextRunAt: agent.nextRunAt ?? nextRunFor(spec) });
-      if (!version) return false;
-      audit("agents.updated", { subjectId: agent.id, details: { version, fields, by: "boxpilot" } });
-      return true;
-    };
-    if (!done.runSeconds) {
-      let raised = 0;
-      for (const agent of store.listAgents()) {
-        if (agent.spec?.budget?.runSeconds !== previousRunSecondsDefault) continue;
-        let spec;
-        try { spec = normalizeSpec({ ...agent.spec, budget: { ...agent.spec.budget, runSeconds: budgetCeilings.runSeconds.default }, sharing: sharingFor(agent) }); } catch { continue; }
-        if (save(agent, spec, "BoxPilot raised the time limit to the new 15-minute default", ["budget.runSeconds"])) raised += 1;
-      }
-      next.runSeconds = { at: now().toISOString(), raised };
-      changed += raised;
-    }
-    if (!done.sharing) {
-      let added = 0;
-      for (const agent of store.listAgents()) {
-        if (agent.spec?.sharing) continue;
-        const sharing = sharingFor(agent);
-        let spec;
-        try { spec = normalizeSpec({ ...agent.spec, sharing }); } catch { continue; }
-        if (save(agent, spec, sharing.shareFindings ? "BoxPilot turned on findings: it shares what it finds with the other agents and uses theirs" : "BoxPilot turned on findings: it uses what the other agents find, and shares nothing", ["sharing"])) added += 1;
-      }
-      next.sharing = { at: now().toISOString(), added };
-      changed += added;
-    }
-    // M47: agents made from a template before it had eyes on the firewall, package updates, Repair and
-    // the rest get the template's new tools, once, and the Scout's rule that said it could not see them.
-    if (!done.eyes) {
-      const eyes = ["firewall.status", "updates.status", "repair.findings", "protection.status", "users.access", "tunnel.exposure"];
-      const oldRule = "Your tools cannot see the firewall, open ports, SSH settings, waiting system package updates or Repair's findings. List them under Not checked with the page to open: Firewall, Updates, Repair.";
-      let given = 0;
-      for (const agent of store.listAgents()) {
-        const template = agent.template ? templateById(agent.template) : null;
-        if (!template) continue;
-        const tools = { ...agent.spec.tools };
-        const added = eyes.filter((id) => template.spec.tools[id] === "auto" && (tools[id] ?? "off") === "off");
-        if (!added.length) continue;
-        for (const id of added) tools[id] = "auto";
-        const rules = (agent.spec.prompt?.rules ?? []).map((rule) => (rule === oldRule ? template.spec.prompt.rules.find((entry) => entry.startsWith("Asked about the firewall or Repair alone")) ?? rule : rule));
-        let spec;
-        try { spec = normalizeSpec({ ...agent.spec, tools, prompt: { ...agent.spec.prompt, rules }, sharing: sharingFor(agent) }); } catch { continue; }
-        if (save(agent, spec, `BoxPilot gave it eyes on ${added.map((id) => toolById(id)?.title.toLowerCase() ?? id).join(", ")}`, added.map((id) => `tools.${id}`))) given += 1;
-      }
-      next.eyes = { at: now().toISOString(), given };
-      changed += given;
-    }
-    // M47.2: a Scout still on the five-read survey gets the seven-read one and the budget it needs,
-    // once. The survey is known by the tools its steps name - the five reads and neither of the
-    // new ones - not by their words: the owner's Scout (made in M43) worded a step differently from
-    // the template of the day, and the first try matched nothing. A Scout whose maker rewrote its
-    // steps around other tools keeps them. Every templated agent also gets the seeds its template
-    // gained for the new tools (the examples migration ran before those tools existed).
-    if (!done.surveyWide) {
-      const scout = templateById("environment-scout");
-      const onRequestRule = "The firewall and Repair's findings are read on request: firewall.status and repair.findings. The weekly survey does not read them: list what this run did not read under Not checked, with the page to open (Firewall, Repair).";
-      const newRule = scout?.spec.prompt.rules.find((entry) => entry.startsWith("Asked about the firewall or Repair alone")) ?? null;
-      const fiveReads = ["alerts.active", "storage.health", "apps.list", "backups.status", "server.facts"];
-      const mentions = (steps, id) => steps.some((step) => String(step).includes(id));
-      let widened = 0;
-      let seeded = 0;
-      for (const agent of store.listAgents()) {
-        if (agent.template) seeded += seedAgentExamples(agent);
-        if (agent.template !== "environment-scout" || !scout) continue;
-        const steps = agent.spec.prompt?.steps ?? [];
-        const fiveReadSurvey = fiveReads.every((id) => mentions(steps, id)) && !mentions(steps, "firewall.status") && !mentions(steps, "repair.findings");
-        const hasOldRule = (agent.spec.prompt?.rules ?? []).includes(onRequestRule);
-        if (!fiveReadSurvey && !hasOldRule) continue;
-        const prompt = {
-          ...agent.spec.prompt,
-          steps: fiveReadSurvey ? scout.spec.prompt.steps : steps,
-          rules: (agent.spec.prompt?.rules ?? []).map((rule) => (rule === onRequestRule && newRule ? newRule : rule)),
-        };
-        const budget = { ...agent.spec.budget };
-        for (const field of ["modelSecondsPerDay", "stepsPerRun", "tokensPerRun", "runSeconds"]) if ((budget[field] ?? 0) < scout.spec.budget[field]) budget[field] = scout.spec.budget[field];
-        const tools = { ...agent.spec.tools };
-        for (const id of ["firewall.status", "repair.findings"]) if ((tools[id] ?? "off") === "off") tools[id] = "auto";
-        let spec;
-        try { spec = normalizeSpec({ ...agent.spec, prompt, budget, tools, sharing: sharingFor(agent) }); } catch { continue; }
-        if (save(agent, spec, "BoxPilot widened its weekly survey: it reads Repair's findings and the firewall too, with the steps, tokens and time that takes", ["prompt.steps", "budget"])) widened += 1;
-      }
-      next.surveyWide = { at: now().toISOString(), widened, seeded };
-      changed += widened + seeded;
-    }
-    // M47.6: the templates said three things their tools could not see (what takes the space, how
-    // many packages wait, which apps have no backup); now they can (the Scout keeps its ten: a call
-    // that acts carries ten, and its survey fills them). Agents made from a template get
-    // the tools it gained, once; a rule or a step of the template's old wording becomes the new one
-    // (a rule or step the maker rewrote is left alone); the Backup Auditor, Storage Watch and the
-    // Update Planner get the budget their longer work takes; and every templated agent gets the seeds
-    // its template gained.
-    if (!done.eyesMore) {
-      const more = ["apps.usage", "backups.coverage", "space.reclaimable", "updates.status"];
-      const reworded = new Map([
-        ["Your tools cannot see what takes up the space, what Docker could free or how old the snapshots are: point to the Storage page for those.", "storage-watch"],
-        ["Your tools cannot see how many system packages are waiting: say so, and point to the Updates page. Add apt.refresh and apt.upgrade only when no schedule or automation already installs them.", "update-planner"],
-        ["Propose system.reboot only when alerts.active says a reboot is required, as a card of its own.", "update-planner"],
-      ]);
-      const newRuleFor = (template, oldRule) => {
-        const starts = { "Your tools cannot see what takes up": "space.reclaimable says", "Your tools cannot see how many system packages": "updates.status says", "Propose system.reboot only when": "Propose system.reboot only when updates.status" };
-        const start = Object.keys(starts).find((key) => oldRule.startsWith(key));
-        return start ? template.spec.prompt.rules.find((rule) => rule.startsWith(starts[start]) && rule !== oldRule) ?? null : null;
-      };
-      const oldSteps = {
-        "backup-auditor": "Use apps.list for the apps installed, then backups.status and jobs.recent.",
-        "update-planner": "Use apps.list for apps with an update available, and alerts.active for a reboot required or news of a BoxPilot release.",
-      };
-      let given = 0;
-      let seeded = 0;
-      for (const agent of store.listAgents()) {
-        const template = agent.template ? templateById(agent.template) : null;
-        if (!template) continue;
-        const tools = { ...agent.spec.tools };
-        const added = more.filter((id) => template.spec.tools[id] === "auto" && (tools[id] ?? "off") === "off");
-        for (const id of added) tools[id] = "auto";
-        const rules = (agent.spec.prompt?.rules ?? []).map((rule) => (reworded.get(rule) === agent.template ? newRuleFor(template, rule) ?? rule : rule));
-        // The Backup Auditor gained a rule (an app of caches needs no backup): after the one it follows in the template.
-        const auditorRule = agent.template === "backup-auditor" ? template.spec.prompt.rules.find((rule) => rule.startsWith("An app backups.coverage says")) ?? null : null;
-        const finding = "A backup job that failed, or an app never backed up, is a finding.";
-        if (auditorRule && !rules.includes(auditorRule) && rules.includes(finding) && rules.length < 12) rules.splice(rules.indexOf(finding) + 1, 0, auditorRule);
-        let steps = [...(agent.spec.prompt?.steps ?? [])];
-        if (oldSteps[agent.template] && steps.includes(oldSteps[agent.template])) steps = steps.map((step) => (step === oldSteps[agent.template] ? template.spec.prompt.steps[0] : step));
-        // Only a Storage Watch still on the template's old steps, word for word, gets the new one (M48.4: an edited step two or three is the maker's).
-        const oldStorageSteps = template.spec.prompt.steps.filter((step) => !step.includes("space.reclaimable"));
-        if (agent.template === "storage-watch" && steps.join("\n") === oldStorageSteps.join("\n")) steps = template.spec.prompt.steps;
-        const budget = { ...agent.spec.budget };
-        // Only a budget still at the old template's default rises to the new one: a budget the owner cut on purpose stays (M48.4).
-        const formerBudgets = { "backup-auditor": { modelSecondsPerDay: 1_200, stepsPerRun: 5, tokensPerRun: 8_000, runSeconds: 400 }, "storage-watch": { modelSecondsPerDay: 1_200, stepsPerRun: 6, tokensPerRun: 8_000, runSeconds: 480 }, "update-planner": { modelSecondsPerDay: 1_200, stepsPerRun: 8, tokensPerRun: 12_000, runSeconds: 900 } };
-        const former = formerBudgets[agent.template];
-        if (former) for (const field of Object.keys(former)) if (budget[field] === former[field] && budget[field] < template.spec.budget[field]) budget[field] = template.spec.budget[field];
-        const differs = added.length > 0 || rules.some((rule, index) => rule !== (agent.spec.prompt?.rules ?? [])[index]) || steps.join("\n") !== (agent.spec.prompt?.steps ?? []).join("\n") || Object.keys(budget).some((field) => budget[field] !== agent.spec.budget?.[field]);
-        if (differs) {
-          let spec;
-          try { spec = normalizeSpec({ ...agent.spec, tools, prompt: { ...agent.spec.prompt, rules, steps }, budget, sharing: sharingFor(agent) }); } catch { spec = null; }
-          const note = added.length ? `BoxPilot gave it eyes on ${added.map((id) => toolById(id)?.title.toLowerCase() ?? id).join(", ")}` : "BoxPilot reworded its steps for the reads it has now";
-          if (spec && save(agent, spec, note, [...added.map((id) => `tools.${id}`), "prompt"])) given += 1;
-        }
-        seeded += seedAgentExamples(store.getAgent(agent.id) ?? agent);
-      }
-      next.eyesMore = { at: now().toISOString(), given, seeded };
-      changed += given + seeded;
-    }
-    // M46: agents made before the example book get their template's examples, once.
-    if (!done.examples) {
-      let seeded = 0;
-      for (const agent of store.listAgents()) if (agent.template) seeded += seedAgentExamples(agent);
-      next.examples = { at: now().toISOString(), seeded };
-      changed += seeded;
-    }
-    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.surveyWide !== done.surveyWide || next.eyesMore !== done.eyesMore) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
-    return changed;
-  }
 
   /** At startup: a run that was going when BoxPilot stopped is marked, not retried. */
   function recoverAtStartup() {

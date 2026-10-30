@@ -20,6 +20,7 @@ export function createVmRestoreDrillService({ store, helper }) {
   }
 
   /** Pin the protected-backup evidence and current destination for the registry operation. */
+  /** @param {{ backupId?: string }} [parameters] */
   async function prepareOperation({ backupId } = {}) {
     const { backup, artifact } = recordedEvidence(backupId);
     const destination = await helper.request("virtualization.export.backup.inspect", {});

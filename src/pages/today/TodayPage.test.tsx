@@ -10,7 +10,7 @@ import TodayPage from "./TodayPage";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); resetConnection(); window.localStorage.clear(); });
 
 const ran = {
-  "/api/v1/jobs?limit=100": { jobs: [
+  "/api/v1/jobs?limit=100&view=summary": { jobs: [
     { id: "nightly", type: "op:app.backup", title: "Back up application data", state: "completed", risk: "medium", error: null, result: null, steps: [], approvals: [], parameters: { id: "jellyfin" }, createdAt: ago(0.5), updatedAt: ago(0.4) },
     { id: "update", type: "op:app.update", title: "Update an app", state: "failed", risk: "medium", error: "pull failed", result: null, steps: [], approvals: [], parameters: { id: "immich" }, createdAt: ago(0.3), updatedAt: ago(0.2) },
   ] },
@@ -57,7 +57,7 @@ describe("Today (M25.3)", () => {
   it("opens the page a need's fix is on, as Home and Ops do", async () => {
     // Today never handed the needs a way to navigate: Free up space, Open Repair and the rest did nothing.
     const full = { id: "full", type: "op:app.update", title: "Update an app", state: "failed", risk: "medium", error: "pull failed: no space left on device", result: null, steps: [], approvals: [], parameters: { id: "immich" }, createdAt: ago(0.3), updatedAt: ago(0.2) };
-    vi.stubGlobal("fetch", stubFetch({ "/api/v1/jobs?limit=50": { jobs: [full] }, "/api/v1/jobs?limit=100": { jobs: [full] } }));
+    vi.stubGlobal("fetch", stubFetch({ "/api/v1/jobs?limit=50": { jobs: [full] }, "/api/v1/jobs?limit=100&view=summary": { jobs: [full] } }));
     const onNavigate = renderToday();
     const attention = await screen.findByRole("region", { name: /Needs a look/ });
     fireEvent.click(await within(attention).findByRole("button", { name: /^Free up space:/ }));
@@ -149,11 +149,11 @@ describe("Today (M25.3)", () => {
     vi.stubGlobal("fetch", fetch);
     renderToday();
     await screen.findByRole("region", { name: /What ran/ });
-    const before = fetch.mock.calls.filter(([url]) => String(url) === "/api/v1/jobs?limit=100").length;
+    const before = fetch.mock.calls.filter(([url]) => String(url) === "/api/v1/jobs?limit=100&view=summary").length;
     const reload = vi.fn();
     expect(requestRefresh({ reload })).toBe("refreshed");
     expect(reload).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url) === "/api/v1/jobs?limit=100").length).toBeGreaterThan(before));
+    await vi.waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url) === "/api/v1/jobs?limit=100&view=summary").length).toBeGreaterThan(before));
   });
 });
 

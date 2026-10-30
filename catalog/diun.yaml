@@ -7,7 +7,7 @@ description: Watches the images your containers run and tells you when a new ver
 website: https://crazymax.dev/diun
 risk: medium
 image:
-  reference: crazymax/diun:4.33.0
+  reference: crazymax/diun:4.33.0@sha256:e324b793eb32dfb7f74d3a39421ebf090141caaadee69b8f78da63112408ee25
   version: 4.33.0
 volumes:
   - id: data

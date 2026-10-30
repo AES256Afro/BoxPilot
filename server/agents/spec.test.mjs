@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { SpecError, diffSpecs, lineDiff, normalizeSpec, scopeWarnings, specText } from "./spec.mjs";
 import { agentTemplates, templateById, templateQuestions } from "./templates.mjs";
@@ -128,7 +127,7 @@ describe("versions", () => {
 
 describe("templates", () => {
   it("are all valid specs, and the named ones exist", () => {
-    expect(agentTemplates.map((template) => template.id)).toEqual(["server-keeper", "environment-scout", "pihole-watcher", "backup-auditor", "app-doctor", "storage-watch", "update-planner", "it-support", "security-reviewer", "resource-watch", "house-guide", "blank"]);
+    expect(agentTemplates.map((template) => template.id)).toEqual(["server-keeper", "environment-scout", "pihole-watcher", "spyware-watch", "backup-auditor", "app-doctor", "storage-watch", "update-planner", "it-support", "security-reviewer", "resource-watch", "house-guide", "blank"]);
     for (const template of agentTemplates) expect(normalizeSpec(template.spec)).toEqual(template.spec);
   });
 

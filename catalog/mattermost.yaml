@@ -7,7 +7,7 @@ description: "Slack-style team chat with channels, threads, calls, and file shar
 website: https://mattermost.com
 risk: medium
 image:
-  reference: mattermost/mattermost-team-edition:11.7.9
+  reference: mattermost/mattermost-team-edition:11.7.9@sha256:1df0d514e8dd975dff7cc78bbe5d5f1b29bab59ac7af9a73b6b49b7a6fb6fdbb
   version: "11.7.9"
 user: "2000:2000"
 ports:
@@ -59,7 +59,7 @@ env:
     default: Etc/UTC
 sidecars:
   - id: database
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     env:
       POSTGRES_DB: mattermost
       POSTGRES_USER: mattermost

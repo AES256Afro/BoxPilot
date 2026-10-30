@@ -11,7 +11,10 @@ import { dropInDirectory, dropInName, heartbeatCredential, heartbeatTimer, hostO
 const minutes = (count) => count * 60_000;
 const systemctlBinary = () => process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
 
-/** Everything the Settings panel shows, and nothing that would let anyone send a heartbeat of their own. */
+/**
+ * Everything the Settings panel shows, and nothing that would let anyone send a heartbeat of their own.
+ * @param {{ credentials?: ReturnType<typeof import("../credentials.mjs").createCredentialStore>, run?: typeof import("../exec.mjs").fixedRun, read?: typeof readFile, status?: typeof readStatus }} [options]
+ */
 export async function inspectHeartbeat({ credentials, run, read = readFile, status = readStatus } = {}) {
   const [url, shown, dropIn, last] = await Promise.all([
     credentials.read(heartbeatCredential).catch(() => null),

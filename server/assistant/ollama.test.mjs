@@ -1,4 +1,3 @@
-// @vitest-environment node
 import http from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startFakeOllama } from "../../test/fake-ollama.mjs";

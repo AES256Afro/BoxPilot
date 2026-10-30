@@ -11,6 +11,11 @@ repository has been bitten by exactly that more than once.
 it, including the 404 for anything outside it, so the hosted copy behaves like the one used for
 review.
 
+Two custom domains are attached to the one Worker, `antifascist.work` and `getnerp.com`, and it
+serves the same demo on both: nothing in `worker.js` reads the host, so a visitor keeps the address
+they typed through every redirect. Attaching a domain is Cloudflare's to do, and it takes over the
+apex's DNS, so whatever that name pointed at before stops being served.
+
 Nothing here belongs to anybody. Every value is invented, and no request reaches a real machine.
 
 The looks' mockups (`docs/design-directions/05-looks.html`) are served beside the app at

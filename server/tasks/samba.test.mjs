@@ -2,7 +2,7 @@ import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { onWindows } from "../../test/platform.mjs";
+import { onLinux } from "../../test/platform.mjs";
 import { discoveryState, parseSmbConf, renderSmbConf, sambaApply, sambaDiagnose, sambaDiscoverySet, sambaRecycleEmpty, sambaShareWritable, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
 
 function fakeRun({ testparmFails = false, lanDevice = "eno1", users = {} } = {}) {
@@ -46,8 +46,15 @@ describe("what a share may serve, and who may sign in", () => {
     expect(files.writeFile).not.toHaveBeenCalled();
   });
 
+  it("refuses a folder that reaches a login account's home only through a link", async () => {
+    const files = { ...fakeFiles({ existing: "# Managed by BoxPilot\n[global]\n" }), realpath: vi.fn(async () => "/home/admin") };
+    await expect(sambaApply({ shares: [{ name: "Media", path: "/srv/media" }] }, { run: fakeRun(), files })).rejects.toThrow(/leads to \/home\/admin, which reaches a login account's home/);
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+
   // Needs Linux: a real symbolic link to /etc, resolved by the real realpath the task uses.
-  it.skipIf(onWindows)("refuses a real link into /etc, resolved as the root task resolves it", async () => {
+  // Resolves against the host's real /etc, which only a Linux checkout has in the shape this asserts.
+  it.skipIf(!onLinux)("refuses a real link into /etc, resolved as the root task resolves it", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-share-"));
     try {
       await symlink("/etc", path.join(directory, "media"));

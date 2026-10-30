@@ -14,6 +14,7 @@ import { fixedRun } from "../exec.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
 import { growthByApp } from "../app-data-growth.mjs";
 import { projectDaysToFull } from "../disk-forecast.mjs";
+import { smartTrendsByDisk } from "../smart-trends.mjs";
 import { parseNeighbors } from "../network.mjs";
 import { credentialPattern, hostPattern } from "../tasks/shares.mjs";
 import { readsThroughHelper, withOwnActors } from "./access.mjs";
@@ -85,7 +86,7 @@ async function mapLimit(items, limit, worker) {
   return results;
 }
 
-export function createStorageRouter({ auth, helper = null, inventory = null, state = null, run = fixedRun, collect = collectStorage, probe = probePort, reverse = (address) => dns.reverse(address), sweepLimit = 254 }) {
+export function createStorageRouter({ auth, helper = null, inventory = null, state = null, run = fixedRun, collect = collectStorage, probe = probePort, reverse = (address) => dns.reverse(address), sweepLimit = 254, now = () => Date.now() }) {
   const router = Router();
 
   router.get("/storage/overview", async (request, response) => {
@@ -120,7 +121,13 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
     // Those sizes are app.data.usage's, which needs an operator (ADR-003): the path and size of
     // every app's data. A viewer gets the drive forecasts, which any account can read from df.
     const sizes = readsThroughHelper(request);
-    response.json({ forecasts, tracking: Object.keys(history).length, usage: sizes ? growthByApp(usage, { now, windowDays: 7, limit: 200 }) : [], lastMeasured: sizes ? state?.getSetting?.("appDataUsageLastRun", null) ?? null : null });
+    response.json({ forecasts, tracking: Object.keys(history).length, usage: sizes ? growthByApp(usage, { now, windowDays: 7, limit: 200, series: true }) : [], lastMeasured: sizes ? state?.getSetting?.("appDataUsageLastRun", null) ?? null : null });
+  });
+
+  // Each disk's SMART readings over the last weeks, as the daily sampler kept them (M31.2): the same
+  // temperature, wear and error figures the Overview already shows any account, over time.
+  router.get("/storage/smart-history", (_request, response) => {
+    response.json({ disks: smartTrendsByDisk(state?.getSetting?.("smartHistory", {}) ?? {}, { now: now() }) });
   });
 
   // Discover LAN hosts offering SMB (445) or NFS (2049): recent neighbours plus a sweep of each /24.

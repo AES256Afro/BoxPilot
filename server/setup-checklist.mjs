@@ -51,7 +51,7 @@ function driveChecksItem(driveChecks) {
   return { ...item, known: true, done: true, detail: sentences.join(" ") };
 }
 
-/** @param {object} evidence partial evidence; a source that is `null` makes its item unknown */
+/** @param {Record<string, any>} evidence partial evidence; a source that is `null` makes its item unknown */
 export function buildChecklist(evidence = {}) {
   const { firewall = null, firewallProfile = null, installedApps = [], notifications = null, unattended = null, backupDestination = null, cloudDestination = null, backupSync = null, samba = null, nfs = null, ups = null, tailscale = null, driveChecks = null } = evidence;
   const items = [
@@ -90,7 +90,7 @@ export function buildChecklist(evidence = {}) {
       known: true,
       done: Boolean(cloudDestination?.lastSync || backupDestination?.lastSync || backupSync?.lastSync),
       detail: cloudDestination?.lastSync ? `Last mirrored to ${cloudDestination.provider} on ${new Date(cloudDestination.lastSync).toLocaleDateString()}.`
-        : backupDestination?.lastSync ? `Last mirrored over SSH to ${backupDestination.host} on ${new Date(backupDestination.lastSync).toLocaleDateString()}.`
+        : backupDestination?.lastSync ? `Last mirrored over SSH on ${new Date(backupDestination.lastSync).toLocaleDateString()}.`
         : backupSync?.lastSync ? `Last mirrored to the backup drive on ${new Date(backupSync.lastSync).toLocaleDateString()}.`
         : cloudDestination || backupDestination || backupSync?.mounted ? "A destination is set up but nothing has been mirrored to it yet: run a sync from the Backups page."
         : "A disk failure should not take the backups with it: add a cloud destination, an SSH destination, or a backup drive.",
@@ -132,6 +132,7 @@ const withLastSync = (destination, record) => (destination ? { ...destination, l
  * Gather evidence from the services the web process already has; every call tolerates failure.
  * `storage` is the shared lsblk/findmnt read (storage-inventory.mjs createStorageReader); without it
  * the drive item reads the drives itself.
+ * @param {{ state?: any, helper?: any, notifications?: any, inventory?: any, network?: any, driveChecks?: typeof gatherDriveChecks, storage?: ReturnType<typeof import("./storage-inventory.mjs").createStorageReader> | null }} [services]
  */
 export async function gatherChecklistEvidence({ state, helper, notifications, inventory, network, driveChecks = gatherDriveChecks, storage = null } = {}) {
   const quiet = (promise) => promise.catch(() => null);

@@ -1,4 +1,4 @@
-import { access, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
+import { access, mkdir, open, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
@@ -97,7 +97,7 @@ export const logicalVolumePattern = /^\/dev\/mapper\/[A-Za-z0-9._+-]{1,64}$/;
 
 /** Full device subtree (LVM and dm children included; this runs as root in the host namespace). */
 async function deviceTree(run, device) {
-  const tree = await run(binaries.lsblk, ["-J", "-o", "PATH,TYPE,FSTYPE,RO,MOUNTPOINTS", device], { timeout: 15_000 });
+  const tree = await run(binaries.lsblk, ["-J", "-b", "-o", "PATH,TYPE,FSTYPE,RO,MOUNTPOINTS,UUID,PARTUUID,LABEL,PARTLABEL,SERIAL,WWN,SIZE", device], { timeout: 15_000 });
   if (!tree.ok) throw new Error(`${device} was not found`);
   try {
     const parsed = JSON.parse(tree.stdout);
@@ -193,6 +193,7 @@ export function withDockerOrder(options) {
 export const appUserId = 1000;
 export const permissionlessFilesystems = Object.freeze(["exfat", "vfat", "ntfs", "ntfs3", "msdos"]);
 
+/** @param {{ uuid?: string, name?: string, fstype?: string, readOnly?: boolean, appWritable?: boolean, uid?: number, gid?: number }} [parameters] */
 export async function storageMount({ uuid, name, fstype = "auto", readOnly = false, appWritable = false, uid = appUserId, gid = appUserId } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir } } = {}) {
   if (typeof uuid !== "string" || !uuidPattern.test(uuid)) throw new Error("UUID is invalid");
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name must be lower-case letters, digits, and hyphens (max 32)");
@@ -223,9 +224,11 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
   // Linux filesystem keeps its own on-disk permissions, so we chown the top of it after mounting.
   const permissionless = permissionlessFilesystems.includes(entryFstype);
   const giveToApps = appWritable && !readOnly;
-  const options = withDockerOrder(readOnly ? "ro,nofail"
-    : giveToApps && permissionless ? `rw,nofail,uid=${uid},gid=${gid}`
-      : "defaults,nofail");
+  // nosuid,nodev: a plugged-in drive is data, so a setuid binary or a device node someone put on it
+  // gives nothing on this host.
+  const options = withDockerOrder(readOnly ? "ro,nofail,nosuid,nodev"
+    : giveToApps && permissionless ? `rw,nofail,nosuid,nodev,uid=${uid},gid=${gid}`
+      : "defaults,nofail,nosuid,nodev");
   const previous = await appendFstabEntry({ run, files, log }, name, `UUID=${uuid} ${mountpoint} ${entryFstype} ${options} 0 ${fsckPass}`);
   await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 });
   log?.(`$ mount ${mountpoint}`, "stdout");
@@ -255,7 +258,10 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
   return { mounted: true, name, mountpoint, uuid, device: dev, detail: check.stdout.trim(), owner: giveToApps ? `${uid}:${gid}` : null, persistent: true };
 }
 
-/** Unmount and remove a BoxPilot-managed fstab entry. Foreign entries are refused. */
+/**
+ * Unmount and remove a BoxPilot-managed fstab entry. Foreign entries are refused.
+ * @param {{ name?: string }} [parameters]
+ */
 export async function storageUnmount({ name } = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
   assertPlainMountName(name);
   const content = await files.readFile(fstabPath, "utf8");
@@ -279,13 +285,73 @@ export async function storageUnmount({ name } = {}, { run = fixedRun, log = null
   return { unmounted: true, name, mountpoint, directoryKept: true };
 }
 
-/** Erase a block device and create a fresh ext4 filesystem. The guards are absolute. */
-export async function storageFormat({ device, label = null } = {}, { run = fixedRun, log = null } = {}) {
+/**
+ * Whether the disk at a path is still the one a format was approved for. A format can wait days for
+ * its approval, and a USB disk that drops off comes back under another name: the path alone is not
+ * the disk. The identity is what the web process read when the job was staged (storage-inventory.mjs).
+ */
+export function sameDisk(identity, node) {
+  if (!identity) return true;
+  const differs = (key) => identity[key] !== null && identity[key] !== undefined && String(identity[key]) !== String(node?.[key] ?? "");
+  return !["serial", "wwn", "size"].some(differs);
+}
+
+/** The first field of each active /etc/fstab line: what it mounts. */
+export function fstabSources(content) {
+  return String(content ?? "").split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#")).map((line) => line.split(/\s+/)[0]);
+}
+
+/**
+ * Paths and identifiers of the tree that /etc/fstab names: by UUID=, PARTUUID=, LABEL= or PARTLABEL=
+ * (quoted or not), or by a path. `real` maps a path to where it leads (a /dev/disk/by-* link, an LVM
+ * /dev/vg/lv name), so any name for the same device counts.
+ */
+export function fstabNames(content, nodes, real = new Map()) {
+  // fstab writes a space as \040; a value may also be quoted.
+  const unquote = (value) => value.replace(/\\([0-7]{3})/g, (_match, code) => String.fromCharCode(parseInt(code, 8))).replace(/^(["'])(.*)\1$/, "$2");
+  const tags = new Set();
+  const paths = new Set();
+  for (const source of fstabSources(content)) {
+    const tag = /^(UUID|PARTUUID|LABEL|PARTLABEL)=(.+)$/i.exec(source);
+    // Identifiers are hex and blkid matches them whatever their case; labels are compared as written.
+    if (tag) { const key = tag[1].toUpperCase(); const value = unquote(tag[2]); tags.add(`${key}=${key.endsWith("UUID") ? value.toLowerCase() : value}`); continue; }
+    paths.add(source);
+    if (real.has(source)) paths.add(real.get(source));
+    const link = /^\/dev\/disk\/by-(uuid|partuuid|label|partlabel)\/(.+)$/.exec(source);
+    if (link) { const key = link[1].toUpperCase(); tags.add(`${key}=${key.endsWith("UUID") ? link[2].toLowerCase() : link[2]}`); }
+  }
+  const tagged = (key, value) => value && tags.has(`${key}=${key.endsWith("UUID") ? String(value).toLowerCase() : value}`);
+  return nodes.flatMap((node) => [
+    tagged("UUID", node.uuid) ? `${node.path} (UUID ${node.uuid})` : null,
+    tagged("PARTUUID", node.partuuid) ? `${node.path} (PARTUUID ${node.partuuid})` : null,
+    tagged("LABEL", node.label) ? `${node.path} (label ${node.label})` : null,
+    tagged("PARTLABEL", node.partlabel) ? `${node.path} (partition label ${node.partlabel})` : null,
+    paths.has(node.path) || (real.has(node.path) && paths.has(real.get(node.path))) ? node.path : null,
+  ]).filter(Boolean);
+}
+
+/**
+ * Erase a block device and create a fresh ext4 filesystem. The guards are absolute.
+ * @param {{ device?: string, label?: string | null, identity?: { serial?: string | null, wwn?: string | null, size?: number | string | null, model?: string | null } | null }} [parameters]
+ */
+export async function storageFormat({ device, label = null, identity = null } = {}, { run = fixedRun, log = null, files = { readFile, realpath } } = {}) {
   if (typeof device !== "string" || !devicePattern.test(device)) throw new Error("Device path is invalid");
   if (label !== null && (typeof label !== "string" || !labelPattern.test(label))) throw new Error("Label may use letters, digits, underscore, hyphen (max 16)");
   const nodes = await deviceTree(run, device);
   if (nodes.some((node) => node.ro)) throw new Error(`${device} is read-only`);
   assertNotProtected(device, nodes);
+  if (!sameDisk(identity, nodes[0])) throw new Error(`${device} is not the disk this was approved for (approved: ${[identity.model, identity.serial, identity.size && `${identity.size} bytes`].filter(Boolean).join(", ")}). Nothing was erased; stage the format again for the disk you mean.`);
+  // A drive the server mounts at boot is one it means to keep, mounted or not just now: a managed
+  // drive whose nofail mount did not come up, or one Reconnect detached, is still someone's data.
+  const fstab = await files.readFile(fstabPath, "utf8").catch(() => "");
+  const resolve = files.realpath ?? realpath;
+  const real = new Map();
+  for (const name of [...fstabSources(fstab).filter((source) => source.startsWith("/dev/")), ...nodes.map((node) => node.path)]) {
+    const target = await resolve(name).catch(() => null);
+    if (target) real.set(name, target);
+  }
+  const inFstab = fstabNames(fstab, nodes, real);
+  if (inFstab.length) throw new Error(`${inFstab.join(", ")} is listed in /etc/fstab, so this server mounts it at boot. Nothing was erased; unmount it from Storage first if you mean to erase it.`);
   log?.(`$ wipefs -a ${device}`, "stdout");
   const wipe = await run(binaries.wipefs, ["-a", device], { timeout: 60_000 });
   if (!wipe.ok) throw new Error(`wipefs failed: ${wipe.stderr.split("\n").slice(-2).join(" ")}`);
@@ -364,6 +430,7 @@ async function volumeGroupFreeBytes(run, vg) {
   return result.ok && Number.isInteger(value) ? value : null;
 }
 
+/** @param {{ path?: string, reserveGiB?: number }} [parameters] */
 export async function storageLvmExtend({ path: volume, reserveGiB = 32 } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof volume !== "string" || !logicalVolumePattern.test(volume)) throw new Error("Logical volume path is invalid");
   if (!Number.isInteger(reserveGiB) || reserveGiB < 0 || reserveGiB > 1024) throw new Error("reserveGiB must be a whole number between 0 and 1024");
@@ -399,7 +466,10 @@ export async function storageLvmExtend({ path: volume, reserveGiB = 32 } = {}, {
   return { extended: true, path: volume, mountpoint, before: sizes(before.stdout), after: sizes(after.stdout) };
 }
 
-/** Create a copy-on-write snapshot of a logical volume (a restore point before updates). */
+/**
+ * Create a copy-on-write snapshot of a logical volume (a restore point before updates).
+ * @param {{ path?: string, sizeGiB?: number, suffix?: string | null }} [parameters]
+ */
 export async function storageLvmSnapshotCreate({ path: volume, sizeGiB = 10, suffix = null } = {}, { run = fixedRun, log = null, now = () => new Date() } = {}) {
   if (typeof volume !== "string" || !logicalVolumePattern.test(volume) || snapshotDmPattern.test(volume)) throw new Error("Logical volume path is invalid");
   if (!Number.isInteger(sizeGiB) || sizeGiB < 1 || sizeGiB > 2048) throw new Error("sizeGiB must be a whole number between 1 and 2048");
@@ -418,7 +488,10 @@ export async function storageLvmSnapshotCreate({ path: volume, sizeGiB = 10, suf
   return { created: true, name, path, origin: volume, volumeGroup: group.vg, sizeGiB, createdAt: now().toISOString() };
 }
 
-/** Remove a BoxPilot snapshot. Only names with the BoxPilot prefix are accepted. */
+/**
+ * Remove a BoxPilot snapshot. Only names with the BoxPilot prefix are accepted.
+ * @param {{ path?: string }} [parameters]
+ */
 export async function storageLvmSnapshotDelete({ path: snapshot } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof snapshot !== "string" || !logicalVolumePattern.test(snapshot) || !snapshotDmPattern.test(snapshot)) throw new Error("Only BoxPilot snapshots (boxpilot-snap-...) can be removed from here");
   log?.(`$ lvremove -f ${snapshot}`, "stdout");
@@ -431,6 +504,7 @@ export async function storageLvmSnapshotDelete({ path: snapshot } = {}, { run = 
  * Roll the origin back to a snapshot (lvconvert --merge). For a mounted origin such as /
  * the merge is scheduled and happens on the next activation, i.e. after a reboot; the
  * snapshot disappears once merged.
+ * @param {{ path?: string }} [parameters]
  */
 export async function storageLvmSnapshotRollback({ path: snapshot } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof snapshot !== "string" || !logicalVolumePattern.test(snapshot) || !snapshotDmPattern.test(snapshot)) throw new Error("Only BoxPilot snapshots (boxpilot-snap-...) can be rolled back to");
@@ -628,6 +702,7 @@ const defaultRemountFiles = { readFile, readable: (target) => readdir(target).th
  * Reconnect a managed drive (Repair's "Reconnect the drive"): the drive that dropped off USB and
  * came back under another name, the one the kernel turned read-only after errors, and the one that
  * is simply busy - apps and file-sharing clients included. See remountDrive.
+ * @param {{ name?: string }} [parameters]
  */
 export async function storageRemount({ name } = {}, { run = fixedRun, log = null, files = defaultRemountFiles, sleep = pause, processes = undefined } = {}) {
   const drive = await managedDrive(name, files);
@@ -748,6 +823,7 @@ async function withDriveUnmounted(name, { verb, purpose, prepare, work }, { run,
  * unmounted for it: the containers bound to it are stopped first and started again afterwards,
  * the way an operator would do it by hand. The checker runs with -n: it reports, it never repairs.
  * Repairing is a separate decision with the report in hand.
+ * @param {{ name?: string }} [parameters]
  */
 export async function storageCheck({ name } = {}, { run = fixedRun, log = null, files = defaultCheckFiles, sleep = pause, processes = undefined } = {}) {
   const done = await withDriveUnmounted(name, {
@@ -792,6 +868,7 @@ export async function storageCheck({ name } = {}, { run = fixedRun, log = null, 
  * and on a consistent volume the mark is all it changes - so this runs the read-only pass first,
  * with the drive unmounted, and only when that finds nothing wrong runs `fsck.exfat -y`. A volume
  * with real damage is refused: repairing it is a decision to make with that report in hand.
+ * @param {{ name?: string }} [parameters]
  */
 export async function storageClearMark({ name } = {}, { run = fixedRun, log = null, files = defaultCheckFiles, sleep = pause, processes = undefined } = {}) {
   const done = await withDriveUnmounted(name, {

@@ -143,7 +143,7 @@ describe("health alerts", () => {
     const alerts = createHealthAlerts({ inventory, notifications, store, now: () => new Date("2026-08-21T21:00:00Z") });
 
     expect(await alerts.check()).toMatchObject({ active: ["storage.root.full"], sent: ["storage.root.full"] });
-    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Root disk is 92% full", message: expect.stringContaining("Free space on /"), priority: "default" });
+    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Root disk is 92% full", message: expect.stringContaining("Free space on /"), priority: "default" }, expect.objectContaining({ key: expect.any(String) }));
     expect(await alerts.check()).toMatchObject({ sent: [] }); // same condition: no repeat
     expect(send).toHaveBeenCalledTimes(1);
 
@@ -208,7 +208,7 @@ describe("health alerts with missing evidence", () => {
     const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications, store, now: () => new Date("2026-08-28T12:00:00Z") });
     const result = await alerts.check();
     expect(result.sent).toEqual(["storage.forecast:/mnt/media"]);
-    expect(send).toHaveBeenCalledWith({ title: expect.stringContaining("/mnt/media"), message: expect.stringContaining("runs out of free space"), priority: "high" });
+    expect(send).toHaveBeenCalledWith({ title: expect.stringContaining("/mnt/media"), message: expect.stringContaining("runs out of free space"), priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
   });
 
   it("alerts when a disk's SMART errors are climbing", async () => {
@@ -220,7 +220,7 @@ describe("health alerts with missing evidence", () => {
     const send = vi.fn(async () => ({ sent: true }));
     const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => ({ kind: "ntfy" }), send }, store, now: () => new Date("2026-08-28T12:00:00Z") });
     expect((await alerts.check()).sent).toEqual(["smart.errors:/dev/sda"]);
-    expect(send).toHaveBeenCalledWith({ title: expect.stringContaining("/dev/sda"), message: expect.stringContaining("errors are rising"), priority: "high" });
+    expect(send).toHaveBeenCalledWith({ title: expect.stringContaining("/dev/sda"), message: expect.stringContaining("errors are rising"), priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
   });
 
   it("alerts when a scheduled backup falls behind, and clears when it catches up", async () => {
@@ -240,7 +240,7 @@ describe("health alerts with missing evidence", () => {
 
     const first = await alerts.check();
     expect(first.sent).toEqual(["schedule.overdue:sch-1"]);
-    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Scheduled task overdue: Mirror backups to the cloud", message: expect.stringContaining("has stopped protecting you"), priority: "default" });
+    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Scheduled task overdue: Mirror backups to the cloud", message: expect.stringContaining("has stopped protecting you"), priority: "default" }, expect.objectContaining({ key: expect.any(String) }));
     expect(await alerts.check()).toMatchObject({ sent: [] }); // still overdue: no repeat
 
     // The scheduler catches up (next run in the future): the alert resolves.
@@ -319,7 +319,7 @@ describe("failures BoxPilot reports on its own work (M27.2)", () => {
   it("announces a failure once however often it repeats, and says once that it cleared", async () => {
     const { alerts, send, state, store } = ledger();
     expect(await alerts.raise(failure)).toMatchObject({ notified: true, sent: true });
-    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${failure.title}`, message: failure.message, priority: "high" });
+    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${failure.title}`, message: failure.message, priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
     // An hourly schedule failing all night is one push, not twelve.
     for (let run = 0; run < 12; run += 1) expect(await alerts.raise(failure)).toMatchObject({ sent: false });
     expect(send).toHaveBeenCalledTimes(1);
@@ -348,7 +348,7 @@ describe("failures BoxPilot reports on its own work (M27.2)", () => {
 
     setTarget({ kind: "ntfy" });
     expect((await alerts.check()).sent).toEqual([failure.key]);
-    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${failure.title}`, message: failure.message, priority: "high" });
+    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${failure.title}`, message: failure.message, priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
     expect(state()[failure.key]).toEqual({ since: "2026-09-27T03:00:00.000Z", title: failure.title, notified: true });
     expect((await alerts.check()).sent).toEqual([]); // announced now; the next round is quiet
   });
@@ -432,7 +432,7 @@ describe("news pushed straight to the target, kept when it reaches no one (M27.2
   it("is sent and forgotten when the target takes it", async () => {
     const { alerts, send, state } = ledger();
     expect(await alerts.tell(signIn)).toEqual({ key: signIn.key, notified: true });
-    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${signIn.title}`, message: signIn.message, priority: "high" });
+    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${signIn.title}`, message: signIn.message, priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
     expect(state()).toEqual({}); // news, not a condition: nothing stands once it is told
   });
 
@@ -448,7 +448,7 @@ describe("news pushed straight to the target, kept when it reaches no one (M27.2
 
     setTarget({ kind: "ntfy" });
     expect((await alerts.check()).sent).toEqual([signIn.key]);
-    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${signIn.title}`, message: "alex signed in again from 100.64.0.20.", priority: "high" });
+    expect(send).toHaveBeenCalledWith({ title: `BoxPilot: ${signIn.title}`, message: "alex signed in again from 100.64.0.20.", priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
     expect(state()).toEqual({});
   });
 
@@ -496,7 +496,7 @@ describe("news pushed straight to the target, kept when it reaches no one (M27.2
     expect(state()["release.available"]).toMatchObject({ title: "Version 1.132.0 is available", notified: false });
     setTarget({ kind: "ntfy" });
     expect((await alerts.check()).sent).toEqual(["release.available"]);
-    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Version 1.132.0 is available", message: "newest", priority: "default" });
+    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Version 1.132.0 is available", message: "newest", priority: "default" }, expect.objectContaining({ key: expect.any(String) }));
 
     // A month after its newest words it is no longer news.
     setTarget(null);

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Every route, every role, every casing (M29.4).
  *
@@ -219,8 +218,9 @@ const changeRoutes = [
   "POST /api/v1/remediations/dismissals", "DELETE /api/v1/remediations/dismissals/:id", "POST /api/v1/remediations/attempts",
   "POST /api/v1/oidc/clients", "DELETE /api/v1/oidc/clients/:id",
   "POST /api/v1/people", "PUT /api/v1/people/:id", "DELETE /api/v1/people/:id",
-  "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test",
+  "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test", "PUT /api/v1/settings/quiet-hours",
   "PUT /api/v1/settings/approval-mode", "PUT /api/v1/settings/backup-destination", "PUT /api/v1/settings/github-client-id", "PUT /api/v1/settings/assistant",
+  "PUT /api/v1/settings/storage-wake",
   "POST /api/v1/storage/shares/list", "POST /api/v1/virtualization/media/uploads", "POST /api/v1/virtualization/plans",
   // Agents (M37): making, changing, running, pausing and stopping them, their cards, notes, library
   // and evaluations, and the owner's switch. None stages or runs an operation.
@@ -339,6 +339,7 @@ const dataRoutes = {
   "GET /api/v1/virtualization/retention": [{ ...open, check: ({ role, body }) => expect(body.retentionRuns.length, role).toBe(1) }],
   "GET /api/v1/virtualization/recoveries": [{ ...open, check: ({ role, body }) => expect(body.recoveries.length, role).toBe(1) }],
   "GET /api/v1/settings/notifications": [open],
+  "GET /api/v1/settings/quiet-hours": [open],
   "GET /api/v1/settings/watch": [{
     ...open,
     check: ({ role, body }) => {
@@ -386,6 +387,7 @@ const dataRoutes = {
   }],
   "GET /api/v1/settings/weekly-report/preview": [ownerOnly],
   "GET /api/v1/settings/approval-mode": [open],
+  "GET /api/v1/settings/storage-wake": [open],
   "GET /api/v1/settings/vpn-profile": [ownerOnly],
   "GET /api/v1/settings/cloud-destination": [open],
   "GET /api/v1/settings/backup-destination": [open],
@@ -401,6 +403,8 @@ const dataRoutes = {
       expect(body.lastMeasured === null, role).toBe(role === "viewer");
     },
   }],
+  // The SMART figures the Overview shows every account, over time (M31.2).
+  "GET /api/v1/storage/smart-history": [open],
   "GET /api/v1/storage/shares/discover": [operatorUp],
   "GET /api/v1/storage/nfs": [open],
   "GET /api/v1/storage/samba": [{
@@ -512,7 +516,7 @@ const dataRoutes = {
       expect(body.cardsWaiting, role).toBe(role === "owner" ? 1 : 0);
     },
   }],
-  "GET /api/v1/agents/catalog": [{ ...open, check: ({ role, body }) => expect(body.templates.length, role).toBe(12) }],
+  "GET /api/v1/agents/catalog": [{ ...open, check: ({ role, body }) => expect(body.templates.length, role).toBe(13) }],
   "GET /api/v1/agents/usage": [{ ...open, check: ({ role, body }) => expect(body.caps.cpuQuotaPercent, role).toBe(400) }],
   // M45.3: Claude's state is everyone's to read; it never holds the key.
   "GET /api/v1/agents/cloud": [{ ...open, check: ({ role, body }) => { expect(body.connected, role).toBe(false); expect(JSON.stringify(body)).not.toMatch(/sk-ant-/); } }],

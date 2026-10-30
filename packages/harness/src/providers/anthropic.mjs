@@ -39,10 +39,13 @@ const reasons = { end_turn: "stop", stop_sequence: "stop", tool_use: "tool_calls
 
 const notRun = "Not run: the run did not use this call.";
 
+/** @typedef {{ type: string, text?: string, source?: object }} ContentBlock */
+
+/** @returns {ContentBlock[]} */
 function text(content) {
   if (typeof content === "string") return content ? [{ type: "text", text: content }] : [];
   if (!Array.isArray(content)) return [];
-  return content.flatMap((part) => {
+  return content.flatMap(/** @returns {ContentBlock[]} */ (part) => {
     if (part?.type === "text" && typeof part.text === "string") return part.text ? [{ type: "text", text: part.text }] : [];
     const url = part?.type === "image_url" ? String(part.image_url?.url ?? part.image_url ?? "") : "";
     const image = /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/=]+)$/.exec(url);
@@ -235,6 +238,8 @@ export const anthropicOrigin = "https://api.anthropic.com";
  * are the ones given, never the environment's (the SDK would otherwise take ANTHROPIC_API_KEY,
  * ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL and ANTHROPIC_LOG from it), and a redirect is an error,
  * not a new destination.
+ *
+ * @param {{ apiKey?: string, baseURL?: string, fetch?: typeof globalThis.fetch, maxRetries?: number }} [options]
  */
 export function createAnthropicClient({ apiKey, baseURL = anthropicOrigin, fetch, maxRetries = 2 } = {}) {
   if (typeof apiKey !== "string" || !apiKey) throw new TypeError("Claude needs an API key");

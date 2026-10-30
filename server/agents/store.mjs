@@ -408,7 +408,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
   }
 
   function listRuns({ agentId = null, limit = 50, states = null, kind = null, requestedBy = undefined } = {}) {
-    const safe = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const safe = Math.min(Math.max(Number.parseInt(String(limit), 10) || 50, 1), 200);
     const clauses = [];
     const values = [];
     if (agentId) { clauses.push("agent_id = ?"); values.push(agentId); }

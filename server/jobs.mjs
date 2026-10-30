@@ -102,7 +102,7 @@ export function createJobService(store, helper, {
   // validated parameters: installing an app its manifest calls high risk is high. The job is staged
   // and approved at the higher of the two, never lower than the operation's own.
   operationRiskHooks = {},
-  onOperationSettled = () => {},
+  onOperationSettled = (_job) => {},
   // The health-alert ledger (raise/clear). A result that could not be saved is announced through it.
   alerts = null,
   now = () => Date.now(),
@@ -185,7 +185,7 @@ export function createJobService(store, helper, {
   /**
    * @param {string} jobId
    * @param {string} ownerId
-   * @param {string | { password?: string, session?: { tokenHash?: string, elevatedUntil?: string | null } }} approval
+   * @param {string | { password?: string, confirmText?: string, passwordVerified?: boolean, session?: { tokenHash?: string, elevatedUntil?: string | null, owner?: { role?: string } } }} approval
    *   A bare string is treated as a password (legacy callers).
    */
   async function prepareApproval(jobId, ownerId, approval = {}) {
@@ -213,14 +213,18 @@ export function createJobService(store, helper, {
       throw Object.assign(new Error("This approval expired after 30 minutes. Close it and stage the operation again with its credentials."), { code: "approval_expired" });
     }
     if (policy.passwordRequired && !passwordProvided) throw Object.assign(new Error(`Enter the owner password: ${policy.tier}-risk job needs the owner password`), { code: "password_required" });
-    let elevatedUntil = session?.elevatedUntil ?? null;
-    if (passwordProvided && session?.tokenHash && typeof store.elevateSession === "function") {
-      elevatedUntil = store.elevateSession(session.tokenHash, new Date(now() + elevationTtlMs)) ?? elevatedUntil;
-    }
     const role = session?.owner?.role ?? owner.role ?? "owner";
     if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot approve jobs");
     if (policy.tier === "high" && role !== "owner") throw new Error("Only the owner can approve high-risk jobs");
     if (policy.minimumRole === "owner" && role !== "owner") throw new Error("Only the owner can approve this job");
+    // Only once the approver is allowed to approve this job: the password used to unlock the elevated
+    // window before the role was looked at, so an operator demoted to viewer who still had a job of
+    // their own staged got a session marked unlocked out of an approval that was then refused. The
+    // /elevate route has always refused a viewer; this is the same rule at the other door.
+    let elevatedUntil = session?.elevatedUntil ?? null;
+    if (passwordProvided && session?.tokenHash && typeof store.elevateSession === "function") {
+      elevatedUntil = store.elevateSession(session.tokenHash, new Date(now() + elevationTtlMs)) ?? elevatedUntil;
+    }
     if (policy.confirmText && confirmText !== policy.confirmText) throw new Error(`Type ${policy.confirmText} to confirm this ${policy.tier}-risk job`);
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
@@ -315,9 +319,12 @@ export function createJobService(store, helper, {
       const { text, exists } = await jobLog.read(jobId, 0);
       if (exists && typeof store.saveJobOutput === "function") {
         store.saveJobOutput(jobId, text);
-        // The runtime directory belongs to root. The helper verifies the full durable copy
-        // before unlinking; failed, incomplete and truncated logs remain available.
-        if (store.getJob(jobId)?.state === "completed") await helper.request("job.output.release", { jobId }, { timeoutMs: 10_000 });
+        // The runtime directory belongs to root. The helper verifies the full durable copy before
+        // unlinking, and keeps incomplete and truncated logs. A failed job's log goes too once it is
+        // saved whole (it stayed in /run until reboot), unless the job ran out of time with work that
+        // may still be writing to it.
+        const finished = store.getJob(jobId);
+        if (finished?.state === "completed" || (finished?.state === "failed" && !mayStillBeRunning(finished.timeout))) await helper.request("job.output.release", { jobId }, { timeoutMs: 10_000 });
       }
     } catch { /* output is best-effort */ }
   }

@@ -29,6 +29,15 @@ const originPattern = /^https?:\/\/[A-Za-z0-9.-]{1,180}(?::\d{1,5})?$/;
 const findingKinds = new Set(["ask", "manual", "schedule", "event", "webhook", "continue"]);
 const answered = new Set(["completed", "degraded"]);
 
+/**
+ * @param {{
+ *   state?: any, store?: any, helper?: any, now?: () => Date, redact?: (text: string) => string,
+ *   audit?: (type: string, entry: { actorId?: string | null, details?: object }) => void, active?: () => boolean,
+ *   ask?: ((request: any) => any) | null, feedback?: ((request: any) => any) | null,
+ *   limits?: Partial<typeof chatLimits> & { pollEveryMs?: number, drainDelayMs?: number, askPollEveryMs?: number },
+ *   schedule?: (task: () => void, ms: number) => unknown,
+ * }} options
+ */
 export function createAgentChat({ state, store, helper = null, now = () => new Date(), redact = (text) => text, audit = () => {}, active = () => true, ask = null, feedback = null, limits: overrides = {}, schedule = (task, ms) => { const timer = setTimeout(task, ms); timer.unref?.(); return timer; } } = {}) {
   const limits = { ...chatLimits, pollEveryMs: 3 * 60_000, drainDelayMs: 1_500, askPollEveryMs: askLimits.pollEveryMs, ...overrides };
   let draining = null;
@@ -41,6 +50,7 @@ export function createAgentChat({ state, store, helper = null, now = () => new D
   // How long to wait before reading Zulip again (M50): a minute while people write, doubling up to
   // ten after quiet reads. Each read starts a root Node task, about 1,900 a day at a steady minute
   // with nobody writing; a message, "Check now" or a poll with more waiting sets it back to a minute.
+  /** @type {number} */
   let askPollWaitMs = limits.askPollEveryMs;
   const askPollWaitMaxMs = Math.max(limits.askPollEveryMs, 10 * 60_000);
 

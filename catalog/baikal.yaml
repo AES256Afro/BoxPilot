@@ -7,7 +7,7 @@ description: "CalDAV and CardDAV server: calendars and contacts that sync native
 website: https://sabre.io/baikal
 risk: low
 image:
-  reference: ckulka/baikal:0.10.1
+  reference: ckulka/baikal:0.10.1@sha256:658e9582f8d418392b4dfe7e816835b003694c8cb54ed0ba598eb5727b58fe22
   version: "0.10.1"
 ports:
   - id: web
@@ -28,4 +28,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 300
-notes: "The first visit runs the setup wizard (admin password, SQLite is fine). Then create users under Users and Resources; clients use http://<this server>:8127/dav.php."
+notes: "The first visit runs the setup wizard (admin password, SQLite is fine). Then create users under Users and Resources; clients use http://<this server>:8127/dav.php. This image still ships PHP 8.1, which stopped getting security fixes at the end of 2025; keep Baïkal on your home network or tailnet rather than publishing it to the internet."

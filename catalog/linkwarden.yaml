@@ -7,7 +7,7 @@ description: "Bookmarks that never rot: every saved link is archived as a screen
 website: https://linkwarden.app
 risk: low
 image:
-  reference: ghcr.io/linkwarden/linkwarden:v2.16.1
+  reference: ghcr.io/linkwarden/linkwarden:v2.16.1@sha256:6902e62a6d68e1906045310dbf9b2df7f3d784a7b2e9d0f02c23666023791634
   version: "2.16.1"
 ports:
   - id: web
@@ -40,7 +40,7 @@ env:
     generate: true
 sidecars:
   - id: database
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     env:
       POSTGRES_DB: linkwarden
       POSTGRES_USER: linkwarden

@@ -7,7 +7,7 @@ description: "Ebook, manga, and comic library with a fast reader in the browser 
 website: https://www.kavitareader.com
 risk: low
 image:
-  reference: jvmilazz0/kavita:0.9.0.2
+  reference: jvmilazz0/kavita:0.9.0.2@sha256:ca6af7a18d7124d014702983c2364e485294f808c1552e9555f2595b7cda7982
   version: "0.9.0.2"
 ports:
   - id: web

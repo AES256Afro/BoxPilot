@@ -167,6 +167,51 @@ export const agentTemplates = Object.freeze([
     },
   },
   {
+    // TheySpy's findings, read through its own read-only summary (theyspy.mjs, app.theyspy.inspect).
+    id: "spyware-watch",
+    title: "Spyware watch",
+    summary: "Reads what TheySpy found every morning: devices that looked up spyware or ad-intelligence addresses, traces found on a device, and exploited bugs in software a device runs. Says plainly when all is quiet and tells the owner at once when a lookup got through. Needs TheySpy from the App catalog.",
+    spec: {
+      name: "Spyware watch",
+      purpose: "Tells the owner when TheySpy sees signs of ad-delivered spyware on the network, and stays quiet otherwise.",
+      job: "Say whether any device looked up a spyware or ad-intelligence address, whether Pi-hole blocked it, whether a trace was found on a device, and whether a device runs software with an exploited bug.",
+      successCriteria: [
+        "Names each device with an indicator lookup Pi-hole did not fully block, with the indicator exactly as TheySpy wrote it (defanged).",
+        "Says how many traces (contact findings) are open and how many are new, and which devices they are on.",
+        "Names exploited bugs on devices with the version that fixes them, when TheySpy gives one.",
+        "Says when Pi-hole is not connected to TheySpy, because then lookups are not watched.",
+        "Proposes no change to Pi-hole: TheySpy asks the owner itself before it blocks anything.",
+      ],
+      prompt: {
+        rules: [
+          "Use theyspy.status's words and numbers as it gives them. Keep every indicator defanged, exactly as written (example[.]com); never write it as a link or without the brackets.",
+          "A lookup that Pi-hole did not fully block, or a new contact finding, is what matters most: put it first and notify the owner.",
+          "A lookup Pi-hole blocked is often an ad that tried to load: report it, but do not alarm.",
+          "A gap is a check that could not run. It is never evidence that a device is clean.",
+          "For a contact finding on a phone, say to keep the phone as it is and look at TheySpy's Evidence locker; for help, Access Now's Digital Security Helpline (accessnow.org/help).",
+          "Keep one note titled \"Spyware watch\": today's counts. Your notes come with the request; compare with them, say what is new, then write it again.",
+          "Report only what a tool showed. When all is quiet, say so in one line.",
+        ],
+        steps: [
+          "Read theyspy.status.",
+          "Compare with your Spyware watch note and write today's counts with notes.write.",
+          "Notify the owner with notify.owner when a lookup got through or a contact finding is new; otherwise answer.",
+        ],
+        output: { format: "text", style: "First what needs the owner (lookups that got through, new traces), each with its device. Then one line each on blocked lookups, open findings and gaps, and exploited bugs. Or one line: \"Nothing found this week.\"" },
+        escalate: ["A device looked up an indicator Pi-hole did not block.", "A new contact finding on a device.", "TheySpy is not connected to Pi-hole."],
+      },
+      instructions: "",
+      audience: ["owner", "operator"],
+      tools: { ...off, ...exact, "theyspy.status": "auto", "alerts.active": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "notify.owner": "auto" },
+      // Every morning, before the house is up, and whenever the owner asks.
+      triggers: { ask: true, schedule: { every: "daily", hour: 7, minute: 10, quietHours: false }, events: [] },
+      budget: { runsPerDay: 4, modelSecondsPerDay: 900, stepsPerRun: 4, tokensPerRun: 10_000, runSeconds: 300 },
+      outputs: { notes: true, digest: false, notify: "important", proposals: false },
+      memory: { enabled: true, freshDays: 14, maxNotes: 10, share: true },
+      sharing: { shareFindings: true, useFindings: true },
+    },
+  },
+  {
     id: "backup-auditor",
     title: "Backup Auditor",
     summary: "Checks every night that backups ran, restore checks passed and the off-box copy is recent, and proposes the fix when one did not.",
@@ -529,7 +574,7 @@ export const templateById = (id) => agentTemplates.find((template) => template.i
  * report: read the way apps.list and services.status read them, so an agent is checked against
  * what its own tool said.
  */
-export const evaluationFacts = Object.freeze(["hostname", "operatingSystem", "installedApps", "rootDiskPercent", "piholePlacement", "piholeBlocking", "drives", "stoppedApps", "unhealthyApps", "appUpdates", "failedServices", "firewallEnabled", "neverBackedUp", "rebootRequired", "busiestApp"]);
+export const evaluationFacts = Object.freeze(["hostname", "operatingSystem", "installedApps", "rootDiskPercent", "piholePlacement", "piholeBlocking", "drives", "stoppedApps", "unhealthyApps", "appUpdates", "failedServices", "firewallEnabled", "neverBackedUp", "rebootRequired", "busiestApp", "theyspyContacts", "theyspyUnblocked"]);
 
 /**
  * The built-in evaluation (M40): real questions with answers BoxPilot can check, each asked only of
@@ -586,6 +631,12 @@ export const templateExamples = Object.freeze({
     { id: "blocking", request: "Is Pi-hole blocking right now?", tools: ["pihole.stats"] },
     { id: "blocked-today", request: "How many queries did Pi-hole block today?", tools: ["pihole.stats"] },
     { id: "gravity", request: "Is Pi-hole's blocklist out of date?", tools: ["pihole.stats"] },
+  ],
+  "spyware-watch": [
+    { id: "lookups", request: "Did any device look up a spyware address this week?", tools: ["theyspy.status"] },
+    { id: "got-through", request: "Did Pi-hole block every spyware lookup?", tools: ["theyspy.status"] },
+    { id: "traces", request: "Has TheySpy found anything on my phone or laptop?", tools: ["theyspy.status"] },
+    { id: "exploited", request: "Do any of my devices run software with an exploited bug?", tools: ["theyspy.status"] },
   ],
   "backup-auditor": [
     { id: "missing", request: "Which apps have no recent backup?", tools: ["backups.status", "apps.list"] },
@@ -710,6 +761,10 @@ export const templateQuestions = Object.freeze({
     { id: "apps", question: "How many BoxPilot apps are installed?", expect: { fact: "installedApps" } },
     // M47.6: read from apt as the Updates page reads it.
     { id: "reboot", question: "Does the server need a reboot?", expect: { fact: "rebootRequired" } },
+  ],
+  "spyware-watch": [
+    { id: "contacts", question: "How many open contact findings does TheySpy have?", expect: { fact: "theyspyContacts" } },
+    { id: "got-through", question: "How many indicator lookups did Pi-hole not fully block this week, according to TheySpy?", expect: { fact: "theyspyUnblocked" } },
   ],
   "resource-watch": [
     // M47.9: read from docker stats as the Performance page reads it.

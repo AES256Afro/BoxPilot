@@ -22,10 +22,11 @@ export interface MachineSnapshotState {
 
 export interface RemoteMirrorState { keyReady: boolean; publicKey: string | null; fingerprint: string | null; hostKeysPinned: number; rsyncInstalled: boolean }
 export interface RemoteDestination { host: string; port: number; user: string; path: string }
-export interface RemoteSettings { destination: RemoteDestination | null; lastSync: { completedAt: string; filesTransferred: number; bytesTransferred: number; destination: string } | null }
+/** A viewer is told only that a destination is set (`hidden`), not where. */
+export interface RemoteSettings { destination: RemoteDestination | { hidden: true } | null; lastSync: { completedAt: string; filesTransferred: number; bytesTransferred: number; destination: string } | null }
 
 export interface CloudProvider { label: string; fields: string[]; secrets: string[]; help: string }
-export interface CloudState { rcloneInstalled: boolean; configured: boolean; provider: string | null; providers: Record<string, CloudProvider> }
+export interface CloudState { rcloneInstalled: boolean; configured: boolean; sealed?: boolean; provider: string | null; providers: Record<string, CloudProvider> }
 export interface CloudSettings { destination: (Record<string, string | null> & { provider: string }) | null; lastSync: { completedAt: string; filesTransferred: number; bytesTransferred: string | null; destination: string; errors?: number } | null }
 
 /** One place a machine snapshot can be restored from. */

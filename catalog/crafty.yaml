@@ -7,7 +7,7 @@ description: "Run several Minecraft servers (Java and Bedrock) from one panel: c
 website: https://craftycontrol.com
 risk: medium
 image:
-  reference: registry.gitlab.com/crafty-controller/crafty-4:4.10.8
+  reference: registry.gitlab.com/crafty-controller/crafty-4:4.10.8@sha256:166a06f73d8c831fe594550885655fc051546f042fc5ff79f373542fed4f644f
   version: "4.10.8"
 user: "1000:1000"
 ports:

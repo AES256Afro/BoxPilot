@@ -20,7 +20,7 @@ export interface StorageReport {
   tools: { cifs: boolean; nfs: boolean; smbclient: boolean; showmount: boolean };
 }
 /** What an app's folder holds, from the nightly sweep. */
-export interface Usage { appId: string | null; path: string | null; mount: string | null; bytes: number; grewBytes: number | null; days: number; sharedWith?: string[] }
+export interface Usage { appId: string | null; path: string | null; mount: string | null; bytes: number; grewBytes: number | null; days: number; sharedWith?: string[]; /** Daily sizes, oldest first (M31.4). */ series?: Array<{ at: string; bytes: number }> }
 export interface LastMeasured { at: string; sampled: number; unmeasured: number; error: string | null; deferred?: string }
 export interface Forecast { target: string; daysToFull: number; availableBytes: number | null; totalBytes: number | null; samples: number }
 export interface Discovered { address: string; name: string | null; smb: boolean; nfs: boolean; mac: string | null; interface: string | null }

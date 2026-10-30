@@ -13,7 +13,7 @@ import { createStateStore } from "../state.mjs";
 import { createAuthService, hashPassword } from "../security.mjs";
 import { createIdentityService } from "../identity.mjs";
 import { createPasskeyService } from "../passkeys.mjs";
-import { createPasskeyRouter } from "./passkeys.mjs";
+import { createPasskeyRouter, listenerOrigin } from "./passkeys.mjs";
 import { bufferToBase64url } from "../webauthn.mjs";
 
 const password = "correct horse battery";
@@ -179,5 +179,27 @@ describe("an app on another port of the same name", () => {
     const local = (claimed) => fetch(`http://localhost:${port}/api/v1/auth/passkey/options`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: claimed }) });
     expect((await local(`http://localhost:${port}`)).status).toBe(200);
     expect((await local(`http://localhost:${port + 1}`)).status).toBe(400);
+  });
+});
+
+describe("the origin a request reached this listener at", () => {
+  const request = (host, { localPort = 8787, encrypted = false } = {}) => ({ get: (name) => (name === "host" ? host : undefined), socket: { localPort, encrypted } });
+
+  it("is the Host with this listener's scheme, only when it names this listener's port", () => {
+    expect(listenerOrigin(request("box.example:8787"))).toBe("http://box.example:8787");
+    expect(listenerOrigin(request("box.example:8443", { localPort: 8443, encrypted: true }))).toBe("https://box.example:8443");
+    expect(listenerOrigin(request("box.example", { localPort: 443, encrypted: true }))).toBe("https://box.example");
+    expect(listenerOrigin(request("box.example", { localPort: 80 }))).toBe("http://box.example");
+    // An app on another port of the same name must not pass for BoxPilot.
+    expect(listenerOrigin(request("box.example:3000"))).toBeNull();
+    expect(listenerOrigin(request("box.example"))).toBeNull();
+  });
+
+  it("gives nothing for a Host carrying credentials, a path, a query or a fragment, or none at all", () => {
+    for (const host of ["user:pass@box.example:8787", "box.example:8787/evil", "box.example:8787?x=1", "box.example:8787#x", "", "bad host:8787"]) {
+      expect(listenerOrigin(request(host))).toBeNull();
+    }
+    expect(listenerOrigin({ get: () => "box.example:8787", socket: {} })).toBeNull();
+    expect(listenerOrigin({ get: () => undefined, socket: { localPort: 8787 } })).toBeNull();
   });
 });

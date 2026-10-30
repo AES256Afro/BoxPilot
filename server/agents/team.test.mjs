@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Agents working together, and the brain's oversight (M37), end to end with the real service, the
  * real runner and the stand-in model: a supervisor hands subtasks to specialists on the one queue

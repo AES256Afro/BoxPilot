@@ -16,7 +16,7 @@
  * through the ordinary job path, where it is approved at its own tier.
  */
 import express, { Router } from "express";
-import { createEventStream, createStreamBudget } from "../event-stream.mjs";
+import { createEventStream, createStreamBudget, endWhenSessionEnds } from "../event-stream.mjs";
 
 const callerOf = (request) => ({ id: request.boxpilotSession?.owner?.id ?? null, role: request.boxpilotSession?.owner?.role ?? "disabled" });
 
@@ -38,6 +38,7 @@ const handle = (fn) => async (request, response) => {
 /** Claude when no gateway is wired in (tests that do not ask about it): not connected. */
 const noCloud = { state: async () => ({ connected: false, model: null, models: [], capUsd: null, connectedAt: null, gateway: "off", month: null, spentUsd: null, calls: null, problem: null }) };
 
+/** @param {{ agents: any, state: any, auth: any, cloud?: { state: () => Promise<object> }, streamBudget?: ReturnType<typeof createStreamBudget> }} services */
 export function createAgentsRouter({ agents, state, auth, cloud = noCloud, streamBudget = createStreamBudget() }) {
   const router = Router();
 
@@ -105,6 +106,7 @@ export function createAgentsRouter({ agents, state, auth, cloud = noCloud, strea
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     const stream = createEventStream(response);
     stream.onClose(release);
+    endWhenSessionEnds(stream, { session: request.boxpilotSession, lookup: (token) => state.getSession(token) });
     stream.send("snapshot", first);
     const done = new Set(["completed", "degraded", "failed", "cancelled", "killed", "interrupted", "refused", "timeout"]);
     if (done.has(first.state)) { stream.end(); return undefined; }

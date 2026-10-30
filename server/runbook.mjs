@@ -32,7 +32,7 @@ export const runbookSections = Object.freeze([
  * does not make the document wrong; these do. Every id is checked against the registry in tests.
  */
 export const layoutOperations = Object.freeze([
-  "app.install", "app.reinstall", "app.uninstall", "app.purge", "app.update", "app.rollback", "app.reconfigure", "app.exposure.set", "app.serve.set", "app.serve.withdraw", "app.compose.edit", "app.backup.restore",
+  "app.install", "app.reinstall", "app.uninstall", "app.purge", "app.update", "app.update.many", "app.update.available", "app.rollback", "app.reconfigure", "app.exposure.set", "app.serve.set", "app.serve.withdraw", "app.compose.edit", "app.backup.restore",
   "host.snapshot.restore",
   "storage.mount", "storage.unmount", "storage.writable", "storage.format", "storage.lvm.extend", "share.mount", "share.unmount",
   "samba.apply", "samba.share.writable", "nfs.apply",
@@ -268,7 +268,7 @@ export function changesSince(record, { jobs = [], markers = {}, markerTimes = {}
     changes.push({ kind: name, at: Number.isFinite(at) && at > since ? new Date(at).toISOString() : null, change });
   }
   // Oldest first; a change whose time is not recorded goes last rather than pretending to a time.
-  return changes.sort((a, b) => (a.at === null) - (b.at === null) || String(a.at).localeCompare(String(b.at)));
+  return changes.sort((a, b) => Number(a.at === null) - Number(b.at === null) || String(a.at).localeCompare(String(b.at)));
 }
 
 /** "Out of date since ..." for the page: the first change, and how many more. Null when up to date. */
