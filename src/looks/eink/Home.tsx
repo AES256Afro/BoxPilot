@@ -92,7 +92,7 @@ export default function EinkHome(props: HomeProps) {
           <div className="eink-acts">
             {actions.map((action, index) => (
               <Button key={`${action.operationId}:${action.label}`} variant={index === 0 ? "primary" : "secondary"} className="eink-btn"
-                risk={action.kind === "open" || action.kind === "dismiss" ? undefined : action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => act(need, action)}>
+                risk={action.kind === "open" || action.kind === "dismiss" || action.kind === "acknowledge" ? undefined : action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => act(need, action)}>
                 {action.label}
               </Button>
             ))}

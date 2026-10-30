@@ -17,7 +17,7 @@ describe("remediation source availability", () => {
       helper: { request: async () => { throw new Error("helper unavailable"); } },
       catalogService: { all: async () => ({ manifests: [] }) },
       auth: { requireCsrf: (_request, _response, next) => next(), requireRole: () => (_request, _response, next) => next() },
-      notifications: { describe: () => ({ configured: true }) },
+      notifications: { describe: () => ({ configured: true }) }, inspectNames: async () => null,
     }));
     const server = app.listen(0, "127.0.0.1");
     await new Promise((resolve) => server.once("listening", resolve));
@@ -36,7 +36,7 @@ it("names unavailable mount and catalog sources even when other checks succeed",
   vi.mocked(collectStorage).mockResolvedValueOnce({ devices: [], mounts: [], fstab: [], availability: { mounts: false, fstab: false } });
   const app = express();
   app.use(asOwner);
-  app.use(createHostRouter({ state: { getSetting: (_key, fallback) => fallback }, helper: { request: async () => ({}) }, catalogService: { all: async () => { throw new Error("catalog unavailable"); } }, auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) } }));
+  app.use(createHostRouter({ state: { getSetting: (_key, fallback) => fallback }, helper: { request: async () => ({}) }, catalogService: { all: async () => { throw new Error("catalog unavailable"); } }, auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) }, inspectNames: async () => null }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   try {
@@ -63,7 +63,7 @@ it("finds a served app's port held on the tailnet address, asking Docker who hol
     app.use(asOwner);
     app.use(createHostRouter({
       state: { getSetting: (_key, fallback) => fallback }, helper, catalogService: { all: async () => ({ manifests: [{ id: "dockge", name: "Dockge", volumes: [] }] }) },
-      auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) },
+      auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) }, inspectNames: async () => null,
       collect: async () => ({ devices: [], mounts: [], fstab: [], availability: { devices: true, mounts: true, fstab: true } }),
       inventory: { inspect: async () => ({ network: { addresses: [{ interface: "docker0", address: "172.17.0.1" }, { interface: "eno1", address: "192.168.1.10" }] } }) },
       readListeners: async () => listeners,
@@ -100,7 +100,7 @@ it("asks the helper what the drive-tools fix installs only when a finding offers
     app.use(asOwner);
     app.use(createHostRouter({
       state: { getSetting: (_key, fallback) => fallback }, helper, catalogService: { all: async () => ({ manifests: [] }) },
-      auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) },
+      auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) }, inspectNames: async () => null,
       collect: async () => ({ devices: [{ path: "/dev/sda2", transport: "usb" }], mounts: [{ target: "/mnt/the-dump", source: "/dev/sda2", fstype, readOnly: false }], fstab: [{ mountpoint: "/mnt/the-dump", managedName: "the-dump", options: "defaults,nofail" }], availability: { devices: true, mounts: true, fstab: true } }),
       fileExists: async () => checker,
     }));
@@ -119,6 +119,58 @@ it("asks the helper what the drive-tools fix installs only when a finding offers
   const body = await scan({ fstype: "exfat", checker: false });
   expect(asked.filter((operation) => operation === "prerequisite.drive-tools.inspect")).toHaveLength(1);
   expect(body.findings.find((finding) => finding.id === "exfat-checker-missing")?.fix).toMatchObject({ operationId: "prerequisite.drive-tools.install", parameters: { expectedPackages: { exfatprogs: "1.2.2-1" } } });
+});
+
+// 2026-09-29: the power cut's two findings, read the way the route reads them.
+it("asks the name-lookup check with the house's DNS app, and reads the boot partition's line and last check", async () => {
+  const pihole = { id: "pi-hole", installed: true, container: { exists: true, running: true, status: "running" }, state: { values: {} }, published: [{ id: "dns-udp", host: 53, protocol: "udp", bind: "0.0.0.0" }] };
+  const helper = { request: async (operation) => {
+    if (operation === "app.inspect") return { applications: [pihole] };
+    if (operation === "storage.unclean.events") return { available: true, events: [{ device: "/dev/nvme0n1p1", driver: "FAT-fs", at: "2026-09-29T22:18:07.000Z", message: "FAT-fs (nvme0n1p1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck." }] };
+    return { available: true, ports: [], events: [], drives: [], apps: [] };
+  } };
+  let dnsServer = null;
+  const inspectNames = async ({ dnsServer: getter }) => {
+    dnsServer = await getter();
+    return { available: true, nssWorks: false, names: [{ name: "github.com", ok: false, addresses: [], error: "no answer" }],
+      resolvConf: { kind: "file", stub: false, nameservers: ["100.100.100.100"], generatedBy: "tailscale" },
+      resolved: { active: true, stubPresent: true, stubAnswers: { ok: true, addresses: ["192.0.2.10"] }, resolves: true },
+      internet: { reachable: true, probes: [{ host: "1.1.1.1", port: 443, ok: true }] }, dnsServer: { ...dnsServer, answers: true } };
+  };
+  async function scan(settings = {}) {
+    const app = express();
+    app.use(asOwner);
+    app.use(createHostRouter({
+      state: { getSetting: (key, fallback) => settings[key] ?? fallback }, helper, catalogService: { all: async () => ({ manifests: [{ id: "pi-hole", name: "Pi-hole", volumes: [] }] }) },
+      auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) },
+      collect: async () => ({ devices: [], mounts: [{ target: "/", source: "/dev/mapper/vg-root", fstype: "ext4" }, { target: "/boot/efi", source: "/dev/nvme0n1p1", fstype: "vfat" }], fstab: [{ device: "UUID=AB12-CD34", mountpoint: "/boot/efi", pass: 1 }], availability: { devices: true, mounts: true, fstab: true } }),
+      fileExists: async (file) => file.endsWith("fsck.fat"),
+      inspectNames, hostname: "homebox",
+    }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    try {
+      return await (await fetch(`http://127.0.0.1:${server.address().port}/remediations`)).json();
+    } finally { server.closeAllConnections?.(); await new Promise((resolve) => server.close(resolve)); }
+  }
+  const body = await scan();
+  expect(dnsServer).toEqual({ name: "Pi-hole", address: "127.0.0.1", running: true });
+  expect(body.findings.map((finding) => finding.id)).toEqual(["name-lookups", "boot-partition-mark"]);
+  const [lookups, mark] = body.findings;
+  expect(lookups).toMatchObject({ title: "homebox cannot look up website names, so updates and app downloads fail", fix: { operationId: "dns.lookups.restore", risk: "medium" } });
+  expect(mark.fix).toMatchObject({ operationId: "storage.boot-mark.clear", risk: "medium" });
+  // Checked since the kernel's line: answered.
+  const after = await scan({ bootPartitionChecks: { "/dev/nvme0n1p1": { checkedAt: "2026-09-29T23:00:00.000Z", clean: true } } });
+  expect(after.findings.map((finding) => finding.id)).toEqual(["name-lookups"]);
+  // A check that could not be made is said, not taken for "nothing wrong".
+  const app = express();
+  app.use(asOwner);
+  app.use(createHostRouter({ state: { getSetting: (_key, fallback) => fallback }, helper, catalogService: { all: async () => ({ manifests: [] }) }, auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) }, collect: async () => ({ devices: [], mounts: [], fstab: [], availability: { devices: true, mounts: true, fstab: true } }), inspectNames: async () => { throw new Error("getent hung"); } }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  try {
+    expect((await (await fetch(`http://127.0.0.1:${server.address().port}/remediations`)).json()).unavailableChecks).toContain("Name lookups");
+  } finally { server.closeAllConnections?.(); await new Promise((resolve) => server.close(resolve)); }
 });
 
 describe("Repair's memory: fixes tried and findings set aside (M35)", () => {
@@ -148,7 +200,7 @@ describe("Repair's memory: fixes tried and findings set aside (M35)", () => {
     app.use(as(role, id));
     app.use(createHostRouter({
       state, helper, catalogService: { all: async () => ({ manifests: [{ id: "homepage", name: "Homepage", volumes: [] }] }) },
-      auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) },
+      auth: { requireCsrf: (_req, _res, next) => next(), requireRole: () => (_req, _res, next) => next() }, notifications: { describe: () => ({ configured: true }) }, inspectNames: async () => null,
       collect: async () => ({ devices: [], mounts: [], fstab: [], availability: { devices: true, mounts: true, fstab: true } }),
     }));
     const server = app.listen(0, "127.0.0.1");

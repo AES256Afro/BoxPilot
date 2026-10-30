@@ -1,6 +1,7 @@
 import express from "express";
 import { createSourceLimit } from "./rate-limit.mjs";
 import { randomUUID } from "node:crypto";
+import os from "node:os";
 import { createReadStream, readFileSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { createDeviceResolver, createSnapshotDeviceResolver, deviceResolvingOperations } from "./catalog/devices.mjs";
@@ -71,6 +72,7 @@ import { createReleaseUpdateService } from "./release-updates.mjs";
 import { createSetupService } from "./setup-profiles.mjs";
 import { createUpdateNotifier } from "./update-notifier.mjs";
 import { createHealthAlerts, jobNoticeKey, tellInterrupted } from "./health-alerts.mjs";
+import { createPowerLossWatch } from "./power-loss.mjs";
 import { createWeeklyReport } from "./weekly-report.mjs";
 import { buildChecklist, gatherChecklistEvidence } from "./setup-checklist.mjs";
 import { createTlsRenewal } from "./tls-renewal.mjs";
@@ -408,6 +410,17 @@ const weeklyReport = createWeeklyReport({
 });
 weeklyReport.start();
 healthAlerts.start();
+// How the boot before this one ended (2026-09-29): a power cut that took Pi-hole, and the house's
+// DNS, down with the server for 3.6 hours left nothing on the server saying so. Said once, on Home
+// and through the health ledger, until someone says "Got it".
+createPowerLossWatch({
+  helper, store: state, alerts: healthAlerts, hostname: os.hostname(),
+  dnsApps: async () => {
+    const [live, catalog] = await Promise.all([helper.request("app.inspect", {}, { timeoutMs: 60_000 }), catalogService.all().catch(() => ({ manifests: [] }))]);
+    return (live?.applications ?? []).filter((app) => app.installed && dnsAppIds.includes(app.id)).map((app) => catalog.manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id);
+  },
+  ups: async () => (await inventory.inspect())?.power?.ups?.available === true,
+}).start();
 // Reissue the LAN certificate before it expires, reusing its CA so trusted devices stay trusted (M18.2).
 createTlsRenewal({ helper, store: state }).start();
 // Sample free space daily so the disk-fill forecast (M23.1) has a trend to project.
@@ -570,7 +583,7 @@ app.use("/api/v1", createSettingsRouter({ state, notifications, notificationHist
 app.use("/api/v1", createPushRouter({ push: pushApprovals, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
-app.use("/api/v1", createPowerRouter());
+app.use("/api/v1", createPowerRouter({ state, alerts: healthAlerts, auth }));
 app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network, storage: storageRead }));
 app.use("/api/v1", createHostedDomainsRouter({ hostedDomains, auth }));
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, dnsResilience, notifications, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));

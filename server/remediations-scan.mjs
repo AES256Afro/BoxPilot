@@ -9,16 +9,37 @@ import os from "node:os";
 import { registry } from "./ops/index.mjs";
 import { detectRemediations } from "./remediations.mjs";
 import { applyLedger, attemptsKey, dismissalsKey } from "./repair-ledger.mjs";
+import { dnsAppIds } from "./dns-resilience.mjs";
+import { inspectNameLookups } from "./name-lookups.mjs";
 
-export async function scanRemediations({ helper, state, catalogService, inventory = null, collect, fileExists, readListeners, notifications = null, dnsResilience = null, operatorReadsWanted = false, visibleJobsGiven = [], now = () => Date.now() }) {
+/**
+ * The DNS app on this server the rest of the house uses, if one is installed (Pi-hole, AdGuard Home),
+ * and where to ask it: the address its port 53 is published on, or this server itself (host network,
+ * or published on every address). For "the home network's DNS is separate and fine" (2026-09-29).
+ */
+export function dnsServerFrom(live, manifests = []) {
+  const app = (live?.applications ?? []).find((entry) => entry.installed && dnsAppIds.includes(entry.id));
+  if (!app) return null;
+  const port = (app.published ?? []).find((entry) => entry.host === 53);
+  const bound = typeof port?.bind === "string" && /^\d+\.\d+\.\d+\.\d+$/.test(port.bind) && port.bind !== "0.0.0.0" ? port.bind : "127.0.0.1";
+  return { name: manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id, address: bound, running: Boolean(app.container?.running) && app.container?.status !== "paused" };
+}
+
+export async function scanRemediations({ helper, state, catalogService, inventory = null, collect, fileExists, readListeners, notifications = null, dnsResilience = null, inspectNames = inspectNameLookups, hostname = os.hostname(), operatorReadsWanted = false, visibleJobsGiven = [], now = () => Date.now() }) {
   const facts = { mounts: [], devices: [], containers: [], shares: [], sambaShares: [], apps: [], samba: null, now: Date.now() };
   // File sharing (share folder owners, stat'd as root) and USB history (the kernel's journal) are
   // operator reads (ADR-003). A viewer is not handed what they hold as findings: they are not read
   // on a viewer's behalf, and the scan says which checks it left to an operator (M29.4).
   const operatorReads = Boolean(operatorReadsWanted);
+  const reading = helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null);
+  // Whether this server can look names up (2026-09-29), read here: the helper has no network. The
+  // home network's DNS app is asked too, but only once lookups have failed.
+  const namesRead = Promise.resolve().then(() => inspectNames({
+    dnsServer: async () => dnsServerFrom(await reading, await catalogService.all().then(({ manifests }) => manifests).catch(() => [])),
+  })).catch(() => ({ available: false }));
   const [storage, live, samba, usb, unclean, volumes, protection] = await Promise.all([
     collect().catch(() => null),
-    helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
+    reading,
     operatorReads ? helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
     operatorReads ? helper.request("storage.usb.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
     operatorReads ? helper.request("storage.unclean.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
@@ -35,7 +56,8 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   facts.driveChecks = state.getSetting("driveChecks", {}) ?? {};
   // The boot partition's check, answering the kernel's "not properly unmounted" line (2026-09-29).
   facts.bootChecks = state.getSetting("bootPartitionChecks", {}) ?? {};
-  facts.hostname = os.hostname();
+  facts.hostname = hostname;
+  facts.nameLookups = await namesRead;
   if (storage) {
     // findmnt knows what is mounted; fstab knows which of those BoxPilot manages and with what
     // options. Only managed mounts are offered a fix, so a hand-made entry is never touched.
@@ -177,6 +199,7 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   if (storage?.availability?.mounts === false) unavailableChecks.push("Current mounts");
   if (storage?.availability?.fstab === false) unavailableChecks.push("Saved mount configuration");
   if (!catalogManifests) unavailableChecks.push("Application definitions");
+  if (facts.nameLookups?.available === false) unavailableChecks.push("Name lookups");
   if (facts.apps.some((app) => app.published?.length) && !Array.isArray(facts.listeners)) unavailableChecks.push("Ports in use");
   const detected = detectRemediations(facts);
   // Each fix carries its tier from the registry, the same the approval dialog will ask for.
