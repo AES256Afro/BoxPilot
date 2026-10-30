@@ -7,7 +7,7 @@ description: Self-hosted Git forge (community fork of Gitea) with issues, pull r
 website: https://forgejo.org
 risk: medium
 image:
-  reference: codeberg.org/forgejo/forgejo:16.0.2
+  reference: codeberg.org/forgejo/forgejo:16.0.2@sha256:2fdfe28b5c68f82f49580e227b84e2afb43af0250e0631a54a386ef3b1d9b759
   version: 16.0.2
 ports:
   - id: web

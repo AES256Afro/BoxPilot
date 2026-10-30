@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createRegistry } from "./registry.mjs";
 import { operationModules, registry } from "./index.mjs";
 import { escalationRiskHooks, higherOf, loginHomesFrom, packetFilterUnit, serveWithdrawRisk } from "./escalation.mjs";
-import { onWindows } from "../../test/platform.mjs";
+import { onLinux } from "../../test/platform.mjs";
 import { servesHome } from "../tasks/served-folder.mjs";
 import { readFile } from "node:fs/promises";
 
@@ -131,7 +131,9 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
   });
 
   // Linux only: reads the host's own /etc/passwd, where root logs in with a shell at /root.
-  it.skipIf(onWindows)("raises a share or export inside any login account's home, not only under /home", async () => {
+  // Reads the host's own /etc/passwd: root's home is /root on Linux and /var/root on macOS, so
+  // elsewhere the lookup finds no login account at the path this asserts on.
+  it.skipIf(!onLinux)("raises a share or export inside any login account's home, not only under /home", async () => {
     expect(await tier("samba.apply", { shares: [{ name: "Root", path: "/root/files" }] })).toBe("high");
     expect(await tier("nfs.apply", { exports: [{ path: "/root" }] })).toBe("high");
     expect(await tier("samba.apply", { shares: [{ name: "Media", path: "/mnt/media" }] })).toBe("medium");
