@@ -17,6 +17,7 @@ import { searxSearch } from "./connectors.mjs";
 const queryRedactor = createRedactor();
 import { exactTools } from "./deterministic.mjs";
 import { describePihole } from "./pihole.mjs";
+import { describeTheyspy } from "./theyspy.mjs";
 import { roleAtLeast } from "./tool-catalog.mjs";
 import { describeApps, describeCoverage, describeFirewall, describePlaces, describeProtection, describeReclaimable, describeRepair, describeServer, describeStorage, describeTunnel, describeUpdates, describeUsage, describeUsers, locate } from "./tool-text.mjs";
 
@@ -232,6 +233,11 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     async "pihole.stats"(_input, context) {
       if (!appAllowed(context.spec, "pi-hole")) throw new ToolError("This agent may not look at Pi-hole");
       return describePihole(await read("app.pihole.inspect", {}, context));
+    },
+
+    async "theyspy.status"(_input, context) {
+      if (!appAllowed(context.spec, "theyspy")) throw new ToolError("This agent may not look at TheySpy");
+      return describeTheyspy(await read("app.theyspy.inspect", {}, context));
     },
 
     async "records.query"({ collection, contains = null, limit = 10 }, context) {

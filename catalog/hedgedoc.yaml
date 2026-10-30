@@ -7,7 +7,7 @@ description: "Collaborative Markdown editing in real time: shared meeting notes 
 website: https://hedgedoc.org
 risk: low
 image:
-  reference: quay.io/hedgedoc/hedgedoc:1.11.1
+  reference: quay.io/hedgedoc/hedgedoc:1.11.1@sha256:7b3f79667ad58c6419758547f10940638bcdc85ebee2a4e650318a704095975b
   version: "1.11.1"
 user: "10000:10000"
 ports:
@@ -50,7 +50,7 @@ env:
     generate: true
 sidecars:
   - id: database
-    image: postgres:16.15-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     env:
       POSTGRES_DB: hedgedoc
       POSTGRES_USER: hedgedoc
