@@ -132,7 +132,7 @@ export function keepsBackupData(manifest) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu", "defaultExposure", "actions"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu", "defaultExposure", "actions", "publicHostname"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // defaultExposure: who can reach the app when the owner installs it without choosing. "tailnet"
   // binds its web ports to 127.0.0.1 and publishes them with Tailscale Serve (HTTPS, a real
@@ -173,6 +173,17 @@ export function validateManifest(raw) {
   if (raw.icon !== undefined && !(typeof raw.icon === "string" && raw.icon.length <= 8)) fail(errors, "manifest.icon", "must be a short emoji/text");
   if (raw.risk !== undefined && !riskTiers.includes(raw.risk)) fail(errors, "manifest.risk", `must be one of ${riskTiers.join(", ")}`);
   if (raw.notes !== undefined && typeof raw.notes !== "string") fail(errors, "manifest.notes", "must be a string");
+  // publicHostname: which setting holds the app's public address (a URL or a name), so the Hosted
+  // domains page can watch it once the app is installed with one. Never a secret setting.
+  if (raw.publicHostname !== undefined) {
+    if (!isObject(raw.publicHostname)) fail(errors, "manifest.publicHostname", "must be a mapping with env");
+    else {
+      checkKeys(errors, "manifest.publicHostname", raw.publicHostname, ["env"], ["env"]);
+      const named = (Array.isArray(raw.env) ? raw.env : []).find((entry) => isObject(entry) && entry.name === raw.publicHostname.env);
+      if (typeof raw.publicHostname.env !== "string" || !named) fail(errors, "manifest.publicHostname.env", "must name one of the manifest's env settings");
+      else if (named.type === "password" || named.secret === true) fail(errors, "manifest.publicHostname.env", "must not name a secret setting");
+    }
+  }
   if (raw.command !== undefined && !(Array.isArray(raw.command) && raw.command.every((part) => typeof part === "string"))) fail(errors, "manifest.command", "must be an array of strings");
   if (raw.user !== undefined && !(typeof raw.user === "string" && /^[0-9]{1,6}(:[0-9]{1,6})?$/.test(raw.user))) fail(errors, "manifest.user", "must be uid or uid:gid");
   if (raw.network !== undefined && !["bridge", "host"].includes(raw.network)) fail(errors, "manifest.network", "must be bridge or host");
@@ -463,6 +474,7 @@ export function validateManifest(raw) {
     icon: raw.icon ?? null,
     risk: raw.risk ?? "medium",
     notes: raw.notes ?? null,
+    publicHostname: raw.publicHostname ? { env: raw.publicHostname.env } : null,
     defaultExposure: raw.defaultExposure ?? "lan",
     actions: (Array.isArray(raw.actions) ? raw.actions : []).map((action) => ({ id: action.id, label: action.label.trim(), description: action.description ?? null, operation: action.operation })),
     connections: (Array.isArray(raw.connections) ? raw.connections : []).map((connection) => ({ app: connection.app, role: connection.role, where: connection.where, note: connection.note ?? null })),

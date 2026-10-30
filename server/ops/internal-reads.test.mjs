@@ -6,7 +6,7 @@ describe("reads the web side's own services make through the helper", () => {
   const reads = internalReadOperations();
 
   it("are registered, read-only and internal, so no route, flow, schedule or agent runs them", () => {
-    expect(reads).toHaveLength(12);
+    expect(reads).toHaveLength(13);
     for (const { id } of reads) {
       const operation = registry.get(id);
       expect(operation, id).not.toBeNull();

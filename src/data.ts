@@ -13,6 +13,7 @@ export type ViewName =
   | "firewall"
   | "storage"
   | "network"
+  | "hosted"
   | "repairs"
   | "virtualization"
   | "backups"
@@ -42,6 +43,7 @@ export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "firewall", label: "Firewall", short: "FW" },
   { id: "storage", label: "Storage", short: "SG" },
   { id: "network", label: "Network", short: "NW" },
+  { id: "hosted", label: "Hosted domains", short: "HD" },
   { id: "repairs", label: "Repair Center", short: "RX" },
   { id: "virtualization", label: "Virtual Machines", short: "VM" },
   { id: "backups", label: "Backups", short: "BK" },
