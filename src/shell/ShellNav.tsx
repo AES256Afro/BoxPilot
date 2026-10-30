@@ -35,7 +35,7 @@ export function ViewSwitch({ view, onSelect }: { view: ViewName | null; onSelect
 export const dockAreas: Array<{ id: ViewName; short?: string; priority: 1 | 2 | 3; separatorBefore?: boolean }> = [
   // Today leads (M25.3): the phone's start page, with the approvals waiting counted on it.
   { id: "today", priority: 1 },
-  { id: "updates", short: "Updates", priority: 1 }, { id: "storage", priority: 2 }, { id: "firewall", priority: 2 }, { id: "network", priority: 2 },
+  { id: "updates", short: "Updates", priority: 1 }, { id: "storage", priority: 2 }, { id: "firewall", priority: 2 }, { id: "network", priority: 2 }, { id: "hosted", short: "Domains", priority: 2 },
   { id: "backups", priority: 1 }, { id: "virtualization", short: "VMs", priority: 2 }, { id: "repairs", short: "Repair", priority: 1 }, { id: "logs", priority: 2 },
   { id: "catalog", short: "Apps", priority: 3, separatorBefore: true }, { id: "automations", short: "Automate", priority: 3 }, { id: "agents", priority: 3 }, { id: "services", priority: 3 }, { id: "system", priority: 3 },
   { id: "performance", short: "Metrics", priority: 3 }, { id: "users", short: "Users", priority: 3 }, { id: "github", priority: 3 },

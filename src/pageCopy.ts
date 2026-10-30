@@ -67,6 +67,10 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
     title: "Network and DNS",
     description: "Gateway, DNS, devices on your LAN, and Tailscale.",
   },
+  hosted: {
+    title: "Hosted domains",
+    description: "Every public name this server answers for: DNS, the tunnel, the certificate, whether it answers from the internet and from inside, and the app's backups.",
+  },
   repairs: {
     title: "Repair Center",
     description: "What is wrong on this server, and the fix for each one.",
@@ -109,6 +113,7 @@ export const viewFeatures: Record<ViewName, string[]> = {
   firewall: ["Profiles", "Service presets", "Suggestions from what is listening", "fail2ban", "SSH, Tailscale, and BoxPilot always reachable"],
   storage: ["Disks and LVM", "Grow the root volume", "Snapshots with rollback", "Mount by UUID", "SMB/NFS shares with LAN discovery", "Samba and NFS servers on your tailnet", "Swap files", "Format empty disks"],
   network: ["Gateway and resolvers", "DNS listeners", "Devices on your LAN", "Wake-on-LAN", "Tailscale exit node", "Subnet router"],
+  hosted: ["Names from the tunnel, configs and apps", "DNS, certificate and tunnel checks", "Answers from the internet and from inside", "Uptime over a day and a week", "The app's backups", "Alerts when down or a certificate is near its end"],
   repairs: ["Find what is broken", "Reconnect a drive that dropped out", "Fix a folder nothing can write to", "See what a job did, step by step", "Rebuild-from-scratch checklist"],
   virtualization: ["QEMU/KVM setup", "VMs from cloud images or ISOs", "Start, stop, snapshots", "Encrypted exports", "Restore drills", "Recover as a clone"],
   backups: ["Database backups with restore drills", "Encrypted second copies", "Retention", "Machine snapshots", "Mirrors to a drive, SSH host, or cloud", "Restore from a snapshot"],
