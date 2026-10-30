@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { onWindows } from "../test/platform.mjs";
+import { onLinux } from "../test/platform.mjs";
 
 const script = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
 const copyProgram = /\nDB_COPY_JS='\n([\s\S]*?)\n'\n/.exec(script)?.[1];
@@ -249,7 +249,9 @@ describe("where the copy sits in the upgrade", () => {
 // under bash, which the scripts are sometimes run with by hand. Needs POSIX sh, perl for a Unix
 // socket, mkfifo, and tar: Linux CI runs it; Windows skips it.
 describe("the install and upgrade scripts, run with stub commands", () => {
-  it.skipIf(onWindows).each(["sh", "bash"])("pass tests/ubuntu/install-upgrade-stubbed.sh under %s", (shell) => {
+  // The stubbed run drives the real install and upgrade scripts, which reach for GNU coreutils and
+  // a Linux-shaped host; BSD userland on macOS is not close enough.
+  it.skipIf(!onLinux).each(["sh", "bash"])("pass tests/ubuntu/install-upgrade-stubbed.sh under %s", (shell) => {
     const result = spawnSync("bash", ["tests/ubuntu/install-upgrade-stubbed.sh"], { encoding: "utf8", env: { ...process.env, SH: shell }, timeout: 180_000 });
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain("all checks passed");
