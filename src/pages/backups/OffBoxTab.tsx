@@ -41,7 +41,7 @@ export interface OffBoxTabProps {
   onNavigate?: (view: ViewName) => void;
 }
 
-const fieldLabels: Record<string, string> = { account: "Key ID", bucket: "Bucket", path: "Folder in the bucket", endpoint: "Endpoint URL", region: "Region", accessKeyId: "Access key ID", url: "WebDAV URL", user: "Username", key: "Application key", secretAccessKey: "Secret access key", password: "Password", token: "Token (from rclone authorize)" };
+const fieldLabels: Record<string, string> = { account: "Key ID", bucket: "Bucket", path: "Folder in the bucket", endpoint: "Endpoint URL", region: "Region", accessKeyId: "Access key ID", url: "WebDAV URL", user: "Username", key: "Application key", secretAccessKey: "Secret access key", password: "Password", token: "Token (from rclone authorize)", passphrase: "Encryption passphrase" };
 const placeholders: Record<string, string> = { bucket: "home-backups", path: "boxpilot", endpoint: "https://s3.eu-central-1.wasabisys.com", region: "us-east-1", url: "https://cloud.example.com/remote.php/dav/files/me/" };
 
 function destinationState(configured: boolean, lastSyncAt: string | null): { status: Status; label: string } {
@@ -204,6 +204,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
         </>}
       >
         {cloudError && <Notice tone="danger" live title="The cloud destination could not be read" action={<Button onClick={onChanged}>Try again</Button>}>{cloudError}</Notice>}
+        {cloud?.configured && cloud.sealed === false && <Notice tone="warning" title="The cloud mirror is not encrypted">App backups hold each app's passwords and keys, so mirroring stops until the destination is set again with an encryption passphrase. Copies made before this stay in the bucket unencrypted until you delete them there.</Notice>}
         <KeyValue items={[
           { id: "provider", label: "Provider", value: savedCloud ? cloud?.providers?.[savedCloud.provider]?.label ?? savedCloud.provider : "not set" },
           ...(savedCloud?.bucket ? [{ id: "bucket", label: "Bucket", value: savedCloud.bucket, mono: true }] : []),
@@ -266,7 +267,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
             </Field>
           ))}
           {secrets.map((field) => (
-            <Field key={field} label={fieldLabels[field] ?? field} hint={field === "token" ? "Paste what rclone authorize printed." : "Goes only to the root-only rclone.conf, never to BoxPilot's database."}>
+            <Field key={field} label={fieldLabels[field] ?? field} hint={field === "token" ? "Paste what rclone authorize printed." : field === "passphrase" ? "Every copy is encrypted with it before it leaves this server: app backups hold each app's passwords and keys. At least 12 characters. Keep it somewhere other than this server; without it nobody, you included, can read the copies in the bucket." : "Goes only to the root-only rclone.conf, never to BoxPilot's database."}>
               {field === "token"
                 ? <Textarea mono rows={3} placeholder='{"access_token":"...","token_type":"Bearer",...}' value={cloudForm.values[field] ?? ""} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [field]: value } })} />
                 : <SecretInput autoComplete="new-password" value={cloudForm.values[field] ?? ""} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [field]: value } })} />}

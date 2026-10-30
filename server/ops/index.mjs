@@ -32,6 +32,7 @@ import { vpnOperations } from "./vpn.mjs";
 import { notificationOperations } from "./notifications.mjs";
 import { agentsOperations } from "./agents.mjs";
 import { zulipOperations } from "./zulip.mjs";
+import { financialAuthorityOperations } from "./financialauthority.mjs";
 import { dnsResilienceOperations } from "./dns-resilience.mjs";
 import { heartbeatOperations } from "./heartbeat.mjs";
 import { cloudflareOperations } from "./cloudflare.mjs";
@@ -47,7 +48,9 @@ export const operationModules = [prerequisiteOperations, aptOperations, systemOp
   // M45.3: Claude for the agents, through the model gateway.
   agentsCloudOperations,
   // Reads the web side's own services make: once a hand-written allowlist in the helper protocol.
-  internalReadOperations];
+  internalReadOperations,
+  // FinancialAuthority's own restore points, from its sheet.
+  financialAuthorityOperations];
 export const registry = createRegistry(operationModules);
 setRegistryLookup((id) => registry.get(id));
 export { createRegistry, defineOperation, validateParameters, riskTiers } from "./registry.mjs";

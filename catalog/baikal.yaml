@@ -28,4 +28,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 300
-notes: "The first visit runs the setup wizard (admin password, SQLite is fine). Then create users under Users and Resources; clients use http://<this server>:8127/dav.php."
+notes: "The first visit runs the setup wizard (admin password, SQLite is fine). Then create users under Users and Resources; clients use http://<this server>:8127/dav.php. This image still ships PHP 8.1, which stopped getting security fixes at the end of 2025; keep Baïkal on your home network or tailnet rather than publishing it to the internet."

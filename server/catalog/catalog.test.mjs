@@ -80,6 +80,11 @@ describe("manifest schema", () => {
     expect(resolveValues(manifest, { ports: { web: 53 }, env: { NEEDED: "y" } }).errors).toContainEqual(expect.stringContaining("collides"));
     expect(resolveValues(manifest, { env: { NEEDED: "y", MODE: "z" } }).errors).toContainEqual(expect.stringContaining("one of"));
     expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "not a tz!" } }).errors).toContainEqual(expect.stringContaining("Region/City"));
+    // Shaped like a zone is not the same as being one: `American/Chicago` passed the pattern, and
+    // the app it was saved for crashed on every start until the settings change rolled back.
+    expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "American/Chicago" } }).errors).toContainEqual(expect.stringContaining("Region/City"));
+    expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "Etc/UTC" } }).errors).toEqual([]);          // the catalog's own default
+    expect(resolveValues(manifest, { env: { NEEDED: "y", TZ: "Europe/London" } }).errors).toEqual([]);
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/etc/ssl" } }).errors).toContainEqual(expect.stringContaining("protected"));
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/srv/../etc" } }).errors).toContainEqual(expect.stringContaining("clean"));
     // A folder above a protected one hands the app everything under it: /var holds BoxPilot's own
