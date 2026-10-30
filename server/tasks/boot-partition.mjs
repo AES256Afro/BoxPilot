@@ -94,11 +94,28 @@ export async function hostMountsAt(run, target) {
   });
 }
 
+/**
+ * unattended-upgrades' shutdown helper, which waits for the machine to shut down for as long as it
+ * is up. Its comm is "unattended-upgr" too (the kernel keeps fifteen characters of
+ * "unattended-upgrade-shutdown"), so on every Ubuntu with nightly upgrades on, the guard below took
+ * it for an upgrade in progress and the check refused for ever (seen on the owner's server,
+ * 2026-10-14). An upgrade it starts at shutdown is a separate unattended-upgrade process, which
+ * this still sees, and it holds the package locks, which the task checks as well.
+ */
+export const isShutdownWaiter = (commandLine) => /\/unattended-upgrade-shutdown(\0|$)/.test(commandLine) && /(^|\0)--wait-for-signal(\0|$)/.test(commandLine);
+
 /** Processes named as a boot-partition writer, from /proc/<pid>/comm. */
 export async function bootWritersRunning({ list = () => readdir("/proc"), read = (file) => readFile(file, "utf8") } = {}) {
   const pids = (await list().catch(() => [])).filter((entry) => /^\d+$/.test(entry));
   const names = await Promise.all(pids.map((pid) => read(`/proc/${pid}/comm`).then((name) => ({ pid: Number(pid), name: name.trim() }), () => null)));
-  return names.filter((entry) => entry && bootWriters.includes(entry.name));
+  const writers = names.filter((entry) => entry && bootWriters.includes(entry.name));
+  const kept = await Promise.all(writers.map(async (entry) => {
+    if (entry.name !== "unattended-upgr") return entry;
+    // A command line that cannot be read is kept as a writer: refusing is the safe answer.
+    const commandLine = await read(`/proc/${entry.pid}/cmdline`).catch(() => "");
+    return isShutdownWaiter(commandLine) ? null : entry;
+  }));
+  return kept.filter(Boolean);
 }
 
 const defaultFiles = {

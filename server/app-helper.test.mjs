@@ -5,7 +5,7 @@ import YAML from "yaml";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { craftedTarGz } from "../test/crafted-tar.mjs";
-import { onWindows, testTar } from "../test/platform.mjs";
+import { onLinux, onWindows, testTar } from "../test/platform.mjs";
 import { catalogImagePin, createAppHelper, isCatalogUpdate, keepsBackupData, logTail } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { fixedRun } from "./exec.mjs";
@@ -246,7 +246,8 @@ sidecars:
   });
 
   // Linux only: host folders must be POSIX absolute paths.
-  it.skipIf(onWindows)("creates the folder layout a manifest promises inside a data volume, only where missing", async () => {
+  // Ownership of a created folder: a chown to the app's uid, which only Linux grants here.
+  it.skipIf(!onLinux)("creates the folder layout a manifest promises inside a data volume, only where missing", async () => {
     // Sonarr's first act is to look for /data/tv; qBittorrent's is to write /data/torrents.
     // The manifest promises the layout, the install delivers it, and folders that already
     // exist stay exactly as the owner had them, ownership included.
@@ -275,7 +276,7 @@ sidecars:
   });
 
   // Linux only: host folders must be POSIX absolute paths.
-  it.skipIf(onWindows)("hands an existing but root-owned data folder to the app so it can write", async () => {
+  it.skipIf(!onLinux)("hands an existing but root-owned data folder to the app so it can write", async () => {
     // The qBittorrent case: the download folder already exists but is root-owned (Docker or a default
     // made it), so the app running as PUID 1000 cannot write and every torrent errors. The deployer
     // should claim a root-owned read-write folder for the app; a folder owned by a real user is left.
@@ -416,7 +417,7 @@ sidecars:
   });
 
   // Linux only: host folders must be POSIX absolute paths.
-  it.skipIf(onWindows)("reports a data folder the installed app cannot write to, and clears once ownership is right", async () => {
+  it.skipIf(!onLinux)("reports a data folder the installed app cannot write to, and clears once ownership is right", async () => {
     // The silent qBittorrent failure: every torrent errored at 0% because /data was root-owned.
     // The catalog listing should say so on the card instead of leaving the app to fail quietly.
     const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-ro-media-")); directories.push(mediaRoot);
@@ -1626,7 +1627,7 @@ sidecars:
 
 // Linux only: host folders must be POSIX absolute paths.
 describe.skipIf(onWindows)("folders an app is pointed at", () => {
-  it("creates a missing data folder and gives it to the user the app runs as", async () => {
+  it.skipIf(!onLinux)("creates a missing data folder and gives it to the user the app runs as", async () => {
     const chowns = [];
     const { apps, catalogDirectory } = await setup({ chownDirectory: async (target, uid, gid) => { chowns.push(`${target}:${uid}:${gid}`); } });
     const media = path.join(await mkdtemp(path.join(os.tmpdir(), "boxpilot-media-")), "srv", "media");
@@ -1644,7 +1645,7 @@ describe.skipIf(onWindows)("folders an app is pointed at", () => {
     expect(chowns.some((entry) => entry.startsWith(`${media}:1000:1000`))).toBe(true);
   });
 
-  it("leaves a folder that already exists alone, whatever owns it", async () => {
+  it.skipIf(!onLinux)("leaves a folder that already exists alone, whatever owns it", async () => {
     const chowns = [];
     const { apps, catalogDirectory } = await setup({ chownDirectory: async (target) => { chowns.push(target); } });
     const library = await mkdtemp(path.join(os.tmpdir(), "boxpilot-library-"));
@@ -3496,7 +3497,8 @@ describe("a backup's compose file started as it was archived", () => {
 
   // Linux only: links, named pipes and GNU tar's listing, which the single-path restore reads.
   describe.skipIf(onWindows)("on Linux", () => {
-    it("refuses a data folder reached through a link", async () => {
+    // Resolves the link against the host and compares ownership, which needs Linux's own chown.
+    it.skipIf(!onLinux)("refuses a data folder reached through a link", async () => {
       const harness = await setup({ runCommand: withRealTar });
       await writeFile(path.join(harness.catalogDirectory, "library.yaml"), libraryManifest);
       const real = await mkdtemp(path.join(os.tmpdir(), "boxpilot-films-")); directories.push(real);
@@ -3527,7 +3529,7 @@ describe("a backup's compose file started as it was archived", () => {
       await expect(lstat(path.join(harness.live, "data", "queue"))).rejects.toMatchObject({ code: "ENOENT" });
     });
 
-    it("checks a compose file or settings restored on their own as a whole restore would", async () => {
+    it.skipIf(!onLinux)("checks a compose file or settings restored on their own as a whole restore would", async () => {
       const harness = await installedDemo();
       const backup = await craftedBackup(harness);
       await expect(harness.apps.restoreAppBackupPath({ id: "demo", backup, path: "compose.yaml" })).rejects.toThrow(/^compose\.yaml was not restored; nothing was changed\. Demo would be started with it exactly as it is, and it gives Demo more than the catalog does: demo: runs privileged/);
@@ -3722,7 +3724,7 @@ describe("an owner's link at a folder backups leave out", () => {
     expect(await readdir(catalogRoot)).toEqual(["keep"]);
   });
 
-  it("leaves behind a link into BoxPilot's own folders, and says so", async () => {
+  it.skipIf(!onLinux)("leaves behind a link into BoxPilot's own folders, and says so", async () => {
     const harness = await setup({ runCommand: withRealTar });
     const other = path.join(harness.catalogRoot, "other-app-data");
     await mkdir(other);
