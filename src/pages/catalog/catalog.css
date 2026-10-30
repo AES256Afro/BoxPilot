@@ -110,3 +110,7 @@
   .catalog-actions-cell { width: auto; }
   .catalog-sheet__head { gap: 10px; }
 }
+
+/* A secret setting: its box and, when one is saved, the Clear button beside it. */
+.catalog-secret { display: flex; gap: 8px; align-items: center; }
+.catalog-secret > :first-child { flex: 1; min-width: 0; }

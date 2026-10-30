@@ -24,6 +24,7 @@ describe("the tools catalog", () => {
   it("gives an operator read (ADR-003) the operator role, as the registry does", () => {
     expect(toolById("logs.query").role).toBe(registry.get("logs.read").minimumRole);
     expect(toolById("pihole.stats").role).toBe(registry.get("app.pihole.inspect").minimumRole);
+    expect(toolById("theyspy.status").role).toBe(registry.get("app.theyspy.inspect").minimumRole);
   });
 
   it("is described to the model as JSON schema with no extra properties", () => {

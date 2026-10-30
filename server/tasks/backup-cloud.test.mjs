@@ -4,7 +4,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { onWindows } from "../../test/platform.mjs";
 import { backupCloudSetup, backupCloudSync, backupCloudTest, configPath } from "./backup-cloud.mjs";
-import { cloudTarget, normalizeCloudDestination, parseRcloneStats, renderRcloneConfig, validateCloudDestination } from "../backup-cloud.mjs";
+import { cloudTarget, isSealedConfig, normalizeCloudDestination, parseRcloneStats, renderRcloneConfig, validateCloudDestination } from "../backup-cloud.mjs";
+
+const PASS = "orchard lantern river";
+// rclone obscure answers on stdout; every other call succeeds quietly.
+const withObscure = (other = async () => ({ ok: true, stdout: "", stderr: "" })) => vi.fn(async (binary, args, options) => (args[0] === "obscure" ? { ok: true, stdout: `obscured(${options.input})\n`, stderr: "" } : other(binary, args, options)));
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -32,18 +36,18 @@ describe("cloud backup tasks", () => {
   // Linux only: POSIX file modes.
   it.skipIf(onWindows)("writes a root-only rclone.conf with the secret and reports the target", async () => {
     const secretsDirectory = await secretsDir();
-    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
-    const result = await backupCloudSetup({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox", key: "K123" }, { run, secretsDirectory, rclone: "/" });
-    expect(result).toMatchObject({ configured: true, target: "boxpilot:home-backups/homebox", destination: { provider: "b2", account: "0012abc" } });
+    const run = withObscure();
+    const result = await backupCloudSetup({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox", key: "K123", passphrase: PASS }, { run, secretsDirectory, rclone: "/" });
+    expect(result).toMatchObject({ configured: true, target: "boxpilot:home-backups/homebox", destination: { provider: "b2", account: "0012abc", sealed: true } });
     expect(await readFile(configPath(secretsDirectory), "utf8")).toContain("key = K123");
     expect(((await stat(configPath(secretsDirectory))).mode & 0o777)).toBe(0o600);
     await expect(backupCloudSetup({ provider: "b2", account: "a", bucket: "bkt" }, { run, secretsDirectory, rclone: "/" })).rejects.toThrow("application key is required");
     await expect(backupCloudSetup({ provider: "drive", token: "not-json" }, { run, secretsDirectory, rclone: "/" })).rejects.toThrow("token JSON");
     // WebDAV passwords are obscured through rclone on stdin, never on a command line.
     const obscure = vi.fn(async (binary, args, options) => (args[0] === "obscure" ? { ok: true, stdout: `obscured(${options.input})\n`, stderr: "" } : { ok: true, stdout: "", stderr: "" }));
-    await backupCloudSetup({ provider: "webdav", url: "https://cloud.example.com/remote.php/dav/files/me/", user: "me", password: "p w", path: "boxpilot" }, { run: obscure, secretsDirectory, rclone: "/" });
+    await backupCloudSetup({ provider: "webdav", url: "https://cloud.example.com/remote.php/dav/files/me/", user: "me", password: "p w", path: "boxpilot", passphrase: PASS }, { run: obscure, secretsDirectory, rclone: "/" });
     expect(await readFile(configPath(secretsDirectory), "utf8")).toContain("pass = obscured(p w)");
-    await expect(backupCloudSetup({ provider: "b2", account: "a", bucket: "bkt", key: "k" }, { run, secretsDirectory, rclone: "/nonexistent/rclone" })).rejects.toThrow("rclone is not installed");
+    await expect(backupCloudSetup({ provider: "b2", account: "a", bucket: "bkt", key: "k", passphrase: PASS }, { run, secretsDirectory, rclone: "/nonexistent/rclone" })).rejects.toThrow("rclone is not installed");
   });
 
   // Linux only: POSIX file modes on the written config.
@@ -65,31 +69,32 @@ describe("cloud backup tasks", () => {
 
   it("tests the destination by creating and listing the folder, and mirrors with rclone copy", async () => {
     const secretsDirectory = await secretsDir();
-    const run = vi.fn(async (binary, args) => {
+    const run = withObscure(async (binary, args) => {
       const verb = args.find((arg) => ["mkdir", "lsjson", "about", "copy"].includes(arg));
       if (verb === "lsjson") return { ok: true, stdout: JSON.stringify([{ Name: "controller-backups" }]), stderr: "" };
       if (verb === "about") return { ok: true, stdout: JSON.stringify({ free: 50 * 1024 ** 3 }), stderr: "" };
       if (verb === "copy") return { ok: true, stdout: "", stderr: "Transferred:   \t  1.000 MiB / 1.000 MiB, 100%\nErrors:                 0\nTransferred:            1 / 1, 100%\n" };
       return { ok: true, stdout: "", stderr: "" };
     });
-    await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox", key: "k" }, { run, secretsDirectory, rclone: "/" });
+    await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox", key: "k", passphrase: PASS }, { run, secretsDirectory, rclone: "/" });
     const tested = await backupCloudTest({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox" }, { run, secretsDirectory, rclone: "/" });
     expect(tested).toEqual({ reachable: true, writable: true, target: "boxpilot:home-backups/homebox", entries: 1, freeBytes: 50 * 1024 ** 3 });
     expect(run).toHaveBeenCalledWith("/", expect.arrayContaining(["--config", configPath(secretsDirectory), "mkdir", "boxpilot:home-backups/homebox"]), expect.anything());
 
     const sources = [{ name: "controller-backups", root: secretsDirectory }, { name: "missing", root: "/nonexistent/root" }];
     const synced = await backupCloudSync({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox" }, { run, secretsDirectory, rclone: "/", sources, now: () => new Date("2026-08-21T21:30:00Z") });
-    expect(synced).toMatchObject({ synced: true, destination: "boxpilot:home-backups/homebox", completedAt: "2026-08-21T21:30:00.000Z", filesTransferred: 1, errors: 0, mirrored: [{ name: "controller-backups", filesTransferred: 1 }], boundary: { deletesPerformed: false } });
+    expect(synced).toMatchObject({ synced: true, encrypted: true, destination: "boxpilot:home-backups/homebox/sealed", completedAt: "2026-08-21T21:30:00.000Z", filesTransferred: 1, errors: 0, mirrored: [{ name: "controller-backups", filesTransferred: 1 }], boundary: { deletesPerformed: false } });
     const copyCall = run.mock.calls.find(([, args]) => args.includes("copy"));
-    expect(copyCall[1]).toEqual(expect.arrayContaining(["copy", "--checksum", secretsDirectory, "boxpilot:home-backups/homebox/controller-backups"]));
+    expect(copyCall[1]).toEqual(expect.arrayContaining(["copy", "--checksum", secretsDirectory, "boxpilot-sealed:controller-backups"]));
+    expect(copyCall[1].some((arg) => arg.startsWith("boxpilot:"))).toBe(false);
     expect(copyCall[1]).not.toContain("sync");
     await expect(backupCloudTest({ provider: "b2", account: "a", bucket: "bkt" }, { run, secretsDirectory: await secretsDir(), rclone: "/" })).rejects.toThrow("Save the cloud destination first");
   });
 
   it("leaves machine-snapshot working folders, which hold secrets in the clear, out of the copy", async () => {
     const secretsDirectory = await secretsDir();
-    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "Errors:                 0\nTransferred:            1 / 1, 100%\n" }));
-    await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox", key: "k" }, { run, secretsDirectory, rclone: "/" });
+    const run = withObscure(async () => ({ ok: true, stdout: "", stderr: "Errors:                 0\nTransferred:            1 / 1, 100%\n" }));
+    await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox", key: "k", passphrase: PASS }, { run, secretsDirectory, rclone: "/" });
     await backupCloudSync({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox" }, { run, secretsDirectory, rclone: "/", sources: [{ name: "machine-snapshots", root: secretsDirectory }] });
     const copyCall = run.mock.calls.find(([, args]) => args.includes("copy"));
     expect(copyCall[1]).toEqual(expect.arrayContaining(["--exclude", "/.staging-*/**", "--exclude", "/.restore-*/**", "--exclude", "/restored/**"]));
@@ -99,12 +104,38 @@ describe("cloud backup tasks", () => {
     // `<stamp>.tar.gz.partial` grows and is then renamed: copied, it would stay in the bucket as a
     // truncated archive, and its growing mid-transfer is an rclone error.
     const secretsDirectory = await secretsDir();
-    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "Errors:                 0\nTransferred:            1 / 1, 100%\n" }));
-    await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox", key: "k" }, { run, secretsDirectory, rclone: "/" });
+    const run = withObscure(async () => ({ ok: true, stdout: "", stderr: "Errors:                 0\nTransferred:            1 / 1, 100%\n" }));
+    await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox", key: "k", passphrase: PASS }, { run, secretsDirectory, rclone: "/" });
     const sources = [{ name: "application-backups", root: secretsDirectory }, { name: "machine-snapshots", root: secretsDirectory }];
     await backupCloudSync({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox" }, { run, secretsDirectory, rclone: "/", sources });
     const copyCalls = run.mock.calls.filter(([, args]) => args.includes("copy"));
     expect(copyCalls).toHaveLength(2);
     for (const [, args] of copyCalls) expect(args.join(" ")).toContain("--exclude *.partial");
+  });
+
+  it.skipIf(onWindows)("encrypts every copy with the owner's passphrase and refuses a plain destination", async () => {
+    // App backups carry each app's .env (generated passwords, session secrets, data keys) beside the data those keys
+    // seal; a plain bucket copy was the whole server for whoever read the bucket.
+    const secretsDirectory = await secretsDir();
+    const run = withObscure(async () => ({ ok: true, stdout: "", stderr: "Errors:                 0\nTransferred:            1 / 1, 100%\n" }));
+    const b2 = { provider: "b2", account: "a", bucket: "home-backups", path: "homebox" };
+    await expect(backupCloudSetup({ ...b2, key: "k" }, { run, secretsDirectory, rclone: "/" })).rejects.toThrow("encryption passphrase");
+    await expect(backupCloudSetup({ ...b2, key: "k", passphrase: "too short" }, { run, secretsDirectory, rclone: "/" })).rejects.toThrow("at least 12");
+    await expect(backupCloudSetup({ ...b2, key: "k", passphrase: "line\nbreak passphrase" }, { run, secretsDirectory, rclone: "/" })).rejects.toThrow("encryption passphrase holds a line break");
+    await backupCloudSetup({ ...b2, key: "k", passphrase: PASS }, { run, secretsDirectory, rclone: "/" });
+    const config = await readFile(configPath(secretsDirectory), "utf8");
+    expect(isSealedConfig(config)).toBe(true);
+    expect(config).toContain("[boxpilot-sealed]\ntype = crypt\nremote = boxpilot:home-backups/homebox/sealed\nfilename_encryption = off\ndirectory_name_encryption = false\npassword = obscured(orchard lantern river)\n");
+    expect(config).not.toContain(`= ${PASS}`);
+    const obscureCall = run.mock.calls.find(([, args]) => args[0] === "obscure");
+    expect(obscureCall[1]).toEqual(["obscure", "-"]); // on stdin, never on a command line
+
+    // A destination saved by an older version: no sealed remote, so nothing is copied at all.
+    const plain = await secretsDir();
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(configPath(plain), renderRcloneConfig(normalizeCloudDestination(b2), { key: "k" }), { mode: 0o600 });
+    const copier = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await expect(backupCloudSync(b2, { run: copier, secretsDirectory: plain, rclone: "/", sources: [{ name: "application-backups", root: plain }] })).rejects.toThrow("not encrypted yet, so nothing was copied");
+    expect(copier).not.toHaveBeenCalled();
   });
 });
