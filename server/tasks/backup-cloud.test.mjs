@@ -57,13 +57,13 @@ describe("cloud backup tasks", () => {
     // rclone was checking the bucket existed and creating it when it thought otherwise, and neither
     // is a call an object-scoped key may make. The owner makes the bucket; this only copies into it.
     const secretsDirectory = await secretsDir();
-    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
-    await backupCloudSetup({ provider: "s3", endpoint: "https://account.r2.cloudflarestorage.com", bucket: "bigbox-backups", path: "boxpilot", accessKeyId: "AK", secretAccessKey: "SK" }, { run, secretsDirectory, rclone: "/" });
+    const run = withObscure(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await backupCloudSetup({ provider: "s3", endpoint: "https://account.r2.cloudflarestorage.com", bucket: "bigbox-backups", path: "boxpilot", accessKeyId: "AK", secretAccessKey: "SK", passphrase: PASS }, { run, secretsDirectory, rclone: "/" });
     const s3Config = await readFile(configPath(secretsDirectory), "utf8");
     expect(s3Config).toContain("no_check_bucket = true");
     expect(s3Config).toContain("provider = Other");   // an endpoint means an S3 service, not AWS
     expect(s3Config).toContain("acl = private");
-    await backupCloudSetup({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox", key: "K123" }, { run, secretsDirectory, rclone: "/" });
+    await backupCloudSetup({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox", key: "K123", passphrase: PASS }, { run, secretsDirectory, rclone: "/" });
     expect(await readFile(configPath(secretsDirectory), "utf8")).toContain("no_check_bucket = true");
   });
 
