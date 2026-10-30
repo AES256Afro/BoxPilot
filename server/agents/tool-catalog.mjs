@@ -195,6 +195,13 @@ export const toolCatalog = Object.freeze([
     params: {},
   },
   {
+    id: "theyspy.status", title: "TheySpy (spyware watch)", category: "app", role: "operator", cost: "moderate",
+    description: "What TheySpy found in the last week: which devices looked up spyware or ad-intelligence addresses and whether Pi-hole blocked them, traces of those addresses found on a device by TheySpy's agent or MVT, checks that could not run, and exploited bugs in software a device runs. Indicators are defanged (example[.]com).",
+    use: "spyware, ad-intelligence lookups, indicator hits, exploited bugs on devices",
+    askedFor: [/\b(they ?spy|spyware|stalkerware|adint|ad-intelligence|indicators?|zero-?days?)\b/i, /\bexploited\b[^.?!]{0,40}\b(devices?|phones?|laptops?)\b/i],
+    params: {},
+  },
+  {
     id: "docs.search", title: "Search docs and knowledge", category: "document", role: "viewer", cost: "cheap",
     description: "Search BoxPilot's documents, its registered operations, the app catalog and the owner's own documents (uploaded, from a folder or from a connector).",
     use: "how to do something in BoxPilot, the owner's documents, operation ids",

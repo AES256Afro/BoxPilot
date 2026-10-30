@@ -10,8 +10,8 @@ description: "Security news, CVEs and advisories in one timeline; a change regis
 website: https://github.com/AES256Afro/BaselineWatch
 risk: low
 image:
-  reference: ghcr.io/aes256afro/baselinewatch:0.51.0@sha256:7787a2b1df20de91490e6746732abeace6647d07ee1eae044124dd2661dcee09
-  version: "0.51.0"
+  reference: ghcr.io/aes256afro/baselinewatch:0.54.0@sha256:811f934e964da8bc9dc8a989b71c68e27dd3b356ee66e758c5f6f21467e1fe49
+  version: "0.54.0"
 ports:
   - id: web
     label: Web UI
@@ -60,7 +60,7 @@ env:
     label: Notification URL (optional)
     type: password
     secret: true
-    description: "ntfy://<this server>:8093/baselinewatch, gotify://<this server>:8080/<token>, or an https:// webhook. Receives KEV additions, changes to CVEs in your watchlist, standard releases and the digest. Kept secret: a webhook URL or an ntfy topic is the credential."
+    description: "ntfy://<this server>:8093/baselinewatch, gotify://<this server>:8080/<token>, an https:// webhook, or mailto://user:pass@smtp.example.org:587/you@example.org (mailtos:// for port 465). Receives KEV additions, changes to CVEs in your watchlist, standard releases and the digest. Kept secret: a webhook URL or an ntfy topic is the credential."
     default: ""
   - name: BW_DIGEST
     label: Digest
