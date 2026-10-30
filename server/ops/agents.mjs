@@ -13,6 +13,7 @@ import { setRunnerProcessors } from "../agents/cpu.mjs";
 import { agentsPaths, checkDownloaded, inspectRuntime } from "../agents/host.mjs";
 import { ggufPattern, repoPattern } from "../agents/models.mjs";
 import { createPiholeReader } from "../agents/pihole.mjs";
+import { createTheyspyReader } from "../agents/theyspy.mjs";
 import { managedCredentialProblem } from "../credentials.mjs";
 
 const minutes = (count) => count * 60_000;
@@ -100,6 +101,12 @@ export function agentsOperations() {
       id: "app.pihole.inspect", title: "Read Pi-hole's numbers", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       description: "Where Pi-hole runs (a BoxPilot app, another container, or the host), whether it is blocking, and network-wide counts for the last day: queries, blocked, each upstream, the blocklists' age and the most blocked domains. Never which device asked for what. Nothing is changed.",
       run: (_parameters, { run, apps }) => createPiholeReader({ run, apps }).inspect(),
+    }),
+    defineOperation({
+      // operator (ADR-003): it runs TheySpy's own read-only summary in its container through root Docker access.
+      id: "app.theyspy.inspect", title: "Read what TheySpy found", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
+      description: "Runs TheySpy's read-only summary inside its container: devices that looked up spyware or ad-intelligence addresses (and whether Pi-hole blocked them), traces found on devices, and exploited bugs in software a device runs, for the last week. Opens TheySpy's database read-only; nothing is changed or sent anywhere.",
+      run: (_parameters, { run, apps }) => createTheyspyReader({ run, apps }).inspect(),
     }),
   ];
 }

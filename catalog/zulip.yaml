@@ -138,7 +138,7 @@ sidecars:
         container: /var/lib/postgresql/data
         path: postgres
   - id: memcached
-    image: memcached:1.6.45-alpine@sha256:6d687bc26426d092694743054fc674fc54d3c161fefa1ad20b54192f8580a8c1
+    image: memcached:1.6.45-alpine@sha256:6a089e37cbb8acd75c80c6c0667fe57ec54db68782fb1b3afb1d0eb265e50070
     # As docker-zulip does it: SASL with Zulip's generated password, read from the environment.
     command:
       - sh
@@ -153,7 +153,7 @@ sidecars:
       MEMCACHED_SASL_PWDB: /home/memcache/memcached-sasl-db
       MEMCACHED_PASSWORD: ${SECRETS_memcached_password}
   - id: rabbitmq
-    image: rabbitmq:4.2.9@sha256:817c76db481515bb00ef727e022593a7435aa70e1d81c5341f4ad33c81b68636
+    image: rabbitmq:4.2.9@sha256:00ffa1f5d019f57bcfb48e1ac5c5c42147fbe941a19e087c1cc1940976bdeb47
     command:
       - sh
       - -euc
@@ -170,7 +170,7 @@ sidecars:
         path: rabbitmq
         backup: false
   - id: redis
-    image: redis:8.10.2-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0
+    image: redis:8.10.2-alpine@sha256:9f8d2d789b9a1d1e3f283f979aa9cbf393373806472e1ccd460e2f9c869b833b
     command:
       - sh
       - -euc

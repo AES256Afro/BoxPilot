@@ -93,6 +93,9 @@ describe("network share tasks", () => {
     expect(buildShareEntry({ kind: "smb", host: "nas", share: "My Files", name: "nas-files", guest: false }).entry)
       .toBe("//nas/My\\040Files /mnt/nas-files cifs credentials=/etc/boxpilot/secrets/share-nas-files.cred,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,nosuid,nodev,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=300,x-systemd.mount-timeout=30 0 0");
     expect(buildShareEntry({ kind: "smb", host: "nas", share: "Public", name: "pub", guest: true, readOnly: true }).entry).toContain("cifs guest,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,ro,nosuid,nodev,nofail");
+    // The backup destination holds every app's .env: root's alone, not uid 1000's and world-readable.
+    expect(buildShareEntry({ kind: "smb", host: "nas", share: "alex/BoxPilot-Backup", name: "boxpilot-backup", guest: false }).entry)
+      .toBe("//nas/alex/BoxPilot-Backup /mnt/boxpilot/backup cifs credentials=/etc/boxpilot/secrets/share-boxpilot-backup.cred,uid=0,gid=0,file_mode=0600,dir_mode=0700,iocharset=utf8,nosuid,nodev,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=300,x-systemd.mount-timeout=30 0 0");
     expect(buildShareEntry({ kind: "nfs", host: "nas", share: "/volume1/media", name: "media" }).entry).toBe("nas:/volume1/media /mnt/media nfs rw,nosuid,nodev,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=300,x-systemd.mount-timeout=30 0 0");
   });
 
