@@ -960,6 +960,13 @@ export function createAppHelper({
         .filter((entry) => entry.exists)
         .map((entry) => ({ id: entry.id, running: entry.running, status: entry.status, restarts: entry.restarts ?? 0 }));
     }
+    // Which secrets have a saved value - names only, never the values - so Settings can say
+    // "Saved · leave empty to keep" instead of showing an empty box the owner retypes.
+    let secretsSaved = [];
+    if (state?.installed) {
+      const env = await readEnv(manifest.id);
+      secretsSaved = manifest.env.filter((entry) => entry.secret && !entry.generate && !entry.fixed && typeof env[entry.name] === "string" && env[entry.name] !== "").map((entry) => entry.name);
+    }
     return {
       sidecars,
       id: manifest.id,
@@ -969,7 +976,7 @@ export function createAppHelper({
       // what Repair's port check compares with the host's listeners and with Tailscale Serve.
       published: state?.installed ? await publishedFor(manifest, state) : [],
       dataPresent: Boolean(state),
-      state: state ? { installedAt: state.installedAt, updatedAt: state.updatedAt, manifestSha256: state.manifestSha256, image: state.image, values: { ports: state.values?.ports ?? {}, env: state.values?.env ?? {}, volumes: state.values?.volumes ?? {}, setup: Array.isArray(state.values?.setup) ? state.values.setup : [], ...(state.values?.exposure ? { exposure: state.values.exposure } : {}) }, pinnedRollback: state.pinnedRollback ?? false, uninstalledAt: state.uninstalledAt ?? null } : null,
+      state: state ? { installedAt: state.installedAt, updatedAt: state.updatedAt, manifestSha256: state.manifestSha256, image: state.image, values: { ports: state.values?.ports ?? {}, env: state.values?.env ?? {}, volumes: state.values?.volumes ?? {}, setup: Array.isArray(state.values?.setup) ? state.values.setup : [], ...(state.values?.exposure ? { exposure: state.values.exposure } : {}) }, pinnedRollback: state.pinnedRollback ?? false, uninstalledAt: state.uninstalledAt ?? null, secretsSaved } : null,
       container: status,
       // Only the ports that speak HTTP get an "Open" link. Listing every TCP port offered to open
       // Pi-hole's DNS on 53 and Forgejo's SSH on 2222 in a browser tab, and made the Overview's
@@ -1339,7 +1346,7 @@ export function createAppHelper({
   }
 
   /**
-   * @param {{ id: string, values?: { ports?: object, env?: object, volumes?: object, setup?: any, exposure?: any, networkMode?: string }, devices?: any }} request
+   * @param {{ id: string, values?: { ports?: object, env?: object, volumes?: object, setup?: any, exposure?: any, networkMode?: string, clearSecrets?: string[] }, devices?: any }} request
    * @param {{ progress?: ((line: string, stream: string) => void) | null, checkpoint?: boolean }} [options]
    */
   async function reconfigure({ id, values: rawValues = {}, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
@@ -1352,6 +1359,15 @@ export function createAppHelper({
     // overrides only what it names. Saved settings a catalog release has since dropped are dropped
     // here too, as update does: merged back in raw, every Settings, Reach or password change of
     // such an app failed with "is not a setting of this application".
+    // Secrets the owner chose to clear (Settings → Clear): blank otherwise means "keep the saved
+    // one", so without this a wrong API key could only ever be replaced, never removed. Only an
+    // optional secret the owner types may be cleared; a generated or required one never.
+    const { clearSecrets = [], ...requested } = rawValues;
+    if (!Array.isArray(clearSecrets) || clearSecrets.some((name) => {
+      const entry = manifest.env.find((field) => field.name === name);
+      return !entry || !entry.secret || entry.generate || entry.fixed || entry.required;
+    })) throw new Error("Invalid settings: only an optional secret of this application can be cleared");
+    rawValues = requested;
     const stored = sanitizeStoredValues(manifest, state.values ?? {});
     const merged = {
       ports: { ...stored.ports, ...rawValues.ports },
@@ -1364,7 +1380,9 @@ export function createAppHelper({
     // A secret the request does not re-enter is the one in .env (withSavedSecrets): a settings change
     // never asks for the tunnel token again.
     const previousEnv = await readFileWithoutFollowing(path.join(dirFor(id), ".env")).catch(() => "");
-    const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, merged, parseEnvFile(previousEnv)));
+    const keptEnv = parseEnvFile(previousEnv);
+    for (const name of clearSecrets) delete keptEnv[name];
+    const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, merged, keptEnv));
     if (errors.length) throw new Error(`Invalid settings: ${errors.join("; ")}`);
     // An app already saved that way (before this was refused) keeps its other settings changeable;
     // Reach's Home network is how it leaves that state.
@@ -1373,7 +1391,7 @@ export function createAppHelper({
     if (refusal) throw new Error(refusal);
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "settings change" }, { progress }) : null;
     const previousCompose = await readFileWithoutFollowing(path.join(dirFor(id), "compose.yaml")).catch(() => null);
-    const rendered = await writeProject(manifest, values, { existingEnv: parseEnvFile(previousEnv), devices });
+    const rendered = await writeProject(manifest, values, { existingEnv: keptEnv, devices });
     // The new ports are checked before the containers are recreated. Putting a served app on the
     // home network (every address) while Serve still holds its port on the tailnet address is the
     // Dockge trap: refused here, with the old files back, rather than found by a failed `up` whose
