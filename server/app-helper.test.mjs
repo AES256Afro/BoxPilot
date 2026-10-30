@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { craftedTarGz } from "../test/crafted-tar.mjs";
 import { onWindows, testTar } from "../test/platform.mjs";
-import { catalogImagePin, createAppHelper, isCatalogUpdate, keepsBackupData } from "./app-helper.mjs";
+import { catalogImagePin, createAppHelper, isCatalogUpdate, keepsBackupData, logTail } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
@@ -654,6 +654,79 @@ sidecars:
     const apps = createAppHelper({ catalogRoot, runDocker, catalog: createCatalogService({ directory: catalogDirectory, ttlMs: 0 }), wait: async (ms) => { nowMs += ms; }, clock: () => new Date(nowMs), chownDirectory: async (target, uid, gid) => { chowns.push([path.basename(target), uid, gid]); } });
     await apps.install({ id: "rooty" });
     expect(chowns).toEqual([]); // nothing guessed
+  });
+
+  it("asks the image again after a probe it could not run, instead of remembering the silence", async () => {
+    // A failed `docker run ... id` was cached as "this image has no owner". Every later deploy took
+    // that cache hit, left the data folders root-owned, and the container crash-looped on its first
+    // mkdir: four installs in a row, cleared only by restarting the helper.
+    const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
+    const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
+    await writeFile(path.join(catalogDirectory, "flaky.yaml"), "schemaVersion: 2\nid: flaky\nname: Flaky\ncategory: T\ndescription: d\nimage:\n  reference: x/flaky:1\nvolumes:\n  - id: store\n    container: /store\n    path: store\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    const chowns = [];
+    let probeWorks = false;
+    const runDocker = vi.fn(async (_binary, args) => {
+      if (args[0] === "inspect") return { ok: true, stdout: JSON.stringify({ running: true, status: "running", health: "none", restarts: 0, image: "sha256:1", startedAt: "x", exitCode: 0 }), stderr: "" };
+      if (args[0] === "image" && args[1] === "inspect") return { ok: true, stdout: "appuser\n", stderr: "" };
+      if (args[0] === "run" && args.includes("id")) return probeWorks ? { ok: true, stdout: args.includes("-g") ? "2000\n" : "1500\n", stderr: "" } : { ok: false, stdout: "", stderr: "cannot start" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    let nowMs = Date.parse("2026-10-23T12:00:00Z");
+    const apps = createAppHelper({ catalogRoot, runDocker, catalog: createCatalogService({ directory: catalogDirectory, ttlMs: 0 }), wait: async (ms) => { nowMs += ms; }, clock: () => new Date(nowMs), chownDirectory: async (target, uid, gid) => { chowns.push([path.basename(target), uid, gid]); } });
+    await apps.install({ id: "flaky" });
+    expect(chowns).toEqual([]); // nothing known, nothing guessed
+    probeWorks = true;
+    await apps.reconfigure({ id: "flaky", values: {} }, { checkpoint: false });
+    expect(chowns).toEqual([["store", 1500, 2000]]); // asked again rather than reading back the silence
+  });
+
+  it("pulls before it writes the project, so an image that names its user can be asked", async () => {
+    // writeProject hands the data folders to the user the image declares, and `up` downloads a step
+    // too late: on a first install the image is not there to be asked.
+    const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
+    const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
+    await writeFile(path.join(catalogDirectory, "fresh.yaml"), "schemaVersion: 2\nid: fresh\nname: Fresh\ncategory: T\ndescription: d\nimage:\n  reference: x/fresh:1\nvolumes:\n  - id: store\n    container: /store\n    path: store\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    const chowns = [];
+    const order = [];
+    let pulled = false;
+    const runDocker = vi.fn(async (_binary, args) => {
+      if (args[0] === "inspect") return { ok: true, stdout: JSON.stringify({ running: true, status: "running", health: "none", restarts: 0, image: "sha256:1", startedAt: "x", exitCode: 0 }), stderr: "" };
+      if (args[0] === "pull") { pulled = true; order.push("pull"); return { ok: true, stdout: "", stderr: "" }; }
+      // Absent until something pulls it, as a first install finds it.
+      if (args[0] === "image" && args[1] === "inspect") return pulled ? { ok: true, stdout: "appuser\n", stderr: "" } : { ok: false, stdout: "", stderr: "No such image" };
+      if (args[0] === "run" && args.includes("id")) return { ok: true, stdout: args.includes("-g") ? "3000\n" : "3000\n", stderr: "" };
+      if (args[0] === "compose" && args.includes("up")) order.push("up");
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    let nowMs = Date.parse("2026-10-23T12:00:00Z");
+    const apps = createAppHelper({ catalogRoot, runDocker, catalog: createCatalogService({ directory: catalogDirectory, ttlMs: 0 }), wait: async (ms) => { nowMs += ms; }, clock: () => new Date(nowMs), chownDirectory: async (target, uid, gid) => { chowns.push([path.basename(target), uid, gid]); } });
+    await apps.install({ id: "fresh" });
+    expect(order[0]).toBe("pull");
+    expect(order).toContain("up");
+    expect(chowns).toEqual([["store", 3000, 3000]]);
+  });
+
+  describe("logTail", () => {
+    it("leads with the line that says what went wrong, not the frame above it", () => {
+      const traceback = [
+        "Traceback (most recent call last):",
+        '  File "/app/backend/app/main.py", line 15, in <module>',
+        "    from . import auth",
+        '  File "/app/backend/app/config.py", line 102, in ensure_dirs',
+        "    (self.import_root / \"paystubs\").mkdir(parents=True, exist_ok=True)",
+        "PermissionError: [Errno 13] Permission denied: '/imports/paystubs'",
+      ].join("\n");
+      expect(logTail(traceback)).toMatch(/^PermissionError: \[Errno 13\]/);
+      expect(logTail(traceback)).toContain("Last log lines:");
+    });
+
+    it("keeps the tail alone when the end of the log already says it", () => {
+      expect(logTail("starting\nlistening on 8000")).toBe("Last log lines: starting\nlistening on 8000");
+    });
+
+    it("says so when there is nothing to show", () => {
+      expect(logTail("   ")).toBe("Last log lines: (none)");
+    });
   });
 
   it("runs the chosen setup commands inside the container after install and settings changes", async () => {
