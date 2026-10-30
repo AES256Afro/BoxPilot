@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { advisories, evaluate, failed, report } from "./dependency-audit.mjs";
 

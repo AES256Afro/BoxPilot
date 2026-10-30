@@ -73,7 +73,7 @@ describe("the heartbeat", () => {
     fireEvent.change(screen.getByLabelText("How often"), { target: { value: "10" } });
     fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
-    await waitFor(() => expect(reads).toBeGreaterThan(1), { timeout: 4000 });
+    await waitFor(() => expect(reads).toBeGreaterThan(1));
     expect((screen.getByLabelText("Ping address") as HTMLInputElement).value).toBe(url);
     expect((screen.getByLabelText("How often") as HTMLSelectElement).value).toBe("10");
   });

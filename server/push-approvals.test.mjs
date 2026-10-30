@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { pushDevice } from "../test/web-push-device.mjs";
 import { createNotificationHistory } from "./notification-history.mjs";
 import { buildRequest } from "./notifications.mjs";
-import { approvalMessage, cleanOrigin, createPushApprovals, defaultMayApprove, inQuietHours, normalizePushSettings, webPushPayload } from "./push-approvals.mjs";
+import { approvalMessage, cleanOrigin, createPushApprovals, defaultMayApprove, inQuietHours, normalizePushSettings, pushLimits, webPushPayload } from "./push-approvals.mjs";
 import { vapidKeysFrom } from "./web-push.mjs";
 
 /*
@@ -49,7 +49,7 @@ function harness({ store = memoryStore(), answer = () => 201, body = () => null,
   const requests = [];
   const notifications = {
     getTarget: () => target,
-    send: async (message) => { const { url, options } = buildRequest(target, message); requests.push({ kind: "target", url, options }); return { sent: true }; },
+    send: async (message, { immediate = false } = {}) => { const { url, options } = buildRequest(target, message); requests.push({ kind: "target", url, options, immediate }); return { sent: true }; },
   };
   const fetcher = async (url, options) => { requests.push({ kind: "push", url, options }); return new Response(body(url), { status: answer(url) }); };
   const history = createNotificationHistory({ store, now: () => new Date(time) });
@@ -101,6 +101,8 @@ describe("what a push says", () => {
     const [push] = test.opened();
     expect(push.payload.notification.navigate).toBe(`${origin}/?view=today`);
     const ntfy = test.requests.find((request) => request.kind === "target");
+    // Approvals keep to their own quiet hours: held for the notification summary, the link would be lost.
+    expect(ntfy.immediate).toBe(true);
     expect(ntfy.options.headers.Click).toBe(`${origin}/?view=today`);
     expect(ntfy.options.body).toBe("Tap to review them in BoxPilot; nothing runs until you approve each one there.");
     expect(job.parameters.password).toBe(secrets[0]); // the job itself is untouched
@@ -371,5 +373,54 @@ describe("a push never approves anything", () => {
     expect(test.store.jobs.every((job) => job.state === "awaiting_approval")).toBe(true);
     expect(Object.keys(test.push).sort()).toEqual(["describeSettings", "devicesOf", "publicKey", "saveSettings", "start", "subscribe", "sweep", "test", "unsubscribe"]);
     expect(test.store.audit.map((entry) => entry.action)).not.toContain("job.approved");
+  });
+});
+
+describe("devices over time", () => {
+  it("caps the devices one account can have, without counting another account's", () => {
+    const test = harness({ store: memoryStore({ people: [{ id: "owner-1", username: "alex", role: "owner" }, { id: "op-1", username: "olly", role: "operator" }] }) });
+    for (let index = 0; index < pushLimits.subscriptionsPerAccount; index += 1) test.addPhone();
+    expect(() => test.addPhone()).toThrow(/at most 10 devices/);
+    expect(() => test.addPhone("op-1", "operator")).not.toThrow();
+    expect(test.push.devicesOf("owner-1")).toHaveLength(pushLimits.subscriptionsPerAccount);
+  });
+
+  it("forgets a device subscribed under a key since replaced, without sending to it", async () => {
+    const test = harness();
+    test.addPhone();
+    const restored = createPushApprovals({ store: test.store, loadVapid: () => vapidKeysFrom(generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey), fetcher: async () => { throw new Error("nothing should be sent"); }, now: () => new Date(test.now()) });
+    await expect(restored.test({ id: "owner-1", role: "owner" })).resolves.toEqual({ devices: 1, delivered: 0 });
+    expect(restored.devicesOf("owner-1")).toEqual([]);
+  });
+
+  it("sends a test push to the caller's own devices only, and says when there are none", async () => {
+    const test = harness({ store: memoryStore({ people: [{ id: "owner-1", username: "alex", role: "owner" }, { id: "op-1", username: "olly", role: "operator" }] }) });
+    const mine = test.addPhone("op-1", "operator");
+    test.addPhone("owner-1", "owner");
+    expect(await test.push.test({ id: "op-1", role: "operator" })).toEqual({ devices: 1, delivered: 1 });
+    expect(test.opened().map((push) => push.endpoint)).toEqual([mine]);
+    expect(test.opened()[0].payload).toMatchObject({ notification: { title: "BoxPilot test push" } });
+    await expect(test.push.test({ id: "nobody", role: "operator" })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("links pushes to the address the owner's browser came from, never one named in the settings", () => {
+    const test = harness();
+    test.push.saveSettings({ openAt: "https://elsewhere.example" }, { actorId: "owner-1", origin });
+    expect(test.push.describeSettings().openAt).toBe(origin);
+    test.push.saveSettings({ openAt: "https://elsewhere.example" }, { actorId: "owner-1", origin: "http://192.168.1.10:8787" });
+    expect(test.push.describeSettings().openAt).toBe(origin);
+  });
+
+  it("sweeps on a timer, and shortly after a job starts waiting for approval", async () => {
+    const scheduled = [];
+    const timers = { setInterval: (run, ms) => { scheduled.push(["every", ms, run]); return 1; }, clearInterval: () => scheduled.push(["cleared"]), setTimeout: (run, ms) => { scheduled.push(["once", ms, run]); return 2; } };
+    const store = memoryStore();
+    const push = createPushApprovals({ store, loadVapid: () => vapid, fetcher: async () => new Response(null, { status: 201 }), now: () => new Date(start), timers });
+    const stop = push.start();
+    store.stage({ state: "running" });
+    store.stage();
+    expect(scheduled.map(([kind, ms]) => [kind, ms])).toEqual([["every", pushLimits.sweepMs], ["once", pushLimits.graceMs + 1_000]]);
+    stop();
+    expect(scheduled.at(-1)).toEqual(["cleared"]);
   });
 });

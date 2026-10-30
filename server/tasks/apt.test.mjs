@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { aptAutoremove, aptInstall, aptRemove, aptRepair, aptTaskInternals, aptUnattendedSet, aptUpdate, aptUpgrade, validPackageList } from "./apt.mjs";
 
+// The dpkg answers that keep an operator's edited configuration file and never wait on a terminal.
+const confold = ["-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold"];
+
 function fakeRun(versions = {}, { failApt = false } = {}) {
   return vi.fn(async (binary, args) => {
     if (binary === "/usr/bin/dpkg-query") {
@@ -11,7 +14,7 @@ function fakeRun(versions = {}, { failApt = false } = {}) {
     if (binary === "/usr/bin/apt-get") {
       if (args[0] === "install" && args[1] === "--fix-broken") return { ok: true, stdout: "0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.", stderr: "" };
       if (failApt) return { ok: false, stdout: "", stderr: "E: Unable to locate package nope" };
-      if (args[0] === "install") for (const name of args.filter((arg) => !arg.startsWith("-") && arg !== "install")) versions[name] = versions[name] ?? "1.0";
+      if (args[0] === "install") for (const name of args.filter((arg) => !arg.startsWith("-") && !arg.includes("=") && arg !== "install")) versions[name] = versions[name] ?? "1.0";
       if (args[0] === "remove" || args[0] === "purge") for (const name of args.filter((arg) => !arg.startsWith("-") && arg !== args[0])) delete versions[name];
       return { ok: true, stdout: "Reading package lists...\n1 upgraded, 2 newly installed, 0 to remove and 3 not upgraded.", stderr: "" };
     }
@@ -30,6 +33,38 @@ describe("root apt tasks", () => {
     expect(validPackageList(Array.from({ length: 51 }, (_, index) => `p${index}`))).toContain("at most 50");
   });
 
+  it("refuses a removal whose plan takes a protected package the request did not name", async () => {
+    const versions = { libssl3: "3.0", "openssh-server": "9.6" };
+    const base = fakeRun(versions);
+    const run = vi.fn(async (binary, args, options) => (binary === "/usr/bin/apt-get" && args[0] === "-s"
+      ? { ok: true, stdout: "Remv openssh-server [1:9.6p1]\nRemv libssl3:amd64 [3.0.13]\n", stderr: "" }
+      : base(binary, args, options)));
+    await expect(aptRemove({ packages: ["libssl3"] }, { run })).rejects.toThrow("Removing libssl3 would also remove openssh-server");
+    expect(run.mock.calls.some(([binary, args]) => binary === "/usr/bin/apt-get" && args[0] === "remove")).toBe(false);
+    expect(versions["openssh-server"]).toBe("9.6");
+    // Named in the request, it is the owner's job already (escalation.mjs), and goes ahead.
+    await expect(aptRemove({ packages: ["libssl3", "openssh-server"] }, { run })).resolves.toMatchObject({ removed: true });
+    // apt.purge passes keepProtected: false; it is high and the owner's.
+    await expect(aptRemove({ packages: ["libssl3"], purge: true, keepProtected: false }, { run: fakeRun({ libssl3: "3.0" }) })).resolves.toMatchObject({ purged: true });
+  });
+
+  it("says plainly when an install would have removed something", async () => {
+    const base = fakeRun({});
+    const run = vi.fn(async (binary, args, options) => (binary === "/usr/bin/apt-get" && args[0] === "install" && args.includes("--no-remove")
+      ? { ok: false, stdout: "", stderr: "The following packages will be REMOVED:\n  systemd-timesyncd\nE: Packages need to be removed but remove is disabled." }
+      : base(binary, args, options)));
+    await expect(aptInstall({ packages: ["chrony"], refreshFirst: false }, { run })).rejects.toThrow("Installing chrony would remove a package that is installed now");
+  });
+
+  it("refuses an autoremove whose plan takes a protected package", async () => {
+    const base = fakeRun({});
+    const run = vi.fn(async (binary, args, options) => (binary === "/usr/bin/apt-get" && args[0] === "-s"
+      ? { ok: true, stdout: "Purg linux-image-6.8.0-31 [6.8.0-31.31]\nPurg tailscale [1.76.1]\n", stderr: "" }
+      : base(binary, args, options)));
+    await expect(aptAutoremove({}, { run })).rejects.toThrow("Autoremove would remove tailscale");
+    expect(run.mock.calls.some(([binary, args]) => binary === "/usr/bin/apt-get" && args[0] === "autoremove")).toBe(false);
+  });
+
   it("parses apt summaries", () => {
     expect(aptTaskInternals.summarizeAptOutput("1 upgraded, 2 newly installed, 0 to remove and 3 not upgraded.")).toEqual({ upgraded: 1, newlyInstalled: 2, removed: 0, notUpgraded: 3 });
     expect(aptTaskInternals.summarizeAptOutput("nothing")).toBeNull();
@@ -42,17 +77,19 @@ describe("root apt tasks", () => {
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["update"], expect.anything());
 
     await expect(aptUpgrade({ packages: null, refreshFirst: false }, { run })).resolves.toMatchObject({ upgraded: true, scope: "all", summary: { upgraded: 1 }, packageStateRepaired: true });
-    expect(run).toHaveBeenCalledWith("/usr/bin/dpkg", ["--configure", "-a"], expect.anything());
-    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--fix-broken", "--yes"], expect.anything());
-    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["upgrade", "--yes", "--with-new-pkgs"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/dpkg", ["--configure", "-a", "--force-confdef", "--force-confold"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--fix-broken", "--yes", ...confold], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["upgrade", "--yes", "--with-new-pkgs", ...confold], expect.anything());
     await expect(aptUpgrade({ packages: ["htop"], refreshFirst: false }, { run })).resolves.toMatchObject({ scope: "selected", before: { htop: "3.0" } });
-    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--only-upgrade", "htop"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--no-remove", "--only-upgrade", ...confold, "htop"], expect.anything());
 
     await expect(aptInstall({ packages: ["git"], refreshFirst: false }, { run })).resolves.toMatchObject({ installed: true, before: { git: null }, after: { git: "1.0" } });
-    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--no-install-recommends", "git"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--no-remove", "--no-install-recommends", ...confold, "git"], expect.anything());
 
     await expect(aptRemove({ packages: ["git"], purge: true }, { run })).resolves.toMatchObject({ removed: true, purged: true, after: { git: null } });
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["purge", "--yes", "--auto-remove", "git"], expect.anything());
+    // A removal is planned first and its plan read, unless the caller (apt.purge, the owner's) says not to.
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["-s", "purge", "--auto-remove", "git"], expect.anything());
 
     await expect(aptAutoremove({}, { run })).resolves.toMatchObject({ autoremoved: true });
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["autoremove", "--yes", "--purge"], expect.anything());
@@ -82,7 +119,7 @@ describe("root system tasks", () => {
     const files = { writeFile: vi.fn(async (path, content) => { written[path] = content; }) };
     const run = fakeRun({});
     await expect(aptUnattendedSet({ enabled: true }, { run, files, exists: async () => false })).resolves.toMatchObject({ enabled: true, installedNow: true });
-    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--no-install-recommends", "unattended-upgrades"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--no-install-recommends", ...confold, "unattended-upgrades"], expect.anything());
     expect(written["/etc/apt/apt.conf.d/20auto-upgrades"]).toContain('APT::Periodic::Unattended-Upgrade "1"');
 
     const disableRun = fakeRun({});
@@ -189,8 +226,8 @@ describe("dedicated package repair", () => {
     const run = fakeRun();
     const inspect = vi.fn().mockResolvedValueOnce({ status: "needs-repair" }).mockResolvedValueOnce({ status: "healthy" });
     expect(await aptRepair({}, { run, inspect })).toMatchObject({ repaired: true, verified: true });
-    expect(run).toHaveBeenCalledWith("/usr/bin/dpkg", ["--configure", "-a"], expect.objectContaining({ env: expect.objectContaining({ NEEDRESTART_SUSPEND: "1" }) }));
-    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--fix-broken", "--yes", "--no-remove"], expect.objectContaining({ env: expect.objectContaining({ NEEDRESTART_SUSPEND: "1" }) }));
+    expect(run).toHaveBeenCalledWith("/usr/bin/dpkg", ["--configure", "-a", "--force-confdef", "--force-confold"], expect.objectContaining({ env: expect.objectContaining({ NEEDRESTART_SUSPEND: "1" }) }));
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--fix-broken", "--yes", "--no-remove", ...confold], expect.objectContaining({ env: expect.objectContaining({ NEEDRESTART_SUSPEND: "1" }) }));
   });
   it("does not label successful commands as a repaired system when verification still fails", async () => {
     await expect(aptRepair({}, { run: fakeRun(), inspect: async () => ({ status: "needs-repair" }) })).rejects.toThrow("could not verify");

@@ -37,6 +37,8 @@ export function createOpenAiCompatibleProvider({ client, endpoint, apiKey = null
 /**
  * Thinking off, however a local server is told: Unsloth's own field, or llama.cpp's template
  * argument. For the calls that need no thinking: a plan held to a schema, a correction, a picture.
+ *
+ * @param {Record<string, any>} [extra]
  */
 export function thinkingOff(extra = {}) {
   const out = { ...extra };

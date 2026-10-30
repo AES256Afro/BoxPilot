@@ -1,12 +1,11 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import worker from "./worker.js";
 
 /*
- * The hosted demo (antifascist.work): open to anyone with the link since 2026-10-12, when the
- * password that had gated it since v1.155.0 came off at the owner's word. Search engines and AI
- * crawlers are still asked to keep out, by robots.txt and on every answer; nothing here belongs to
- * anybody.
+ * The hosted demo (antifascist.work and getnerp.com, the same Worker on both): open to anyone with
+ * the link since 2026-10-12, when the password that had gated it since v1.155.0 came off at the
+ * owner's word. Search engines and AI crawlers are still asked to keep out, by robots.txt and on
+ * every answer; nothing here belongs to anybody.
  */
 
 const files = {
@@ -23,6 +22,7 @@ const ASSETS = {
 };
 const env = { ASSETS };
 const at = (path, init) => new Request(`https://antifascist.work${path}`, init);
+const atOther = (path, init) => new Request(`https://getnerp.com${path}`, init);
 
 describe("the hosted demo", () => {
   it("serves the page, its scripts, the frozen API and the mockups to anyone, with no password", async () => {
@@ -68,6 +68,22 @@ describe("the hosted demo", () => {
     const staged = await worker.fetch(at("/api/v1/operations/app.backup/jobs", { method: "POST" }), env);
     expect(staged.status).toBe(201);
     expect((await staged.json()).approval.reason).toBe("demo: jobs never run here");
+  });
+
+  it("serves the same demo on either domain, sending nobody to the other one", async () => {
+    const page = await worker.fetch(atOther("/?scenario=broken"), env);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('data-world="broken"');
+    const api = await worker.fetch(atOther("/api/v1/health"), env);
+    expect(await api.json()).toEqual({ status: "ok" });
+    const mockups = await worker.fetch(atOther("/mockups/"), env);
+    expect(await mockups.text()).toContain("<title>Looks</title>");
+    // Both redirects are resolved against the request, so a visitor is never moved to the domain
+    // the Worker happens to have been written for.
+    const bare = await worker.fetch(atOther("/mockups"), env);
+    expect(bare.headers.get("location")).toBe("https://getnerp.com/mockups/");
+    const unlock = await worker.fetch(atOther("/__unlock", { method: "POST", body: new URLSearchParams({ password: "whatever", next: "/" }) }), env);
+    expect(unlock.headers.get("location")).toBe("https://getnerp.com/");
   });
 
   it("mirrors the demo's 404 for what is not part of it, prototype names included", async () => {

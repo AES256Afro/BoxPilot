@@ -25,3 +25,23 @@ describe("storage route helpers", () => {
     expect(parseShowmount("")).toEqual([]);
   });
 });
+
+describe("the SMART history route (M31.2)", () => {
+  it("answers each disk's readings over the last weeks, from the sampler's history", async () => {
+    const { default: express } = await import("express");
+    const { createStorageRouter } = await import("./storage.mjs");
+    const now = Date.parse("2026-10-18T06:00:00Z");
+    const state = { getSetting: (key) => (key === "smartHistory" ? { "/dev/sda": [{ at: "2026-10-17T06:00:00Z", temperatureCelsius: 40, percentageUsed: 5, mediaErrors: 0 }, { at: "2026-10-18T05:00:00Z", temperatureCelsius: 42, percentageUsed: 6, mediaErrors: 0 }] } : {}) };
+    const app = express();
+    app.use("/api/v1", createStorageRouter({ auth: { requireRole: () => (_request, _response, next) => next(), requireCsrf: (_request, _response, next) => next() }, state, now: () => now }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    try {
+      const body = await (await fetch(`http://127.0.0.1:${server.address().port}/api/v1/storage/smart-history`)).json();
+      expect(body.disks).toEqual([expect.objectContaining({ device: "/dev/sda", days: 1, wearChange: 1, errorChange: 0 })]);
+      expect(body.disks[0].samples).toHaveLength(2);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});

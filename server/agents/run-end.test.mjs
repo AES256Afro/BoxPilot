@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * How a run ends, whoever ends it (sweep 1, 2026-10). Only the runner's finish carried a run's end
  * on: a hand-off that the server cancelled, timed out or interrupted left its supervisor waiting

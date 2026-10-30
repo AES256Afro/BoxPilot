@@ -85,15 +85,21 @@ export function fallbackTools(claim, understanding = null) {
   return picked.slice(0, 4).map((id) => ({ id, input: id === "docs.search" ? { query: question.slice(0, 300) || "status" } : {} }));
 }
 
+/**
+ * @param {{
+ *   api: any, runtime: any, client: any, usage?: any, now?: () => number, log?: (line: string) => void,
+ *   version?: string | null, options?: Partial<typeof runnerDefaults>,
+ * }} options
+ */
 export function createRunner({ api, runtime, client, usage = null, now = () => Date.now(), log = () => {}, version = null, options = {} }) {
   const settings = { ...runnerDefaults, ...options };
   // The runner's shutdown signal lives as long as the process, so a listener left on it is kept
   // forever, with everything its closure holds: each sleep and each run takes its own off again.
-  const sleep = (ms, signal) => new Promise((resolve) => {
+  const sleep = (ms, signal) => /** @type {Promise<void>} */ (new Promise((resolve) => {
     const done = () => { clearTimeout(timer); signal?.removeEventListener?.("abort", done); resolve(); };
     const timer = setTimeout(done, ms);
     signal?.addEventListener?.("abort", done, { once: true });
-  });
+  }));
   const readUsage = async () => {
     const measured = usage ? await usage.read().catch(() => null) : null;
     const model = runtime.status();
@@ -140,6 +146,12 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
   /**
    * A describe run (M38): the model reads each image the web service handed over - one an image
    * from #agent-files - and says what it shows. No tools, no conversation, thinking off.
+   *
+   * @param {any} claim the claim BoxPilot handed over
+   * @param {AbortController} controller
+   * @param {Record<string, number>} used the run's counters (modelMs, loadMs, tokens)
+   * @param {() => void} heartbeatStop
+   * @param {{ ownDeadline?: () => boolean }} [options]
    */
   async function executeDescribe(claim, controller, used, heartbeatStop, { ownDeadline = () => false } = {}) {
     const { run, lease } = claim;
@@ -201,6 +213,10 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     return { outcome: described ? "completed" : "failed" };
   }
 
+  /**
+   * @param {any} claim the claim BoxPilot handed over
+   * @param {{ signal?: AbortSignal }} [options]
+   */
   async function execute(claim, { signal } = {}) {
     const { run, lease, limits } = claim;
     const controller = new AbortController();
@@ -252,7 +268,10 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       : { promptPerSecond: settings.promptPerSecond, generatePerSecond: settings.generatePerSecond });
     const speeds = { local: speedOf(localRuntime), claude: speedOf(claudeRuntime) };
 
-    /** How much of the run is left for the model: the deadline (less the reserve) and the day's model time. */
+    /**
+     * How much of the run is left for the model: the deadline (less the reserve) and the day's model time.
+     * @returns {{ ms: number, binding: "budget" | "timeout" }}
+     */
     const timeLeft = () => {
       const byDeadline = deadline - now() - settings.reserveMs;
       const byBudget = limits.remainingModelMs - used.modelMs - used.loadMs;
@@ -491,7 +510,10 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
     }
   }
 
-  /** Wait for work until `signal` aborts. Connection trouble backs off; it never spins. */
+  /**
+   * Wait for work until `signal` aborts. Connection trouble backs off; it never spins.
+   * @param {{ signal?: AbortSignal }} [options]
+   */
   async function loop({ signal } = {}) {
     let failures = 0;
     let greeted = false;
@@ -541,13 +563,13 @@ export function createRunnerApi({ base, token, runnerId, fetch: fetchImpl = glob
       redirect: "error",
     });
     if (response.status === 204) return null;
-    const parsed = await response.json().catch(() => null);
+    const parsed = /** @type {any} */ (await response.json().catch(() => null)); // BoxPilot's JSON
     if (!response.ok) throw Object.assign(new Error(parsed?.error ?? `BoxPilot answered ${response.status}`), { status: response.status, code: parsed?.code ?? null });
     return parsed;
   }
   return {
     hello: (body) => post("/hello", body),
-    next: (body, { signal } = {}) => post("/next", body, { timeoutMs: (body.waitMs ?? 25_000) + 15_000, signal }),
+    next: (body, /** @type {{ signal?: AbortSignal }} */ { signal } = {}) => post("/next", body, { timeoutMs: (body.waitMs ?? 25_000) + 15_000, signal }),
     heartbeat: (runId, lease, body) => post(`/runs/${encodeURIComponent(runId)}/heartbeat`, { lease, ...body }),
     steps: (runId, lease, steps) => post(`/runs/${encodeURIComponent(runId)}/steps`, { lease, steps }),
     tool: (runId, lease, name, input, extras = {}) => post(`/runs/${encodeURIComponent(runId)}/tools`, { lease, name, input, ...(extras.vector ? { vector: extras.vector } : {}) }, { timeoutMs: 60_000 }),
@@ -565,7 +587,7 @@ export function createRunnerApi({ base, token, runnerId, fetch: fetchImpl = glob
 export function directRunnerApi(service, runnerId) {
   return {
     hello: (body) => Promise.resolve(service.runnerHello(runnerId, body)),
-    next: async (body, { signal } = {}) => {
+    next: async (body, /** @type {{ signal?: AbortSignal }} */ { signal } = {}) => {
       const claim = await service.runnerNext(runnerId, { ...body, signal });
       return { claim, ...service.runnerAdvice() };
     },

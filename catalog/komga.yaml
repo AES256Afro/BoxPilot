@@ -7,7 +7,7 @@ description: "Comics and manga server with a web reader, OPDS for apps like Pane
 website: https://komga.org
 risk: low
 image:
-  reference: gotson/komga:1.26.3
+  reference: gotson/komga:1.26.3@sha256:6c2a967bbe9acefd05933b2eb498f34afe96a83c6f7f8ab0acb512a1bb3ab50f
   version: "1.26.3"
 ports:
   - id: web

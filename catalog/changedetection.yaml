@@ -7,7 +7,7 @@ description: "Watch web pages for changes: price drops, back-in-stock notices, n
 website: https://changedetection.io
 risk: low
 image:
-  reference: dgtlmoon/changedetection.io:0.55.8
+  reference: dgtlmoon/changedetection.io:0.55.8@sha256:5438423d5e906eff4e8f7886823482ad23f472bf7b8530ccaca89fb48c337882
   version: "0.55.8"
 ports:
   - id: web

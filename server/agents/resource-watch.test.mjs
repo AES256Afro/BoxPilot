@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Resource Watch (M47.9): the template that reads which apps use the machine, its seeds and its
  * golden question on the fact busiestApp, read from the Performance page's read; and a run of it on

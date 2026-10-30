@@ -52,6 +52,11 @@ export function createOpenAiClient({
 } = {}) {
   const guard = createEndpointGuard({ lookup, now, resolveTtlMs, loopbackOnly });
 
+  /**
+   * @param {string} endpoint
+   * @param {string} pathname
+   * @param {{ method?: string, body?: unknown, signal?: AbortSignal | null, timeoutMs: number, apiKey?: string | null, stream?: boolean }} options
+   */
   async function send(endpoint, pathname, { method = "GET", body, signal, timeoutMs, apiKey = null, stream = false }) {
     const origin = await guard(endpoint);
     const signals = [AbortSignal.timeout(timeoutMs)];
@@ -78,7 +83,11 @@ export function createOpenAiClient({
     return modelError(`The model server answered ${response.status}${message ? `: ${String(typeof message === "string" ? message : JSON.stringify(message)).slice(0, 200)}` : ""}`, "model_error", { status: response.status });
   }
 
-  /** The models the server offers, by id. */
+  /**
+   * The models the server offers, by id.
+   * @param {string} endpoint
+   * @param {{ signal?: AbortSignal, timeoutMs?: number, apiKey?: string | null }} [options]
+   */
   async function models(endpoint, { signal, timeoutMs = 3_000, apiKey = null } = {}) {
     const response = await send(endpoint, "/v1/models", { signal, timeoutMs, apiKey });
     if (!response.ok) throw await failure(response);
@@ -91,7 +100,13 @@ export function createOpenAiClient({
     });
   }
 
-  /** One vector per input, in order. */
+  /**
+   * One vector per input, in order.
+   * @param {string} endpoint
+   * @param {string} model
+   * @param {string[]} inputs
+   * @param {{ signal?: AbortSignal, timeoutMs?: number, apiKey?: string | null }} [options]
+   */
   async function embed(endpoint, model, inputs, { signal, timeoutMs = 15_000, apiKey = null } = {}) {
     const response = await send(endpoint, "/v1/embeddings", { method: "POST", body: { model, input: inputs }, signal, timeoutMs, apiKey });
     if (!response.ok) throw await failure(response, model);
@@ -117,6 +132,10 @@ export function createOpenAiClient({
    * `toolChoice` "none" keeps the tools in the prompt, so it stays the same, and lets none be called.
    * Aborting (`signal`, or `timeoutMs` passing) closes the connection, which is what makes
    * llama-server stop working on the request.
+   *
+   * @param {string} endpoint
+   * @param {import("../provider.mjs").ChatRequest} request
+   * @param {{ signal?: AbortSignal, timeoutMs?: number, onDelta?: (text: string) => unknown, apiKey?: string | null }} [options]
    */
   async function chat(endpoint, { model, messages, tools = null, toolChoice = "auto", temperature = 0.2, maxTokens = 1024, extra = {} }, { signal, timeoutMs = 120_000, onDelta = () => {}, apiKey = null } = {}) {
     const body = {
@@ -219,6 +238,10 @@ export function createOpenAiClient({
    * Ask Unsloth Studio to stop a chat it is still working on: POST /api/inference/cancel with the
    * `cancel_id` the request carried. Closing the connection already stops it; this also reaches a
    * request Studio has not started yet. Never throws: false when it could not be asked.
+   *
+   * @param {string} endpoint
+   * @param {string} cancelId
+   * @param {{ apiKey?: string | null, timeoutMs?: number }} [options]
    */
   async function cancel(endpoint, cancelId, { apiKey = null, timeoutMs = 3_000 } = {}) {
     if (typeof cancelId !== "string" || !cancelId) return false;

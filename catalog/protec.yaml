@@ -7,7 +7,7 @@ description: "Self-hosted device enrollment, package inventory, device groups wi
 website: https://foragefournuts.com
 risk: low
 image:
-  reference: ghcr.io/aes256afro/protec:0.7.0
+  reference: ghcr.io/aes256afro/protec:0.7.0@sha256:60d6d3cf2e3d30f4811a9c3b91875a53d3c07fd05333505dae90adbed712c7ca
   version: "0.7.0"
 user: "10001:10001"
 ports:

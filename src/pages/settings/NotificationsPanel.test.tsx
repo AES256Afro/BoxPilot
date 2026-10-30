@@ -167,4 +167,28 @@ describe("Notification settings", () => {
     // A greyed-out button says why, and what would enable it.
     expect(screen.getByText("Sending needs a notification target: set one above.")).toBeTruthy();
   });
+
+  it("holds pushes overnight once quiet hours are on, and says how many are waiting", async () => {
+    let saved: unknown;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/quiet-hours") && init?.method === "PUT") { saved = JSON.parse(String(init.body)); return json({ ...(saved as object), held: 0, quietNow: false }); }
+      if (url.endsWith("/settings/quiet-hours")) return json({ enabled: false, start: "22:00", end: "07:00", holdHigh: false, held: 3, quietNow: false });
+      if (url.endsWith("/settings/notifications")) return json({ configured: true, kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot", hasToken: false });
+      if (url.endsWith("/settings/watch")) return json({ targetConfigured: true, activeCount: 0, conditions: [] });
+      if (url.endsWith("/settings/weekly-report")) return json({ enabled: false, cadence: "Sundays at 09:00", nextDueAt: null, lastSentAt: null, lastResult: null, targetConfigured: true });
+      return json({ applications: [], host: {} });
+    }));
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    const panel = await screen.findByRole("region", { name: "Quiet hours" });
+    expect(within(panel).getByText("3")).toBeTruthy();
+    const save = within(panel).getByRole("button", { name: "Save quiet hours" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(within(panel).getByRole("switch", { name: "Hold pushes overnight" }));
+    fireEvent.change(within(panel).getByLabelText("From"), { target: { value: "23:00" } });
+    fireEvent.change(within(panel).getByLabelText("Until"), { target: { value: "06:30" } });
+    fireEvent.click(save);
+    expect(await within(panel).findByText("Pushes wait from 23:00 to 06:30, server time.")).toBeTruthy();
+    expect(saved).toEqual({ enabled: true, start: "23:00", end: "06:30", holdHigh: false });
+  });
 });

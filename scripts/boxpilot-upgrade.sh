@@ -8,7 +8,9 @@
 #   0. Holds /run/boxpilot-upgrade.lock for the whole run: a second upgrade started meanwhile refuses
 #      and says which one to wait for; staging trees earlier runs left unfinished are removed
 #   1. Downloads the ref as a tarball from GitHub into /opt/boxpilot.staging.<stamp> (removed again
-#      if the build fails or a signal stops the run before the service is)
+#      if the build fails or a signal stops the run before the service is). When the owner has set a
+#      release key (/var/lib/boxpilot-managed/release-signers, System page), it fetches the release tag with
+#      git instead, refuses unless `git verify-tag` says that key signed it, and builds that commit
 #   2. npm ci, npm run build, npm prune --omit=dev in the staging directory
 #   3. Copies the database the running version wrote (VACUUM INTO, integrity-checked, the live
 #      file's owner and mode) to /var/lib/boxpilot/boxpilot-rollback-<old version>-<stamp>.sqlite3,
@@ -171,6 +173,44 @@ try {
 }
 '
 
+# verify_release URL TAG EXPECTED-COMMIT SIGNERS DIR: fetch TAG from URL with git, check it is an
+# annotated tag a key in SIGNERS signed (git verify-tag, SSH format), that it points at EXPECTED (when
+# one is given), and write that commit's tree into DIR. Prints the commit. Nothing is written to DIR
+# unless every check passed. Kept as one program so scripts/boxpilot-upgrade.test.mjs runs it as is.
+VERIFY_RELEASE_SH='
+set -eu
+url="$1"; tag="$2"; expect="$3"; signers="$4"; out="$5"
+work="$(mktemp -d)"
+trap "rm -rf \"$work\"" EXIT
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+git -C "$work" init -q
+if ! git -C "$work" fetch -q --depth 1 --no-tags "$url" "+refs/tags/$tag:refs/tags/$tag" 2>"$work/fetch.err"; then
+  echo "could not fetch $tag from $url: $(tail -n 1 "$work/fetch.err")" >&2; exit 2
+fi
+if [ "$(git -C "$work" cat-file -t "refs/tags/$tag")" != tag ]; then
+  echo "$tag is a lightweight tag, which carries no signature" >&2; exit 3
+fi
+# verify-tag checks the signature, not the name: an old signed tag object pushed under a new ref name
+# would pass and install an old release. The name inside the signed object has to be the one asked for.
+named="$(git -C "$work" cat-file tag "refs/tags/$tag" | sed -n "/^\$/q;s/^tag //p")"
+if [ "$named" != "$tag" ]; then
+  echo "refs/tags/$tag holds the signed tag $named, not $tag" >&2; exit 3
+fi
+# gpg.format only picks how to sign; to verify, git follows the signature block, so a PGP signature
+# would be checked against the GnuPG keyring of root. Only an SSH signature by the release key counts.
+if ! git -C "$work" -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="$signers" -c gpg.openpgp.program=/bin/false -c gpg.x509.program=/bin/false verify-tag "$tag" >/dev/null 2>"$work/verify.err"; then
+  echo "$tag is not signed by the release key in $signers ($(grep -v "^$" "$work/verify.err" | tail -n 1))" >&2; exit 3
+fi
+commit="$(git -C "$work" rev-parse "refs/tags/$tag^{commit}")"
+if [ -n "$expect" ] && [ "$commit" != "$expect" ]; then
+  echo "$tag points at $commit, not $expect" >&2; exit 3
+fi
+# To a file first: in a pipe, a failed archive could still leave tar exiting 0 with half a tree.
+git -C "$work" archive --format=tar -o "$work/release.tar" "$commit"
+tar -x -C "$out" -f "$work/release.tar"
+echo "$commit"
+'
+
 [ "$(id -u)" -eq 0 ] || fail "run with sudo (root is required to replace ${INSTALL_DIR} and restart units)"
 for tool in curl tar flock; do command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"; done
 
@@ -231,10 +271,37 @@ stopped_building() {
 trap stopped_building HUP INT TERM PIPE
 
 # 1. Download
-log "downloading ${REPO}@${REF}"
+SIGNERS="${BOXPILOT_RELEASE_SIGNERS:-/var/lib/boxpilot-managed/release-signers}"
 mkdir -p "$STAGING"
-if ! curl -fsSL "https://codeload.github.com/${REPO}/tar.gz/${REF}" | tar -xz -C "$STAGING" --strip-components=1; then
-  cleanup_staging; fail "download or extraction failed for ${REPO}@${REF} (does the ref exist?)"
+if [ -s "$SIGNERS" ]; then
+  # The signature is on the tag. The System page passes the commit it reviewed and the tag beside it;
+  # by hand, name the tag.
+  case "$REF" in
+    v[0-9]*) TAG="$REF"; EXPECT="" ;;
+    *) TAG="${BOXPILOT_UPDATE_TAG:-}"; EXPECT="$REF" ;;
+  esac
+  [ -n "$TAG" ] || { cleanup_staging; fail "this server only builds signed releases (${SIGNERS}); name a release tag such as v1.2.3, not ${REF}. Nothing was changed."; }
+  # Root's own file: one the web service's user could write would let it pick the key.
+  case "$(stat -c "%u %a" "$SIGNERS" 2>/dev/null)" in
+    "0 "[0-7][0145][0145]|"0 "[0-7][0-7][0145][0145]) ;;
+    *) cleanup_staging; fail "${SIGNERS} must be owned by root and writable by nobody else. Nothing was changed." ;;
+  esac
+  for tool in git ssh-keygen; do command -v "$tool" >/dev/null 2>&1 || { cleanup_staging; fail "$tool is required to check the release signature. Nothing was changed."; }; done
+  log "checking that ${TAG} is signed by the release key in ${SIGNERS}"
+  if ! VERIFIED="$(sh -c "$VERIFY_RELEASE_SH" verify-release "https://github.com/${REPO}.git" "$TAG" "$EXPECT" "$SIGNERS" "$STAGING" 2>"${STAGING}.verify")"; then
+    reason="$(tail -n 1 "${STAGING}.verify" 2>/dev/null)"; rm -f "${STAGING}.verify"
+    cleanup_staging; fail "${reason:-the release could not be verified}. Nothing was changed."
+  fi
+  rm -f "${STAGING}.verify"
+  # The signed tree must be the release the tag names: an older release signed long ago is not an update.
+  SIGNED_VERSION="$("$NODE_BIN" -p 'require(process.argv[1]).version' "${STAGING}/package.json" 2>/dev/null || true)"
+  [ "v${SIGNED_VERSION}" = "$TAG" ] || { cleanup_staging; fail "${TAG} holds BoxPilot ${SIGNED_VERSION:-of no version}, not ${TAG#v}. Nothing was changed."; }
+  log "${TAG} is signed by the release key; building commit ${VERIFIED}"
+else
+  log "downloading ${REPO}@${REF}"
+  if ! curl -fsSL "https://codeload.github.com/${REPO}/tar.gz/${REF}" | tar -xz -C "$STAGING" --strip-components=1; then
+    cleanup_staging; fail "download or extraction failed for ${REPO}@${REF} (does the ref exist?)"
+  fi
 fi
 [ -f "${STAGING}/package.json" ] || { cleanup_staging; fail "downloaded tree has no package.json"; }
 NEW_VERSION="$("$NODE_BIN" -p 'require(process.argv[1]).version' "${STAGING}/package.json")"
@@ -280,6 +347,11 @@ if [ -n "$OLD_VERSION" ]; then
     # not open its own database. From /, so root's home not being readable to that user is no matter.
     DB_OWNER="$(stat -c %U "$DATABASE")"
     AS_OWNER=""
+    # Root finishes the copy only in a folder root owns: in anyone else's, the name could be a link.
+    if [ "$DB_OWNER" = root ] && [ "$(stat -c %U "$DB_COPY_DIR")" != root ]; then
+      cleanup_staging
+      fail "the database is root's but ${DB_COPY_DIR} belongs to $(stat -c %U "$DB_COPY_DIR"), so its copy cannot be made safely. Nothing was changed. Give the database to the service's user, or set BOXPILOT_DB_COPY_DIR to a folder root owns."
+    fi
     if [ "$DB_OWNER" != root ]; then
       command -v runuser >/dev/null 2>&1 || fail "runuser is required to copy the database as ${DB_OWNER}"
       AS_OWNER="runuser -u ${DB_OWNER} --"
@@ -288,7 +360,18 @@ if [ -n "$OLD_VERSION" ]; then
     # shellcheck disable=SC2086 # AS_OWNER is a command prefix, empty or three words.
     if ! copied="$(cd / && umask 077 && $AS_OWNER "$NODE_BIN" --no-warnings --input-type=module -e "$DB_COPY_JS" "$DATABASE" "$DB_COPY" 2>&1)"; then
       reason="$(printf '%s\n' "$copied" | tail -n 1)"
-    elif ! chown --reference="$DATABASE" "$DB_COPY" || ! chmod --reference="$DATABASE" "$DB_COPY"; then
+    # The copy sits in the database's own folder, which its user can write while the service still
+    # runs: root following a name there could be led by a link to any file on the server. Copied as
+    # that user, the copy is theirs already, and its mode is set as that user too, who can change no
+    # file but their own. Only a database root owns, in a folder root owns, is finished by root.
+    # shellcheck disable=SC2086 # AS_OWNER is a command prefix, empty or three words.
+    elif [ -n "$AS_OWNER" ] && ! $AS_OWNER chmod --reference="$DATABASE" "$DB_COPY"; then
+      reason="the copy could not be given the database's mode"
+    # The database's group as well, when its user is in that group (a 0640 database read by a group).
+    # shellcheck disable=SC2086 # AS_OWNER is a command prefix, empty or three words.
+    elif [ -n "$AS_OWNER" ] && id -nG "$DB_OWNER" | tr ' ' '\n' | grep -qxF "$(stat -c %G "$DATABASE")" && ! $AS_OWNER chgrp --reference="$DATABASE" "$DB_COPY"; then
+      reason="the copy could not be given the database's group"
+    elif [ -z "$AS_OWNER" ] && { ! chown --no-dereference --reference="$DATABASE" "$DB_COPY" || ! chmod --reference="$DATABASE" "$DB_COPY"; }; then
       reason="the copy could not be given the database's owner and mode"
     else
       COPY_OK=1
@@ -370,7 +453,7 @@ rollback() {
   # releases change nothing in it - but if the old version cannot read it, this is the way back.
   if [ -n "$DB_COPY" ]; then
     log "the database as ${OLD_VERSION} left it is ${DB_COPY}"
-    log "if ${OLD_VERSION} misbehaves on the current database: systemctl stop boxpilot, copy that file over ${DATABASE} (keeping its owner and mode), delete ${DATABASE}-wal and ${DATABASE}-shm, and start boxpilot. Anything recorded after ${STAMP} is not in the copy."
+    log "if ${OLD_VERSION} misbehaves on the current database: System, Housekeeping, Database copies, Put back on that copy; or by hand: systemctl stop boxpilot, copy that file over ${DATABASE} (keeping its owner and mode), delete ${DATABASE}-wal and ${DATABASE}-shm, and start boxpilot. Anything recorded after ${STAMP} is not in the copy."
   fi
   if [ "$RESTORED" -ne 1 ]; then
     if [ -e "$INSTALL_DIR" ]; then

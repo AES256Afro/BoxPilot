@@ -318,6 +318,16 @@ describe("Backups page", () => {
       expect((within(sheet).getByLabelText("Application key") as HTMLInputElement).value).toBe("K123");
     });
 
+    it("tells a viewer a second copy is set without saying where", async () => {
+      mockFetch({ remoteSettings: { destination: { hidden: true }, lastSync: { completedAt: daysAgo(1), filesTransferred: 3, bytesTransferred: 10, destination: null } }, cloudSettings: { destination: { provider: "b2" }, lastSync: null } });
+      render(<BackupsPage csrfToken="csrf-token" role="viewer" />);
+      await screen.findByRole("tab", { name: /^Off this server/ });
+      openTab(/^Off this server/);
+      expect(await screen.findByText("set (an operator or the owner can see where)")).toBeTruthy();
+      expect(screen.queryByText(/undefined/)).toBeNull();
+      expect(screen.queryByRole("button", { name: /Test connection|Mirror now|Change destination/ })).toBeNull();
+    });
+
     it("offers rclone when it is missing, and a saved cloud destination's test and mirror to the owner only", async () => {
       const cloudSettings = { destination: { provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox" }, lastSync: { completedAt: daysAgo(1), filesTransferred: 7, bytesTransferred: "1.2 GiB", destination: "boxpilot:home-backups/homebox" } };
       mockFetch({ cloud: { rcloneInstalled: false, configured: true, provider: "b2", providers }, cloudSettings });

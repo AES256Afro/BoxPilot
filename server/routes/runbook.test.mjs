@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The runbook routes (M34.4): an operator may generate it, only the owner may download the full
  * copy, and a failure is an honest 503 rather than a half-written document. The same gating is

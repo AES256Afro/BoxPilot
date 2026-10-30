@@ -54,7 +54,11 @@ export function coreCeiling(processors) {
   return Math.max(coreLimits.min, Math.min(coreLimits.max, count - coreLimits.keepFree));
 }
 
-/** The owner's two settings, each held to 2 and the machine's ceiling, background no more than waiting. */
+/**
+ * The owner's two settings, each held to 2 and the machine's ceiling, background no more than waiting.
+ * @param {{ waiting?: number, background?: number }} [saved]
+ * @param {{ processors?: number }} [machine]
+ */
 export function effectiveCores(saved = {}, { processors } = {}) {
   const ceiling = coreCeiling(processors);
   const clamp = (value, fallback) => Math.min(ceiling, Math.max(coreLimits.min, Number.isInteger(value) ? value : fallback));
@@ -68,6 +72,8 @@ export const threadsFor = (cores, physicalCores = null) => Math.max(1, Number.is
 /**
  * This machine's physical cores, from sysfs: the distinct (package, core) pairs of its processors.
  * Null where they cannot be read (not Linux, a sandbox that hides them): threads then follow the setting.
+ *
+ * @param {{ readdir?: (dir: string) => Promise<string[]>, readFile?: (file: string) => Promise<string> }} [options]
  */
 export async function physicalCores({ readdir, readFile } = {}) {
   try {

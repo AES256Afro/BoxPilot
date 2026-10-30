@@ -190,18 +190,23 @@ unmount_drive() {
 # whole seconds reached back up to a second before the mount, to an earlier mount of the drive
 # while it was still marked.
 KMARK=""
+# Under pipefail, `cmd | grep -q` fails whenever grep finds its match and quits while cmd still has
+# output to write: cmd dies of SIGPIPE and the pipeline takes its status. So a long output is read
+# into a variable first and searched there, never piped into grep -q.
+has_kmark() { local log; log="$(dmesg)"; grep -qF "$KMARK" <<< "$log"; }
 kmark() {
   KMARK="bp-drive-test: mark $(date +%s%N)"
   echo "$KMARK" > /dev/kmsg
-  dmesg | grep -qF "$KMARK" || fail "the kernel's log did not take the test's mark, so no warning can be placed after it"
+  has_kmark || fail "the kernel's log did not take the test's mark, so no warning can be placed after it"
 }
 since_mark() { dmesg | awk -v mark="$KMARK" 'seen; index($0, mark) { seen = 1 }'; }
 kernel_since() { since_mark | grep -i 'exfat' | sed 's/^/   kernel: /'; }
 # 0 when the kernel has said "Volume was not properly unmounted" since the mark, 1 when it has
 # not, 2 when the mark is not in the log (so neither can be told).
 warned() {
-  dmesg | grep -qF "$KMARK" || return 2
-  since_mark | grep -q 'Volume was not properly unmounted'
+  has_kmark || return 2
+  local since; since="$(since_mark)"
+  grep -q 'Volume was not properly unmounted' <<< "$since"
 }
 not_warned() { warned; [ $? -eq 1 ]; }
 # Unmounts the drive, marks it, and mounts it afresh with the mark: the filesystem is gone
@@ -254,13 +259,28 @@ show_order() {
   note "systemctl list-dependencies --after docker.service, drives only:"
   systemctl list-dependencies --after --plain docker.service | grep 'mnt-' | sed 's/^/   /' || echo "   (none)"
 }
-docker_after_drive() { systemctl list-dependencies --after --plain docker.service | grep -qF "$UNIT"; }
-drive_before_docker() { systemctl show "$UNIT" -p Before --value | tr ' ' '\n' | grep -qx docker.service; }
+# Each side of the ordering as systemd holds it: the drive's Before= and the units docker.service
+# is ordered after (what a shutdown stops by). Read whole and matched as whole names, not piped
+# into grep -q: on systemd 259 (Ubuntu 26.04) `list-dependencies --after docker.service | grep -qF
+# <drive>` failed although the same tree, printed just above it by show_order, named the drive.
+# The tree is long, grep -q quits at its first match while systemctl is still writing, and
+# pipefail takes systemctl's status. docker.service's After= as systemctl show prints it is no
+# help: matched against the drive's name it failed on 22.04, 24.04 and 26.04 alike, systemctl
+# show quoting a value with a backslash in it.
+in_list() { [[ " $1 " == *" $2 "* ]]; }  # $1 = space-separated units, $2 = one unit, literally
+docker_after_units() {
+  local tree rc; tree="$(systemctl list-dependencies --after --plain docker.service)"; rc=$?
+  [ "$rc" -eq 0 ] || note "systemctl list-dependencies --after docker.service exited ${rc} with $(wc -l <<< "$tree") lines" >&2
+  [ -n "$tree" ] && awk '{ print $1 }' <<< "$tree"
+}
+docker_after_drive() { local units; units="$(docker_after_units)" && grep -qxF "$UNIT" <<< "$units"; }
+docker_not_after_drive() { local units; units="$(docker_after_units)" && ! grep -qxF "$UNIT" <<< "$units"; }
+drive_before_docker() { local before; before="$(systemctl show "$UNIT" -p Before --value)"; in_list "$before" docker.service; }
 not_required() { [ -z "$(systemctl show "$UNIT" -p RequiredBy --value)" ]; }
 
 section "1a. ordering, today's line: $TODAY"
 fstab_line "$TODAY"; show_order
-check "today's line: nothing orders docker.service after the drive" bash -c "! systemctl list-dependencies --after --plain docker.service | grep -qF '$UNIT'"
+check "today's line: nothing orders docker.service after the drive" docker_not_after_drive
 
 section "1b. ordering, the new line: $NEW"
 fstab_line "$NEW"; show_order
@@ -376,13 +396,20 @@ boot_sim() {  # $1 = label, $2 = options, $3 = seconds until the drive appears, 
   # What boot does: local-fs.target wants the mount (nofail), multi-user.target wants Docker.
   systemctl start --no-block "$UNIT" docker.service
   if [ "$3" != never ]; then (sleep "$3"; losetup --find --show --partscan "$IMG" >/dev/null; udevadm settle) & fi
-  for _ in $(seq 1 120); do systemctl is-active --quiet docker.service && break; sleep 0.5; done
+  # When the mount's start job ended (the drive came, or its device timeout gave up) is noted as well:
+  # with no drive, Docker may start some time after that on a slow runner (once past 60 s on 22.04,
+  # 2026-10-18), and what the case proves is that the timeout applied and Docker came after it.
+  MOUNT_SETTLED=""
+  for _ in $(seq 1 240); do
+    [ -z "$MOUNT_SETTLED" ] && [ -z "$(systemctl list-jobs --no-legend "$UNIT" 2>/dev/null)" ] && MOUNT_SETTLED=$(( $(now_ms) - T ))
+    systemctl is-active --quiet docker.service && break; sleep 0.5
+  done
   BOOT_DELAY=$(( $(now_ms) - T ))
   wait
   DISK="$(losetup -j "$IMG" | cut -d: -f1 | head -1)"; PART="${DISK:+${DISK}p1}"
   sleep 2
   BOOT_SEEN="$(cat "${PROOF}"/seen.* 2>/dev/null | tr '\n' ' ')"
-  note "Docker active after ${BOOT_DELAY} ms; the drive: $(systemctl show "$UNIT" -p ActiveState --value); the app saw [${BOOT_SEEN}]"
+  note "Docker active after ${BOOT_DELAY} ms; the mount's start job ended after ${MOUNT_SETTLED:-?} ms; the drive: $(systemctl show "$UNIT" -p ActiveState --value); the app saw [${BOOT_SEEN}]"
   docker rm -f bp-bootwatch >/dev/null 2>&1
   sc stop "$UNIT" 2>/dev/null
 }
@@ -391,7 +418,11 @@ check "today's line, drive 6 s late: Docker starts at once and the app sees the 
 boot_sim "new line" "$NEW" 6
 check "new line, drive 6 s late: Docker waits for it and the app sees the drive" bash -c "[ $BOOT_DELAY -ge 5000 ] && grep -q drive-marker <<< '$BOOT_SEEN'"
 boot_sim "new line" "$NEW" never
-check "new line, no drive at all: Docker still starts, after the 30 s device timeout (took ${BOOT_DELAY} ms)" bash -c "[ $BOOT_DELAY -ge 25000 ] && [ $BOOT_DELAY -lt 60000 ]"
+# The 30 s device timeout, not systemd's default 90 s, ended the wait for the drive; and Docker started
+# after that, however long the runner then took to start it.
+check "new line, no drive at all: the 30 s device timeout gave up on the drive (after ${MOUNT_SETTLED:-?} ms)" bash -c "[ -n '$MOUNT_SETTLED' ] && [ '${MOUNT_SETTLED:-0}' -ge 25000 ] && [ '${MOUNT_SETTLED:-0}' -lt 60000 ]"
+# BOOT_DELAY under the loop's 120 s means Docker became active within it.
+check "and Docker still started, after it (took ${BOOT_DELAY} ms)" bash -c "[ $BOOT_DELAY -lt 120000 ] && [ $BOOT_DELAY -ge ${MOUNT_SETTLED:-999999} ]"
 
 section "5b. required-by instead of before: no drive"
 fresh_drive; fstab_line "${TODAY},x-systemd.required-by=docker.service,x-systemd.before=docker.service,x-systemd.device-timeout=5s"
@@ -585,7 +616,14 @@ fi
 # is noted rather than failed; 24.04 and 26.04 exercise it. What follows holds either way.
 if [ "$(cfield seen.atResume.unit)" = active ] && [ -z "$(cfield seen.atResume.source)" ]; then
   check "and the resume began with systemd behind: the unit said 'active' with the drive unmounted" true
-  check "the resume waited for systemd before starting the drive" grep -qE 'systemd took [0-9]+ ms to see /mnt/the-dump unmounted' "${WORK}/cancelled.out"
+  # This look is the test's, a moment before the resume's own: systemd can catch up in between (once
+  # on 22.04, 2026-10-18), and then the resume rightly does not wait. What must hold either way is
+  # checked below: it started the drive once, from a unit that said inactive.
+  if grep -qE 'systemd took [0-9]+ ms to see /mnt/the-dump unmounted' "${WORK}/cancelled.out"; then
+    check "the resume waited for systemd before starting the drive" true
+  else
+    note "systemd caught up between this look and the resume's own, so the resume had nothing to wait for"
+  fi
 else
   note "systemd ${SYSTEMD_VERSION} caught up before the resume too this time (the unit said '$(cfield seen.atResume.unit)', source '$(cfield seen.atResume.source)'): the wait it would have made is not exercised on this run"
 fi

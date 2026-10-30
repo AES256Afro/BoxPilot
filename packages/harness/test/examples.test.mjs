@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { coverExamples, cosineOf, exampleDefaults, selectExamples, wordOverlap } from "../src/index.mjs";
 

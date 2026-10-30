@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * The services server/index.mjs starts, started together in its order, with fakes only where
  * BoxPilot meets the outside: the root helper, the notification target, the inventory and the job

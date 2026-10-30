@@ -176,6 +176,7 @@ export function createVmRetentionHelper({
    * a backup that was written and then failed its verification, and it blocks retention until it
    * is cleared. `knownSnapshotIds` are the ones with local records: refusing to touch those is
    * what keeps this from becoming a general delete.
+   * @param {{ snapshotId?: string, knownSnapshotIds?: string[] }} [request]
    */
   async function forgetUnrecorded({ snapshotId, knownSnapshotIds = [] } = {}) {
     if (typeof snapshotId !== "string" || !shaPattern.test(snapshotId)) throw new Error("Snapshot id must be an exact SHA-256 id");

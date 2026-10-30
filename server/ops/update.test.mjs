@@ -45,4 +45,14 @@ describe("an update staged before the server moved on", () => {
     expect(updateSuperseded({}, { version: "1.138.0" })).toBeNull();
     expect(registry.get("system.update").supersededWhen).toBe(updateSuperseded);
   });
+
+  it("sets the release key as a high, owner-only operation that asks for it typed out", () => {
+    const operation = registry.get("system.update.signer.set");
+    expect(operation).toMatchObject({ risk: "high", minimumRole: "owner" });
+    expect(operation.confirm({ publicKey: "ssh-ed25519 AAAA" })).toBe("require signed releases");
+    expect(operation.confirm({})).toBe("stop checking signatures");
+    expect(registry.validate("system.update.signer.set", { publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" })).toBeNull();
+    expect(registry.validate("system.update.signer.set", {})).toBeNull();
+    expect(registry.validate("system.update.signer.set", { publicKey: "-----BEGIN OPENSSH PRIVATE KEY-----" })).toBeTruthy();
+  });
 });

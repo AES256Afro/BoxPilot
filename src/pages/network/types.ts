@@ -30,7 +30,7 @@ export interface TlsCapability { provisioned: boolean; port: number; names?: str
 export interface NetworkCapability { bind: string; port: number; lan: boolean; canSet: boolean }
 
 export interface ReachWay { id: string; label: string; url: string; scope: string; encrypted: boolean; trusted: boolean }
-export interface Reachability { ways: ReachWay[]; onLan: boolean; tlsProvisioned: boolean; servePublished: boolean }
+export interface Reachability { ways: ReachWay[]; onLan: boolean; tlsProvisioned: boolean; servePublished: boolean; serveOverLoopback?: boolean }
 
 export interface TailnetNode {
   name: string; dnsName: string | null; address: string | null; os: string | null;

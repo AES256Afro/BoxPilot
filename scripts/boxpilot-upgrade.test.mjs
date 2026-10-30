@@ -97,8 +97,10 @@ describe("where the copy sits in the upgrade", () => {
   });
 
   it("gives the copy the live database's owner and mode, and makes it private from the start", () => {
-    expect(script).toContain('chown --reference="$DATABASE" "$DB_COPY"');
-    expect(script).toContain('chmod --reference="$DATABASE" "$DB_COPY"');
+    // Set as the database's own user while that user can still write the folder: root would follow a link there.
+    expect(script).toContain('elif [ -n "$AS_OWNER" ] && ! $AS_OWNER chmod --reference="$DATABASE" "$DB_COPY"; then');
+    expect(script).toContain('elif [ -z "$AS_OWNER" ] && { ! chown --no-dereference --reference="$DATABASE" "$DB_COPY" || ! chmod --reference="$DATABASE" "$DB_COPY"; }; then');
+    expect(script).not.toMatch(/^\s*elif ! chown --reference="\$DATABASE"/m);
     expect(script).toMatch(/copied="\$\(cd \/ && umask 077 && \$AS_OWNER "\$NODE_BIN" --no-warnings --input-type=module -e "\$DB_COPY_JS" "\$DATABASE" "\$DB_COPY" 2>&1\)"/);
   });
 

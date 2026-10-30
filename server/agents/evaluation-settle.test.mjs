@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * An evaluation whose runs ended without the runner (reliability audit, 2026-09-29). Only the
  * runner's finish graded a question, so an evaluation run that was cancelled, waited too long in

@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Asking the agents in Zulip (M40.5), the root side, against the stand-in for Zulip's API: the bot's
  * event queue is opened and read without waiting, a direct message to the bot or a mention of it is

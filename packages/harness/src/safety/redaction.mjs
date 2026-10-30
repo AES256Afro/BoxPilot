@@ -70,10 +70,11 @@ function redactPuttyKeys(text) {
  * (DB_PASS, PLEX_CLAIM, MYSQL_PWD, DB_CREDENTIALS - never PWD alone, the working directory). Upper
  * case only, as environment variables are written: a name ending in _KEY (APP_KEY, MEILI_MASTER_KEY),
  * PASS alone, and PASS run on (DBPASS, ADMINPASS) unless the word is English or a filter (BYPASS,
- * COMPASS, HIGHPASS) - in lower case `sort_key` and `pass` are ordinary words.
+ * COMPASS, HIGHPASS) - in lower case `sort_key` and `pass` are ordinary words. A notify or webhook
+ * URL (BW_NOTIFY_URL, SLACK_WEBHOOK_URL) is a credential too: the address is the capability.
  * Every secret setting in the catalog is one of these; a test holds that to every manifest.
  */
-const secretWords = "token|password|passphrase|passwd|secret|(?:api|access|private|master|encryption|signing|account|app)[_-]?key|authorization|cookie";
+const secretWords = "token|password|passphrase|passwd|secret|(?:api|access|private|master|encryption|signing|account|app)[_-]?key|(?:notify|webhook)[_-]?url|authorization|cookie";
 const notAPassword = "BY|COM|ENCOM|SUR|TRES|OVER|UNDER|HIGH|LOW|BAND|ALL|NOTCH|MULTI|ONE|TWO|SINGLE|DOUBLE|FIRST|SECOND|NO";
 
 /**
@@ -195,6 +196,9 @@ const endOf = (pattern, text, at) => { pattern.lastIndex = at; return pattern.te
  * after it, so a run whose name is not followed by one is passed over whole. `notAfter` is the
  * expression's look-behind, `starts` which offsets in a run start a secret's name, `skip` the
  * look-ahead that said the header rule had been there.
+ *
+ * @param {string} text
+ * @param {{ notAfter: (char: string) => boolean, starts: (run: string) => { lo: number, hi: number } | null, skip?: (text: string, at: number) => boolean }} rules
  */
 function redactAssignments(text, { notAfter, starts, skip = () => false }) {
   let out = "";
@@ -365,6 +369,7 @@ function redactKeyBodies(input) {
 }
 
 /** The multi-line rules, in order, by name (a test times each on hostile text, sweep 5). */
+/** @type {Array<[string, (text: string) => string]>} */
 const blockRules = [["private key", redactPrivateKeys], ["putty key", redactPuttyKeys], ["yaml block", redactYamlSecretBlocks], ["key body", redactKeyBodies]];
 
 /**
@@ -420,6 +425,7 @@ function redactFlagValues(text) {
  * no quantifier that can trade characters with the one next to it is left to backtrack over a run
  * anyone can make long.
  */
+/** @type {Array<[string, (text: string) => string]>} */
 const stringRules = [
   ["bearer", (text) => text.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")],
   // HTTP Basic is base64 of user:password - the Zulip bot's key travels this way. Not a word in a

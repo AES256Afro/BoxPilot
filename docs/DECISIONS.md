@@ -1154,3 +1154,171 @@ examples and, only if it beats the base model on the evaluations, for a GPU fine
   few seconds of model time once.
 - Training stays off the box. If the owner trains an adapter elsewhere, the gate is the same
   evaluation that gates everything else: it ships only if it beats the base model.
+
+## ADR-015: a medium operation is high when what it acts on is
+
+**Date:** 2026-10-18 · **Status:** Accepted
+
+### Context
+
+An operator may stage and approve a medium-risk job alone, with no password (ADR-001). A review of
+the root-side operations found medium operations that reach what a high one guards:
+
+- `samba.apply` and `nfs.apply` could share `/home/<admin>`. Samba forces writes as the folder's
+  owner and NFS squashes every client to it, so whoever reaches the share writes that account's
+  `~/.ssh`: a shell as the sudo-group admin, past `users.keys.import` and `users.sudo.set` (high).
+- `users.add` with a GitHub user installs that user's keys: `users.keys.import` by another door.
+- `apt.remove openssh-server` (or `ufw`, `tailscale`) and `service.action start nftables.service`
+  (whose unit flushes the whole ruleset) cut off SSH or turn the firewall off, which the critical-unit
+  guard and `firewall.set` keep for the owner.
+- Mounting a NAS as `boxpilot-backup` chooses where `backup.sync` copies every app's `.env` and the
+  database: sending data off the box, which is the owner's everywhere else (`backup.cloud.*`).
+- `service.action` could stop or restart a `boxpilot-run@` root task, and `app.backup.delete` let an
+  operator remove every app's backups.
+- Installing the Cloudflare Tunnel app, or reconfiguring it, with a token from someone's own
+  Cloudflare account routes the internet to any port on 127.0.0.1 (the app runs on the host's
+  network), while `cloudflare.publish` is owner-only and high.
+- `app.backup` with `keep: 1` prunes every older backup: `app.backup.delete` by another door.
+- `app.serve.withdraw` could withdraw the tailnet address BoxPilot itself is served at, cutting off
+  tailnet browsers and Tailscale sign-in.
+- `app.install` and `app.reconfigure` accept any data folder outside the system deny list. A
+  configurable volume pointed at `/var/spool/cron` or an admin's home is mounted read-write into a
+  container that often runs as root: a crontab or `~/.ssh/authorized_keys` written from inside is
+  root or a shell on this server.
+- A share of a service account's home outside `/home` (Ubuntu's `postgres` logs in with a shell at
+  `/var/lib/postgresql`) writes as that account just as a share under `/home` does. `apt-get
+  install` removes what Conflicts with the new package, and `remove --auto-remove` takes what
+  depends on the removed one, so a protected package can go without being named. `app.backup.many`
+  takes `keep` like `app.backup`.
+- An app given port 443 and then served (`app.serve.set`) replaced the Serve entry BoxPilot is
+  reached at; withdrawing it, or moving the app back to the home network, took that address down.
+- `dns.names.apply` pointed every app's name at any address; `tailscale.set` offered the LAN,
+  Docker's or libvirt's networks to the tailnet; `space.cleanup` could cut the journal, with its
+  sudo and SSH history, to a day.
+
+### Decision
+
+1. **The tier follows the target.** `server/ops/escalation.mjs` holds one risk hook per operation
+   that raises it to high for those targets: a share or export under `/home`, an account created with
+   keys, a protected package, a packet-filter unit, a mount at the backup destination, a new tunnel
+   token, a backup that keeps fewer than housekeeping does (3), BoxPilot's own Serve address, and
+   an app data folder outside `/mnt`, `/media` and `/srv` (`dataRoots`). A share counts as a home
+   when it is inside, or holds, any account's home that has a login shell in `/etc/passwd`, and the
+   Samba and NFS tasks check the folder a link leads to against the same homes. Installs and
+   selected upgrades pass `--no-remove`, so installing needs no hook; a removal or an autoremove
+   whose plan (`apt-get -s`) takes a protected package nobody named is refused. Local names that point anywhere but this server, an exit node or
+   advertised routes, and a cleanup that leaves less than a week of history (or 256 MiB of journal)
+   are high. An app's tailnet switch refuses a port whose Serve entry forwards to anything but that
+   app, and a share is not mounted over a folder that holds files.
+   The Cloudflare Tunnel manifest is high, so installing it is too. Hooks only
+   raise a tier, and the jobs service, flows, the scheduler and the agents' plans already take the
+   tier from them, so a raised job needs the owner and a password and can never run unattended.
+2. **A link is not a way around a tier.** Samba and NFS refuse a folder that reaches a home only
+   through a link: the tier was decided on the path as written.
+3. **Refuse what has no legitimate caller.** `service.action` refuses `boxpilot-run@` units.
+   `app.backup.delete` is owner-only.
+4. **Not refused outright.** Sharing a home folder, removing a firewall package or using nftables
+   directly stay possible: they are the owner's, with a password, as ADR-001 intends.
+
+### Consequences
+
+- A whole-configuration apply (`samba.apply`, `nfs.apply`) that still lists a share under `/home`
+  is high every time it is applied, until that share moves.
+- The interface's static tiers (`src/ui/operationRisk.ts`) still say medium for these operations;
+  the approval dialog takes the staged tier from the server, which is the one that counts.
+- New medium operations whose parameters reach SSH, the firewall, accounts or off-box copies get a
+  hook here rather than a new special case in the job layer.
+
+## ADR-016: catalog images are pinned by digest, and rollback goes back to the digest that ran
+
+**Date:** 2026-10-18 · **Status:** Proposed (needs the owner's decision)
+
+### Context
+
+A catalog manifest names an image by tag (`vaultwarden/server:1.37.1-alpine`). 2 of 170 manifests
+also pin a digest; the schema already accepts `repo:tag@sha256:…` and the App sheet shows "digest
+pinned". A tag is a pointer the publisher can move:
+
+- Some publishers rebuild a version tag for base-image fixes (LinuxServer's `version-*` tags, for
+  one). Two servers installing "1.2.3" a week apart can run different bytes, and nothing records
+  which.
+- A rollback (`app.rollback`) redeploys the previous *tag* and pulls it again. If the tag moved,
+  the rollback lands on bytes the app never ran, and reports success.
+- A compromised registry account can repoint a tag. `catalog-check-images` checks that a tag
+  exists, not that it still points where it did.
+
+#485 already keeps restored backups and saved history to the catalog's own repository. This
+is the remaining half: which bytes inside that repository.
+
+### Proposal
+
+1. **Manifests carry `tag@sha256:digest`.** `catalog-update-images.mjs --write` writes the digest it
+   resolved next to the tag it chose (the registry's `Docker-Content-Digest` for the multi-arch
+   index), so the weekly catalog-updates pull request shows both moving together. A one-off run
+   pins the 168 manifests that have no digest yet.
+2. **`catalog-check-images` fails on drift.** It already does a HEAD on each manifest. It would also
+   compare `Docker-Content-Digest` with the pinned digest and fail when a tag now points elsewhere,
+   naming the image. A moved tag becomes a reviewed change instead of a silent one.
+3. **Update history stores the digest that ran.** Before an update, the deployer reads the running
+   container's `RepoDigests` and records `repo@sha256:…` beside the tag in `updateHistory`. Rollback
+   deploys that digest when it is the same repository as the catalog's (`catalogImagePin` already
+   enforces the repository), and falls back to the tag only for history written before this.
+4. **Sidecars too.** The same pin, check and history apply to sidecar images.
+
+### Consequences
+
+- What a server runs is reproducible from the manifest, and a rollback is the bytes that ran.
+- A publisher's silent rebuild shows up as a failed check and then a catalog pull request. The cost
+  is one more review in the weekly update when that happens.
+- Digests are per index, so multi-arch images keep working: Docker picks the platform under the
+  pinned index.
+- Not covered: signature verification (cosign) and catalog signing, which remain on the roadmap
+  (M3.1 "signature check") and need keys the owner holds.
+
+### Decision needed
+
+Accept 1–4 as one change, or take 3 alone (rollback by digest, no catalog churn).
+
+## ADR-017: Tailscale Serve reaches BoxPilot over a socket only it and root can open
+
+**Date:** 2026-10-19 · **Status:** Accepted
+
+### Context
+
+Behind Tailscale Serve every request arrives from loopback with the caller's tailnet address
+(`X-Forwarded-For`) and login (`Tailscale-User-Login`). BoxPilot believed those headers whenever
+Serve proxied its port. Two facts make that weaker than it looks:
+
+- Cookies ignore ports. An app published through Serve on the same hostname
+  (`https://box.ts.net:8123`) is sent BoxPilot's session and device cookies, and Serve sends it the
+  same address and login headers it sends BoxPilot.
+- Anything on the machine can open the loopback port. Eight catalog apps run on the host network
+  (Home Assistant and Plex among them); Home Assistant runs community integrations.
+
+Such an app had everything needed to replay the owner's session from loopback with the owner's
+address, passing the address binding (ADR-001 addendum, sweep 1), or to complete a Tailscale
+sign-in with a captured device cookie.
+
+### Decision
+
+- The web service also listens on `/run/boxpilot-web/serve.sock` (mode 0600, its own runtime
+  directory). Only BoxPilot's user and root, which tailscaled runs as, can open it; a container
+  cannot, host network or not.
+- When Serve proxies to that socket, forwarded headers are believed there and nowhere else. While
+  Serve still proxies to the loopback port, that port is believed as before, so an install that has
+  not moved keeps its Tailscale sign-in.
+- The installer points Serve at the socket when Tailscale accepts `unix:` targets and falls back to
+  the port otherwise. Existing installs see a notice on Network → Reach BoxPilot with a button
+  (`tailscale.serve.socket`, medium, owner only) that moves Serve and puts it back if Tailscale
+  refuses.
+
+### Consequences
+
+- Once moved, a session replayed through loopback carries 127.0.0.1, fails the address binding and
+  is ended; a forged Tailscale sign-in has no address to claim.
+- Cookies still reach apps on the same hostname. Serving apps on their own hostnames would stop
+  that too; it needs Tailscale Services and is not done here.
+- Needs a Tailscale release with `unix:` proxy targets. Older ones keep the loopback behaviour and
+  the notice stays up.
+- Going back to a BoxPilot release from before this one leaves Serve pointing at a socket nothing
+  listens on: run `sudo tailscale serve --bg http://127.0.0.1:<port>` first.
