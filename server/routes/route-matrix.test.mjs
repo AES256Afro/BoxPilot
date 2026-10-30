@@ -437,6 +437,8 @@ const dataRoutes = {
       expect(live.killSwitchDrill, role).toMatchObject({ held: true, by: who });
     },
   }],
+  // Apps Today reads (M51): every role, as the apps' own reading is open; none of the stub's apps has a reader.
+  "GET /api/v1/apps/glances": [{ ...open, check: ({ role, body }) => expect(body, role).toEqual({ glances: [], liveKnown: true }) }],
   "GET /api/v1/ssh-keys/github/:user": [{ viewer: 403, operator: 400, owner: 400, params: () => ({ user: "-not-a-user-" }) }],
   "GET /api/v1/remediations": [{
     ...open,

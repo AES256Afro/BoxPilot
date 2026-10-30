@@ -3574,6 +3574,33 @@ reach the filesystem and processes, outbound requests and secrets).
   that bit alone), after a compressed image of the partition was kept. Tests: the waiter, a real
   run and an unreadable command line in `boot-partition.test.mjs`.
 
+## M51: Apps BoxPilot reads
+
+Asked for 2026-10-14: BaselineWatch (the owner's security news, CVE and standards-change tracker,
+catalog id `baselinewatch`, PR #472) "added and managed via the BoxPilot catalog", with BoxPilot's
+Today page and agents where what it finds should surface. The shape, so the next such app costs one
+module and nothing bespoke outside it (ADR-001): a reader per app in `server/`, registered in
+`server/app-glances.mjs` with the card's title and window; keyed off the catalog app being
+installed, from `app.inspect`'s own record, which also says the address Docker bound its web port
+to (loopback when it bound every address); the web service makes the read, since the helper has no
+network; and the Today page draws whatever the server sends, knowing no app by name.
+
+- ✅ **M51.1 BaselineWatch on Today and in the agents' hands** (unreleased,
+  `feat/baselinewatch-today`). `server/baselinewatch.mjs` reads the app's read-only JSON API
+  (its reading is open on the network, so a viewer's read is their own, ADR-003): five bounded GETs,
+  no redirects, each answer checked field by field. Today shows one card, "Baselines and threats",
+  with the counts since yesterday (midnight UTC, where the feeds date what they carry): additions to
+  CISA's Known Exploited Vulnerabilities list, watched CVEs that changed, standards that published a
+  release with changes (and how many controls), and items marked as affecting this house; each
+  figure opens the app at its own page, the panel opens the app, and a figure whose read failed is
+  "?", never 0. An app that is stopped, unreachable or asking for a sign-in gets a card that says
+  so. `GET /api/v1/apps/glances` is the route, open to every role (route matrix). The agents gain
+  `baselinewatch.digest` (category app, viewer, no parameters): the latest digest the app wrote,
+  bounded, through the same reader; the Server Keeper has it on and reads it for its morning
+  digest; a question about CVEs, KEV, security news or a standard points at it. Tests replay
+  responses recorded from BaselineWatch 0.10.0 (`test/fixtures/baselinewatch`): the reader, the
+  registry and addresses, the tool, the route and the card.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

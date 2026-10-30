@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FactsProvider } from "../../home/facts";
-import { ago, busier, stubFetch } from "../../home/testData";
+import { ago, answers, busier, stubFetch } from "../../home/testData";
 import { resetConnection } from "../../pwa/connection";
 import { readLastKnown, saveLastKnown } from "../../pwa/lastKnown";
 import { requestRefresh } from "../../shell/refresh";
@@ -103,6 +103,45 @@ describe("Today (M25.3)", () => {
     renderToday({ accountId: "owner-1" });
     expect(screen.queryByText("their server")).toBeNull();
     expect(screen.queryByText(/This is what BoxPilot said at/)).toBeNull();
+  });
+
+  it("draws a card for an app the server reads (M51), from what the server sent, each figure opening the app", async () => {
+    const summary = answers["/api/v1/catalog?view=summary"] as { host: unknown; liveError: null; applications: unknown[] };
+    const catalog = { ...summary, applications: [...summary.applications, { manifest: { id: "baselinewatch", name: "BaselineWatch", icon: "🛡️", category: "Monitoring" }, live: { installed: true, container: { running: true, status: "running", health: "healthy" }, urls: [{ host: 8790, exposure: "lan", path: "/login" }] } }] };
+    const glance = {
+      app: "baselinewatch", name: "BaselineWatch", title: "Baselines and threats", window: "since yesterday", url: { host: 8790, exposure: "lan", path: "/login" },
+      running: true, available: true, reason: null, since: ago(24), readAt: ago(0), digest: { period: "daily", generatedAt: ago(2) },
+      metrics: [
+        { id: "kev", label: "KEV additions", value: 4, caption: "known exploited", status: "danger", path: "/wire?kind=kev" },
+        { id: "watched", label: "Watched CVEs changed", value: 0, caption: "on your watchlist", status: "neutral", path: "/vulns?watch=1" },
+        { id: "releases", label: "Standard releases", value: 1, caption: "9 controls changed", status: "warning", path: "/" },
+        { id: "affects", label: "Marked affects us", value: 2, caption: "open in triage", status: "warning", path: "/triage?state=affects" },
+      ],
+    };
+    vi.stubGlobal("fetch", stubFetch({ ...ran, "/api/v1/catalog?view=summary": catalog, "/api/v1/apps/glances": { glances: [glance], liveKnown: true } }));
+    const opened = vi.fn();
+    vi.stubGlobal("open", opened);
+    renderToday();
+    const card = await screen.findByRole("region", { name: /^Baselines and threats/ });
+    // The app's root, from the catalog's own link (which lands on its sign-in page), not the sign-in page.
+    const link = await within(card).findByRole("link", { name: "Open BaselineWatch" });
+    await vi.waitFor(() => expect(link.getAttribute("href")).toBe("http://192.0.2.10:8790"));
+    expect(card.querySelector("h2")?.textContent).toContain("7 to look at");
+    const kev = within(card).getByRole("button", { name: /KEV additions/ });
+    expect(kev.textContent).toContain("4");
+    fireEvent.click(kev);
+    expect(opened).toHaveBeenCalledWith("http://192.0.2.10:8790/wire?kind=kev", "_blank", "noopener");
+    expect(within(card).getByText(/Digest written 2 hours ago/)).toBeTruthy();
+    // The card says why when the app could not be read, and the page has no such card when no installed app has a reader.
+    cleanup();
+    vi.stubGlobal("fetch", stubFetch({ ...ran, "/api/v1/apps/glances": { glances: [{ ...glance, available: false, reason: "BaselineWatch is not running.", metrics: [] }], liveKnown: true } }));
+    renderToday();
+    expect((await screen.findByRole("region", { name: /^Baselines and threats/ })).textContent).toContain("BaselineWatch is not running.");
+    cleanup();
+    vi.stubGlobal("fetch", stubFetch({ ...ran, "/api/v1/apps/glances": { glances: [], liveKnown: true } }));
+    renderToday();
+    await screen.findByRole("region", { name: /What ran/ });
+    expect(screen.queryByRole("region", { name: /^Baselines and threats/ })).toBeNull();
   });
 
   it("reads everything again from the bar's Refresh, in place", async () => {

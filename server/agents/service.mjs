@@ -232,7 +232,7 @@ export function normalizeRuntimeSettings(input, current = defaultRuntimeSettings
  *   tokenPath?: string | null, fetchJson?: any, now?: () => Date, limits?: Partial<typeof serviceLimits>, hostLoad?: () => number,
  *   fetcher?: typeof fetch | null, productVersion?: string | null, chatOptions?: object | null, processors?: number,
  *   physicalCoreCount?: number | null, folderScan?: typeof scanFolder, cloud?: any, houseNamesFor?: typeof houseNames,
- *   jobs?: any, repairScan?: any,
+ *   jobs?: any, repairScan?: any, appGlances?: any,
  * }} [options]
  */
 export function createAgentService({
@@ -269,9 +269,11 @@ export function createAgentService({
   jobs = null,
   // M47: the Repair Center's scan, for repair.findings; null where there is none (the tool then says so).
   repairScan = null,
+  // M51: the apps Today reads (server/app-glances.mjs), for baselinewatch.digest; null where there are none.
+  appGlances = null,
 } = {}) {
   const limits = { ...serviceLimits, ...overrides };
-  const tools = createToolRunner({ state, store, registry, helper, inventory, knowledge, secretEnvNamesFor, now, webSearch: () => moduleSettings().webSearch, ...(fetcher ? { fetcher } : {}), repairScan });
+  const tools = createToolRunner({ state, store, registry, helper, inventory, knowledge, secretEnvNamesFor, now, webSearch: () => moduleSettings().webSearch, ...(fetcher ? { fetcher } : {}), repairScan, appGlances });
   const audit = (type, entry) => { try { state.recordAudit?.(type, entry); } catch { /* the audit never stops a run */ } };
   const askLimit = createRateLimit({ capacity: limits.asksPerHour, refillPerSecond: limits.asksPerHour / 3600, now: () => now().getTime() });
   let redactorReady = redactor ? Promise.resolve(redactor) : null;
