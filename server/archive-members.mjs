@@ -16,16 +16,30 @@ import { createGunzip } from "node:zlib";
 
 const block = 512;
 
-/** A tar size field: octal text, or GNU's base-256 for large members. */
+/**
+ * A member's size in bytes, or null when the field does not hold one: octal text, or GNU's base-256
+ * for large members. Null rather than 0, because a size is what says where the next header begins:
+ * guessing 0 for a field that says "-12" walks into the middle of the member and reads its contents
+ * as headers, which is how a crafted archive made a wanted file read back empty.
+ */
 function sizeOf(field) {
   if (field[0] & 0x80) {
     let value = 0;
     for (const byte of field.subarray(1)) value = value * 256 + byte;
-    return value;
+    return Number.isSafeInteger(value) ? value : null;
   }
   const text = field.toString("ascii").replace(/\0.*$/s, "").trim();
+  if (!/^[0-7]*$/.test(text)) return null;
   const value = Number.parseInt(text || "0", 8);
-  return Number.isFinite(value) && value >= 0 ? value : 0;
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** The size a pax extended header sets for the member after it, or null when it does not set a usable one. */
+function paxSize(value) {
+  if (value === undefined) return null;
+  if (!/^\d+$/.test(String(value).trim())) return null;
+  const size = Number(value);
+  return Number.isSafeInteger(size) ? size : null;
 }
 
 const text = (field) => field.toString("utf8").replace(/\0.*$/s, "");
@@ -65,6 +79,9 @@ export async function readArchiveMembers(file, names, { maxBytes = 1024 * 1024 }
   let collecting = null;            // { kind: "file" | "longname" | "pax", name, remaining, padding, chunks }
   let longName = null;
   let pax = {};
+  // A header whose size field is not a size leaves no way to find the next one: everything after it
+  // would be guesswork, so reading stops and only what was genuinely read is returned.
+  let framingLost = false;
   try {
     for await (const chunk of gunzip) {
       pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
@@ -94,7 +111,9 @@ export async function readArchiveMembers(file, names, { maxBytes = 1024 * 1024 }
         offset += block;
         if (header.every((byte) => byte === 0)) continue;
         const type = String.fromCharCode(header[156] || 0x30);
-        const size = pax.size !== undefined && !["x", "g", "L"].includes(type) ? Number(pax.size) || 0 : sizeOf(header.subarray(124, 136));
+        const declared = pax.size !== undefined && !["x", "g", "L"].includes(type) ? paxSize(pax.size) : sizeOf(header.subarray(124, 136));
+        if (declared === null) { framingLost = true; break; }
+        const size = declared;
         const padding = (block - (size % block)) % block;
         if (type === "L" || type === "x") {
           // Names and sizes for the member after this one; bounded, as a crafted one can say anything.
@@ -115,7 +134,7 @@ export async function readArchiveMembers(file, names, { maxBytes = 1024 * 1024 }
         skip = size + padding;
       }
       pending = pending.subarray(offset);
-      if ([...wanted].every((name) => found.has(name))) break;
+      if (framingLost || [...wanted].every((name) => found.has(name))) break;
     }
   } finally {
     source.destroy();
