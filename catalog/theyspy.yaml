@@ -1,10 +1,10 @@
 # TheySpy (schemaVersion 2). Source of truth: AES256Afro/TheySpy boxpilot/theyspy.yaml, whose CI
-# v1.4.0alidates it with this repository's validateManifest. The image is pinned to the digest the v0.12.1
+# v1.5.0alidates it with this repository's validateManifest. The image is pinned to the digest the v0.12.1
 # release published, an image index for amd64 and arm64: signed keylessly, with an SBOM and build
-# prov1.4.0enance attested by GitHub.
+# prov1.5.0enance attested by GitHub.
 # Port 8797 is free in the BoxPilot catalog (BaselineWatch 8790, Protec 8765, BoxPilot itself 8787).
-# This v1.4.0ersion runs in bridge mode with no extra capabilities: discovery uses Pi-hole's network table
-# (for MACs) and unpriv1.4.0ileged TCP probes, only inside TS_SCAN_RANGES. An optional host-network mode for
+# This v1.5.0ersion runs in bridge mode with no extra capabilities: discovery uses Pi-hole's network table
+# (for MACs) and unpriv1.5.0ileged TCP probes, only inside TS_SCAN_RANGES. An optional host-network mode for
 # full ARP and mDNS/SSDP may come later, with risk raised to medium if it does.
 schemaVersion: 2
 id: theyspy
@@ -15,8 +15,8 @@ description: "Watches for ad-delivered spyware. Hunts your Pi-hole's DNS history
 website: https://github.com/AES256Afro/TheySpy
 risk: low
 image:
-  reference: ghcr.io/aes256afro/theyspy:1.4.0@sha256:9e9b352bddcbfa043d2570fe29d30900259e10c711d3cbeca3414e790a34072d
-  version: "1.4.0"
+  reference: ghcr.io/aes256afro/theyspy:1.5.0@sha256:2555fa7dce8902d5dd3b266676057068b9378f8e288831e827319484ae1b9f91
+  version: "1.5.0"
 user: "1000:1000"
 ports:
   - id: web
