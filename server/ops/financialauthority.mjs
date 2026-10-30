@@ -16,6 +16,17 @@ export const restoreCommand = ["/app/backend/.venv/bin/python", "-m", "app.resto
 
 const minutes = (count) => count * 60_000;
 
+/**
+ * Text the app printed, as one plain line for BoxPilot's job log and UI. The app's output is the app's to write, so
+ * an app that is not itself any more must not be able to add a line of its own ("Database passes"), reorder what is
+ * shown with bidirectional controls, or flood the log: control, zero-width and bidi characters become spaces and the
+ * text is cut to a length.
+ */
+export function appText(value, max = 200) {
+  return String(value ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+}
+const count = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+
 /** The JSON object the app's command printed last; null when it printed none. */
 export function readAppJson(stdout) {
   const lines = String(stdout ?? "").split("\n").map((line) => line.trim()).filter((line) => line.startsWith("{") || line.startsWith("["));
@@ -33,10 +44,10 @@ export function readAppJson(stdout) {
 function failure(result, what) {
   if (result?.timedOut) return new Error(`${what} did not finish in time; FinancialAuthority may be busy. Try again in a minute.`);
   const said = readAppJson(result?.stdout);
-  if (said?.error) return new Error(`${what} failed: ${String(said.error).slice(0, 300)}`);
+  if (said?.error) return new Error(`${what} failed: ${appText(said.error, 300)}`);
   const tail = String(result?.stderr ?? "").split("\n").map((line) => line.trim()).filter(Boolean).slice(-1)[0] ?? "";
   if (/No module named app\.restore/.test(tail)) return new Error(`${what} needs FinancialAuthority 0.3.0 or newer; update it from its card first.`);
-  return new Error(`${what} failed${tail ? `: ${tail.slice(0, 300)}` : ""}`);
+  return new Error(`${what} failed${tail ? `: ${appText(tail, 300)}` : ""}`);
 }
 
 async function runApp(apps, args, what, timeoutMs) {
@@ -59,8 +70,8 @@ export function financialAuthorityOperations() {
       run: async (_parameters, { apps, progress }) => {
         progress?.("Asking FinancialAuthority for a copy of its database", "stdout");
         const made = await runApp(apps, ["make", "Taken from BoxPilot"], "Taking a restore point", minutes(4));
-        progress?.(`Copied and read back: ${made.name}`, "stdout");
-        return { name: made.name, bytes: made.bytes, verified: Boolean(made.verified), transactions: made.transactions ?? null, createdAt: made.created_at };
+        progress?.(`Copied and read back: ${appText(made.name, 80)}`, "stdout");
+        return { name: appText(made.name, 80), bytes: count(made.bytes), verified: made.verified === true, transactions: count(made.transactions), createdAt: appText(made.created_at, 40) || null };
       },
     }),
     defineOperation({
@@ -73,14 +84,14 @@ export function financialAuthorityOperations() {
         const checked = await runApp(apps, ["check", "BoxPilot"], "Checking the database", minutes(4));
         const status = await runApp(apps, ["status"], "Reading the restore points", minutes(1));
         const database = checked.database ?? {};
-        if (!database.ok) throw new Error(`FinancialAuthority's database did not pass its check: ${String(database.result ?? "no answer").slice(0, 200)}. Its newest copy and BoxPilot's archive are still there; restore from the app's Settings > Backups or from the app's card.`);
+        if (!database.ok) throw new Error(`FinancialAuthority's database did not pass its check: ${appText(database.result ?? "no answer")}. Its newest copy and BoxPilot's archive are still there; restore from the app's Settings > Backups or from the app's card.`);
         const points = Object.entries(checked.points ?? {});
-        const bad = points.filter(([, result]) => result !== "ok").map(([name]) => name);
-        const age = hours(status.latest_age_hours);
+        const bad = points.filter(([, result]) => result !== "ok").map(([name]) => appText(name, 80)).slice(0, 10);
+        const age = count(hours(status.latest_age_hours));
         const stale = age === null || age > 48;
-        progress?.(`Database passes; ${status.count} copies, newest ${age === null ? "none" : `${age} hours old`}`, "stdout");
+        progress?.(`Database passes; ${count(status.count) ?? 0} copies, newest ${age === null ? "none" : `${age} hours old`}`, "stdout");
         return {
-          database: "ok", transactions: database.transactions ?? null, copies: status.count ?? 0, bytes: status.bytes ?? 0, newestAgeHours: age,
+          database: "ok", transactions: count(database.transactions), copies: count(status.count) ?? 0, bytes: count(status.bytes) ?? 0, newestAgeHours: age,
           copiesChecked: points.length, copiesFailing: bad, verdict: bad.length || stale ? "needs a look" : "healthy",
           note: bad.length ? `${bad.length} of the newest copies did not read back: ${bad.join(", ")}` : stale ? "No copy in the last two days; the app makes one daily and before each import." : "Database and newest copies read back.",
         };
