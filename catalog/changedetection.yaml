@@ -20,6 +20,9 @@ volumes:
     label: Watches and history
     container: /datastore
     path: datastore
+# The setting that holds the app's public address, so Hosted domains watches it once it is set.
+publicHostname:
+  env: BASE_URL
 env:
   - name: BASE_URL
     label: Address people use
