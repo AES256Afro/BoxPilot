@@ -40,6 +40,10 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
   const formId = useId();
   const foldersId = useId();
   const [values, setValues] = useState<Values>(() => seed ?? initialValues(manifest, live));
+  // Secrets are never sent to the browser. These say which ones have a saved value, so the box can
+  // read "Saved" instead of looking forgotten, and which the owner asked to clear on save.
+  const savedSecrets = new Set(mode === "reconfigure" ? live?.state?.secretsSaved ?? [] : []);
+  const [cleared, setCleared] = useState<string[]>([]);
   const [checking, setChecking] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
   // The drives and network shares already mounted on this server, offered for a folder field, so
@@ -92,7 +96,7 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
   }, [wantsModels, runnerKey, csrfToken]);
 
   const submit = async () => {
-    const compact = compactValues(manifest, values, mode === "reconfigure" ? live?.state?.values : undefined);
+    const compact = { ...compactValues(manifest, values, mode === "reconfigure" ? live?.state?.values : undefined), ...(cleared.length ? { clearSecrets: cleared } : {}) };
     // The precheck resolves against the catalog's defaults, so it needs unchanged required settings
     // and custom ports too. The mutation still sends only what changed from the stored values.
     const precheckValues = compactValues(manifest, values);
@@ -113,7 +117,10 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
   };
 
   const setPort = (id: string, value: string) => setValues((current) => ({ ...current, ports: { ...current.ports, [id]: Number.parseInt(value, 10) || 0 } }));
-  const setEnv = (name: string, value: string) => setValues((current) => ({ ...current, env: { ...current.env, [name]: value } }));
+  const setEnv = (name: string, value: string) => {
+    setValues((current) => ({ ...current, env: { ...current.env, [name]: value } }));
+    if (value) setCleared((current) => current.filter((entry) => entry !== name)); // typing a new one replaces, not clears
+  };
   const setVolume = (id: string, value: string) => setValues((current) => ({ ...current, volumes: { ...current.volumes, [id]: value } }));
   const toggleSetup = (id: string, checked: boolean) => setValues((current) => ({ ...current, setup: checked ? [...new Set([...(current.setup ?? []), id])] : (current.setup ?? []).filter((entry) => entry !== id) }));
 
@@ -207,8 +214,14 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
                     ? <Select value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} options={entry.options.map((option) => ({ value: option, label: option }))} />
                     : entry.type === "boolean"
                       ? <Select value={values.env[entry.name] || "false"} onValueChange={(value) => setEnv(entry.name, value)} options={[{ value: "true", label: "Yes" }, { value: "false", label: "No" }]} />
-                      : entry.type === "password"
-                        ? <SecretInput value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} autoComplete="new-password" />
+                      : entry.type === "password" || entry.secret
+                        ? <SavedSecret
+                            entryName={entry.name} label={entry.label}
+                            value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)}
+                            saved={savedSecrets.has(entry.name)} clearable={!entry.required}
+                            cleared={cleared.includes(entry.name)}
+                            onClear={(clear) => { setCleared((current) => (clear ? [...new Set([...current, entry.name])] : current.filter((name) => name !== entry.name))); if (clear) setEnv(entry.name, ""); }}
+                          />
                         : <TextInput type={entry.type === "number" ? "number" : "text"} mono={pickModel || entry.type === "path" || entry.type === "timezone"} value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} />}
                 </Field>
               );
@@ -248,5 +261,22 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
         {manifest.volumes.some((volume) => volume.path) && <p className="catalog-form__hint">Data lives under <code>/var/lib/boxpilot-managed/catalog/{manifest.id}/</code> and is kept on uninstall unless you delete it explicitly.</p>}
       </form>
     </Sheet>
+  );
+}
+
+/**
+ * A secret setting in Settings. Its saved value never reaches the browser, so an empty box used to
+ * look like a forgotten one, and owners typed keys again (a wrong one then replaced the right one).
+ * Now an empty box says it is saved and kept, and an optional secret can be cleared on purpose.
+ */
+function SavedSecret({ entryName, label, value, onValueChange, saved, clearable, cleared, onClear }: { entryName: string; label: string; value: string; onValueChange: (value: string) => void; saved: boolean; clearable: boolean; cleared: boolean; onClear: (clear: boolean) => void }) {
+  const placeholder = cleared ? "Will be cleared when you save" : saved ? "Saved · leave empty to keep" : undefined;
+  return (
+    <div className="catalog-secret" data-secret={entryName}>
+      <SecretInput value={value} onValueChange={onValueChange} autoComplete="new-password" placeholder={placeholder} aria-label={label} />
+      {saved && clearable && !value && (
+        <Button type="button" variant="ghost" onClick={() => onClear(!cleared)} aria-pressed={cleared}>{cleared ? "Keep it" : "Clear"}</Button>
+      )}
+    </div>
   );
 }
