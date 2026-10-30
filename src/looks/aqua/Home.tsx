@@ -76,7 +76,7 @@ function NeedItem({ need, run, onOpen, onAct }: { need: Need; run?: FixRun; onOp
   const tier = runnable?.risk ?? need.risk;
   const actions = actionsOf(need);
   const busy = Boolean(run && ["queued", "running", "checking"].includes(run.phase));
-  const lead = actions.find((action) => action.kind !== "dismiss" && action.kind !== "open");
+  const lead = actions.find((action) => action.kind !== "dismiss" && action.kind !== "open" && action.kind !== "acknowledge");
   return (
     <li className="aqua-need" data-severity={need.severity}>
       <button type="button" className="aqua-need__title" onClick={() => onOpen(need)}>

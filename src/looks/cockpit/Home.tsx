@@ -32,7 +32,7 @@ function leader(left: string, right: string, column: number): string {
 }
 
 const actionWords = (action: NeedAction) => `- ${action.label.toUpperCase()}`;
-const actionRight = (action: NeedAction) => (action.kind === "dismiss" ? "" : action.kind === "open" ? "OPEN" : tierWord[action.risk]);
+const actionRight = (action: NeedAction) => (action.kind === "dismiss" || action.kind === "acknowledge" ? "" : action.kind === "open" ? "OPEN" : tierWord[action.risk]);
 
 export default function CockpitHome({ csrfToken, role, onNavigate, now = Date.now }: HomeProps) {
   const { facts, refresh, accept } = useFacts();
@@ -153,7 +153,7 @@ function MemoNeed({ need, words, column, onOpen, onAct, run }: { need: Need; wor
         {need.detail && <span className="ui-visually-hidden" id={detailId}>{need.detail}</span>}
       </li>
       {need.risk && !need.action && <li className="cockpit-line cockpit-line--dim">{`Staged at ${tierWord[need.risk]}`}</li>}
-      {actionsOf(need).map((action) => <MemoAction key={`${action.kind ?? "operation"}:${action.operationId}:${action.label}`} need={need} action={action} column={column} disabled={Boolean(busy) && action.kind !== "dismiss" && action.kind !== "open"} onAct={onAct} />)}
+      {actionsOf(need).map((action) => <MemoAction key={`${action.kind ?? "operation"}:${action.operationId}:${action.label}`} need={need} action={action} column={column} disabled={Boolean(busy) && action.kind !== "dismiss" && action.kind !== "open" && action.kind !== "acknowledge"} onAct={onAct} />)}
       {run && <li className="cockpit-line cockpit-line--run" role="status" data-phase={run.phase}>{runWords(run)}</li>}
     </>
   );
@@ -161,7 +161,7 @@ function MemoNeed({ need, words, column, onOpen, onAct, run }: { need: Need; wor
 
 function MemoAction({ need, action, column, disabled, onAct }: { need: Need; action: NeedAction; column: number; disabled: boolean; onAct: (need: Need, action?: NeedAction | null) => void }) {
   const tierId = useId();
-  const runsSomething = action.kind !== "dismiss" && action.kind !== "open";
+  const runsSomething = action.kind !== "dismiss" && action.kind !== "open" && action.kind !== "acknowledge";
   return (
     <li>
       <button type="button" className="cockpit-line cockpit-line--act" data-risk={runsSomething ? action.risk : undefined} disabled={disabled}

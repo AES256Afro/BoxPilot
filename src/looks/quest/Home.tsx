@@ -184,7 +184,7 @@ export default function QuestHome({ csrfToken, role, onNavigate, now = Date.now 
                   <p className="quest-quest__reward">Reward: {quest.reward} · {runnable ? `Risk: ${tierWords[runnable.risk]}` : need.risk ? `Staged at ${tierWords[need.risk]} risk` : "Look into it"}</p>
                   {run && <p className="quest-quest__run" role="status" data-phase={run.phase}>{runWords(run)}</p>}
                   <div className="quest-acts">
-                    {actions.map((action) => <QuestButton key={`${action.kind ?? "operation"}:${action.operationId}:${action.label}`} need={need} action={action} main={action === runnable} tierShown={runnable?.risk} disabled={busy && action.kind !== "dismiss" && action.kind !== "open"} onAct={act} />)}
+                    {actions.map((action) => <QuestButton key={`${action.kind ?? "operation"}:${action.operationId}:${action.label}`} need={need} action={action} main={action === runnable} tierShown={runnable?.risk} disabled={busy && action.kind !== "dismiss" && action.kind !== "open" && action.kind !== "acknowledge"} onAct={act} />)}
                     {actions.length === 0 && <button type="button" className="quest-btn quest-btn--plain" onClick={() => open(need)}>Look</button>}
                   </div>
                 </li>
@@ -235,7 +235,7 @@ export default function QuestHome({ csrfToken, role, onNavigate, now = Date.now 
 /** Accept runs the quest's fix at its tier; any other fix says its own words, and its tier when it differs. */
 function QuestButton({ need, action, main, tierShown, disabled, onAct }: { need: Need; action: NeedAction; main: boolean; tierShown?: RiskTier; disabled: boolean; onAct: (need: Need, action?: NeedAction | null) => void }) {
   const tierId = useId();
-  const runsSomething = action.kind !== "dismiss" && action.kind !== "open";
+  const runsSomething = action.kind !== "dismiss" && action.kind !== "open" && action.kind !== "acknowledge";
   const words = main ? "Accept" : action.label;
   const tier = runsSomething && !main && action.risk !== tierShown ? ` · ${tierWords[action.risk]}` : "";
   return (
