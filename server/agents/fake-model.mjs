@@ -59,6 +59,7 @@ const topics = [
   [/reclaim|free up|clean[- ]?up|prune|dangling|taking up|takes up|docker('s)? disk/i, ["space.reclaimable"]],
   [/\b(reboot|package updates?|system updates?|security updates?|upgradable)\b/i, ["updates.status"]],
   [/\b(called|named|hostname|operating system|kernel|memory|processor|cpu|uptime|address)\b/i, ["server.facts"]],
+  [/they ?spy|spyware|stalkerware|indicators?|exploited/i, ["theyspy.status"]],
   [/pi-?hole|dns|block|ads?\b|gravity/i, ["pihole.stats", "where.runs"]],
   [/where|which (container|host)|runs? (on|in)|native/i, ["where.runs"]],
   [/log|journal|error|crash/i, ["logs.query", "alerts.active"]],
