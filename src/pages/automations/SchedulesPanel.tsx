@@ -104,6 +104,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
 
   const templates = useMemo<Template[]>(() => [
     ...installedApps.map((app) => ({ key: `backup:${app.id}`, label: `Back up ${app.name}`, operationId: "app.backup", parameters: { id: app.id } })),
+    { key: "app.update.available", label: "Update every app that has an update (each backed up first)", operationId: "app.update.available", parameters: {} },
     { key: "apt.refresh", label: "Refresh package lists", operationId: "apt.refresh", parameters: {} },
     { key: "apt.upgrade", label: "Install all package updates", operationId: "apt.upgrade", parameters: {} },
     { key: "docker.prune", label: "Clean up Docker disk space", operationId: "docker.prune", parameters: {} },

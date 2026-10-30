@@ -43,4 +43,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 600
-notes: "First login is wallabag / wallabag; change it under Config. Registration is off; add users under Users."
+notes: "First login is wallabag / wallabag; change it under Config. Registration is off; add users under Users. This image still ships PHP 8.1, which stopped getting security fixes at the end of 2025; keep wallabag on your home network or tailnet rather than publishing it to the internet."

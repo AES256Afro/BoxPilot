@@ -214,7 +214,7 @@ export function createAgentEvaluation({ store, state, limits, now, audit, refuse
     // ran for every evaluation whatever it asked.
     const want = (...facts) => !wanted || facts.some((fact) => wanted.has(fact));
     const when = (needed, fn) => (needed ? read(fn) : Promise.resolve(null));
-    const [snapshot, apps, pihole, placed, services, firewall, protection, updates, usage] = await Promise.all([
+    const [snapshot, apps, pihole, placed, services, firewall, protection, updates, usage, theyspy] = await Promise.all([
       when(want("hostname", "operatingSystem", "rootDiskPercent", "drives"), () => inventory?.inspect()),
       when(want("installedApps", "stoppedApps", "unhealthyApps", "appUpdates"), () => tools.readApps()),
       // An operator read (ADR-003); an evaluation is started by the owner or an operator anyway.
@@ -229,6 +229,8 @@ export function createAgentEvaluation({ store, state, limits, now, audit, refuse
       when(want("rebootRequired"), () => (helper ? helper.request("apt.upgradable.inspect", {}, { timeoutMs: 30_000 }) : null)),
       // M47.9: the read apps.usage makes, open to every role.
       when(want("busiestApp"), () => (helper ? helper.request("system.performance.inspect", {}, { timeoutMs: 30_000 }) : null)),
+      // The read theyspy.status makes, an operator read as Pi-hole's.
+      when(want("theyspyContacts", "theyspyUnblocked"), () => (helper && ["owner", "operator"].includes(role) ? helper.request("app.theyspy.inspect", {}, { timeoutMs: 45_000 }) : null)),
     ]);
     const applications = Array.isArray(apps?.applications) ? apps.applications : null;
     return {
@@ -239,6 +241,8 @@ export function createAgentEvaluation({ store, state, limits, now, audit, refuse
       // Where where.runs finds it, the tool an agent asks; Pi-hole's own read when that could not look.
       piholePlacement: placed && !(placed.unread && !placed.places.length) ? placementOf(placed.places) : pihole?.placement ?? null,
       piholeBlocking: pihole?.available ? (pihole.blocking === true ? "on" : pihole.blocking === false ? "off" : null) : null,
+      theyspyContacts: theyspy?.available ? String(theyspy.evidence.contacted) : null,
+      theyspyUnblocked: theyspy?.available ? String(theyspy.lookups.notFullyBlocked) : null,
       drives: snapshot ? drivesOf(snapshot) : null,
       stoppedApps: stoppedAppsOf(applications),
       // M43: what the Environment Scout, the App Doctor and the Update Planner report.
