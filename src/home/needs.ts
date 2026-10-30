@@ -10,6 +10,7 @@ import { mayStart, riskOf } from "../ui/operationRisk";
 import type { RiskTier, Status } from "../ui/types";
 import type { AppFact, FactValues, Facts } from "./facts";
 import { relativeTime } from "./format";
+import { outageDetail, outageTitle } from "./outage";
 import { adviseRetry, failureLine, type RetryAdvice } from "../retryAdvice";
 
 /*
@@ -26,11 +27,12 @@ export type NeedSeverity = "danger" | "warning" | "neutral";
  * A fix that can be started from the list itself, through the ordinary approval dialog. A Repair
  * finding's fixes carry the finding's own `fix`, so Home and Ops run them exactly as Repair does
  * (M35): recorded against the finding, and the finding checked again when the job ends. `dismiss`
- * sets a failed job aside; it runs nothing. `open` goes to the page where the fix is, when a failure
- * names one: running the same thing again would only fail the same way.
+ * sets a failed job aside, and `acknowledge` says "Got it" to a power cut Home is telling the owner
+ * about (`parameters.id` is the outage); neither runs anything. `open` goes to the page where the
+ * fix is, when a failure names one: running the same thing again would only fail the same way.
  */
 export interface NeedAction {
-  kind?: "operation" | "schedule" | "dismiss" | "open";
+  kind?: "operation" | "schedule" | "dismiss" | "acknowledge" | "open";
   /** For `open`: the page, and its tab, where the fix is. */
   open?: { view: ViewName; tab?: string };
   fix?: RepairFix;
@@ -82,6 +84,8 @@ export function watchView(family: string): ViewName {
   // BoxPilot's own restart that gave up or failed is made from Services (sweep 5).
   if (family === "boxpilot.restart") return "services";
   if (family === "signin.new" || family === "report.weekly") return "settings";
+  // A power cut: its advice is a UPS, which the System page sets up.
+  if (family === "power.lost") return "system";
   return "repairs";
 }
 
@@ -124,6 +128,14 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   const apps = facts.catalog?.apps ?? [];
   const appName = (id: string) => apps.find((app) => app.id === id)?.name ?? facts.protection?.find((app) => app.id === id)?.name ?? id;
 
+  // ── The server went down without shutting down (2026-09-29): said once, until someone has seen it.
+  //    First among the warnings: it is what explains the rest of what came back broken. ──
+  for (const outage of (facts.outages ?? []).filter((entry) => !entry.acknowledged)) {
+    const title = outageTitle(outage, facts.inventory?.hostname || "This server", { now });
+    const seen: NeedAction | null = role === "owner" || role === "operator" ? { kind: "acknowledge", operationId: "", label: "Got it", title: `Got it: ${title}`, parameters: { id: outage.id }, preview: "", risk: "low" } : null;
+    needs.push({ id: `outage:${outage.id}`, kind: "alert", severity: "warning", title, detail: outageDetail(outage), view: "system", action: null, ...(seen ? { actions: [seen] } : {}) });
+  }
+
   // ── Health: what the watcher sees, and whatever BoxPilot could not tell anybody (M27.2). ──
   const watch = facts.watch;
   if (watch) {
@@ -132,10 +144,14 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
       needs.push({ id: "unannounced", kind: "alert", severity: "warning", title: `BoxPilot could not tell you about ${countOf(unannounced, "thing")}`,
         detail: watch.targetConfigured ? "They have not reached your notification target yet" : "No notification target is set", view: "settings", action: null });
     }
-    watch.alerts.forEach((alert, index) => needs.push({
-      id: `alert:${alert.family}:${index}`, kind: "alert", severity: dangerFamilies.has(alert.family) ? "danger" : "warning", title: alert.title,
-      detail: alert.since ? `Since ${relativeTime(alert.since, now)}` : null, view: watchView(alert.family), action: null,
-    }));
+    watch.alerts.forEach((alert, index) => {
+      // A power cut is said below from its own record, in the owner's time, with "Got it".
+      if (alert.family === "power.lost" && facts.outages) return;
+      needs.push({
+        id: `alert:${alert.family}:${index}`, kind: "alert", severity: dangerFamilies.has(alert.family) ? "danger" : "warning", title: alert.title,
+        detail: alert.since ? `Since ${relativeTime(alert.since, now)}` : null, view: watchView(alert.family), action: null,
+      });
+    });
   }
 
   // ── Apps: stopped, leaking, unwell. A pause is a choice, so it is said, not alarmed about. ──
@@ -400,7 +416,7 @@ export const actionsOf = (need: Need): NeedAction[] => need.actions ?? (need.act
  * The first button that runs something, and so has a tier. One that only opens another page, or sets
  * a failure aside, runs nothing: a row with only those is looked at, not approved.
  */
-export const runs = (need: Need): NeedAction | null => actionsOf(need).find((action) => action.kind !== "open" && action.kind !== "dismiss") ?? null;
+export const runs = (need: Need): NeedAction | null => actionsOf(need).find((action) => action.kind !== "open" && action.kind !== "dismiss" && action.kind !== "acknowledge") ?? null;
 
 /** Ops' action inbox: what can be run from here, by tier; and the rest, which is only looked at. */
 export function groupByTier(needs: Need[]): { high: Need[]; medium: Need[]; low: Need[]; look: Need[] } {

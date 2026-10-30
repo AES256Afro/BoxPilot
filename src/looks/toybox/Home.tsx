@@ -95,7 +95,7 @@ function Row({ need, run, lead, onOpen, onAct }: { need: Need; run?: FixRun; lea
   const tier = runnable?.risk ?? need.risk;
   const actions = actionsOf(need);
   const busy = Boolean(run && ["queued", "running", "checking"].includes(run.phase));
-  const first = actions.find((action) => action.kind !== "dismiss" && action.kind !== "open");
+  const first = actions.find((action) => action.kind !== "dismiss" && action.kind !== "open" && action.kind !== "acknowledge");
   return (
     <li className="toybox-need" data-severity={need.severity}>
       <span className="toybox-dot" style={{ background: dot.color }} aria-hidden="true">{dot.glyph}</span>

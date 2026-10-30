@@ -241,7 +241,7 @@ export default function PhosphorHome({ csrfToken, role, onNavigate, now = Date.n
           {need.detail && <span className="ui-visually-hidden">. {need.detail}</span>}
         </button>
         <span className="phosphor-need__acts">
-          {(keyed.get(need.id) ?? []).map(({ action, words, key, at }) => (action.kind === "dismiss" || action.kind === "open"
+          {(keyed.get(need.id) ?? []).map(({ action, words, key, at }) => (action.kind === "dismiss" || action.kind === "open" || action.kind === "acknowledge"
             ? <Button key={`${action.kind}:${action.label}`} className="phosphor-key" aria-label={`${action.label}: ${need.title}`} aria-keyshortcuts={key ?? undefined} onClick={() => act(need, action)}><Keyed words={words} at={at} /></Button>
             : <Button key={`${action.operationId}:${action.label}`} className="phosphor-key" risk={action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} aria-keyshortcuts={key ?? undefined}
               onClick={() => act(need, action)}><Keyed words={words} at={at} /></Button>))}

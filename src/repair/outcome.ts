@@ -41,6 +41,16 @@ export function whatChanged(job: Pick<Job, "type" | "result" | "steps">): string
   }
   if (operation === "storage.check" && result.checked) return result.clean ? `${String(result.mountpoint)} checked clean.${afterApps}` : `The check found problems on ${String(result.mountpoint)}: ${String(result.summary ?? "see the log")}`;
   if (operation === "storage.docker-order.apply") return result.changed ? "The drives are ordered around Docker now: it waits for them at boot and stops before they are unmounted." : "The drives were already ordered around Docker.";
+  // The power cut's two fixes (2026-09-29).
+  if (operation === "dns.lookups.restore") {
+    const resolvedName = Array.isArray(result.names) ? (result.names as Array<{ name?: string; ok?: boolean }>).find((entry) => entry.ok)?.name : undefined;
+    if (result.alreadyPointed) return `/etc/resolv.conf already pointed at systemd-resolved, and names resolve${resolvedName ? ` (${resolvedName})` : ""}.`;
+    return `Names resolve again${resolvedName ? ` (${resolvedName})` : ""}: /etc/resolv.conf points at systemd-resolved.${typeof result.backup === "string" ? ` The file it replaced is kept as ${result.backup}.` : ""} Tailscale's DNS warning clears the next time it starts.`;
+  }
+  if (operation === "storage.boot-mark.clear") {
+    if (result.alreadyClean) return `${String(result.target ?? "The boot partition")} was not marked, so nothing needed clearing; it is mounted again.`;
+    if (result.cleared) return `${String(result.target ?? "The boot partition")}'s "not properly unmounted" mark is cleared, the check found nothing else, and it is mounted again.`;
+  }
   if (operation === "app.action") return `${String(result.id ?? "The app")}${result.recreated ? "'s container was built again, and it" : ""} is ${String(result.status ?? "running")} now.`;
   // The port-conflict fixes (Dockge, 2026-09-29): say which address the app keeps and which one ended.
   const withdrawn = (typeof result.withdrawn === "string" ? [result.withdrawn] : list(result.withdrawn));

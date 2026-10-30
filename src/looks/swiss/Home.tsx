@@ -21,7 +21,7 @@ import "./home.css";
 const shown = 5;
 
 const tierWord = (need: Need, action: NeedAction | null): { word: string; low: boolean } => {
-  const risk = action?.kind === "open" || action?.kind === "dismiss" ? undefined : action?.risk ?? need.risk;
+  const risk = action?.kind === "open" || action?.kind === "dismiss" || action?.kind === "acknowledge" ? undefined : action?.risk ?? need.risk;
   if (risk) return { word: riskCopy[risk].label, low: risk === "low" };
   if (need.severity === "danger") return { word: "Problem", low: false };
   if (need.severity === "warning") return { word: "Look", low: false };
@@ -109,7 +109,7 @@ export default function SwissHome(props: HomeProps) {
                     {actions.length === 0 && <button type="button" className="swiss-go" aria-label={`Open: ${need.title}`} onClick={() => open(need)}>Open <span aria-hidden="true">→</span></button>}
                     {actions.slice(0, 2).map((action, index) => (
                       <Button key={`${action.operationId}:${action.label}`} variant={index === 0 ? "primary" : "secondary"} className={index === 0 ? "swiss-go" : "swiss-go swiss-go--more"}
-                        risk={action.kind === "open" || action.kind === "dismiss" ? undefined : action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => act(need, action)}>
+                        risk={action.kind === "open" || action.kind === "dismiss" || action.kind === "acknowledge" ? undefined : action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => act(need, action)}>
                         {action.label}{index === 0 && <span aria-hidden="true"> →</span>}
                       </Button>
                     ))}

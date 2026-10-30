@@ -34,4 +34,16 @@ describe("what a fix changed (M35)", () => {
     const unknown = whatChanged({ type: "op:notifications.ntfy.connect", steps: [], result: { connected: true, topic: "boxpilot-abc", subscribeUrl: null } });
     expect(unknown).toContain("enter the address you open ntfy's page at");
   });
+
+  // The power cut's two fixes (2026-09-29).
+  it("says names resolve again and where the old file is, and that the boot partition's mark is gone", () => {
+    expect(whatChanged({ type: "op:dns.lookups.restore", steps: [], result: { changed: true, backup: "/etc/resolv.conf.boxpilot-20260929T221804Z", names: [{ name: "github.com", ok: true }] } }))
+      .toBe("Names resolve again (github.com): /etc/resolv.conf points at systemd-resolved. The file it replaced is kept as /etc/resolv.conf.boxpilot-20260929T221804Z. Tailscale's DNS warning clears the next time it starts.");
+    expect(whatChanged({ type: "op:dns.lookups.restore", steps: [], result: { changed: false, alreadyPointed: true, names: [{ name: "github.com", ok: true }] } }))
+      .toBe("/etc/resolv.conf already pointed at systemd-resolved, and names resolve (github.com).");
+    expect(whatChanged({ type: "op:storage.boot-mark.clear", steps: [], result: { target: "/boot/efi", cleared: true } }))
+      .toBe("/boot/efi's \"not properly unmounted\" mark is cleared, the check found nothing else, and it is mounted again.");
+    expect(whatChanged({ type: "op:storage.boot-mark.clear", steps: [], result: { target: "/boot/efi", cleared: false, alreadyClean: true } }))
+      .toBe("/boot/efi was not marked, so nothing needed clearing; it is mounted again.");
+  });
 });
