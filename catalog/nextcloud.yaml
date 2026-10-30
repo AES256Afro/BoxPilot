@@ -7,8 +7,8 @@ description: Your own cloud. Files with phone and desktop sync, calendar, contac
 website: https://nextcloud.com
 risk: medium
 image:
-  reference: nextcloud:34.0.3-apache@sha256:b97df9e0e1ee3c8c6cc009cb3f12ddce915d624d543b3bb93882025fe323a407
-  version: 34.0.3
+  reference: nextcloud:34.0.5-apache@sha256:515c072ea1cf82ece3503f301fdf75dd5a7148abcc8fa10aaefd5ec56643b703
+  version: 34.0.5
 ports:
   - id: web
     label: Web UI
