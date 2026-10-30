@@ -61,6 +61,9 @@ export function NeedRow({ need, onOpen, onAct, icon, tier, run }: NeedRowProps) 
         <span className="need__acts">
           {actions.map((action) => (action.kind === "dismiss"
             ? <Button key="dismiss" variant="ghost" className="need__act need__dismiss" aria-label={`Dismiss: ${need.title}`} onClick={() => onAct(need, action)}>Dismiss</Button>
+            // "Got it" on something already over (a power cut): it runs nothing, and says it has been seen.
+            : action.kind === "acknowledge"
+              ? <Button key="acknowledge" variant="ghost" className="need__act need__dismiss" aria-label={`${action.label}: ${need.title}`} onClick={() => onAct(need, action)}>{action.label}</Button>
             // Opens the page where the fix is: it runs nothing, so it carries no tier.
             : action.kind === "open"
               ? <Button key={`open:${action.label}`} className="need__act" aria-label={`${action.label}: ${need.title}`} onClick={() => onAct(need, action)}>{action.label}</Button>

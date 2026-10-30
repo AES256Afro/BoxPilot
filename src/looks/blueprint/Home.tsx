@@ -242,7 +242,7 @@ export default function BlueprintHome({ csrfToken, role, onNavigate, now = Date.
                       {tier && <span className="blueprint-note__tier" aria-hidden="true">{tierWord[tier]}</span>}
                       {actionsOf(need).length > 0 && (
                         <span className="blueprint-note__acts">
-                          {actionsOf(need).map((action) => (action.kind === "dismiss" || action.kind === "open"
+                          {actionsOf(need).map((action) => (action.kind === "dismiss" || action.kind === "open" || action.kind === "acknowledge"
                             ? <Button key={`${action.kind}:${action.label}`} className="blueprint-act" aria-label={`${action.label}: ${need.title}`} onClick={() => act(need, action)}>{action.label}</Button>
                             : <Button key={`${action.operationId}:${action.label}`} className="blueprint-act" risk={action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`}
                               onClick={() => act(need, action)}>{action.label.replace(/^Back up nightly$/, "Nightly")}</Button>))}

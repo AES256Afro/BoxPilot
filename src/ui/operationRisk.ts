@@ -72,6 +72,7 @@ export const operationRisk = {
   "credentials.remove": "medium",
   "credentials.set": "medium",
   "dns.fallback.rehearse": "medium",
+  "dns.lookups.restore": "medium",
   "dns.names.apply": "medium",
   "dns.names.clear": "medium",
   "docker.logging.set": "medium",
