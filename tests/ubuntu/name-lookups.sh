@@ -74,7 +74,7 @@ if [ "$(readlink /etc/resolv.conf)" != "$STUB" ] || [ "$(systemctl is-active sys
 fi
 # The server, and boxpilot-run@.service as shipped but for where node is.
 install -d -m 0755 /opt/boxpilot /opt/boxpilot/tests
-cp -r "${ROOT}/server" "${ROOT}/scripts" "${ROOT}/package.json" /opt/boxpilot/
+cp -r "${ROOT}/server" "${ROOT}/scripts" "${ROOT}/packages" "${ROOT}/package.json" /opt/boxpilot/
 cp "${ROOT}/tests/ubuntu/name-lookups.mjs" /opt/boxpilot/tests/
 chmod -R a+rX /opt/boxpilot
 sed -e "s|/usr/local/bin/node|${NODE}|g" "${ROOT}/deploy/boxpilot-run@.service" > /etc/systemd/system/boxpilot-run@.service
