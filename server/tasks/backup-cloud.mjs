@@ -1,14 +1,15 @@
-import { access, mkdir, stat } from "node:fs/promises";
+import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
-import { cloudTarget, normalizeCloudDestination, parseRcloneStats, renderRcloneConfig } from "../backup-cloud.mjs";
+import { cloudTarget, isSealedConfig, minimumPassphraseLength, normalizeCloudDestination, parseRcloneStats, renderRcloneConfig, sealedTarget } from "../backup-cloud.mjs";
 
 /**
  * Cloud backup mirror with rclone (root side, runs in boxpilot-run@ with network).
  * The rclone configuration, including keys and tokens, lives at
  * /etc/boxpilot/secrets/rclone.conf (root, 0600) and is the only place secrets are kept.
- * Sync is `rclone copy`: nothing is ever deleted at the destination.
+ * Sync is `rclone copy`: nothing is ever deleted at the destination. It copies only through the encrypted
+ * remote (see sealedRemote): application backups hold each app's .env and machine snapshots every app's settings.
  */
 
 const defaults = {
@@ -34,7 +35,7 @@ export async function backupCloudSetup(parameters = {}, { run = fixedRun, log = 
   await requireRclone(rclone);
   const secrets = {};
   // One line each (M50): the task writes them into the rclone file, and only the operation's check refused a line break before.
-  for (const name of ["key", "secretAccessKey", "password"]) if (typeof parameters[name] === "string" && /[\r\n]/.test(parameters[name])) throw new Error(`The ${name === "key" ? "application key" : name === "secretAccessKey" ? "secret access key" : "password"} holds a line break`);
+  for (const name of ["key", "secretAccessKey", "password", "passphrase"]) if (typeof parameters[name] === "string" && /[\r\n]/.test(parameters[name])) throw new Error(`The ${name === "key" ? "application key" : name === "secretAccessKey" ? "secret access key" : name === "passphrase" ? "encryption passphrase" : "password"} holds a line break`);
   if (destination.provider === "b2") { if (typeof parameters.key !== "string" || !parameters.key) throw new Error("The application key is required"); secrets.key = parameters.key; }
   if (destination.provider === "s3") { if (typeof parameters.secretAccessKey !== "string" || !parameters.secretAccessKey) throw new Error("The secret access key is required"); secrets.secretAccessKey = parameters.secretAccessKey; }
   if (destination.provider === "webdav") {
@@ -47,10 +48,15 @@ export async function backupCloudSetup(parameters = {}, { run = fixedRun, log = 
     if (typeof parameters.token !== "string" || !/^\{.*"access_token".*\}$/s.test(parameters.token.trim())) throw new Error("Paste the whole token JSON printed by rclone authorize (it starts with {\"access_token\")");
     secrets.token = parameters.token.trim().replace(/\s*\n\s*/g, "");
   }
+  if (typeof parameters.passphrase !== "string" || parameters.passphrase.length < minimumPassphraseLength) throw new Error(`An encryption passphrase of at least ${minimumPassphraseLength} characters is required: app backups hold each app's secrets, so nothing leaves this server unencrypted`);
+  // Obscured the way rclone keeps every password in its config, on stdin, never on a command line.
+  const sealed = await run(rclone, ["obscure", "-"], { timeout: 15_000, input: `${parameters.passphrase}` });
+  if (!sealed.ok || !sealed.stdout.trim()) throw new Error(`rclone obscure failed: ${tail(sealed.stderr)}`);
+  secrets.passphraseObscured = sealed.stdout.trim();
   await mkdir(secretsDirectory, { recursive: true, mode: 0o700 });
   await writeFile(configPath(secretsDirectory), renderRcloneConfig(destination, secrets), { mode: 0o600 });
-  log?.(`Wrote ${configPath(secretsDirectory)} for ${destination.provider} (${cloudTarget(destination)}); secrets never leave this file`, "stdout");
-  return { configured: true, destination, target: cloudTarget(destination) };
+  log?.(`Wrote ${configPath(secretsDirectory)} for ${destination.provider} (${cloudTarget(destination)}); copies go through ${sealedTarget()}, encrypted with your passphrase; secrets never leave this file`, "stdout");
+  return { configured: true, destination: { ...destination, sealed: true }, target: cloudTarget(destination) };
 }
 
 /** Create the destination folder and list it, proving the credentials work. */
@@ -91,17 +97,21 @@ const inProgressExcludes = ["--exclude", "*.partial"];
 export async function backupCloudSync(parameters = {}, { run = fixedRun, log = null, secretsDirectory = defaults.secretsDirectory, rclone = defaults.rclone, sources = defaults.sources, now = () => new Date() } = {}) {
   const destination = normalizeCloudDestination(parameters);
   await requireRclone(rclone);
-  await stat(configPath(secretsDirectory)).catch(() => { throw new Error("Save the cloud destination first"); });
-  const target = cloudTarget(destination);
+  const config = await readFile(configPath(secretsDirectory), "utf8").catch(() => { throw new Error("Save the cloud destination first"); });
+  // A destination saved before the mirror was encrypted has no sealed remote: refuse rather than copy every app's
+  // secrets into the bucket in the clear. Saving the destination again with a passphrase adds it.
+  if (!isSealedConfig(config)) throw new Error("The cloud mirror is not encrypted yet, so nothing was copied: app backups hold each app's passwords and keys. Set the destination again with an encryption passphrase, then mirror. Copies an older version left in the bucket unencrypted stay there until you delete them.");
+  cloudTarget(destination); // the destination must still be a valid one
+  const target = sealedTarget();
   const common = ["--config", configPath(secretsDirectory), "--contimeout", "30s", "--timeout", "10m", "--transfers", "4", "--checkers", "8", "--stats", "1h", "--stats-one-line", "-v"];
   const mirrored = [];
   let filesTransferred = 0; let errors = 0;
   for (const source of sources) {
     const exists = await stat(source.root).then((info) => info.isDirectory(), () => false);
     if (!exists) continue;
-    log?.(`$ rclone copy --checksum ${source.root} ${target}/${source.name}`, "stdout");
+    log?.(`$ rclone copy --checksum ${source.root} ${target}${source.name}`, "stdout");
     const excludes = source.name === "machine-snapshots" ? machineSnapshotExcludes : [];
-    const result = await run(rclone, [...common, "copy", "--checksum", ...inProgressExcludes, ...excludes, source.root, `${target}/${source.name}`], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+    const result = await run(rclone, [...common, "copy", "--checksum", ...inProgressExcludes, ...excludes, source.root, `${target}${source.name}`], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
     const stats = parseRcloneStats(`${result.stdout}\n${result.stderr}`);
     if (!result.ok) throw new Error(`rclone copy failed for ${source.name}: ${tail(result.stderr)}`);
     filesTransferred += stats.filesTransferred; errors += stats.errors;
@@ -111,6 +121,6 @@ export async function backupCloudSync(parameters = {}, { run = fixedRun, log = n
   if (mirrored.length === 0) throw new Error("There is nothing to mirror yet: take a backup or a machine snapshot first, then run this again.");
   if (errors > 0) throw new Error(`rclone reported ${errors} error(s) while copying, so this mirror is not complete. Check the log and run it again.`);
   const completedAt = now().toISOString();
-  log?.(`Mirrored ${mirrored.length} backup root(s) to ${target}: ${filesTransferred} file(s) transferred`, "stdout");
-  return { synced: true, destination: target, completedAt, mirrored, filesTransferred, bytesTransferred: mirrored.map((entry) => entry.bytesTransferred).filter(Boolean).join(" + ") || null, errors, boundary: { deletesPerformed: false, checksumVerified: true } };
+  log?.(`Mirrored ${mirrored.length} backup root(s) to ${target} (encrypted, in ${cloudTarget(destination)}/sealed): ${filesTransferred} file(s) transferred`, "stdout");
+  return { synced: true, encrypted: true, destination: `${cloudTarget(destination)}/sealed`, completedAt, mirrored, filesTransferred, bytesTransferred: mirrored.map((entry) => entry.bytesTransferred).filter(Boolean).join(" + ") || null, errors, boundary: { deletesPerformed: false, checksumVerified: true } };
 }
