@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { hostView, managedDriveEntries, mountUnitName, parseContainers, parseExtState, parseSystemdUtcTimestamp, parseVerifySummary, planDockerOrder, prepareDrivesForReboot, resumeAfterCancelledReboot, stopSignalOf, storageDockerOrder, storageVolumeState, verificationAllows } from "./drive-shutdown.mjs";
 import { afterResume, systemReboot } from "./system.mjs";
 import { exfatVolumeFlags, withDockerOrder } from "./storage.mjs";
+import { buildShareEntry } from "./shares.mjs";
 import { laggingSystemd } from "../../test/lagging-systemd.mjs";
 
 const ORDER = "x-systemd.before=docker.service,x-systemd.device-timeout=30s";
@@ -75,6 +76,15 @@ describe("the Docker ordering in drive entries", () => {
       ["elsewhere", "not mounted at /mnt/elsewhere"], ["nfsbox", "a network filesystem"], ["netdev", "a network filesystem"], ["commented", "not an fstab entry"], ["short", "not an fstab entry"],
     ]);
     expect(managedDriveEntries(content).every((entry) => entry.drive === false)).toBe(true);
+  });
+
+  it("leaves the backup destination's share as shares.mjs writes it, root's alone, untouched", () => {
+    const { entry } = buildShareEntry({ kind: "smb", host: "nas", share: "BoxPilot-Backup", name: "boxpilot-backup", guest: false });
+    expect(entry).toContain(",uid=0,gid=0,file_mode=0600,dir_mode=0700,");
+    const content = `${OWNER_FSTAB}# boxpilot:share-boxpilot-backup\n${entry}\n`;
+    const plan = planDockerOrder(content);
+    expect(plan.content.split("\n").at(-2)).toBe(entry);
+    expect(plan.drives.at(-1)).toEqual({ name: "share-boxpilot-backup", mountpoint: "/mnt/boxpilot/backup", status: "skipped", reason: "a network share" });
   });
 
   it("reads findmnt --verify's count and lets through only what was already there", () => {
