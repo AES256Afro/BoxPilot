@@ -128,7 +128,7 @@ export default function TransitHome(props: HomeProps) {
     const busy = run && ["queued", "running", "checking"].includes(run.phase);
     return actionsOf(need).map((action, index) => (
       <Button key={`${need.id}:${action.operationId}:${action.label}`} variant={index === 0 ? "primary" : "secondary"} className="transit-btn"
-        risk={action.kind === "open" || action.kind === "dismiss" ? undefined : action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => act(need, action)}>
+        risk={action.kind === "open" || action.kind === "dismiss" || action.kind === "acknowledge" ? undefined : action.risk} disabled={Boolean(busy)} aria-label={`${action.label}: ${need.title}`} onClick={() => act(need, action)}>
         {action.label}
       </Button>
     ));

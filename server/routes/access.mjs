@@ -92,13 +92,13 @@ export const readsThroughHelper = (request) => ["owner", "operator"].includes(re
 
 /**
  * The kinds of alert and news about the server itself, whose words every role reads in full: a disk,
- * a drive, the UPS, services, containers, BoxPilot's own job logs, a new release. Any other kind is
+ * a drive, the UPS, a power cut, services, containers, BoxPilot's own job logs, a new release. Any other kind is
  * about somebody's work or is the owner's (sweep 3): the weekly report names every account's failed
  * jobs, which only the owner may preview. A kind added later is the owner's until it is put here.
  */
 const everyonesFamilies = new Set([
   "storage.root.full", "storage.mount.full", "storage.smart", "storage.mount.detached", "storage.mount.readonly", "storage.forecast",
-  "smart.errors", "smart.wear", "power.ups", "system.services", "system.reboot", "docker.unhealthy", "docker.restarting",
+  "smart.errors", "smart.wear", "power.ups", "power.lost", "system.services", "system.reboot", "docker.unhealthy", "docker.restarting",
   "joblog.unreadable", "release.available", "drive.reconnected", "boxpilot.restart",
   // M42.2: a public name is the internet's to know; its state names no account's work.
   "hosted.down", "hosted.cert",

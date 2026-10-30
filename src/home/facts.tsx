@@ -6,6 +6,7 @@ import { readJson } from "../http";
 import { offBoxVerdict, type OffBoxInputs, type OffBoxVerdict } from "../offBox";
 import { followJobs, inspectOperation, type Job } from "../operations";
 import { scanFrom, type RepairScan } from "../repair/types";
+import type { OutageFact } from "./outage";
 import type { PowerEvent } from "../powerEvents";
 import { onRefresh } from "../shell/refresh";
 
@@ -173,6 +174,8 @@ export interface Facts {
   vms: Source<VmFacts>;
   databaseCopies: Source<DatabaseCopyFacts>;
   rebuild: Source<{ count: number; source: string } | null>;
+  /** Times the server went down without shutting down (2026-09-29), acknowledged or not. */
+  outages: Source<OutageFact[]>;
 }
 
 /** The facts' values alone, null for anything not (or not yet) known: what the pure helpers read. */
@@ -185,7 +188,7 @@ const idle = { state: "idle", value: null, error: null } as const;
 
 export const emptyFacts: Facts = {
   catalog: idle, inventory: idle, updates: idle, unattended: idle, services: idle, watch: idle, repairs: idle, jobs: idle,
-  schedules: idle, protection: idle, offBox: idle, database: idle, setup: idle, checklist: idle, vms: idle, databaseCopies: idle, rebuild: idle,
+  schedules: idle, protection: idle, offBox: idle, database: idle, setup: idle, checklist: idle, vms: idle, databaseCopies: idle, rebuild: idle, outages: idle,
 };
 
 const getJson = async <T,>(url: string): Promise<T> => readJson<T>(await fetch(url));
@@ -492,6 +495,21 @@ async function loadVms(): Promise<VmFacts> {
   return { domains: body.domains.map((domain) => ({ name: text(domain.name, "unnamed"), state: text(domain.state, "unknown"), vcpus: number(domain.vcpus), memoryBytes: number(domain.memoryKiB) === null ? null : (domain.memoryKiB as number) * 1024 })) };
 }
 
+type RawOutage = { id?: unknown; stoppedAt?: unknown; backAt?: unknown; offForMs?: unknown; cause?: unknown; dnsApps?: unknown; ups?: unknown; acknowledged?: { at?: unknown; by?: unknown } | null };
+export function outagesFrom(body: { outages?: RawOutage[] }): OutageFact[] {
+  if (!Array.isArray(body?.outages)) throw new Error("The list of power cuts was missing");
+  return body.outages.filter((entry) => typeof entry?.id === "string").map((entry) => ({
+    id: entry.id as string,
+    stoppedAt: typeof entry.stoppedAt === "string" ? entry.stoppedAt : null,
+    backAt: typeof entry.backAt === "string" ? entry.backAt : null,
+    offForMs: number(entry.offForMs),
+    cause: text(entry.cause, "power"),
+    dnsApps: list<unknown>(entry.dnsApps).filter((name): name is string => typeof name === "string"),
+    ups: entry.ups === true,
+    acknowledged: entry.acknowledged && typeof entry.acknowledged.at === "string" ? { at: entry.acknowledged.at, by: typeof entry.acknowledged.by === "string" ? entry.acknowledged.by : null } : null,
+  }));
+}
+
 type DiscoverAnswer = { locations?: Array<{ mount?: { source?: string }; snapshots?: unknown[] }> };
 async function loadRebuild(): Promise<{ count: number; source: string } | null> {
   // A fresh box with a drive of snapshots already mounted is a rebuild waiting to happen.
@@ -517,12 +535,13 @@ const loaders = {
   checklist: loadChecklist,
   vms: loadVms,
   databaseCopies: loadDatabaseCopies,
+  outages: async () => outagesFrom(await getJson<{ outages?: RawOutage[] }>("/api/v1/power/outages")),
 } satisfies { [K in Exclude<keyof Facts, "jobs" | "rebuild">]: () => Promise<NonNullable<Facts[K]["value"]>> };
 
 type LoadedKey = keyof typeof loaders;
 const allKeys = Object.keys(loaders) as LoadedKey[];
 /** Read again every minute while a view is open: what an app, a disk or a watcher says right now. */
-const quickKeys: LoadedKey[] = ["catalog", "inventory", "services", "watch", "vms"];
+const quickKeys: LoadedKey[] = ["catalog", "inventory", "services", "watch", "vms", "outages"];
 /** Every five minutes: reads that cost the helper more (the problem scan, apt, the destinations). */
 const slowKeys = allKeys.filter((key) => !quickKeys.includes(key));
 

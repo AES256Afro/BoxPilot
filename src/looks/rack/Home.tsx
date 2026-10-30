@@ -187,10 +187,10 @@ export default function RackHome({ csrfToken, role, onNavigate, now = Date.now }
       actions.forEach((action, at) => {
         // The fix to press is amber, as the drawing has it; in what can wait a medium one is grey and
         // a low one green (Update, Resume). A second choice, or one that only opens a page, is grey.
-        const tone = action.kind === "dismiss" || action.kind === "open" || at > 0 ? "grey"
+        const tone = action.kind === "dismiss" || action.kind === "open" || action.kind === "acknowledge" || at > 0 ? "grey"
           : action.risk === "low" ? "green" : action.risk === "high" ? "red" : waiting ? "grey" : "amber";
         const label = `${action.label}: ${need.title}`;
-        keys.push(action.kind === "dismiss" || action.kind === "open"
+        keys.push(action.kind === "dismiss" || action.kind === "open" || action.kind === "acknowledge"
           ? <Button key={`${need.id}:${action.kind}:${action.label}`} className="rack-key" data-tone={tone} aria-label={label} onClick={() => act(need, action)}><i aria-hidden="true" /><span className="rack-eng">{words[at]}</span></Button>
           : <Button key={`${need.id}:${action.operationId}:${action.label}`} className="rack-key" data-tone={tone} risk={action.risk} disabled={Boolean(busy)} aria-label={label} onClick={() => act(need, action)}><i aria-hidden="true" /><span className="rack-eng">{words[at]}</span></Button>);
       });

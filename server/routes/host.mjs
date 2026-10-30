@@ -16,10 +16,12 @@ import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
 import { scanRemediations } from "../remediations-scan.mjs";
 import { latestOutageCheck } from "../outage-dns.mjs";
+import { inspectNameLookups } from "../name-lookups.mjs";
 import { attemptsKey, dismissalFrom, dismissalsKey, findingIdPattern, jobIdPattern, withAttempt, withDismissal } from "../repair-ledger.mjs";
 import { callerId, readsThroughHelper, seesEveryAccount, withOwnActors } from "./access.mjs";
 import { readBounded } from "../../packages/harness/src/index.mjs";
 import { access, readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 /**
@@ -80,7 +82,7 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
   return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished), serveOverLoopback: Boolean(servePublished && serveOverLoopback) };
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, dnsResilience = null, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, dnsResilience = null, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls", collect = collectStorage, fileExists = (file) => access(file).then(() => true, () => false), readListeners = listListeners, inspectNames = inspectNameLookups, hostname = os.hostname() }) {
   const router = Router();
   router.get("/diagnostics/runtime", async (_request, response) => {
     const [web, worker] = await Promise.allSettled([
@@ -201,7 +203,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     if (request.query?.fresh === "1") helper?.invalidate?.(["storage.usb.events", "storage.unclean.events", "storage.volumes.state"]);
     // The scan is shared with the agents' repair.findings tool (M47): the same findings on the Repair page and in an agent's answer.
     const visibleJobs = typeof state.listJobs === "function" ? state.listJobs(200, seesEveryAccount(request) ? {} : { createdBy: callerId(request) }) : [];
-    const scanned = await scanRemediations({ helper, state, catalogService, inventory, collect, fileExists, readListeners, notifications, dnsResilience, operatorReadsWanted: readsThroughHelper(request), visibleJobsGiven: visibleJobs });
+    const scanned = await scanRemediations({ helper, state, catalogService, inventory, collect, fileExists, readListeners, notifications, dnsResilience, inspectNames, hostname, operatorReadsWanted: readsThroughHelper(request), visibleJobsGiven: visibleJobs });
     response.json(withOwnActors(request, scanned));
   });
 

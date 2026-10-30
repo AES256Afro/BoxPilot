@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseUncleanMounts } from "./ops/storage.mjs";
-import { appsWithoutContainer, backupDestinationToMove, backupsDue, bootPartitionUnclean, scheduledBackupApps, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, portConflicts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
+import { appsWithoutContainer, backupDestinationToMove, backupsDue, bootPartitionUnclean, scheduledBackupApps, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nameLookupsBroken, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, portConflicts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -803,6 +803,88 @@ describe("what a dismissal holds on to (M35)", () => {
     expect(fingerprintOf(again)).toBe(fingerprintOf(first));
     expect(fingerprintOf({ ...first, evidence: [...first.evidence, "one more line"] })).not.toBe(fingerprintOf(first));
     expect(fingerprintOf({ ...first, severity: "critical" })).not.toBe(fingerprintOf(first));
+  });
+});
+
+// 2026-09-29, after the power cut: every lookup through the system resolver failed because
+// /etc/resolv.conf was Tailscale's file, while systemd-resolved and Pi-hole were both fine.
+const brokenLookups = (overrides = {}) => ({
+  available: true, checkedAt: "2026-09-29T22:30:00.000Z", nssWorks: false,
+  names: [{ name: "github.com", ok: false, addresses: [], error: "no answer" }, { name: "registry-1.docker.io", ok: false, addresses: [], error: "no answer" }],
+  resolvConf: { kind: "file", target: null, stub: false, nameservers: ["100.100.100.100"], generatedBy: "tailscale", tailscaleBackup: "../run/systemd/resolve/stub-resolv.conf" },
+  resolved: { active: true, stubPresent: true, stubAnswers: { ok: true, addresses: ["192.0.2.10"], error: null }, resolves: true },
+  tailscale: { running: true, acceptDns: true, dnsWarnings: ["Tailscale failed to fetch the DNS configuration of your device: exit status 1"] },
+  internet: { reachable: true, probes: [{ host: "1.1.1.1", port: 443, ok: true }, { host: "9.9.9.9", port: 443, ok: true }] },
+  dnsServer: { name: "Pi-hole", address: "127.0.0.1", running: true, answers: true },
+  ...overrides,
+});
+
+describe("a server that cannot look names up (2026-09-29)", () => {
+  it("says what happened on the owner's server, in the owner's words, and offers the fix they made by hand", () => {
+    const [found] = nameLookupsBroken({ nameLookups: brokenLookups(), hostname: "homebox" });
+    expect(found).toMatchObject({ id: "name-lookups", severity: "critical", title: "homebox cannot look up website names, so updates and app downloads fail" });
+    expect(found.detail).toContain("so BoxPilot cannot download its updates, Ubuntu's updates cannot be fetched, and apps cannot pull their images");
+    expect(found.detail).toContain("The cause is Tailscale: when it started with the server, it took over name lookups and left /etc/resolv.conf sending them all to its own resolver (100.100.100.100)");
+    expect(found.detail).toContain("systemd-resolved, which normally answers them on Ubuntu, is running and works; it is just not being asked.");
+    expect(found.detail).toContain("Pi-hole, the DNS server the rest of your home network uses, is separate and still answering, so other devices are not affected.");
+    expect(found.evidence).toEqual([
+      "getent ahosts github.com: no answer",
+      "getent ahosts registry-1.docker.io: no answer",
+      "/etc/resolv.conf is a plain file, not the link to systemd-resolved",
+      "it sends lookups to 100.100.100.100",
+      "the file says Tailscale wrote it",
+      "Tailscale kept the one it replaced at /etc/resolv.pre-tailscale-backup.conf (a link to ../run/systemd/resolve/stub-resolv.conf)",
+      "Tailscale says: \"Tailscale failed to fetch the DNS configuration of your device: exit status 1\"",
+      "systemd-resolved answers: github.com is 192.0.2.10",
+      "the internet is reachable: 1.1.1.1:443 and 9.9.9.9:443 answer",
+      "Pi-hole answers at 127.0.0.1",
+    ]);
+    expect(found.fixes).toHaveLength(1);
+    expect(found.fix).toMatchObject({ operationId: "dns.lookups.restore", parameters: {}, label: "Point name lookups back to systemd-resolved" });
+    expect(found.fix.preview).toContain("Keeps the current /etc/resolv.conf as /etc/resolv.conf.boxpilot-<date and time>");
+    expect(found.fix.preview).toContain("If names still do not resolve, the old file is put back. Tailscale is not restarted: its warning about DNS clears the next time it starts");
+    expect(found.manual).toBeNull();
+  });
+
+  it("says nothing on a healthy server, or one it could not check", () => {
+    expect(nameLookupsBroken({ nameLookups: { available: true, nssWorks: true, names: [], resolvConf: { kind: "link", stub: true } } })).toEqual([]);
+    expect(nameLookupsBroken({ nameLookups: null })).toEqual([]);
+    expect(nameLookupsBroken({ nameLookups: { available: false, nssWorks: false } })).toEqual([]);
+  });
+
+  it("names a file that is not Tailscale's plainly, and says when Pi-hole is down too", () => {
+    const [found] = nameLookupsBroken({ nameLookups: brokenLookups({ resolvConf: { kind: "file", stub: false, nameservers: ["192.0.2.53"], generatedBy: null, tailscaleBackup: null }, tailscale: null, dnsServer: { name: "Pi-hole", address: "127.0.0.1", running: false, answers: null } }) });
+    expect(found.title).toBe("This server cannot look up website names, so updates and app downloads fail");
+    expect(found.detail).toContain("/etc/resolv.conf, the file that says where lookups go, is no longer the link to systemd-resolved: it sends them to 192.0.2.53, which does not answer.");
+    expect(found.detail).toContain("Pi-hole, the DNS server your home network uses, is stopped too");
+    expect(found.fix.operationId).toBe("dns.lookups.restore");
+  });
+
+  it("offers no fix where pointing lookups back would not help, and says what would", () => {
+    const stubOff = nameLookupsBroken({ nameLookups: brokenLookups({ resolved: { active: true, stubPresent: true, stubAnswers: { ok: false, error: "ECONNREFUSED" }, resolves: true } }) })[0];
+    expect(stubOff.fixes).toEqual([]);
+    expect(stubOff.detail).toContain("its local listener (127.0.0.53) is switched off");
+    expect(stubOff.manual).toContain("sudo ln -sfn ../run/systemd/resolve/resolv.conf /etc/resolv.conf");
+
+    const offline = nameLookupsBroken({ nameLookups: brokenLookups({ resolvConf: { kind: "link", target: "../run/systemd/resolve/stub-resolv.conf", stub: true, nameservers: ["127.0.0.53"] }, resolved: { active: true, stubPresent: true, stubAnswers: { ok: false, error: "ETIMEOUT" }, resolves: false }, internet: { reachable: false, probes: [{ host: "1.1.1.1", port: 443, ok: false }, { host: "9.9.9.9", port: 443, ok: false }] }, dnsServer: null }), hostname: "homebox" })[0];
+    expect(offline).toMatchObject({ title: "homebox cannot reach the internet, so updates and app downloads fail", fixes: [] });
+    expect(offline.detail).toContain("this is the router or the internet connection, not a setting on this server");
+    expect(offline.evidence).toContain("1.1.1.1:443 and 9.9.9.9:443 do not answer either");
+    expect(offline.manual).toContain("Check the router");
+
+    const upstream = nameLookupsBroken({ nameLookups: brokenLookups({ resolved: { active: true, stubPresent: true, stubAnswers: { ok: false, error: "ESERVFAIL" }, resolves: false }, dnsServer: { name: "Pi-hole", address: "127.0.0.1", running: true, answers: false } }) })[0];
+    expect(upstream.fixes).toEqual([]);
+    expect(upstream.detail).toContain("the DNS server your router hands out is not answering");
+    expect(upstream.manual).toContain("If it is this server's own Pi-hole and that is not answering, start Pi-hole or fix it first.");
+
+    const noResolved = nameLookupsBroken({ nameLookups: brokenLookups({ resolved: { active: false, stubPresent: false, stubAnswers: { ok: false }, resolves: null } }) })[0];
+    expect(noResolved.fixes).toEqual([]);
+    expect(noResolved.manual).toContain("sudo systemctl restart tailscaled");
+  });
+
+  it("comes first in the scan: it is critical", () => {
+    const { findings } = detectRemediations({ nameLookups: brokenLookups(), hostname: "homebox", notifications: { configured: false }, apps: [{ id: "pi-hole", name: "Pi-hole" }] });
+    expect(findings.map((entry) => entry.id)).toEqual(["name-lookups", "no-notification-target"]);
   });
 });
 
