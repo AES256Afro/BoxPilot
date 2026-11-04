@@ -422,6 +422,9 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!job) throw new Error("The step's job record disappeared");
       if (["completed", "failed", "cancelled"].includes(job.state)) return job;
       if (waitingInQueue(job)) deadline = Math.min(Date.now() + timeoutMs, ceiling);
+      // The deadline above is wall-clock seconds of a running step, so the comparison must be too:
+      // a fixed clock would make it expire instantly or never.
+      // eslint-disable-next-line boxpilot/use-the-injected-clock
       if (Date.now() > deadline) throw new Error("The step did not finish inside its operation's own time budget");
       await nextChangeOf(jobId);
     }
