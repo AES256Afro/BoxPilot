@@ -14,9 +14,9 @@ again. The same rule as `swept-and-verified-clean`: a cleared area is not re-aud
 
 | Category | Sweeps run | Consecutive empty | State |
 | --- | --- | --- | --- |
-| Code | 1 | 0 | active — 4 findings, all fixed (M52.3-M52.7) |
-| Bug | 1 | 0 | active — 3 findings, all fixed (M52.1, M52.2) |
-| Security | 1 | 1 | active — nothing found |
+| Code | 2 | 0 | active — sweep 1: 4, fixed (M52.3-M52.7); sweep 2: 2, open (M53) |
+| Bug | 2 | 0 | active — sweep 1: 3, fixed (M52.1, M52.2); sweep 2: 2, open (M53) |
+| Security | 2 | 0 | active — sweep 1: nothing; sweep 2: 1 fail-open default, open (M53) |
 | Readability | 0 | — | queued |
 | Usability | 0 | n/a | queued — retires on coverage, see below |
 | Visual | 0 | n/a | queued — retires on coverage, see below |
@@ -234,3 +234,106 @@ allowlist line, a page with no row and a row with no page.
 Nothing is open from sweep 1. The next thing the loop does is sweep 2 of code and bug (security has
 one empty sweep of three), and the first usability, visual and quality-of-life passes, which now
 have a ledger to write into.
+
+---
+
+## Sweep 2 — bug audit
+
+**B4. The auth service takes an injected clock and reaches for the wall clock in five places.**
+`createAuthService` (`server/security.mjs:108`) accepts `now = () => Date.now()` and uses it in
+exactly one place, session renewal (`:260`). Everywhere else it reads the clock directly:
+
+- `:531` the elevation window — `new Date(Date.now() + elevationTtlMs)`, the deadline that gates
+  every high-risk approval and every secret read;
+- `:179`, `:185`, `:186` the "your session ended because it came back from another address" memory;
+- `:495` `createdAt` on a trusted-device record;
+- `:162` the time inside the new-sign-in notification, which is written into the message precisely
+  because the push may arrive hours later.
+
+The same class as B1, in the module where it matters most. Nothing is wrong in production — both
+clocks are the same number there — but of the six test files that build an auth service, only
+`session-renewal.test.mjs` passes a `now`, and it is testing the one path that honours it. The
+elevation window's expiry cannot be tested against a fixed clock at all, which is why it is not.
+
+**B5. The hosted-domains file read bounds the number of files and nothing inside them.**
+`readHostedSources` (`server/hosted-domains-sources.mjs:93`) caps proxy-host files at 200, so
+somebody did think about bounds; `parseProxyHostConfig` then accepts any number of names in one
+`server_name`, and `parseCloudflaredConfig` any number of `ingress` rules. Measured: 50,000 ingress
+rules parse to 4.1 MB of JSON in 459 ms, and 200,000 `server_name` entries in a single file to
+4.3 MB in 51 ms. The helper reply is capped at 32 MiB
+(`server/helper-response.mjs:4`), so this does not run a server out of memory; what it does is fail
+the whole `hosted-domains.sources` read with "Helper response exceeds the 33554432-byte limit" once
+a configuration is big enough, and the Hosted domains page loses every file-derived name with an
+error written in bytes. A cap per file, and a line saying the list was cut, is the fix.
+
+### Looked at, nothing found
+
+- **No ReDoS and no YAML bomb in the hosted-domains parsers.** A throwaway hostile-input script put
+  junk, 1 MB of whitespace after `server_name`, a 1 MB unterminated directive, 250,000 repeated
+  directives and a 9^7 YAML alias bomb through both parsers. Everything is linear, and the `yaml`
+  package refuses the alias expansion itself (28 bytes out, 1.4 ms). The only thing the probe found
+  is B5, which it found by measuring output size rather than time.
+- **No orphaned settings keys.** All 42 literal `getSetting`/`setSetting` keys have both a reader
+  and a writer in production. The seven that first looked one-sided (`githubLogins`,
+  `lvmSnapshots`, `agentsKnownDomains` and four more) are read through a wrapper or through
+  `getSetting?.()`, which the scan's pattern missed.
+
+---
+
+## Sweep 2 — code audit
+
+**C5. The two retention paths are the same code twice, and have already drifted apart once.**
+After renaming controller/VM and database/domain, `server/controller-retention-helper.mjs` and
+`server/vm-retention-helper.mjs` share 136 of 164 lines, and `server/controller-retention.mjs` and
+`server/vm-retention.mjs` 98 of 164. `server/vm-recovery-helper.mjs` and
+`server/vm-restore-drill-helper.mjs` share their input validators the same way. This is
+root-running code that decides which backups may be deleted.
+
+The drift is not hypothetical. Both helpers validate restic's snapshot evidence on line 84, and the
+lines are identical except for one clause:
+
+- controller: `typeof snapshot.time !== "string" || !Number.isFinite(Date.parse(snapshot.time))`
+- VM: `typeof snapshot.time !== "string"`
+
+So a snapshot whose `time` is a string but not a date is refused on the controller path and accepted
+on the VM path. Traced downstream, nothing breaks today — the VM page formats an unparseable date as
+"missing" rather than NaN — so this is not a live bug. It is the evidence that one side got hardened
+and the other did not, in the exact place where that is expensive, and it will happen again while
+the code is two copies. `complete` is computed with a third term on the controller side
+(`&& verifiedAfter !== null`, with a comment explaining what went wrong without it) that the VM side
+reaches differently, through its own `after.ready` throw; worth reading together when they merge.
+
+**C6. Nothing enforces the clock discipline, which is why B1 and B4 both exist.**
+`AGENTS.md` has said to inject clocks since before either bug; both were written anyway, a month
+apart, in different modules. Exports got a check in M52.5 for the same reason. This one is harder —
+deciding whether a `Date.now()` is a forbidden dated value or a legitimate duration measurement
+needs scope, and a naive rule produces 86 hits of which about 4 are real, which is worse than no
+rule. Worth one attempt at the narrow version: inside a function that has an injected `now` in
+scope, a `Date.now()` or `new Date()` whose value is stored or compared rather than subtracted.
+
+---
+
+## Sweep 2 — security audit
+
+**S1. A security guard with a fail-open default.** `server/routes/virtualization.mjs:15`:
+
+    const csrf = auth?.requireCsrf ?? ((_request, _response, next) => next());
+
+`index.mjs` passes `auth`, so CSRF is enforced in production and this is not a live hole. But the
+default on a missing dependency is "no CSRF check" rather than a refusal, so a future caller that
+forgets `auth` loses the protection silently, on the two routes that take a multi-gigabyte upload
+and a creation preview. No other router in `server/routes/` defaults a guard this way.
+
+### Looked at, nothing found
+
+- **CSRF coverage is complete.** A scan for mutating routes without `requireCsrf` on the same line
+  returned 27, and every one is explained: the ten `agent-runner` routes are mounted ahead of
+  `requireSession` and authenticated by the loopback-only bearer key, where there is no cookie to
+  forge; the sign-in routes in `identity.mjs` and `passkeys.mjs` run before a session exists; and
+  the rest reach CSRF through a spread guard array the scan could not see
+  (`const manage = [auth.requireSession, auth.requireCsrf]`, `passkeys.mjs:57`,
+  `identity.mjs:12`). The session cookie is `SameSite=Strict` on top of that.
+- **Outbound requests are bounded and pinned.** The GitHub API read uses `redirect: "error"` with a
+  15-second timeout; both `github.com/<user>.keys` reads go through `readBounded(…, 256 KiB)` and a
+  strict username pattern (`server/routes/host.mjs:189`, `server/ops/users.mjs:39`); the Zulip task
+  talks to `127.0.0.1` with an explicit `Host` header. M50 did this work and it holds.
