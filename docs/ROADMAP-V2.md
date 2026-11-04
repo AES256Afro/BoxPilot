@@ -3789,6 +3789,23 @@ runs on itself now ships with the negative case, the same way the code it guards
   empty collection is not the whole claim. The four above are the ones whose entire value is the
   breadth of what they cover. Chasing the other 200 would be churn.
 
+- ✅ **M54.5 No test file silently never runs.** The purest form of the fault: a test vitest does
+  not collect cannot fail, costs nothing, and appears in no count — there is no red to notice.
+  `eslint-rules/use-the-injected-clock.test.mjs` was written into a directory no `include` pattern
+  covered, and ran only because its author happened to check the config. `test/every-test-runs.test.mjs`
+  reads the patterns out of `vite.config.ts` (rather than restating them) and the file list out of
+  git, and fails on a tracked test file no pattern matches. Its own glob translation is tested too,
+  since the guard is only as good as that. Probed with a test file in `tools/`: the guard names it,
+  and `vitest list` confirms the file — which contained `expect(1).toBe(2)` — was collected zero
+  times.
+- ✅ **M54.6 No check is defined and then left unrun.** A `check:*` script in `package.json` that
+  nothing invokes is as inert as one that cannot fail. Every check must either be in the
+  `npm run check` gate or be recorded against the workflow that runs it, and that record is
+  verified by reading the workflow rather than trusting the comment: `check:retention` is run by
+  `.github/workflows/ci.yml` as its own step. The gate itself is held too — CI must run
+  `npm run check` whole, because if it ran the steps individually a check added to the gate would
+  still not run there.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

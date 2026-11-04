@@ -445,3 +445,17 @@ About 200 other loops over computed collections have no size assertion. They wer
 nearly all are intermediate loops in tests that assert plenty else, where an empty collection is not
 the test's whole claim. The distinction that matters is whether the breadth of the collection *is*
 the thing being proved.
+
+### The layers, finished
+
+Four questions, each the same question one level further out, and each now held by something:
+
+1. Does the check fail on a bad input? — self-tests, M54.1-3.
+2. Does the invariant test cover anything? — size floors, M54.4.
+3. Does the test file run at all? — `test/every-test-runs.test.mjs`, M54.5.
+4. Does anything run the check? — the gate guard, M54.6, which also holds CI to running the gate
+   whole rather than step by step.
+
+Each was probed by making it fail on purpose, not by reasoning that it would. Three of the four were
+real at the time of writing: the export check could not fail, `escalation-inventory` passed over an
+empty list, and a test file sat outside every include pattern.
