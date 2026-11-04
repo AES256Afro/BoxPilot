@@ -389,3 +389,24 @@ checks and the new lint rule.
 Still open: nothing from sweep 2. Sweep 3 of code, bug and security is next, with the retention
 service layers already named as a starting point; the usability, visual and quality-of-life sweeps
 have their coverage ledger and have not run.
+
+---
+
+## The export check was inert on a working copy (found by CI, 2026-11-04)
+
+`check:exports` passed locally and failed on PR #640. The check was right in CI and wrong here, and
+the reason is worth keeping: its corpus was built by walking the filesystem, and
+`npm run demo:publish` leaves built bundles in `demo-site/public/assets/`, gitignored. A bundle
+contains every name in the app, so every export looked read, and the check that was supposed to stop
+the export surface from growing reported "275 of 275 reviewed" while seeing nothing.
+
+The corpus now comes from `git ls-files`, which is the one list a checkout and CI agree on; a build
+artifact in someone's working copy cannot decide the answer. Probed by putting an untracked bundle
+naming a new unread export in place and confirming the check still reports it.
+
+It had been hiding one real finding: `growableVolumes` in `src/looks/blend/StorageLead.tsx`, used
+only inside its own file. The export is gone.
+
+The lesson for the other two checks: `check:sweeps` reads two tracked files and has no corpus, and
+the clock rule runs inside ESLint over an explicit file list, so neither can go inert this way. A
+check whose input is "whatever is on disk" can; one whose input is "what is committed" cannot.
