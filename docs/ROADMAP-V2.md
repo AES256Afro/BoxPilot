@@ -3739,6 +3739,42 @@ exists and nothing enforces it.
   default" has to look at every enclosing function's parameter ranges, not the innermost function's.
   It is not run over `src/`, which `npm run lint` does not cover.
 
+## M54: The checks are checked
+
+Asked for after PR #640's CI caught `check:exports` passing on everything: two of the three checks
+added in M52 and M53 shipped in a state where they could not fail. The export check's allowlist was
+inside its own corpus, so every entry looked read; rewritten to walk the filesystem, it was then
+fooled by a gitignored demo bundle that names every identifier in the app, and reported "275 of 275
+reviewed" while seeing nothing. The clock rule's first two versions reported 151 parameter defaults.
+Both were found, one of them by CI on a pull request rather than by anyone here, and both were found
+by hand rather than by anything that would catch the next one.
+
+A guard that fails this way does not just stop working: its green output reads as evidence, so it is
+worse than having no guard at all. A positive run proves nothing about it. So every check this repo
+runs on itself now ships with the negative case, the same way the code it guards does.
+
+- ✅ **M54.1 A harness for running a check against a tree built for the occasion.**
+  `test/check-harness.mjs`: `runCheck(script, { tracked, untracked })` gives a check a temporary git
+  repository holding exactly the files a case needs — `tracked` staged so `git ls-files` sees them,
+  `untracked` written and not, which is how a build artifact reaches a working copy — and returns
+  what it printed and the code it exited with. No global git config is read, so a developer's
+  `commit.gpgsign` cannot change what a test sees.
+- ✅ **M54.2 Self-tests for all four checks of ours.**
+  `check:exports` (10 cases), `check:sweeps` (11), `check:syntax` and `check:shell` (8, which had
+  none and predate the convention), and the clock rule (25, through ESLint's `RuleTester`). Each
+  carries the bugs that shipped as cases: the allowlist in its own corpus, the untracked bundle that
+  named every export, the parameter-default shapes that produced 151 false positives. For the two
+  coverage checks the cases that must *not* fail are as important: time passing is reported and never
+  red, and a sweep that found things is the sweep working.
+- ✅ **M54.3 The convention, enforced.** `test/checks-have-self-tests.test.mjs` reads the
+  `check:*` scripts out of `package.json` and the rules out of `eslint-rules/`, and fails on any that
+  has no `<name>.test.mjs` — with a message naming the file to write and the harness to write it
+  with. A check that is somebody else's to prove (`tsc`, eslint's own rules, the churn probe that
+  asserts directly and is not in `npm run check`) goes in a reviewed list in that file with the
+  reason. It also checks that each self-test actually asserts a failure, so a file of happy paths
+  does not satisfy the rule, and that `npm run lint` covers `eslint-rules/` — which it did not.
+  Probed in both directions: a new `check:*` without a test fails, and so does a new rule.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
