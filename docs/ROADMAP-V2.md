@@ -3806,6 +3806,47 @@ runs on itself now ships with the negative case, the same way the code it guards
   `npm run check` whole, because if it ran the steps individually a check added to the gate would
   still not run there.
 
+## M55: The audit loop's third sweep
+
+Sweep 3 of code, bug and security, run 2026-11-04 over ground the first two did not touch: how
+BoxPilot verifies its own updates, what the support bundle hands out, the parsers that read root
+command output, and the duplication M53.3 named but left. Four findings, and the ledger
+(`docs/reviews/2026-11-04-audit-loop.md`) records what each sweep cleared.
+
+None of the three categories has gone a sweep without finding something, so none retires yet.
+
+- ⬜ **M55.1 Raise the unsigned-update posture, as Repair raises every other posture.** Signed
+  releases are opt-in, and `release-signer.mjs` states the consequence itself: without a key,
+  "whoever controls the GitHub account controls every server". The verification, when a key is set,
+  is the most careful code in the repo — `git verify-tag` against an allowed-signers file with
+  `gpg.openpgp.program` and `gpg.x509.program` pointed at `/bin/false`, so another signature block
+  cannot route around the SSH check, and the tag checked to point at the expected commit. Nothing is
+  wrong there. What is wrong is that "not required" is only ever shown, on System → BoxPilot update,
+  and never raised: no finding, no alert, no card. `nothingCanReachYou` is the same shape — a
+  posture, not a failure — and it is a warning with a fix attached. A detector in
+  `remediations.mjs`, the signer state passed into the scan's facts as an operator read (ADR-003,
+  since `system.update.status` is operator-gated), and a fix that opens the key field.
+- ⬜ **M55.2 Bound the walk past LVM's internal nodes.**
+  `server/storage-inventory.mjs:63` climbs from a device to its first real parent, skipping `-real`
+  and `-cow`, with no visited set: a row whose `pkname` is its own `kname` loops for ever. It is
+  synchronous and in the web process, so it is the event loop and every request with it, not a slow
+  page. Confirmed by probe. The input is always live `lsblk --json` and never a file, a stored
+  snapshot or a request, and the kernel does not report a device as its own parent, so this is
+  latent rather than live — worth the two lines because the failure is total. While there: two rows
+  that claim each other as parent are dropped from the tree rather than looped, silently.
+- ⬜ **M55.3 Fold the VM restore validators into `restic-retention.mjs`.**
+  `vm-recovery-helper.mjs` and `vm-restore-drill-helper.mjs` validate the same restic evidence the
+  same way in 34 shared lines — repository, snapshot and manifest-checksum ids against `shaPattern`,
+  a positive safe-integer size, a destination revision. That is the family the module created in
+  M53.3 exists for, and it already holds `shaPattern`.
+- ⬜ **M55.4 Share the retention result-verification predicate, and nothing else there.** The two
+  service layers match on 98 of 164 lines, but only 56 are substantive and most of those are domain
+  wording that should stay apart: different policies, different candidate records, different claims
+  about what is kept unchanged. This is not the drift M53.3 found. The exception is the compound
+  condition that decides whether a forget did exactly what was approved — where sweep 2 already
+  caught the two sides computing `complete` differently, and where a one-sided change is expensive.
+  Share that; leave the words.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
