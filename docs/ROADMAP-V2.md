@@ -3853,6 +3853,33 @@ None of the three categories has gone a sweep without finding something, so none
   caught the two sides computing `complete` differently, and where a one-sided change is expensive.
   Share that; leave the words.
 
+## M56: The audit loop's fourth sweep
+
+Two findings, against four or five in each of the first three sweeps, and the security sweep came up
+empty for the first time — one of the three it needs to leave the loop. Ground: concurrency, the
+escaping that carries an owner's settings into Docker, credentials at rest, and how much of the
+operation registry any test has ever named. The ledger
+(`docs/reviews/2026-11-04-audit-loop.md`) holds what was cleared, which is most of it.
+
+- ⬜ **M56.1 Check what a backslash does to a `.env` value, then fix or correct the comment.**
+  `envFileLine` escapes `'` as `\'` and says `\'` is the only escape the parser recognises inside
+  single quotes, verified against `docker compose config`. On that model a value ending in `\`
+  escapes its own closing quote, the value never terminates, and the next line of the file is inside
+  it — reachable, because env values are checked for NULs, line breaks and length but not for a
+  backslash, and the existing test round-trips a dollar sign and a quote but nothing ending in one.
+  This could not be confirmed here: it needs `docker compose config` against a written `.env`, and
+  the Docker socket is not reachable from this machine. So the first step is to try it on the box. If
+  `\\` is an escape after all, nothing is broken and the comment is what needs correcting; if it is
+  not, a value whose trailing run of backslashes is odd cannot be represented in a single-quoted
+  value at all, and the choice is to reject it or to quote differently.
+- ⬜ **M56.2 Ten operations no test has ever named.** Of 265: `backup.remote.setup`,
+  `tailscale.serve.socket`, `dns.names.clear` and `vpn.profile.clear` change the host;
+  `app.updates.inspect`, `app.stats.inspect`, `storage.fs-snapshots.inspect`,
+  `backup.remote.inspect`, `samba.diagnose` and `vpn.profile.inspect` read. Being named in a test is
+  a floor rather than coverage, but an operation no test mentions is certainly untested, and with
+  96% of the registry named these ten are an oversight rather than a norm. The four that mutate
+  first.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
