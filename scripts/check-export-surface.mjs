@@ -15,6 +15,12 @@
  * is exported anyway. A name that has since gained a reader, or gone, fails too, so the list cannot
  * rot into a list of names that no longer exist.
  *
+ * Only files git tracks are read. The first version walked the filesystem, and passed on everything
+ * locally while failing in CI: a built demo bundle left in the working copy by `npm run demo:publish`
+ * (`demo-site/public/assets/StorageLead-*.js`, gitignored) contains every name in the app, so every
+ * export looked read and the check was quietly inert. A build artifact in someone's working copy
+ * must not be able to decide the answer, and git's list is the one CI and a checkout agree on.
+ *
  * What it reads, and what it therefore cannot see: declaration exports (`export function`,
  * `export const|let|class`, with `async`, `*` and TypeScript modifiers). Not `export { a, b }`, not
  * `export default`, not `export type|interface` — the type checker already has an opinion about
@@ -22,8 +28,12 @@
  * which counts a name reached through a string or a computed property as unread: that is what the
  * allowlist is for.
  */
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { execFile as execFileCallback } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
+
+const execFile = promisify(execFileCallback);
 
 const allowedPath = "scripts/export-surface-allowed.json";
 
@@ -37,25 +47,17 @@ const sourceExtensions = [".mjs", ".ts", ".tsx"];
 const corpusExtensions = [...sourceExtensions, ".js", ".json", ".yml", ".yaml", ".sh", ".service", ".html", ".css", ".Dockerfile"];
 const skippedDirectories = new Set(["node_modules", "dist", "fixtures", ".git"]);
 
-async function walk(directory, extensions) {
-  const found = [];
-  let entries;
-  try {
-    entries = await readdir(directory, { withFileTypes: true });
-  } catch (error) {
-    if (error.code === "ENOENT") return found;
-    throw error;
-  }
-  for (const entry of entries) {
-    const full = path.posix.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (!skippedDirectories.has(entry.name)) found.push(...await walk(full, extensions));
-    } else if (entry.isFile() && extensions.some((extension) => entry.name.endsWith(extension))) {
-      found.push(full);
-    }
-  }
-  return found;
+/** Every file git tracks, posix-separated. Throws if this is not a checkout: the caller says so. */
+async function trackedFiles() {
+  const { stdout } = await execFile("git", ["ls-files", "-z"], { maxBuffer: 64 * 1024 * 1024 });
+  return stdout.split("\0").filter(Boolean).map((file) => file.split(path.sep).join("/"));
 }
+
+const underRoot = (file, roots) => roots.some((root) => file === root || file.startsWith(`${root}/`));
+const inSkippedDirectory = (file) => file.split("/").slice(0, -1).some((segment) => skippedDirectories.has(segment));
+const matching = (files, roots, extensions) => files
+  .filter((file) => underRoot(file, roots) && extensions.some((extension) => file.endsWith(extension)) && !inSkippedDirectory(file))
+  .sort();
 
 const isTest = (file) => /\.test\.(mjs|ts|tsx)$/.test(file);
 const isDeclaration = (file) => file.endsWith(".d.ts");
@@ -64,12 +66,16 @@ const isDeclaration = (file) => file.endsWith(".d.ts");
 const exportPattern = /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function\s*\*?|const|let|class)\s+([A-Za-z_$][\w$]*)/gm;
 
 async function collect() {
-  const sources = (await Promise.all(sourceRoots.map((root) => walk(root, sourceExtensions)))).flat()
-    .filter((file) => !isTest(file) && !isDeclaration(file))
-    .sort();
+  let tracked = null;
+  try { tracked = await trackedFiles(); } catch { tracked = null; }
+  if (!tracked) {
+    console.error(`Could not ask git which files are tracked, so ${allowedPath} cannot be judged. Run this in a checkout.`);
+    process.exit(2);
+  }
+  const sources = matching(tracked, sourceRoots, sourceExtensions).filter((file) => !isTest(file) && !isDeclaration(file));
   // Not the allowlist: it names every entry, so leaving it in the corpus makes each one look read
   // and the check passes on anything (found while writing it).
-  const corpusFiles = [...(await Promise.all(corpusRoots.map((root) => walk(root, corpusExtensions)))).flat(), ...corpusRootFiles]
+  const corpusFiles = [...matching(tracked, corpusRoots, corpusExtensions), ...corpusRootFiles.filter((file) => tracked.includes(file))]
     .filter((file) => file !== allowedPath)
     .sort();
   const corpus = new Map();
