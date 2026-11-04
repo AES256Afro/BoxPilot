@@ -14,9 +14,9 @@ again. The same rule as `swept-and-verified-clean`: a cleared area is not re-aud
 
 | Category | Sweeps run | Consecutive empty | State |
 | --- | --- | --- | --- |
-| Code | 3 | 0 | active — all three sweeps fixed (M52, M53, M55) |
-| Bug | 3 | 0 | active — all three sweeps fixed (M52, M53, M55) |
-| Security | 3 | 0 | active — sweep 1: nothing; sweeps 2-3 fixed (M53.4, M55.1) |
+| Code | 4 | 0 | active — sweeps 1-3 fixed; sweep 4: 1, open (M56) |
+| Bug | 4 | 0 | active — sweeps 1-3 fixed; sweep 4: 1, open (M56) |
+| Security | 4 | **1** | active — sweep 4 found nothing; two more empty sweeps retires it |
 | Readability | 0 | — | queued |
 | Usability | 0 | n/a | queued — retires on coverage, see below |
 | Visual | 0 | n/a | queued — retires on coverage, see below |
@@ -587,3 +587,59 @@ expensive; the wording is where sharing would cost readability.
 Four tests needed updating, all of them real contract changes rather than noise: the internal-read
 count, two `unavailableChecks` lists, and the viewer's row in the route matrix, which now names one
 more operator-gated check — the same thing it already said about the other four.
+
+---
+
+## Sweep 4 — the returns thinned, as expected
+
+Two findings against four or five in each earlier sweep, and the security sweep came up empty for
+the first time. Ground: concurrency, the escaping that carries an owner's settings into Docker,
+credentials at rest, and how much of the operation registry any test has ever named.
+
+### Bug
+
+**B7. A setting value ending in a backslash escapes its own closing quote in the `.env` file.**
+`envFileLine` (`server/catalog/compose.mjs:32`) writes `NAME='value'` and escapes `'` as `\'`,
+with the comment that `\'` is "the one escape it recognises inside. (Verified against docker compose
+config.)" If that is the model, then a value ending in `\` produces
+`ADMIN_PASSWORD='abc\'` — where the trailing backslash and the closing quote together read as an
+escaped quote, and the value never terminates. The next line of the file is then inside it.
+
+Reachable: `resolveValues` rejects NULs and line breaks in an env value
+(`server/catalog/schema.mjs:568`) and caps the length, but not a backslash. The existing test covers
+a value with a dollar sign and a quote, and round-trips it; no case ends in a backslash.
+
+**Stated honestly: I could not verify this.** Confirming it needs `docker compose config` against a
+written `.env`, and the Docker socket is not reachable from here. The finding rests on the module's
+own documented model of the parser, which it says was verified. The first thing to do is to check it
+on the real box; if `\\` is in fact an escape, there is nothing here and the comment is what needs
+correcting.
+
+### Code
+
+**C9. Ten of the 265 registry operations have never been named in any test.** Four of them change
+the host: `backup.remote.setup`, `tailscale.serve.socket`, `dns.names.clear`, `vpn.profile.clear`.
+Six are reads: `app.updates.inspect`, `app.stats.inspect`, `storage.fs-snapshots.inspect`,
+`backup.remote.inspect`, `samba.diagnose`, `vpn.profile.inspect`. "Named in a test" is a floor, not
+a measure of coverage — but an operation no test mentions is certainly not tested, and 96% of the
+registry being named makes the ten stand out rather than look like a norm.
+
+### Looked at, nothing found
+
+- **Lost updates across an `await`.** A scan for `getSetting(K)` … `await` … `setSetting(K)` found
+  four, and all four are handled: held notifications re-read the key after the send and remove only
+  what went (`notifications.mjs:213`, with the comment saying why); the runner key serialises
+  issuance through a promise chain; the power-loss record re-checks inside `updateSetting`'s
+  transaction; and the runbook's two halves are different functions where last-writer-wins is the
+  intended meaning. Three of the four carry a comment showing the author saw this coming.
+- **Injection through compose generation.** `composeLiteral` doubles `$` so an owner's value cannot
+  interpolate another setting, and the document goes through `YAML.stringify`, which quotes a value
+  containing a newline — so there is no structural YAML injection even before the schema rejects
+  line breaks. Probed with `${…}`, bare `$`, pre-doubled `$$`, an embedded `services:` block and a
+  colon.
+- **Credentials at rest, and the names BoxPilot keeps for itself.** The store is a root-owned 0600
+  file in the helper's directory, the web process never holds a value, and the four managed names
+  are refused at four places: the registry parameter field for `credentials.set`, `credentials.remove`
+  and the agents' connector (which is also where a proposed agent or assistant step is checked), and
+  again inside `tasks/http-request.mjs` and `tasks/agents.mjs`. `http.request` is owner-only on top
+  of that. The guard the comment describes is complete, and deeper than the comment claims.
