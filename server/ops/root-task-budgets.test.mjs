@@ -39,10 +39,14 @@ async function rootTaskLimits(operation, timeScale) {
 
 const jobOperations = () => registry.list().filter((operation) => !operation.readOnly && !operation.internal);
 
+// As with the escalation inventory: "every job operation leaves room" is vacuous over an empty
+// list, so the count is asserted before the invariant is (M54). 163 at the time of writing.
+
 describe("an operation that runs a root task (sweep 4)", () => {
   it("leaves the helper's whole wait for each of its tasks inside its budget", async () => {
     const seen = new Set();
     const tight = [];
+    expect(jobOperations().length).toBeGreaterThan(120);
     for (const operation of jobOperations()) {
       const scales = [1, ...(operation.maxTimeoutMs ? [operation.maxTimeoutMs / operation.timeoutMs] : [])];
       for (const scale of scales) {

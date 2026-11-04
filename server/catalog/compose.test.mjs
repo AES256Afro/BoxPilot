@@ -69,6 +69,9 @@ describe("the manifest's own fixed settings", () => {
 
   it("never escapes a fixed value anywhere in the catalog", async () => {
     const { manifests } = await catalog.all();
+    // A catalog that failed to load would satisfy "nothing in it escapes" by holding nothing (M54).
+    // 174 manifests at the time of writing.
+    expect(manifests.length).toBeGreaterThan(120);
     const escaped = [];
     for (const manifest of manifests) {
       const { compose } = render(manifest);

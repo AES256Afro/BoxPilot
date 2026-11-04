@@ -431,3 +431,17 @@ Two things that turned up while writing them:
   every file it can find errs towards checking too much. Worth saying out loud, because it is the
   distinction that matters — a check whose input is "whatever is on disk" is safe when extra input
   means more work and dangerous when extra input means more excuses.
+
+### And one level up: an invariant test that passes over nothing
+
+The same fault as the inert check, in the tests. "Every operator-approvable operation has been
+looked at" is satisfied by an empty list without looking at anything, and a broken import or a
+filter that stops matching would make it green. Four were in that state, `escalation-inventory`
+among them. Each now asserts the size of its subject first, and the demonstration is worth keeping:
+collapsing that filter to match nothing left both original assertions passing and failed only the
+new floor.
+
+About 200 other loops over computed collections have no size assertion. They were looked at and left:
+nearly all are intermediate loops in tests that assert plenty else, where an empty collection is not
+the test's whole claim. The distinction that matters is whether the breadth of the collection *is*
+the thing being proved.
