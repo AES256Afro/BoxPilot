@@ -3774,6 +3774,20 @@ runs on itself now ships with the negative case, the same way the code it guards
   reason. It also checks that each self-test actually asserts a failure, so a file of happy paths
   does not satisfy the rule, and that `npm run lint` covers `eslint-rules/` — which it did not.
   Probed in both directions: a new `check:*` without a test fails, and so does a new rule.
+- ✅ **M54.4 The invariant tests cannot pass over nothing.** The same fault one level up: a test
+  whose whole claim is "every X satisfies Y" proves nothing when X is empty, and a broken import or
+  a filter that stops matching makes it green. Four were in that state, including
+  `escalation-inventory.test.mjs`, the test the rest of this security story leans on. Each now
+  asserts the size of its subject before the invariant: 82 operator-approvable free-form operations,
+  163 job operations that must leave room for the helper's wait, 120+ catalog manifests that must not
+  escape a fixed value, and more stylesheets than looks. Demonstrated by collapsing the escalation
+  inventory's filter to match nothing: both original assertions still passed, and only the new floor
+  failed.
+
+  Not done, and deliberately: a scan found about 200 more loops over a computed collection with no
+  size assertion. Almost all are intermediate loops inside tests that assert plenty else, where an
+  empty collection is not the whole claim. The four above are the ones whose entire value is the
+  breadth of what they cover. Chasing the other 200 would be churn.
 
 ## App catalogue candidates
 

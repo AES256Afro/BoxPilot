@@ -85,6 +85,13 @@ describe("every free-form operation an operator approves alone has been looked a
     .filter((operation) => !operation.readOnly && !operation.internal && operation.risk !== "high" && operation.minimumRole !== "owner")
     .filter((operation) => Object.values(operation.parameters?.fields ?? {}).some((field) => ["string", "array", "object"].includes(field.type)));
 
+  // This test's whole value is the size of `unattended`: an empty list satisfies "every one has
+  // been looked at" without looking at anything, so a broken import or a filter that stops matching
+  // would pass in silence (M54). 82 at the time of writing.
+  it("is asked of every such operation, not of an empty list", () => {
+    expect(unattended.length).toBeGreaterThan(60);
+  });
+
   it("has a hook in escalation.mjs or a reason here", () => {
     const unlooked = unattended.map((operation) => operation.id).filter((id) => !(id in escalationRiskHooks) && !(id in reviewed));
     expect(unlooked, "add a hook in escalation.mjs, raise the tier, or give the reason in reviewed").toEqual([]);
