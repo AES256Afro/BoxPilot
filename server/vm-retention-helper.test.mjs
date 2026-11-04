@@ -22,7 +22,7 @@ function input(overrides = {}) {
 describe("VM retention helper", () => {
   it("rejects secrets, paths, duplicate ids, unsorted ids, and broad selectors", () => {
     expect(validateVmRetentionInput(input())).toEqual([]);
-    expect(validateVmRetentionInput(input({ repository: "/tmp" }))).toContain("Retention accepts only fixed typed evidence fields");
+    expect(validateVmRetentionInput(input({ repository: "/tmp" }))).toContain("VM retention accepts only fixed typed evidence fields");
     expect(validateVmRetentionInput(input({ forgetSnapshotIds: ["latest"] }))).toContain("Every forgotten snapshot id must be an exact SHA-256 id");
     expect(validateVmRetentionInput(input({ forgetSnapshotIds: [snapshots[0].id, snapshots[0].id] }))).toContain("Forgotten snapshot ids must be unique");
     expect(validateVmRetentionInput(input({ forgetSnapshotIds: [snapshots[1].id, snapshots[0].id] }))).toContain("Forgotten snapshot ids must be sorted");
