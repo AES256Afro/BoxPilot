@@ -12,7 +12,12 @@ import { withOwnActors } from "./access.mjs";
 
 export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit, auth = null }) {
   // The CSRF check named on the route (M50), as every other change route has; the global one stays.
-  const csrf = auth?.requireCsrf ?? ((_request, _response, next) => next());
+  // It used to default to a middleware that called next(), so a caller that forgot `auth` lost the
+  // check in silence, on the two routes that take a multi-gigabyte upload and a creation preview
+  // (M53.4). A missing guard is a programming error, not a configuration: say so at startup, where
+  // it is one stack trace, rather than at request time, where it is nothing at all.
+  const csrf = auth?.requireCsrf;
+  if (typeof csrf !== "function") throw new TypeError("createVirtualizationRouter needs auth.requireCsrf: its change routes cannot be mounted without a CSRF check");
   const router = Router();
 
   router.get("/virtualization/status", async (_request, response) => {

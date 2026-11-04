@@ -19,6 +19,7 @@ import os from "node:os";
 import { isIP } from "node:net";
 import { hostnamePattern } from "./cloudflare-tunnel.mjs";
 import { containerRunning } from "./app-run-state.mjs";
+import { maxNamesPerFile } from "./hosted-domains-sources.mjs";
 import { defaultProbes } from "./hosted-domains-probes.mjs";
 
 export const settingKey = "hostedDomains";
@@ -431,7 +432,10 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
     };
     const { manual } = settings();
     const domains = discoverDomains({ tunnel, apps, manifests, sources, manual });
-    return { domains, tunnel: tunnelFacts, protection, schedules: typeof store.listSchedules === "function" ? store.listSchedules() : [] };
+    // A file whose names were cut at the per-file cap (M53.2). Said out loud: a list silently
+    // missing half a configuration is worse than a short one that admits it.
+    const truncated = [...(sources?.cloudflared ?? []), ...(sources?.proxyHosts ?? [])].filter((entry) => entry?.cut).map((entry) => entry.file);
+    return { domains, tunnel: tunnelFacts, protection, truncated, schedules: typeof store.listSchedules === "function" ? store.listSchedules() : [] };
   }
 
   /** One name's checks, each with its own deadline, and its verdict. */
@@ -506,7 +510,11 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
     for (const result of results) await announce(result, intervalMinutes);
     lastRunAt = at.getTime();
     dueAt = lastRunAt + intervalMinutes * 60_000;
-    const snapshot = { domains: results, tunnel: facts.tunnel, checkedAt: at.toISOString(), problem: null };
+    const cut = facts.truncated ?? [];
+    const snapshot = {
+      domains: results, tunnel: facts.tunnel, checkedAt: at.toISOString(),
+      problem: cut.length ? `${cut.length === 1 ? "One routing file lists" : `${cut.length} routing files list`} more names than BoxPilot shows (${maxNamesPerFile} each): ${cut.slice(0, 3).join(", ")}${cut.length > 3 ? ", and more" : ""}. The names above are the first of them.` : null,
+    };
     store.setSetting(snapshotKey, snapshot, { updatedBy: null });
     store.recordAudit?.("hosted.checked", { actorId: null, subjectId: hostname(), details: { domains: results.length, down: results.filter((result) => result.state === "down").map((result) => result.hostname), at: at.toISOString() } });
     return snapshot;

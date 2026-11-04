@@ -169,7 +169,8 @@ export function createAgentAdmin({ store, registry, cloud, limits, now, audit, r
       if (!question || run.kind === "eval") refuse(400, "Only a question someone asked becomes a golden question", "invalid_feedback");
       const current = store.getQuestions(agent.id) ?? templateQuestions[agent.template] ?? [];
       const same = current.find((entry) => entry.question.toLowerCase() === question.slice(0, 300).toLowerCase());
-      const kept = same ? current.map((entry) => (entry === same ? { ...entry, expect: { includes: words } } : entry)) : [...current, { id: `q${Date.now().toString(36)}`, question: question.slice(0, 300), expect: { includes: words } }];
+      // eslint-disable-next-line boxpilot/use-the-injected-clock -- an id, not a date: nothing reads it back as a time.
+    const kept = same ? current.map((entry) => (entry === same ? { ...entry, expect: { includes: words } } : entry)) : [...current, { id: `q${Date.now().toString(36)}`, question: question.slice(0, 300), expect: { includes: words } }];
       const normalized = normalizeQuestions(kept);
       store.setQuestions(agent.id, normalized, { updatedBy: person.id });
       added = { questionId: normalized.find((entry) => entry.question.toLowerCase() === question.slice(0, 300).toLowerCase())?.id ?? null };

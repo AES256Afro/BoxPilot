@@ -14,9 +14,9 @@ again. The same rule as `swept-and-verified-clean`: a cleared area is not re-aud
 
 | Category | Sweeps run | Consecutive empty | State |
 | --- | --- | --- | --- |
-| Code | 2 | 0 | active — sweep 1: 4, fixed (M52.3-M52.7); sweep 2: 2, open (M53) |
-| Bug | 2 | 0 | active — sweep 1: 3, fixed (M52.1, M52.2); sweep 2: 2, open (M53) |
-| Security | 2 | 0 | active — sweep 1: nothing; sweep 2: 1 fail-open default, open (M53) |
+| Code | 2 | 0 | active — sweep 1: 4, fixed (M52); sweep 2: 2, fixed (M53.3, M53.5) |
+| Bug | 2 | 0 | active — sweep 1: 3, fixed (M52); sweep 2: 2, fixed (M53.1, M53.2) |
+| Security | 2 | 0 | active — sweep 1: nothing; sweep 2: 1 fail-open default, fixed (M53.4) |
 | Readability | 0 | — | queued |
 | Usability | 0 | n/a | queued — retires on coverage, see below |
 | Visual | 0 | n/a | queued — retires on coverage, see below |
@@ -337,3 +337,55 @@ and a creation preview. No other router in `server/routes/` defaults a guard thi
   15-second timeout; both `github.com/<user>.keys` reads go through `readBounded(…, 256 KiB)` and a
   strict username pattern (`server/routes/host.mjs:189`, `server/ops/users.mjs:39`); the Zulip task
   talks to `127.0.0.1` with an explicit `Host` header. M50 did this work and it holds.
+
+---
+
+## What sweep 2 changed (M53.1-M53.5, 2026-11-04)
+
+`npm run check` green afterwards: 518 test files / 5647 tests, plus the export and sweep-coverage
+checks and the new lint rule.
+
+- **The auth service's clock** (`server/security.mjs`): all five wall-clock reads now go through the
+  injected `now`. `server/session-clock.test.mjs` is new and tests what could not be tested before:
+  that the elevated window ends on the service's clock and stops excusing a high-risk approval from
+  its password, and that the "signed out because the address changed" memory lapses after the
+  session's twelve hours. Four of its tests fail against the old code.
+
+  A fifth test was written for the trusted-device `createdAt` and then deleted: `rememberDevice` is
+  only reachable through identity sign-in, so the test asserted on a record it had written itself and
+  passed against the wall-clock code too. A test that cannot fail is worse than none.
+
+  Found on the way: `clientKeyFor` called `resolveClientAddress(request).catch(...)`, so a resolver
+  that answers without a promise turned a rate-limit key into a 500 — while `clientDescriptor`, ten
+  lines up, called the same dependency defensively. Both do now.
+
+- **Per-file bounds on the hosted-domains read** (`server/hosted-domains-sources.mjs`): 500 names
+  per file, 500 ingress rules per file, and nothing over 2 MiB parsed at all, since 50,000 rules
+  cost 454 ms of the event loop before any rule cap could apply. The 4.1 MB and 4.3 MB answers
+  measured in sweep 2 are now 40 KB and 9.4 KB. A file that was cut says so, and `hosted-domains.mjs`
+  turns that into the page's existing `problem` line, naming the files.
+
+- **One retention path** (`server/restic-retention.mjs`, new): the input validator, the snapshot
+  inventory reader, the set digest, the restic runner and the dedicated-mount check, shared by both
+  helpers, which drop from 175 and 199 lines to 119 and 143. `parseSnapshotInventory` carries the
+  controller side's `Number.isFinite(Date.parse(snapshot.time))`, so the VM path now rejects the
+  unparseable timestamp it used to accept. `server/restic-retention.test.mjs` holds both paths to
+  the same answers for the same reasons. The VM path's "Retention accepts only fixed typed evidence
+  fields" is now "VM retention accepts only…", which names which backups are meant.
+
+  Not folded: the service layers (`controller-retention.mjs`, `vm-retention.mjs`, 98 of 164 lines
+  shared) and the `vm-recovery-helper.mjs` / `vm-restore-drill-helper.mjs` input validators. The
+  helpers were the half that validates what root deletes; the rest is sweep 3's.
+
+- **A guard that refuses** (`server/routes/virtualization.mjs`): `auth?.requireCsrf` no longer
+  defaults to a middleware that calls `next()`. A missing guard throws at startup, where it is one
+  stack trace, instead of at request time, where it was nothing at all.
+
+- **The clock rule** (`eslint-rules/use-the-injected-clock.mjs`): see M53.5 for what it reports and
+  what it deliberately does not. Recorded there too: that the TypeScript compiler API is gone in
+  TypeScript 7, and that the rule's first two versions reported 151 false positives before the
+  parameter-default check looked at every enclosing function rather than the innermost one.
+
+Still open: nothing from sweep 2. Sweep 3 of code, bug and security is next, with the retention
+service layers already named as a starting point; the usability, visual and quality-of-life sweeps
+have their coverage ledger and have not run.
