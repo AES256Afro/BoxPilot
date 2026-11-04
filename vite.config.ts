@@ -106,7 +106,7 @@ export default defineConfig({
     // (CatalogPage.test.tsx); window.location cannot be redefined in a VM context.
     projects: [
       { extends: true, test: { name: "ui", include: ["src/**/*.test.{ts,tsx,mjs}"], environment: "jsdom", pool: "vmThreads", setupFiles: ["src/testSetup.ts"], testTimeout: 15_000 } },
-      { extends: true, test: { name: "node", include: ["{server,scripts,packages,test,demo-site}/**/*.test.mjs"], environment: "node" } },
+      { extends: true, test: { name: "node", include: ["{server,scripts,packages,test,demo-site,eslint-rules}/**/*.test.mjs"], environment: "node" } },
     ],
   },
 });

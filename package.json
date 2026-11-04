@@ -19,7 +19,7 @@
     "test": "vitest run",
     "check:shell": "node scripts/check-sources.mjs shell",
     "check:retention": "node --expose-gc --max-old-space-size=128 scripts/check-runtime-retention.mjs",
-    "lint": "eslint server scripts packages eslint.config.mjs",
+    "lint": "eslint server scripts packages eslint-rules eslint.config.mjs",
     "check": "npm run build && npm run check:types && npm run test && npm run check:syntax && npm run lint && npm run check:shell && npm run check:exports && npm run check:sweeps",
     "check:exports": "node scripts/check-export-surface.mjs",
     "check:sweeps": "node scripts/check-sweep-coverage.mjs",
