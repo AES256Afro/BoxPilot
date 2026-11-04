@@ -25,7 +25,12 @@ import { repoRoot } from "./check-harness.mjs";
 const reviewed = {
   "check:types": "tsc; the TypeScript project proves its own type checker",
   "lint": "eslint's own rules; the local rules in eslint-rules/ are tested individually below",
-  "check:retention": "a churn probe that asserts directly rather than reporting findings, and is not part of `npm run check`",
+  "check:retention": "a churn probe that asserts directly rather than reporting findings; run by .github/workflows/ci.yml as its own step, not by `npm run check`",
+};
+
+/** A check outside the `npm run check` gate must be run by a workflow instead, and say which. */
+const outsideTheGate = {
+  "check:retention": ".github/workflows/ci.yml",
 };
 
 const exists = async (file) => access(path.join(repoRoot, file)).then(() => true, () => false);
@@ -58,6 +63,26 @@ describe("the checks `npm run check` runs", () => {
       expect(await exists(selfTest), `"${name}" runs ${own[1]} and has no ${selfTest}. A check that passes on everything is worse than no check: give it a test that plants something wrong and shows it fails. test/check-harness.mjs runs a check against a tree built for the occasion.`).toBe(true);
     },
   );
+});
+
+describe("every check this repo defines", () => {
+  it("is actually run by something: the gate, or a workflow that names it", async () => {
+    const defined = Object.keys(scripts).filter((name) => name.startsWith("check") && name !== "check");
+    expect(defined.length).toBeGreaterThan(3);
+    for (const name of defined) {
+      if (checksInTheGate.includes(name)) continue;
+      const workflow = outsideTheGate[name];
+      expect(workflow, `"${name}" is defined but \`npm run check\` does not run it. Add it to the gate, or record in this file which workflow does — a check nothing runs is a check that cannot fail.`).toBeTruthy();
+      const text = await readFile(path.join(repoRoot, workflow), "utf8");
+      expect(text, `${workflow} is recorded as what runs "${name}", and does not mention it`).toContain(`npm run ${name}`);
+    }
+  });
+
+  it("is reached through the gate in CI, so adding one to the gate is enough", async () => {
+    // If CI ran the steps individually, a check added to `npm run check` would still not run there.
+    const ci = await readFile(path.join(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    expect(ci, "ci.yml no longer runs `npm run check`, so the gate and CI can drift apart").toMatch(/run: npm run check\s*$/m);
+  });
 });
 
 describe("the local ESLint rules", () => {
