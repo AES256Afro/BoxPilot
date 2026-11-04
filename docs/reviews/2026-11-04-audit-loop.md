@@ -410,3 +410,24 @@ only inside its own file. The export is gone.
 The lesson for the other two checks: `check:sweeps` reads two tracked files and has no corpus, and
 the clock rule runs inside ESLint over an explicit file list, so neither can go inert this way. A
 check whose input is "whatever is on disk" can; one whose input is "what is committed" cannot.
+
+---
+
+## The checks are checked now (M54)
+
+The lesson from the two inert checks above is written into the repo rather than into this file only:
+every `check:*` script of ours and every rule in `eslint-rules/` ships with a test that plants
+something wrong and shows the check fails on it, and
+`test/checks-have-self-tests.test.mjs` fails on one that does not. 68 new tests, including the two
+bugs that shipped — the allowlist inside its own corpus, and the untracked bundle that named every
+export — kept as cases so neither can come back.
+
+Two things that turned up while writing them:
+
+- `npm run lint` did not cover `eslint-rules/`, so the rule enforcing a convention was itself
+  unlinted. It does now, and the meta-test asserts it.
+- `check:syntax` and `check:shell` had no test either, and predate all of this. They now have eight
+  cases. They were never at risk of going inert the way the export check did: a check that parses
+  every file it can find errs towards checking too much. Worth saying out loud, because it is the
+  distinction that matters — a check whose input is "whatever is on disk" is safe when extra input
+  means more work and dangerous when extra input means more excuses.
