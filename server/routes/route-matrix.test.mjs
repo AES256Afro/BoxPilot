@@ -292,7 +292,6 @@ const dataRoutes = {
   "GET /api/v1/auth/passkey": [open],
   "GET /api/v1/auth/identity/links": [operatorUp],
   "GET /api/v1/people": [ownerOnly],
-  "GET /api/v1/operations": [open],
   "GET /api/v1/operations/:id/inspect": [{ ...operatorUp, params: () => ({ id: "samba.inspect" }) }, { ...open, params: () => ({ id: "app.inspect" }) }],
   "GET /api/v1/operations/prerequisites": [open],
   "GET /api/v1/operations/recovery-kit": [ownerOnly],

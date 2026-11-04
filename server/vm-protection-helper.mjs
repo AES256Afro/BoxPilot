@@ -238,4 +238,3 @@ export function createVmProtectionHelper({
   return { inspect, createBackup };
 }
 
-export const vmProtectionHelperInternals = { defaultRunner };

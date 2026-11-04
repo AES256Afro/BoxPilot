@@ -65,4 +65,3 @@ export function createSupportBundleService({ inventory, prerequisites, actionCen
   return { inspect };
 }
 
-export const supportBundleInternals = { logSources, productVersion, settled };

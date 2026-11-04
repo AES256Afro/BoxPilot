@@ -420,4 +420,3 @@ function response(notices, now, version, sourceStatus) {
   };
 }
 
-export const actionCenterInternals = { boundary, collectorNotice, guidance, productVersion, severityFor };

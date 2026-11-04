@@ -7,10 +7,12 @@
  */
 import os from "node:os";
 import { registry } from "./ops/index.mjs";
+import { containerRunning } from "./app-run-state.mjs";
 import { detectRemediations } from "./remediations.mjs";
 import { applyLedger, attemptsKey, dismissalsKey } from "./repair-ledger.mjs";
 import { dnsAppIds } from "./dns-resilience.mjs";
 import { inspectNameLookups } from "./name-lookups.mjs";
+import { computeNextRun } from "./scheduler.mjs";
 
 /**
  * The DNS app on this server the rest of the house uses, if one is installed (Pi-hole, AdGuard Home),
@@ -22,11 +24,11 @@ export function dnsServerFrom(live, manifests = []) {
   if (!app) return null;
   const port = (app.published ?? []).find((entry) => entry.host === 53);
   const bound = typeof port?.bind === "string" && /^\d+\.\d+\.\d+\.\d+$/.test(port.bind) && port.bind !== "0.0.0.0" ? port.bind : "127.0.0.1";
-  return { name: manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id, address: bound, running: Boolean(app.container?.running) && app.container?.status !== "paused" };
+  return { name: manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id, address: bound, running: containerRunning(app.container) };
 }
 
 export async function scanRemediations({ helper, state, catalogService, inventory = null, collect, fileExists, readListeners, notifications = null, dnsResilience = null, inspectNames = inspectNameLookups, hostname = os.hostname(), operatorReadsWanted = false, visibleJobsGiven = [], now = () => Date.now() }) {
-  const facts = { mounts: [], devices: [], containers: [], shares: [], sambaShares: [], apps: [], samba: null, now: Date.now() };
+  const facts = { mounts: [], devices: [], containers: [], shares: [], sambaShares: [], apps: [], samba: null, now: now() };
   // File sharing (share folder owners, stat'd as root) and USB history (the kernel's journal) are
   // operator reads (ADR-003). A viewer is not handed what they hold as findings: they are not read
   // on a viewer's behalf, and the scan says which checks it left to an operator (M29.4).
@@ -111,7 +113,7 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   // ntfy on this server, for "Nothing BoxPilot notices can reach you" (M35): whether there is one to send to.
   if (catalogManifests?.some((manifest) => manifest.id === "ntfy") && live) {
     const ntfy = (live.applications ?? []).find((app) => app.id === "ntfy");
-    facts.ntfy = { installed: Boolean(ntfy?.installed), running: Boolean(ntfy?.container?.running) && ntfy?.container?.status !== "paused" };
+    facts.ntfy = { installed: Boolean(ntfy?.installed), running: containerRunning(ntfy?.container) };
   }
   facts.protection = protection;
   const schedules = typeof state.listSchedules === "function" ? state.listSchedules() : [];
@@ -131,9 +133,18 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   // Each clean-up, and whether a schedule started it (its last job, or a job begun at its time),
   // so an app it removed can be told "removed by the nightly clean-up" (M35).
   const pruneSchedules = schedules.filter((schedule) => schedule.operationId === "docker.prune");
+  // How late a job may start and still be the schedule's: the queue, the approval and the helper's
+  // read gate all sit between the due time and the first step.
+  const startedWithinMs = 5 * 60_000;
   const scheduleOf = (job) => pruneSchedules.find((schedule) => schedule.lastJobId === job.id) ?? pruneSchedules.find((schedule) => {
     const started = new Date(job.createdAt ?? "");
-    return schedule.frequency !== "hourly" && !Number.isNaN(started.getTime()) && started.getHours() === schedule.hour && started.getMinutes() - schedule.minute >= 0 && started.getMinutes() - schedule.minute <= 5;
+    if (schedule.frequency === "hourly" || Number.isNaN(started.getTime())) return false;
+    // M52.2: the schedule's own next run at or after the window's start, rather than comparing the
+    // hour and the minute by hand. That arithmetic lost a schedule at :58 whose job started at :01
+    // the next hour, and matched a weekly schedule against a prune run by hand on another day at
+    // the same time, because it never looked at the weekday.
+    const due = computeNextRun(schedule, new Date(started.getTime() - startedWithinMs - 1));
+    return due <= started;
   }) ?? null;
   // Only a clean-up that ran `docker system prune` removed containers. Since #312 it prunes images,
   // the build cache and networks alone, and says so in the description each job keeps as its
@@ -208,7 +219,7 @@ export async function scanRemediations({ helper, state, catalogService, inventor
     return { ...entry, fix: fixes[0] ?? null, fixes };
   });
   // What the owner set aside, and the last try at each fix (M35).
-  const ledger = applyLedger(tiered, { dismissals: state.getSetting(dismissalsKey, {}) ?? {}, attempts: state.getSetting(attemptsKey, {}) ?? {}, jobs: visibleJobs, mounts: storage && storage.availability?.mounts !== false ? facts.mounts : null });
+  const ledger = applyLedger(tiered, { dismissals: state.getSetting(dismissalsKey, {}) ?? {}, attempts: state.getSetting(attemptsKey, {}) ?? {}, jobs: visibleJobs, mounts: storage && storage.availability?.mounts !== false ? facts.mounts : null, now: () => new Date(now()) });
   const count = (severity) => ledger.findings.filter((entry) => entry.severity === severity).length;
   return {
     findings: ledger.findings, dismissed: ledger.dismissed, jobs: ledger.jobs,

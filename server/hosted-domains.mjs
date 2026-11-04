@@ -18,6 +18,7 @@
 import os from "node:os";
 import { isIP } from "node:net";
 import { hostnamePattern } from "./cloudflare-tunnel.mjs";
+import { containerRunning } from "./app-run-state.mjs";
 import { defaultProbes } from "./hosted-domains-probes.mjs";
 
 export const settingKey = "hostedDomains";
@@ -222,7 +223,7 @@ export function discoverDomains({ tunnel = null, apps = [], manifests = [], sour
       ...domain,
       expect: domain.expect ?? "any",
       appName: domain.appId ? names.get(domain.appId) ?? app?.name ?? domain.appId : null,
-      app: app ? { installed: Boolean(app.installed), running: app.installed ? Boolean(app.container?.running) && app.container?.status !== "paused" : null } : domain.appId ? { installed: false, running: null } : null,
+      app: app ? { installed: Boolean(app.installed), running: app.installed ? containerRunning(app.container) : null } : domain.appId ? { installed: false, running: null } : null,
       manual: domain.sources.includes("manual"),
     };
   });
@@ -416,7 +417,7 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
     const apps = Array.isArray(live?.applications) ? live.applications : [];
     const manifests = Array.isArray(catalogRead?.manifests) ? catalogRead.manifests : [];
     const tunnelApp = apps.find((app) => app?.id === tunnelAppId) ?? null;
-    const tunnelRunning = Boolean(tunnelApp?.installed) && Boolean(tunnelApp?.container?.running) && tunnelApp?.container?.status !== "paused";
+    const tunnelRunning = Boolean(tunnelApp?.installed) && containerRunning(tunnelApp?.container);
     const log = tunnelRunning ? await ask("app.logs", { id: tunnelAppId, lines: 300 }, 60_000) : null;
     const fromLog = log && Array.isArray(log.lines) ? tunnelFromLog(log.lines) : null;
     const tunnelFacts = {

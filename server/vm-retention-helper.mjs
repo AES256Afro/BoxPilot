@@ -197,4 +197,3 @@ export function createVmRetentionHelper({
   return { inspect, apply, forgetUnrecorded };
 }
 
-export const vmRetentionHelperInternals = { defaultRunner, snapshotSetRevision };

@@ -101,7 +101,6 @@ export function quantOf(file) {
   return match ? match[1] : null;
 }
 export const modelById = (id) => modelLibrary.find((model) => model.id === id) ?? null;
-export const modelIdPattern = /^[a-z0-9][a-z0-9.-]{0,63}$/;
 
 /** What the Unsloth driver passes as --model: the Hugging Face repo and the quantisation. */
 export const unslothModelSpec = (model) => `${model.repo}:${model.quant}`;

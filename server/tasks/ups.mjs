@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { access, appendFile, chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
-import { appendPowerEvent, formatPowerEvent, notifyEvents, powerEventsDirectory, powerEventsPath, powerPolicyPath } from "../power-events.mjs";
+import { appendPowerEvent, notifyEvents, powerEventsDirectory, powerEventsPath, powerPolicyPath } from "../power-events.mjs";
 
 /**
  * Root-side UPS (Network UPS Tools) setup executed by scripts/boxpilot-run.mjs (M39.1).
@@ -387,4 +387,3 @@ export async function upsSetup(parameters = {}, {
   };
 }
 
-export const upsTaskInternals = { binaries, formatPowerEvent };

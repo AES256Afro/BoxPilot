@@ -20,8 +20,6 @@ export const cloudImages = Object.freeze({
   "debian-12": { label: "Debian 12 (Bookworm)", osVariant: "debian12", defaultUser: "debian", url: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2", sums: "https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS", file: "debian-12-genericcloud-amd64.qcow2", algorithm: "sha512" },
 });
 
-export function cloudImageIds() { return Object.keys(cloudImages); }
-
 async function digestFile(filePath, algorithm) {
   const hash = createHash(algorithm);
   for await (const chunk of createReadStream(filePath)) hash.update(chunk);

@@ -60,12 +60,6 @@ export function agentsNamed(agents, name) {
   return byId ? [byId] : agents.filter((agent) => nameKey(agent.name) === wanted);
 }
 
-/** Find an agent by what the model called it: its id, or its exact name; null for none, or two. */
-export function findSpecialist(agents, name) {
-  const found = agentsNamed(agents, name);
-  return found.length === 1 ? found[0] : null;
-}
-
 /** The agents a supervisor may hand work to, as its prompt lists them. */
 export function specialistsFor(spec, agents, selfId) {
   if (!spec.orchestration?.supervisor) return [];
