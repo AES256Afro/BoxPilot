@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseUncleanMounts } from "./ops/storage.mjs";
+import { releasesNotChecked } from "./remediations.mjs";
 import { appsWithoutContainer, backupDestinationToMove, backupsDue, bootPartitionUnclean, scheduledBackupApps, containersOnStaleMounts, detectRemediations, fingerprintOf, mountFor, nameLookupsBroken, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, portConflicts, staleMounts, unwritableAppFolders, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck, installDriveToolsFix, drivesNotOrderedAroundDocker } from "./remediations.mjs";
 
 /**
@@ -956,5 +957,36 @@ describe("which apps the schedules back up (M48.4)", () => {
       { operationId: "docker.prune", parameters: {} },
     ])].sort()).toEqual(["immich", "jellyfin", "nextcloud", "vaultwarden"]);
     expect([...scheduledBackupApps(null)]).toEqual([]);
+  });
+});
+
+/**
+ * Nobody checks that an update is really yours (M55.1). Signing is opt-in, and until this the
+ * posture was only ever shown on a page — while BoxPilot raised a warning for the strictly smaller
+ * problem of having nowhere to send an alert.
+ */
+describe("releases nothing checks", () => {
+  it("is a warning naming what an unsigned update can do, with what to do about it", () => {
+    const [found] = releasesNotChecked({ releaseSigner: { available: true, signer: null } });
+    expect(found).toMatchObject({ id: "releases-not-checked", severity: "warning", fix: null, fixes: [] });
+    expect(found.detail).toContain("as root");
+    expect(found.manual).toContain("Require signed releases");
+    expect(found.evidence).toContain("no release signing key is set on this server");
+  });
+
+  it("says nothing once a key is set", () => {
+    expect(releasesNotChecked({ releaseSigner: { available: true, signer: { type: "ssh-ed25519", fingerprint: "SHA256:abc" } } })).toEqual([]);
+  });
+
+  it("says nothing when the read could not be made, rather than guessing", () => {
+    // A viewer's scan does not make this read at all, and a failed read is not evidence of no key.
+    expect(releasesNotChecked({})).toEqual([]);
+    expect(releasesNotChecked({ releaseSigner: null })).toEqual([]);
+    expect(releasesNotChecked({ releaseSigner: { available: false } })).toEqual([]);
+  });
+
+  it("treats a key file that is set but unreadable as a key, not as nothing", () => {
+    // git will refuse the update and say so; that is not "nobody is checking".
+    expect(releasesNotChecked({ releaseSigner: { available: true, signer: { type: null, fingerprint: null, unreadable: true } } })).toEqual([]);
   });
 });
