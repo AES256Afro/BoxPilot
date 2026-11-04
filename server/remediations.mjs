@@ -1042,6 +1042,35 @@ export function backupsDue({ protection = null, schedules = [], now = Date.now()
 }
 
 /**
+ * Nobody checks that an update is really yours (M55.1).
+ *
+ * Signing a release is opt-in. `server/release-signer.mjs` says what that means: without a key,
+ * "an update builds whatever commit the GitHub tag points at, so whoever controls the GitHub
+ * account controls every server". With a key, the upgrade script refuses any tag `git verify-tag`
+ * does not attribute to it, before anything on the box changes.
+ *
+ * BoxPilot already raises a warning when it has nowhere to send an alert (`nothingCanReachYou`).
+ * This is the same kind of fact about the same box and a larger one, and until this it was only
+ * ever shown, on System → BoxPilot update, where nobody who had not gone looking would see it.
+ *
+ * There is no one-click fix: the owner has to paste the public half of a key only they hold, which
+ * is the whole point of it. So this says what to do and where.
+ */
+export function releasesNotChecked({ releaseSigner = null } = {}) {
+  if (!releaseSigner || releaseSigner.available === false) return [];
+  if (releaseSigner.signer) return [];
+  return [finding({
+    id: "releases-not-checked",
+    severity: "warning",
+    title: "An update is built from whatever GitHub says is the latest release",
+    detail: "BoxPilot updates itself by building a release tag from GitHub, and no key is set for it to check, so it will build whatever that tag points at. Anyone who takes the GitHub account the releases come from — or anyone who can change what that tag points at — can have this server build and run their code as root, and the update would look entirely ordinary. With a release key set, an update stops before anything changes unless that key signed the tag.",
+    evidence: ["no release signing key is set on this server", "an update verifies nothing before it builds"],
+    fixes: [],
+    manual: "On the System page, under BoxPilot update, choose \"Require signed releases\" and paste the public half of the key you sign releases with (ssh-keygen prints it; sign a release with git tag -s and git config gpg.format ssh). Keep the private half off this server.",
+  })];
+}
+
+/**
  * A server that cannot look names up (2026-09-29). After a power cut the owner's server came back
  * with Tailscale's resolver in /etc/resolv.conf instead of systemd-resolved's stub, so every lookup
  * through the system resolver failed while `resolvectl query` worked: the BoxPilot upgrade could not
@@ -1212,6 +1241,7 @@ export function detectRemediations(facts = {}) {
     ...dnsLeansOnThisServer(facts),
     ...windowsCannotDiscover(facts),
     ...backupDestinationToMove(facts),
+    ...releasesNotChecked(facts),
   ];
   const rank = (entry) => severities.indexOf(entry.severity);
   return {

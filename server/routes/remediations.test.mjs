@@ -26,7 +26,7 @@ describe("remediation source availability", () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.sourceStatus).toBe("partial");
-      expect(body.unavailableChecks).toEqual(["Drives and mounts", "Applications", "File sharing", "USB history", "Unclean unmounts", "Drive filesystems", "App backups"]);
+      expect(body.unavailableChecks).toEqual(["Drives and mounts", "Applications", "File sharing", "USB history", "Unclean unmounts", "Drive filesystems", "App backups", "Signed releases"]);
       expect(Array.isArray(body.findings)).toBe(true);
     } finally { server.closeAllConnections?.(); await new Promise((resolve) => server.close(resolve)); }
   });
@@ -155,13 +155,13 @@ it("asks the name-lookup check with the house's DNS app, and reads the boot part
   }
   const body = await scan();
   expect(dnsServer).toEqual({ name: "Pi-hole", address: "127.0.0.1", running: true });
-  expect(body.findings.map((finding) => finding.id)).toEqual(["name-lookups", "boot-partition-mark"]);
+  expect(body.findings.map((finding) => finding.id)).toEqual(["name-lookups", "boot-partition-mark", "releases-not-checked"]);
   const [lookups, mark] = body.findings;
   expect(lookups).toMatchObject({ title: "homebox cannot look up website names, so updates and app downloads fail", fix: { operationId: "dns.lookups.restore", risk: "medium" } });
   expect(mark.fix).toMatchObject({ operationId: "storage.boot-mark.clear", risk: "medium" });
   // Checked since the kernel's line: answered.
   const after = await scan({ bootPartitionChecks: { "/dev/nvme0n1p1": { checkedAt: "2026-09-29T23:00:00.000Z", clean: true } } });
-  expect(after.findings.map((finding) => finding.id)).toEqual(["name-lookups"]);
+  expect(after.findings.map((finding) => finding.id)).toEqual(["name-lookups", "releases-not-checked"]);
   // A check that could not be made is said, not taken for "nothing wrong".
   const app = express();
   app.use(asOwner);

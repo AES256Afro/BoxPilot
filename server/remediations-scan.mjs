@@ -39,7 +39,7 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   const namesRead = Promise.resolve().then(() => inspectNames({
     dnsServer: async () => dnsServerFrom(await reading, await catalogService.all().then(({ manifests }) => manifests).catch(() => [])),
   })).catch(() => ({ available: false }));
-  const [storage, live, samba, usb, unclean, volumes, protection] = await Promise.all([
+  const [storage, live, samba, usb, unclean, volumes, protection, releaseSigner] = await Promise.all([
     collect().catch(() => null),
     reading,
     operatorReads ? helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
@@ -50,6 +50,10 @@ export async function scanRemediations({ helper, state, catalogService, inventor
     operatorReads ? helper.request("storage.volumes.state", {}, { timeoutMs: 90_000 }).catch(() => null) : null,
     // Which apps have a recent backup (M35), the same read Home's backup panel makes.
     helper.request("app.backup.protection", {}, { timeoutMs: 60_000 }).catch(() => null),
+    // Whether an update has to be signed before this server builds it (M55.1). The file lives in
+    // the helper's own root-only directory, and `system.update.status` is operator-gated, so this
+    // read is an operator's too (ADR-003).
+    operatorReads ? helper.request("system.update.signer", {}, { timeoutMs: 15_000 }).catch(() => null) : null,
   ]);
   facts.usb = usb;
   facts.unclean = unclean;
@@ -116,6 +120,7 @@ export async function scanRemediations({ helper, state, catalogService, inventor
     facts.ntfy = { installed: Boolean(ntfy?.installed), running: containerRunning(ntfy?.container) };
   }
   facts.protection = protection;
+  facts.releaseSigner = releaseSigner;
   const schedules = typeof state.listSchedules === "function" ? state.listSchedules() : [];
   facts.schedules = schedules.map((schedule) => ({ operationId: schedule.operationId, parameters: schedule.parameters ?? {}, enabled: schedule.enabled !== false }));
   // The jobs this caller may see, newest first: the last try at each fix, and when Docker's cleanup ran.
@@ -204,7 +209,7 @@ export async function scanRemediations({ helper, state, catalogService, inventor
       new Promise((resolve) => { const timer = setTimeout(() => resolve(null), 8_000); timer.unref?.(); }),
     ]);
   }
-  const unavailableChecks = [["Drives and mounts", storage, true], ["Applications", live, true], ["File sharing", samba, operatorReads], ["USB history", usb, operatorReads], ["Unclean unmounts", unclean, operatorReads], ["Drive filesystems", volumes, operatorReads], ["App backups", protection, true]]
+  const unavailableChecks = [["Drives and mounts", storage, true], ["Applications", live, true], ["File sharing", samba, operatorReads], ["USB history", usb, operatorReads], ["Unclean unmounts", unclean, operatorReads], ["Drive filesystems", volumes, operatorReads], ["App backups", protection, true], ["Signed releases", releaseSigner, operatorReads]]
     .filter(([, value]) => !value || value.available === false)
     .map(([name, , allowed]) => (allowed ? name : `${name} (needs an operator)`));
   if (storage?.availability?.mounts === false) unavailableChecks.push("Current mounts");

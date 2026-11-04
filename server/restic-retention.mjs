@@ -71,6 +71,26 @@ export function validateRetentionInput(input, { subject }) {
 }
 
 /**
+ * The restic evidence a restore carries: which repository, which snapshot, and what the manifest and
+ * its size must turn out to be. Pinned by the web side when the job was approved, and checked again
+ * here so a request cannot widen what is restored (M55.3).
+ *
+ * The VM restore drill and the VM recovery validated these five fields in the same five lines each.
+ * Only the fields around them differ — a drill names the domain it clones, a recovery names the
+ * source and the target — so those stay with their own validators.
+ * @param {any} input The staged request as it arrived over the helper socket: parsed JSON.
+ */
+export function restoreEvidenceErrors(input) {
+  const errors = [];
+  if (typeof input?.repositoryId !== "string" || !shaPattern.test(input.repositoryId)) errors.push("Repository id is invalid");
+  if (typeof input?.snapshotId !== "string" || !shaPattern.test(input.snapshotId)) errors.push("Snapshot id is invalid");
+  if (typeof input?.expectedManifestChecksumSha256 !== "string" || !shaPattern.test(input.expectedManifestChecksumSha256)) errors.push("Manifest checksum is invalid");
+  if (!Number.isSafeInteger(input?.expectedSizeBytes) || input.expectedSizeBytes <= 0) errors.push("Expected backup size is invalid");
+  if (typeof input?.expectedDestinationRevision !== "string" || !shaPattern.test(input.expectedDestinationRevision)) errors.push("Destination revision is invalid");
+  return errors;
+}
+
+/**
  * `restic snapshots --json`, checked field by field and sorted by id. Every snapshot must carry an
  * exact id, a parseable time and string tags; one that does not means the inventory is not restic's
  * and nothing is deleted on the strength of it.
@@ -91,6 +111,40 @@ export function parseSnapshotInventory(stdout, { label }) {
   }).sort((left, right) => left.id.localeCompare(right.id));
   if (new Set(snapshots.map((snapshot) => snapshot.id)).size !== snapshots.length) throw new Error(`Restic returned duplicate ${label} snapshot ids`);
   return snapshots;
+}
+
+const sameArray = (left, right) => Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((value, index) => value === right[index]);
+
+/** The snapshot ids a helper reports it forgot, as a list whatever it sent. */
+export const forgottenSnapshotIds = (result) => (Array.isArray(result?.forgottenSnapshotIds) ? result.forgottenSnapshotIds : []);
+
+/**
+ * Whether a forget did exactly what was approved and nothing else (M55.4).
+ *
+ * Both retention paths carried this compound condition, byte for byte, with `sameArray` beside it:
+ * the run is the approved one, against the approved repository, from the snapshot set that was
+ * approved; every id it reports was approved and reported once; it pruned nothing and reclaimed
+ * nothing; and where the repository could be read again afterwards, the ids match exactly and the
+ * count fell by what was forgotten. Sweep 2 found the two sides already computing `complete`
+ * differently one level down, which is why this is the piece worth sharing — the surrounding words,
+ * the policies and the candidate records differ by domain and stay where they are.
+ *
+ * `forgottenCount` is how many of the caller's own candidate records the result accounts for; the
+ * caller shapes those, so it counts them.
+ * @param {{ input: any, result: any, forgottenCount: number }} evidence
+ */
+export function retentionEvidenceHolds({ input, result, forgottenCount }) {
+  const approved = new Set(input.forgetSnapshotIds);
+  const actualSnapshotIds = forgottenSnapshotIds(result);
+  const actualSet = new Set(actualSnapshotIds);
+  if (result?.applied !== true || result?.retentionId !== input.retentionId || result?.repositoryId !== input.repositoryId) return false;
+  if (result?.beforeSnapshotSetRevision !== input.expectedSnapshotSetRevision || result?.beforeCount !== input.expectedBeforeCount) return false;
+  if (actualSnapshotIds.length < 1 || actualSet.size !== actualSnapshotIds.length || actualSnapshotIds.some((id) => !approved.has(id))) return false;
+  if (forgottenCount !== actualSnapshotIds.length || result?.prunePerformed !== false || result?.spaceReclaimed !== false) return false;
+  // Only a repository that could be read again can be held to what is left in it.
+  if (result?.repositoryVerified !== true) return true;
+  return result?.complete === true && sameArray(actualSnapshotIds, input.forgetSnapshotIds)
+    && result?.afterCount === result?.beforeCount - forgottenCount && typeof result?.afterSnapshotSetRevision === "string";
 }
 
 /**

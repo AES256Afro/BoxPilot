@@ -5,10 +5,10 @@ import path from "node:path";
 import { streamRun } from "./exec.mjs";
 import { createVmProtectionHelper } from "./vm-protection-helper.mjs";
 import { backupMountpoint } from "./backup-mount.mjs";
+import { restoreEvidenceErrors, shaPattern, uuidPattern } from "./restic-retention.mjs";
 
-const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
-const shaPattern = /^[a-f0-9]{64}$/;
-const safeDomainPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
+/** A libvirt domain name BoxPilot will put on a command line. Read by vm-recovery-helper.mjs too. */
+export const safeDomainPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
 const allowedDiskBuses = new Set(["virtio", "sata", "scsi", "ide"]);
 
 /**
@@ -50,11 +50,7 @@ export function validateVmRestoreDrillInput(input) {
   if (typeof input.exportId !== "string" || !uuidPattern.test(input.exportId)) errors.push("Export id must be a UUID");
   if (typeof input.domainName !== "string" || !safeDomainPattern.test(input.domainName)) errors.push("Domain name is invalid");
   if (typeof input.domainUuid !== "string" || !uuidPattern.test(input.domainUuid)) errors.push("Domain UUID is invalid");
-  if (typeof input.repositoryId !== "string" || !shaPattern.test(input.repositoryId)) errors.push("Repository id is invalid");
-  if (typeof input.snapshotId !== "string" || !shaPattern.test(input.snapshotId)) errors.push("Snapshot id is invalid");
-  if (typeof input.expectedManifestChecksumSha256 !== "string" || !shaPattern.test(input.expectedManifestChecksumSha256)) errors.push("Manifest checksum is invalid");
-  if (!Number.isSafeInteger(input.expectedSizeBytes) || input.expectedSizeBytes <= 0) errors.push("Expected backup size is invalid");
-  if (typeof input.expectedDestinationRevision !== "string" || !shaPattern.test(input.expectedDestinationRevision)) errors.push("Destination revision is invalid");
+  errors.push(...restoreEvidenceErrors(input));
   return errors;
 }
 

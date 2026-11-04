@@ -3815,7 +3815,7 @@ command output, and the duplication M53.3 named but left. Four findings, and the
 
 None of the three categories has gone a sweep without finding something, so none retires yet.
 
-- ⬜ **M55.1 Raise the unsigned-update posture, as Repair raises every other posture.** Signed
+- ✅ **M55.1 Raise the unsigned-update posture, as Repair raises every other posture.** Signed
   releases are opt-in, and `release-signer.mjs` states the consequence itself: without a key,
   "whoever controls the GitHub account controls every server". The verification, when a key is set,
   is the most careful code in the repo — `git verify-tag` against an allowed-signers file with
@@ -3826,20 +3826,26 @@ None of the three categories has gone a sweep without finding something, so none
   posture, not a failure — and it is a warning with a fix attached. A detector in
   `remediations.mjs`, the signer state passed into the scan's facts as an operator read (ADR-003,
   since `system.update.status` is operator-gated), and a fix that opens the key field.
-- ⬜ **M55.2 Bound the walk past LVM's internal nodes.**
+- ✅ **M55.2 Bound the walk past LVM's internal nodes.**
   `server/storage-inventory.mjs:63` climbs from a device to its first real parent, skipping `-real`
   and `-cow`, with no visited set: a row whose `pkname` is its own `kname` loops for ever. It is
   synchronous and in the web process, so it is the event loop and every request with it, not a slow
   page. Confirmed by probe. The input is always live `lsblk --json` and never a file, a stored
   snapshot or a request, and the kernel does not report a device as its own parent, so this is
   latent rather than live — worth the two lines because the failure is total. While there: two rows
-  that claim each other as parent are dropped from the tree rather than looped, silently.
-- ⬜ **M55.3 Fold the VM restore validators into `restic-retention.mjs`.**
+  that claim each other as parent were dropped from the tree rather than looped, silently, and are
+  now listed.
+
+  Keeping them cost a second fix. Walking a row the tree had never reached followed the cycle the
+  drop had been hiding, and the recursion ran until the stack gave out — a stack overflow where
+  there had been a quiet omission. `walk` carries its own visited set now. The third of the four
+  new tests is the one that caught it.
+- ✅ **M55.3 Fold the VM restore validators into `restic-retention.mjs`.**
   `vm-recovery-helper.mjs` and `vm-restore-drill-helper.mjs` validate the same restic evidence the
   same way in 34 shared lines — repository, snapshot and manifest-checksum ids against `shaPattern`,
   a positive safe-integer size, a destination revision. That is the family the module created in
   M53.3 exists for, and it already holds `shaPattern`.
-- ⬜ **M55.4 Share the retention result-verification predicate, and nothing else there.** The two
+- ✅ **M55.4 Share the retention result-verification predicate, and nothing else there.** The two
   service layers match on 98 of 164 lines, but only 56 are substantive and most of those are domain
   wording that should stay apart: different policies, different candidate records, different claims
   about what is kept unchanged. This is not the drift M53.3 found. The exception is the compound

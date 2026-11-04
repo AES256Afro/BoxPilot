@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseSnapshotInventory, resticRepositoryUnder, snapshotSetRevision, validateRetentionInput } from "./restic-retention.mjs";
+import { parseSnapshotInventory, resticRepositoryUnder, restoreEvidenceErrors, retentionEvidenceHolds, snapshotSetRevision, validateRetentionInput } from "./restic-retention.mjs";
+import { validateVmRestoreDrillInput } from "./vm-restore-drill-helper.mjs";
+import { validateVmRecoveryInput } from "./vm-recovery-helper.mjs";
 import { validateControllerRetentionInput } from "./controller-retention-helper.mjs";
 import { validateVmRetentionInput } from "./vm-retention-helper.mjs";
 
@@ -99,5 +101,119 @@ describe("the repository under the backup mount", () => {
   it("refuses a mount that would put the repository somewhere else", () => {
     expect(() => resticRepositoryUnder("/mnt/backups", { directory: "../escape", subject: "VM" })).toThrow("escaped the configured mount");
     expect(() => resticRepositoryUnder("/mnt/backups", { directory: "nested/deep", subject: "controller" })).toThrow("escaped the configured mount");
+  });
+});
+
+/**
+ * The restic evidence a restore carries (M55.3), shared by the VM restore drill and the VM
+ * recovery. They validated these five fields in the same five lines each; the fields around them
+ * differ, so those stay with their own validators — and both are held to the same answers here.
+ */
+describe("the restic evidence a restore carries", () => {
+  const evidence = (overrides = {}) => ({
+    repositoryId: sha("c"),
+    snapshotId: sha("d"),
+    expectedManifestChecksumSha256: sha("e"),
+    expectedSizeBytes: 4096,
+    expectedDestinationRevision: sha("f"),
+    ...overrides,
+  });
+
+  it("passes when every field is exact", () => {
+    expect(restoreEvidenceErrors(evidence())).toEqual([]);
+  });
+
+  it("refuses an id that is not restic's, a size that is not a positive whole number, and a missing field", () => {
+    expect(restoreEvidenceErrors(evidence({ repositoryId: "latest" }))).toContain("Repository id is invalid");
+    expect(restoreEvidenceErrors(evidence({ snapshotId: sha("d").toUpperCase() }))).toContain("Snapshot id is invalid");
+    expect(restoreEvidenceErrors(evidence({ expectedManifestChecksumSha256: "" }))).toContain("Manifest checksum is invalid");
+    expect(restoreEvidenceErrors(evidence({ expectedDestinationRevision: undefined }))).toContain("Destination revision is invalid");
+    for (const size of [0, -1, 1.5, "4096", Number.MAX_SAFE_INTEGER + 2, null]) {
+      expect(restoreEvidenceErrors(evidence({ expectedSizeBytes: size })), String(size)).toContain("Expected backup size is invalid");
+    }
+  });
+
+  it("answers for a request that is not an object at all, rather than throwing", () => {
+    expect(restoreEvidenceErrors(null)).toHaveLength(5);
+    expect(restoreEvidenceErrors(undefined)).toHaveLength(5);
+  });
+
+  it("is what both VM restore validators use, so neither can drift from the other", () => {
+    const drill = { drillId: retentionId, backupId: retentionId, exportId: retentionId, domainName: "web", domainUuid: retentionId, ...evidence() };
+    const recovery = { restoreId: retentionId, backupId: retentionId, exportId: retentionId, sourceDomainName: "web", sourceDomainUuid: retentionId, targetDomainName: "web-recovered", restoreDrillId: retentionId, ...evidence() };
+    expect(validateVmRestoreDrillInput(drill)).toEqual([]);
+    expect(validateVmRecoveryInput(recovery)).toEqual([]);
+    // The same bad evidence is refused for the same reason on both paths.
+    for (const bad of [{ repositoryId: "x" }, { snapshotId: "x" }, { expectedManifestChecksumSha256: "x" }, { expectedSizeBytes: 0 }, { expectedDestinationRevision: "x" }]) {
+      const reason = restoreEvidenceErrors(evidence(bad))[0];
+      expect(validateVmRestoreDrillInput({ ...drill, ...bad })).toContain(reason);
+      expect(validateVmRecoveryInput({ ...recovery, ...bad })).toContain(reason);
+    }
+  });
+});
+
+/**
+ * Whether a forget did exactly what was approved (M55.4). Both retention paths carried this
+ * compound condition byte for byte; sweep 2 had already caught them computing `complete`
+ * differently one level down, which is why it is shared rather than left in two places.
+ */
+describe("the evidence a forget leaves", () => {
+  const input = { retentionId, repositoryId: sha("c"), expectedSnapshotSetRevision: sha("b"), expectedBeforeCount: 5, forgetSnapshotIds: [sha("1"), sha("2")] };
+  const result = (overrides = {}) => ({
+    applied: true,
+    retentionId,
+    repositoryId: sha("c"),
+    beforeSnapshotSetRevision: sha("b"),
+    beforeCount: 5,
+    forgottenSnapshotIds: [sha("1"), sha("2")],
+    prunePerformed: false,
+    spaceReclaimed: false,
+    repositoryVerified: true,
+    complete: true,
+    afterCount: 3,
+    afterSnapshotSetRevision: sha("9"),
+    ...overrides,
+  });
+  const holds = (overrides, forgottenCount = 2) => retentionEvidenceHolds({ input, result: overrides === null ? null : result(overrides), forgottenCount });
+
+  it("holds when the run is the approved one and did exactly what it said", () => {
+    expect(holds({})).toBe(true);
+  });
+
+  it("refuses a run that is not the approved one, or not against the approved repository or snapshot set", () => {
+    expect(holds({ applied: false })).toBe(false);
+    expect(holds({ retentionId: "6f0c2e9a-4b1d-4c7e-9a3f-2d5b8e1c0a48" })).toBe(false);
+    expect(holds({ repositoryId: sha("0") })).toBe(false);
+    expect(holds({ beforeSnapshotSetRevision: sha("0") })).toBe(false);
+    expect(holds({ beforeCount: 4 })).toBe(false);
+    expect(holds(null)).toBe(false);
+  });
+
+  it("refuses ids that were not approved, reported twice, or none at all", () => {
+    expect(holds({ forgottenSnapshotIds: [sha("3")] })).toBe(false);
+    expect(holds({ forgottenSnapshotIds: [sha("1"), sha("1")] })).toBe(false);
+    expect(holds({ forgottenSnapshotIds: [] })).toBe(false);
+    expect(holds({ forgottenSnapshotIds: "not a list" })).toBe(false);
+  });
+
+  it("refuses a run that pruned or reclaimed, which this release never does", () => {
+    expect(holds({ prunePerformed: true })).toBe(false);
+    expect(holds({ spaceReclaimed: true })).toBe(false);
+  });
+
+  it("refuses a count of the caller's own records that does not match what was forgotten", () => {
+    expect(holds({}, 1)).toBe(false);
+    expect(holds({}, 3)).toBe(false);
+  });
+
+  it("holds a verified repository to what is left in it, and does not ask that of an unverified one", () => {
+    // Verified: the ids must match exactly, in order, and the count must have fallen by them.
+    expect(holds({ complete: false })).toBe(false);
+    expect(holds({ forgottenSnapshotIds: [sha("2"), sha("1")] })).toBe(false);
+    expect(holds({ afterCount: 4 })).toBe(false);
+    expect(holds({ afterSnapshotSetRevision: null })).toBe(false);
+    // Unverified: the repository could not be read again, so there is nothing to hold it to. The
+    // helper's own code refuses that case for its own reasons; this predicate does not double-guess it.
+    expect(holds({ repositoryVerified: false, complete: false, afterCount: 99, afterSnapshotSetRevision: null })).toBe(true);
   });
 });

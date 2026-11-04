@@ -3,6 +3,7 @@ import { validateDomainName } from "../libvirt.mjs";
 import { validateVmRestoreDrillInput } from "../vm-restore-drill-helper.mjs";
 import { validateVmRecoveryInput } from "../vm-recovery-helper.mjs";
 import { readHostedSources } from "../hosted-domains-sources.mjs";
+import { readReleaseSigner } from "../release-signer.mjs";
 
 /**
  * Reads the web side's own services make through the helper: Docker's inventory for the Repair
@@ -23,6 +24,13 @@ export function internalReadOperations() {
     read({
       id: "container.docker.inventory", title: "List Docker containers, images, networks and volumes",
       run: (_parameters, { hostInspect }) => hostInspect.inventoryDocker(),
+    }),
+    read({
+      // M55.1: whether a release must be signed before this server builds it. `system.update.status`
+      // answers this too, with eighty journal lines and a systemctl listing beside it; the Repair
+      // scan wants the one fact.
+      id: "system.update.signer", title: "Read whether releases must be signed",
+      run: () => readReleaseSigner().then((signer) => ({ available: true, signer })),
     }),
     read({
       // M42.2: a hand-made cloudflared config's ingress and the proxy manager's sites, both under
