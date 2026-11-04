@@ -93,6 +93,37 @@ describe("what an operator's scan reads and a viewer's does not", () => {
   });
 });
 
+describe("whether an update has to be signed (M55.1)", () => {
+  const withSigner = (answer) => fakeHelper({ "app.inspect": { available: true, applications: [] }, "app.backup.protection": { available: true, apps: [] }, "system.update.signer": answer });
+
+  it("is read for an operator, and raises the finding when no key is set", async () => {
+    const helper = withSigner({ available: true, signer: null });
+    const scanned = await scan({ helper, operatorReads: true });
+    expect(helper.asked).toContain("system.update.signer");
+    expect(scanned.findings.map((entry) => entry.id)).toContain("releases-not-checked");
+  });
+
+  it("raises nothing once a key is set", async () => {
+    const scanned = await scan({ helper: withSigner({ available: true, signer: { type: "ssh-ed25519", fingerprint: "SHA256:abc" } }), operatorReads: true });
+    expect(scanned.findings.map((entry) => entry.id)).not.toContain("releases-not-checked");
+    expect(scanned.unavailableChecks).not.toContain("Signed releases");
+  });
+
+  it("is not read for a viewer, and the scan says that check needs an operator", async () => {
+    const helper = withSigner({ available: true, signer: null });
+    const scanned = await scan({ helper });
+    expect(helper.asked).not.toContain("system.update.signer");
+    expect(scanned.findings.map((entry) => entry.id)).not.toContain("releases-not-checked");
+    expect(scanned.unavailableChecks).toContain("Signed releases (needs an operator)");
+  });
+
+  it("names the check rather than guessing when the read fails", async () => {
+    const scanned = await scan({ helper: withSigner(new Error("the helper is not answering")), operatorReads: true });
+    expect(scanned.unavailableChecks).toContain("Signed releases");
+    expect(scanned.findings.map((entry) => entry.id)).not.toContain("releases-not-checked");
+  });
+});
+
 describe("a read that fails", () => {
   it("is named rather than passed off as nothing wrong", async () => {
     const helper = fakeHelper({ "app.inspect": new Error("the helper is not answering"), "app.backup.protection": { available: false } });

@@ -1,12 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { forgottenSnapshotIds, retentionEvidenceHolds } from "./restic-retention.mjs";
 
 const dayMs = 24 * 60 * 60 * 1000;
 const minimumAgeDays = 30;
 const minimumCopiesPerDomain = 3;
-
-function sameArray(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
 
 /** A copy counts toward the minimum only if it has been restored successfully. */
 function restoreTested(backup) {
@@ -158,18 +155,11 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
 
   function recordOperation(job, result) {
     const input = job.parameters;
-    const approved = new Set(input.forgetSnapshotIds);
-    const actualSnapshotIds = Array.isArray(result?.forgottenSnapshotIds) ? result.forgottenSnapshotIds : [];
-    const actualSet = new Set(actualSnapshotIds);
+    const actualSet = new Set(forgottenSnapshotIds(result));
     const forgotten = input.candidates
       .filter((candidate) => actualSet.has(candidate.snapshotId))
       .map((candidate) => ({ backupId: candidate.backupId, snapshotId: candidate.snapshotId, domainName: candidate.domainName }));
-    if (result?.applied !== true || result?.retentionId !== input.retentionId || result?.repositoryId !== input.repositoryId
-      || result?.beforeSnapshotSetRevision !== input.expectedSnapshotSetRevision || result?.beforeCount !== input.expectedBeforeCount
-      || actualSnapshotIds.length < 1 || actualSet.size !== actualSnapshotIds.length || actualSnapshotIds.some((id) => !approved.has(id))
-      || forgotten.length !== actualSnapshotIds.length || result?.prunePerformed !== false || result?.spaceReclaimed !== false
-      || (result?.repositoryVerified === true && (result?.complete !== true || !sameArray(actualSnapshotIds, input.forgetSnapshotIds)
-        || result?.afterCount !== result?.beforeCount - forgotten.length || typeof result?.afterSnapshotSetRevision !== "string"))) {
+    if (!retentionEvidenceHolds({ input, result, forgottenCount: forgotten.length })) {
       throw new Error("VM retention evidence validation failed");
     }
     return store.recordVmRetention({

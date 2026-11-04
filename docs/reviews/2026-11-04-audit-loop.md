@@ -14,9 +14,9 @@ again. The same rule as `swept-and-verified-clean`: a cleared area is not re-aud
 
 | Category | Sweeps run | Consecutive empty | State |
 | --- | --- | --- | --- |
-| Code | 3 | 0 | active — sweeps 1-2 fixed (M52, M53); sweep 3: 2, open (M55) |
-| Bug | 3 | 0 | active — sweeps 1-2 fixed (M52, M53); sweep 3: 1, open (M55) |
-| Security | 3 | 0 | active — sweep 1: nothing; sweep 2 fixed (M53.4); sweep 3: 1, open (M55) |
+| Code | 3 | 0 | active — all three sweeps fixed (M52, M53, M55) |
+| Bug | 3 | 0 | active — all three sweeps fixed (M52, M53, M55) |
+| Security | 3 | 0 | active — sweep 1: nothing; sweeps 2-3 fixed (M53.4, M55.1) |
 | Readability | 0 | — | queued |
 | Usability | 0 | n/a | queued — retires on coverage, see below |
 | Visual | 0 | n/a | queued — retires on coverage, see below |
@@ -559,3 +559,31 @@ expensive; the wording is where sharing would cost readability.
   four repeat `runOf`. Small, and `src/looks/` already has shared pieces (`LookHome.tsx`,
   `findingWords.ts`) for it to move into if anyone touches that code anyway. Not worth a change of
   its own.
+
+## What sweep 3 changed (M55.1-M55.4, 2026-11-04)
+
+`npm run check` green: 524 test files / 5743 tests, 22 of them new.
+
+- **The unsigned-update posture is raised, not just displayed.** `releasesNotChecked` in
+  `server/remediations.mjs`, fed by a new internal read (`system.update.signer`) rather than by
+  `system.update.status`, which answers the same question with eighty journal lines and a systemctl
+  listing beside it. An operator read, as that operation is (ADR-003), so a viewer's scan does not
+  make it and says "Signed releases (needs an operator)" instead. No one-click fix: the owner has to
+  paste the public half of a key only they hold, which is the point of it, so the finding carries
+  `manual` advice naming the page and the `git tag -s` incantation. Four tests on the detector, four
+  on the scan wiring.
+- **The lsblk walk is bounded**, and a device BoxPilot cannot place is now listed rather than
+  dropped. That second part cost a second fix: walking a row the tree had never reached followed the
+  cycle the drop had been hiding, and recursed until the stack gave out. `walk` carries its own
+  visited set now, and the test that caught it is in the file.
+- **The VM restore validators share their restic evidence checks** through
+  `restoreEvidenceErrors` in `server/restic-retention.mjs`, the module M53.3 built for this family.
+  Both paths are held to the same answers for the same reasons in one test.
+- **The retention result-verification predicate is shared** (`retentionEvidenceHolds`), with
+  `sameArray` beside it, and each caller keeps its own message and its own candidate mapping. The
+  domain wording, the policies and the records stay apart, as sweep 3 said they should. Seven cases,
+  including the one that matters: an unverified repository is not held to what is left in it.
+
+Four tests needed updating, all of them real contract changes rather than noise: the internal-read
+count, two `unavailableChecks` lists, and the viewer's row in the route matrix, which now names one
+more operator-gated check — the same thing it already said about the other four.
