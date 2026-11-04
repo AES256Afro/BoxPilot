@@ -1,19 +1,21 @@
 /**
- * Operation-registry routes: describe operations, run read-only ones directly, stage
- * mutating ones as jobs, plus the read-only evidence views built on the registry
- * (prerequisites, recovery kit, action center). Mounted at /api/v1 behind the session.
+ * Operation-registry routes: run read-only operations directly, stage mutating ones as jobs, plus
+ * the read-only evidence views built on the registry (prerequisites, recovery kit, action center).
+ * Mounted at /api/v1 behind the session.
+ *
+ * There is no route that lists the registry (M52.3). `GET /operations` was reachable only from a
+ * client function nothing called, and it was the one place `registry.describe()` went over the wire
+ * — unfiltered for `internal`, so it handed every role the ids and parameter names of plumbing
+ * every other path here refuses to run for them. A route that lists operations again filters
+ * `internal` first.
  */
 import { Router } from "express";
-import { registry, riskTiers } from "../ops/index.mjs";
+import { registry } from "../ops/index.mjs";
 import { internalRefusal } from "../ops/registry.mjs";
 import { callerId, seesEveryAccount } from "./access.mjs";
 
 export function createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }) {
   const router = Router();
-
-  router.get("/operations", (_request, response) => {
-    response.json({ operations: registry.describe(), riskTiers });
-  });
 
   // Read-only registered operations run immediately (no job, no approval); parameter-free only for now.
   /** Read-only operations may still be limited to a role (the journal) or to an elevated session (secrets). */

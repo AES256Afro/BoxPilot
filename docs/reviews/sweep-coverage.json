@@ -1,0 +1,542 @@
+{
+  "rule": "A sweep category retires from the loop when every surface below has been reviewed in that category during the current loop AND the most recent pass over all of them found nothing. A review goes stale after 8 weeks or 20 releases, whichever comes first; a stale surface counts as unreviewed. This replaces \"three consecutive empty sweeps\" for usability, visual and quality of life, which never run out of findings: three empty sweeps there would mean the sweeper stopped looking, not that there was nothing left (M52.8).",
+  "loopStartedOn": "2026-11-04",
+  "staleAfterWeeks": 8,
+  "categories": [
+    "usability",
+    "visual",
+    "qol"
+  ],
+  "note": "lastReviewed is an ISO date, sweep the sweep number within this loop, found the count of findings that pass raised (0 is a real answer and the one that retires a category; null means not reviewed in this loop). Pages are checked against navItems in src/data.ts by scripts/check-sweep-coverage.mjs, so a page added to the dock cannot go missing from here.",
+  "pages": {
+    "agents": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "automations": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "backups": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "catalog": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "firewall": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "github": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "home": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "hosted": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "logs": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "network": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "ops": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "performance": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "repairs": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "services": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "settings": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "setup": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "signin": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "storage": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "system": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "today": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "updates": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "users": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "virtualization": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    }
+  },
+  "shell": {
+    "command bar": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "activity drawer": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "notification centre": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "approval dialog": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "account menu": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "top bar and view switch": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "offline and session banners": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    },
+    "page error and loading states": {
+      "usability": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "visual": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      },
+      "qol": {
+        "lastReviewed": null,
+        "sweep": null,
+        "found": null
+      }
+    }
+  }
+}

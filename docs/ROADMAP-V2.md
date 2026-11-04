@@ -208,7 +208,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
   Grafana and the graphs are drawn. cAdvisor (per-container metrics) ships too (v1.57.0),
   running unprivileged with read-only host mounts and /dev/kmsg, verified live scraping UP on
   the server's cgroup v2. Remaining: the libvirt exporter and a per-container dashboard.
-- ◐ **M8.4** Failed-job push notifications: `server/notifications.mjs` subscribes to the job-event stream and sends one push per failed job to ntfy, Gotify, or a webhook (both servers are catalog apps, so alerts can stay on-host); Settings panel with password-gated target + test button; deliveries and failures audited. Remaining triggers: updates available, backup stale, disk >90%, SMART, UPS. Host-health alerting stays with the ops CLI per HANDOFF.md. ✅ (v2) **Health alerts** (`server/health-alerts.mjs`): a 15-minute watcher over the sanitized inventory pushes once when a condition appears and once when it clears. Root/mounted disk ≥ 85–90 % full, SMART problems, UPS on battery/low, failed services, reboot required, unhealthy containers; state in the `healthAlertsState` setting so restarts do not re-send.
+- ◐ **M8.4** Failed-job push notifications: `server/notifications.mjs` subscribes to the job-event stream and sends one push per failed job to ntfy, Gotify, or a webhook (both servers are catalog apps, so alerts can stay on-host); Settings panel with password-gated target + test button; deliveries and failures audited. Remaining triggers: updates available, backup stale, disk >90%, SMART, UPS. Host-health alerting stays with the ops CLI per `docs/HANDOFF-OPS-CLI.md`. ✅ (v2) **Health alerts** (`server/health-alerts.mjs`): a 15-minute watcher over the sanitized inventory pushes once when a condition appears and once when it clears. Root/mounted disk ≥ 85–90 % full, SMART problems, UPS on battery/low, failed services, reboot required, unhealthy containers; state in the `healthAlertsState` setting so restarts do not re-send.
 - ✅ **M8.5** Log viewer: registry ops `logs.sources` (journal groups, every systemd unit, every container) and `logs.read` (tail any of them with a time window and text filter, redacted). The Logs page offers group tabs, a unit finder, a container picker, follow mode, and download; the support bundle reads through the same op. The fixed-four-sources route and `system.logs.inspect` legacy op are deleted.
 
 ### Phase 9, Network platform (2 weeks)
@@ -1308,7 +1308,7 @@ Suggested order: release the reviewed fixes; M32.4 and M29.2; M27.5 plus M32.1-2
 Decided 2026-09-28 (ADR-004): the owner chose the Launcher and the Command Center from the ten
 directions in `docs/design-directions/04-eight-directions.html`. One design system, two views of
 the same data; light and dark, following the device with an override. The plan and the earlier
-study are in `HANDOFF-UI-REDESIGN.md` (B1-B7); this milestone takes B1-B4 and leaves the rest to
+study are in `docs/HANDOFF-UI-REDESIGN.md` (B1-B7); this milestone takes B1-B4 and leaves the rest to
 the milestones they overlap.
 
 - ✅ **M33.1 Design system** (B1, unreleased). `src/styles.css` holds one set of colour tokens
@@ -3600,6 +3600,83 @@ network; and the Today page draws whatever the server sends, knowing no app by n
   digest; a question about CVEs, KEV, security news or a standard points at it. Tests replay
   responses recorded from BaselineWatch 0.10.0 (`test/fixtures/baselinewatch`): the reader, the
   registry and addresses, the tool, the route and the card.
+
+## M52: The audit loop
+
+Asked for 2026-11-04: rolling code, bug and security sweeps, each retiring itself from the loop
+after three consecutive sweeps that find nothing, then readability, usability, visual,
+quality-of-life, platform-feature and optimization sweeps on the same rule. The ledger — which
+sweep each category is on, and what each one looked at and cleared — is
+`docs/reviews/2026-11-04-audit-loop.md`, so a later session picks the loop up without re-reading
+the repo. Sweep 1 of the three opening categories found four code items, three bugs and no security
+gap; the security sweep's checklists are written down in the ledger rather than repeated here.
+
+- ✅ **M52.1 The scan behind Repair gets a test, and its clock back.**
+  `server/remediations-scan.mjs` is the join between every helper read and every detector, reached
+  by both `GET /remediations` and the agents' `repair.findings`, and the only module of its size in
+  `server/` with nothing testing it — while `remediations.mjs`, the detectors it feeds, has 960
+  lines. The asymmetry has already cost one defect: the function takes an injected `now` and then
+  sets `facts.now = Date.now()`, so the backup-staleness window the detectors compute is measured
+  off the wall clock while the answer's `checkedAt` comes from the injected clock. `facts.now =
+  now()`, and a test with a fixed clock and recorded helper answers that holds the shape: which
+  reads an operator's scan makes and a viewer's does not, what `unavailableChecks` says when each
+  read fails, and that the tiers on each fix come from the registry.
+- ✅ **M52.2 Nightly clean-up attribution by run time, not by clock arithmetic.** Whether a
+  `docker.prune` job was the schedule's is decided by matching the job's local hour to the
+  schedule's and its minute to within five minutes after it. A schedule at :58 whose job started at
+  :01 fails the hour comparison, so an app the clean-up removed is told nobody's story instead of
+  "removed by the nightly clean-up"; and the branch covers weekly schedules without comparing the
+  weekday, so a hand-run prune at the same clock time on another day is attributed to the weekly
+  schedule. Compare against the schedule's own computed run time (`computeNextRun`) instead; both go.
+- ✅ **M52.3 The dead operations route, and what it was leaking.**
+  `GET /api/v1/operations` is reachable only through `listOperations()` in `src/operations.ts`,
+  which nothing calls. It is also the one place `registry.describe()` goes over the wire, and
+  `describe()` does not filter `internal` operations, so it hands every role the ids, titles, risk
+  tiers and parameter names of plumbing every other path refuses to run for them. Both go; if the
+  route is ever wanted back, `describe()` filters `internal` first.
+- ✅ **M52.4 Twenty-five exports nothing reads, twelve of them dead test hatches.** An `*Internals`
+  object says "a test depends on these private helpers"; in twelve modules
+  (`state`, `inventory`, `maintenance`, `ups`, `tasks/ups`, `support-bundle`, `storage-evidence`,
+  `recovery-kit`, `prerequisite-helper`, `controller-retention-helper`, `vm-helper`, `vm-media`,
+  `vm-protection-helper`, `vm-retention-helper`, `action-center`, `scripts/boxpilot-storage-scan`)
+  no test does. Those, and thirteen ordinary dead values, go.
+- ✅ **M52.5 One check that fails on an export nothing outside the file reads.** 277 exports in
+  `server/`, `src/`, `scripts/` and `packages/` are used only inside their own file. The fix worth
+  having is not the 277 edits: it is the invariant, written down once, in `npm run check` — the
+  shape of `escalation-inventory.test.mjs`, which already fails on any new operator-approvable
+  operation until someone has said why it is safe. That test is the pattern to copy, with a
+  reviewed-exceptions list for the names that are exported deliberately.
+- ✅ **M52.6 One "actually running" predicate.**
+  `Boolean(app.container?.running) && app.container?.status !== "paused"` is written out at
+  `server/app-glances.mjs`, `server/remediations-scan.mjs` (twice), `server/hosted-domains.mjs`
+  (twice) and `server/ops/cloudflare.mjs`. They agree today; the day "restarting" should also not
+  count as running, five of the six get missed. One exported helper, six call sites.
+- ✅ **M52.7 The root handoff files, in `docs/`.** Three handoff notes sat at the repo root, where
+  a newcomer meets them before `CLAUDE.md` points them at the roadmap:
+  `HANDOFF.md` → `docs/HANDOFF-OPS-CLI.md`, `HANDOFF-KEEL.md` and `HANDOFF-UI-REDESIGN.md` →
+  `docs/`, with the citations in ADR-004 and M8.4 updated. The UI-redesign note was going to be
+  deleted as superseded; it is not. ADR-004 and M33 both still cite it as the record of the eight
+  design directions, and M33 took B1-B4 and left B5-B7 there deliberately, so deleting it would
+  have thrown away the part that has not been decided. It moves instead. The move also fixes a
+  quiet mismatch: `internalDocuments` in `server/agents/tools.mjs` already matches
+  `docs/HANDOFF*.md`, so while these three were at the root the agents read them as documents for
+  the owner rather than for the people building BoxPilot.
+- ✅ **M52.8 Coverage, not an empty-sweep count, retires a usability sweep.** Three consecutive
+  sweeps with nothing is a real stopping rule for code, bug and security, where a codebase can
+  genuinely be clean. Usability, visual and quality of life never run out: M50.1 found thirty items
+  on its own, and three empty sweeps there would say the sweeper stopped looking, not that there was
+  nothing left. Of the three candidate rules, a fixed number of passes and the owner's verdict after
+  a week both depend on somebody remembering how many passes have happened, which does not survive
+  a session boundary. So: `docs/reviews/sweep-coverage.json`, a row per page and per shell surface
+  per category, with the date, the sweep number and the count of findings. A category retires when
+  every surface has been reviewed in this loop and the last pass over all of them found nothing; a
+  review goes stale after eight weeks and then counts as unreviewed. A ledger of dates rots the
+  moment a page is added, so `npm run check:sweeps` checks the rows against `navItems` in
+  `src/data.ts` — the list the screenshot and sweep scripts already read — and fails on a page with
+  no row or a row with no page. Time passing is not a failure: a stale review is reported, because a
+  check that goes red on its own while nobody has touched the code teaches people to ignore it.
+  Every row starts unreviewed, which is the honest state: the usability, visual and
+  quality-of-life sweeps have not run in this loop yet.
 
 ## App catalogue candidates
 

@@ -216,4 +216,3 @@ export function normalizeSmartEvidence(value, { now = () => new Date() } = {}) {
   };
 }
 
-export const storageEvidenceInternals = { capacityState, counterOrNull, filesystemErrorSummary, fixedDevicePattern, fixedMountOptionNames, mountOptionNames, mountSummary, normalizeFilesystemErrorEvidence, sanitizeMountSource, sanitizeMountTarget };

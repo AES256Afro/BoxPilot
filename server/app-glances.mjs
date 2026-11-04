@@ -12,6 +12,7 @@
  * (PrivateNetwork=true), so the web service does, as it reads SearXNG for the agents.
  */
 import { baselinewatchAppId, createBaselineWatchReader, describeDigest } from "./baselinewatch.mjs";
+import { containerRunning } from "./app-run-state.mjs";
 
 /** Every app with a reader: the card's title, the window its figures cover, and how to read it. */
 export const appReaders = Object.freeze({
@@ -55,7 +56,7 @@ export function createAppGlances({ helper = null, fetcher = fetch, now = () => n
     if (!applications) return { glances: [], liveKnown: false };
     const glances = await Promise.all(applications.map(async (application) => {
       const { title, window, reader } = readers[application.id];
-      const running = application.container?.running === true && application.container?.status !== "paused";
+      const running = containerRunning(application.container);
       const base = { app: application.id, name: application.name ?? application.id, title, window, url: application.urls?.[0] ?? null, running };
       const url = reachableUrl(application);
       if (!running) return { ...base, available: false, reason: `${base.name} is not running.`, since: null, readAt: now().toISOString(), metrics: [], digest: null };
