@@ -3678,6 +3678,53 @@ gap; the security sweep's checklists are written down in the ledger rather than 
   Every row starts unreviewed, which is the honest state: the usability, visual and
   quality-of-life sweeps have not run in this loop yet.
 
+## M53: The audit loop's second sweep
+
+Sweep 2 of code, bug and security, run 2026-11-04 over ground sweep 1 did not touch; the findings
+and what each sweep cleared are in `docs/reviews/2026-11-04-audit-loop.md`. Two bugs, two code
+items, one fail-open default. None of them is a live fault: the value of the sweep is that three of
+the five are the same shape as something already fixed or already written down, which says the rule
+exists and nothing enforces it.
+
+- ⬜ **M53.1 The auth service uses the clock it is given.** `createAuthService` accepts
+  `now` and honours it in one place, session renewal. The elevation window
+  (`new Date(Date.now() + elevationTtlMs)` — the deadline behind every high-risk approval and every
+  secret read), the ended-for-address memory, a trusted device's `createdAt` and the time written
+  into the new-sign-in push all read the wall clock instead. Same fault as M52.1, in the module
+  where it matters most: of the six test files that build an auth service, only
+  `session-renewal.test.mjs` passes a clock, and it tests the one path that honours it. Thread `now`
+  through all five, then test what could not be tested before: that elevation expires, that a
+  session ended for an address stops saying so after `sessionTtlMs`.
+- ⬜ **M53.2 Bound the hosted-domains file read inside each file, not just by file count.**
+  `readHostedSources` caps proxy-host files at 200 and puts no cap on what one file may contain.
+  Measured: 50,000 `ingress` rules make 4.1 MB of JSON, 200,000 `server_name` entries in one file
+  make 4.3 MB. The 32 MiB helper reply cap means this is not an out-of-memory, it is the Hosted
+  domains page losing every file-derived name to "Helper response exceeds the 33554432-byte limit"
+  — a bound reported in bytes to someone who wanted to know where their domains point. Cap the
+  names per file and the rules per file, and say the list was cut.
+- ⬜ **M53.3 One retention path, not two copies that drift.**
+  `controller-retention-helper.mjs` and `vm-retention-helper.mjs` share 136 of 164 lines after
+  renaming; `controller-retention.mjs` and `vm-retention.mjs` 98 of 164;
+  `vm-recovery-helper.mjs` and `vm-restore-drill-helper.mjs` share their input validators. This is
+  root-running code that decides which backups may be deleted, and it has already drifted: both
+  validate restic's snapshot evidence on line 84, and only the controller side rejects a
+  `snapshot.time` that is a string but not a date. Nothing breaks downstream today, which is the
+  point — the divergence is invisible until it is not. Share the input validators and the evidence
+  checks; keep apart only what is really different (the tag, the repository path, the cache root).
+- ⬜ **M53.4 A guard that refuses rather than waves through.**
+  `server/routes/virtualization.mjs` defaults `auth?.requireCsrf` to a middleware that calls
+  `next()`. `index.mjs` passes `auth`, so nothing is open; but the default on a missing dependency
+  is "no CSRF check", on the two routes that accept a multi-gigabyte upload and a creation preview,
+  and no other router here defaults a guard this way. Require `auth`, or throw when it is absent.
+- ⬜ **M53.5 Try the narrow clock check.** `AGENTS.md` has asked for injected clocks since before
+  M52.1, and both M52.1 and M53.1 were written anyway, a month apart. Exports got a check for the
+  same reason. The naive version of this one is worse than nothing — a bare `Date.now()` scan
+  returns 86 sites of which about four are real, because measuring a duration is not the same as
+  stamping a date. The narrow version is worth one attempt: inside a function with an injected `now`
+  in scope, flag a `Date.now()` or `new Date()` whose value is stored or compared rather than
+  subtracted. If that cannot be made to pay, write down in the ledger that it was tried and why not,
+  so sweep 3 does not spend itself here.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
