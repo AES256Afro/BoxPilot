@@ -338,4 +338,3 @@ export function createVmHelper({
   return { create, inventory, consoleGuidance, inspectExport, createExport };
 }
 
-export const vmHelperInternals = { defaultRunner };

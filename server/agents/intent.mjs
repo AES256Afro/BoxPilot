@@ -49,7 +49,6 @@ export function understandingFormatFor(fns = []) {
     : understandingSchema;
   return { type: "json_schema", json_schema: { name: "understanding", strict: true, schema } };
 }
-export const understandingFormat = Object.freeze(understandingFormatFor());
 
 /**
  * The planner's system message: the same bytes for every run of this agent with these tools, so a

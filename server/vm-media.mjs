@@ -104,4 +104,3 @@ export function createVmMediaService({
   return { inspect, upload, prepareOperation };
 }
 
-export const vmMediaInternals = { expectedUploadSize, reserveBytes };

@@ -173,4 +173,3 @@ export function createControllerRetentionHelper({
   return { inspect, apply };
 }
 
-export const controllerRetentionHelperInternals = { defaultRunner, snapshotSetRevision };
