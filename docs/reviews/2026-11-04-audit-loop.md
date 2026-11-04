@@ -14,9 +14,9 @@ again. The same rule as `swept-and-verified-clean`: a cleared area is not re-aud
 
 | Category | Sweeps run | Consecutive empty | State |
 | --- | --- | --- | --- |
-| Code | 2 | 0 | active — sweep 1: 4, fixed (M52); sweep 2: 2, fixed (M53.3, M53.5) |
-| Bug | 2 | 0 | active — sweep 1: 3, fixed (M52); sweep 2: 2, fixed (M53.1, M53.2) |
-| Security | 2 | 0 | active — sweep 1: nothing; sweep 2: 1 fail-open default, fixed (M53.4) |
+| Code | 3 | 0 | active — sweeps 1-2 fixed (M52, M53); sweep 3: 2, open (M55) |
+| Bug | 3 | 0 | active — sweeps 1-2 fixed (M52, M53); sweep 3: 1, open (M55) |
+| Security | 3 | 0 | active — sweep 1: nothing; sweep 2 fixed (M53.4); sweep 3: 1, open (M55) |
 | Readability | 0 | — | queued |
 | Usability | 0 | n/a | queued — retires on coverage, see below |
 | Visual | 0 | n/a | queued — retires on coverage, see below |
@@ -459,3 +459,103 @@ Four questions, each the same question one level further out, and each now held 
 Each was probed by making it fail on purpose, not by reasoning that it would. Three of the four were
 real at the time of writing: the export check could not fail, `escalation-inventory` passed over an
 empty list, and a test file sat outside every include pattern.
+
+---
+
+## Sweep 3 — security audit
+
+**S2. BoxPilot raises a finding when nothing can reach the owner, and none when anyone who takes the
+GitHub account can replace the whole server.** Signed releases are opt-in.
+`server/release-signer.mjs` says what that means in its own second paragraph: "Without a key set, an
+update builds whatever commit the GitHub tag points at, so whoever controls the GitHub account
+controls every server." With a key set, the upgrade script refuses anything `git verify-tag` does not
+attribute to it.
+
+The verification itself is the most careful code I have read in this repo. `git verify-tag` with
+`gpg.ssh.allowedSignersFile`, and `gpg.openpgp.program=/bin/false` and `gpg.x509.program=/bin/false`
+beside it, so a PGP or X.509 signature block cannot satisfy the check by sending git to a different
+program; and the tag is checked to point at the expected commit, because verify-tag checks the
+signature and not the name. Nothing is wrong there.
+
+What is missing is that the posture is only ever shown, never raised. System → BoxPilot update says
+"Signed releases: not required". There is no finding, no health alert, no Today card. Compare
+`nothingCanReachYou` (`server/remediations.mjs:651`), which is the same shape — a posture, not a
+failure, with no notification target — raised as a warning with a fix attached. "Nobody checks that
+an update is really yours" is the same kind of fact about the same box, with higher stakes.
+
+The fix is the documented way to add one: a detector in `remediations.mjs`, the signer state passed
+into the scan's facts. It is an operator-only read (`system.update.status` carries
+`minimumRole: "operator"`), so it belongs with the scan's other operator reads under ADR-003.
+
+### Looked at, nothing found
+
+- **The support bundle redacts everything it collects**, at the end, in one pass
+  (`server/support-bundle.mjs:62`), and ships `redactor.metadata()` so a reader knows the policy.
+  Probed the redactor with a nested secret, an array of arrays, a secret split across a newline, a
+  Basic header, a credential in a URL, a JWT, an AWS key and a private-key block: all redacted, and
+  the kept prefixes (`ghp_[REDACTED]`, `AKIA[REDACTED]`) are deliberate.
+- **Object keys are not walked** by the redactor, so a secret used as a key would survive. Left as a
+  note, not a finding: every key in the bundle comes from code — fixed log sources, operation ids,
+  app ids, audit detail names — and none is user-supplied.
+- **A `Map`, an `Error` or a `Buffer` would redact to `{}` or to its bytes.** Unreachable:
+  `settled()` turns a rejection into `{ status: "unavailable" }` and drops the reason, and
+  everything else in the bundle is parsed JSON. Worth knowing that "unavailable" never says why,
+  which is a usability question for that sweep rather than a security one.
+
+---
+
+## Sweep 3 — bug audit
+
+**B6. `parseLsblkTree` hangs forever on a self-referential device-mapper parent, and it hangs the
+whole web process.** `server/storage-inventory.mjs:63`:
+
+    let parent = (row.pkname ? byKname.get(row.pkname) : null) ?? row.visitParent ?? null;
+    while (parent && internal(parent)) parent = (parent.pkname ? byKname.get(parent.pkname) : null) ?? parent.visitParent ?? null;
+
+The loop climbs past LVM's internal `-real` and `-cow` nodes to the first real parent, with no
+visited set. A row whose `pkname` is its own `kname`, on a node whose name ends in `-real`, makes
+`parent` resolve to itself for ever. Confirmed by probe: a 12-second timeout kills it.
+
+This is synchronous and in the web process, so it is not a slow page — it is the event loop, and
+every BoxPilot request with it. Against that: the input is always live `/usr/bin/lsblk --json`
+output (the only caller is `storage-inventory.mjs:207`, plus a demo fixture); it is never read from a
+file, a stored snapshot or a request, and the kernel does not report a device as its own parent. So
+a latent hang, not a live fault. Worth the two lines anyway, because the failure mode is total and
+the guard costs nothing.
+
+The sibling loop is safe and was checked: `walk` follows the rebuilt `children` map, and two rows
+that claim each other as parent end up in neither `roots` nor anybody's children, so they are
+dropped rather than looped. Silently dropped, which is its own small untidiness.
+
+---
+
+## Sweep 3 — code audit
+
+**C7. The two VM restore validators share 34 lines of restic evidence checking, and now have
+somewhere to go.** `server/vm-recovery-helper.mjs:20` and `server/vm-restore-drill-helper.mjs:53`
+validate the same fields the same way — `repositoryId`, `snapshotId`,
+`expectedManifestChecksumSha256` against `shaPattern`, `expectedSizeBytes` as a positive safe
+integer, `expectedDestinationRevision`. This is the family `server/restic-retention.mjs` was created
+for in M53.3, which already holds `shaPattern` and the retention request validator. Folding it there
+is the same move, with the home already built.
+
+**C8. The retention service layers share less than the line count suggests, and the part worth
+sharing is the dangerous part.** 98 of 164 lines match after renaming, but only 56 are substantive,
+and most of those are domain wording that should stay apart: the policies differ
+(`minimumCopies` against `minimumCopiesPerDomain`, `preserveActiveControllerOperations` against
+`preserveRecoverySources`), the candidates differ (a protection record against a backup record), and
+the claims each name what they keep unchanged. Unlike the helpers in M53.3, this is not drift.
+
+What is worth sharing is the result-verification predicate — the compound condition that decides
+whether a forget did exactly what was approved (`afterCount !== beforeCount - forgotten.length`, the
+revision comparisons, every approved id absent and every other id present). Sweep 2 already found
+the two sides computing `complete` differently. That predicate is where a one-sided change is
+expensive; the wording is where sharing would cost readability.
+
+### Looked at, little found
+
+- Duplicated five-line blocks across files are down from 118 to 104 since M53.3.
+- Three of the twelve look Homes repeat the "which needs to show, which were just fixed" logic, and
+  four repeat `runOf`. Small, and `src/looks/` already has shared pieces (`LookHome.tsx`,
+  `findingWords.ts`) for it to move into if anyone touches that code anyway. Not worth a change of
+  its own.
