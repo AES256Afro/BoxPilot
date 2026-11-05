@@ -261,12 +261,16 @@ describe("reading filesystem snapshots", () => {
     expect(Object.keys(operation().parameters?.fields ?? {})).toEqual([]);
   });
 
-  it("answers that neither kind is supported here, rather than failing, when the tools are absent", async () => {
-    // It looks for the btrfs and zfs tools before running anything, so on a host with neither this
-    // is the whole answer — and the Storage page needs an answer, not a failed read.
-    const run = vi.fn(async () => ({ ok: false, stdout: "", stderr: "" }));
-    const read = await operation().run({}, { run });
-    expect(read).toMatchObject({ supported: false, btrfs: { toolPresent: false }, zfs: { toolPresent: false } });
-    expect(run).not.toHaveBeenCalled();
+  it("answers with both kinds and no snapshots, rather than failing, when every command fails", async () => {
+    // The Storage page needs an answer, not a failed read. What is asserted is the shape and that
+    // it resolves: whether the btrfs and zfs tools are present is a fact about the machine running
+    // the test, not about this code — the first version of this test asserted they were absent,
+    // passed here and failed on CI, where the runner has btrfs-progs.
+    const read = await operation().run({}, { run: async () => ({ ok: false, stdout: "", stderr: "" }) });
+    expect(read).toMatchObject({ supported: false });
+    expect(typeof read.btrfs.toolPresent).toBe("boolean");
+    expect(typeof read.zfs.toolPresent).toBe("boolean");
+    expect(read.btrfs.filesystems).toEqual([]);
+    expect(read.zfs.datasets).toEqual([]);
   });
 });
