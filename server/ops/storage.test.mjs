@@ -247,3 +247,26 @@ describe("what the kernel says about USB drives", () => {
     expect(parseUsbEvents(null).ports).toEqual([]);
   });
 });
+
+/**
+ * Reading filesystem snapshots (M56.2): in the registry, named by no test. The reading itself is
+ * server/tasks/fs-snapshots.mjs and has its own tests; what was untested is that the operation is a
+ * plain read with no parameters, and that it reads through the runner it is handed.
+ */
+describe("reading filesystem snapshots", () => {
+  const operation = () => storageOperations().find((entry) => entry.id === "storage.fs-snapshots.inspect");
+
+  it("is a read with nothing to choose", () => {
+    expect(operation()).toMatchObject({ risk: "low", readOnly: true });
+    expect(Object.keys(operation().parameters?.fields ?? {})).toEqual([]);
+  });
+
+  it("answers that neither kind is supported here, rather than failing, when the tools are absent", async () => {
+    // It looks for the btrfs and zfs tools before running anything, so on a host with neither this
+    // is the whole answer — and the Storage page needs an answer, not a failed read.
+    const run = vi.fn(async () => ({ ok: false, stdout: "", stderr: "" }));
+    const read = await operation().run({}, { run });
+    expect(read).toMatchObject({ supported: false, btrfs: { toolPresent: false }, zfs: { toolPresent: false } });
+    expect(run).not.toHaveBeenCalled();
+  });
+});

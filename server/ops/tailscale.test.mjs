@@ -13,3 +13,29 @@ describe("tailscale operations", () => {
     expect(operation.risk).toBe("medium");
   });
 });
+
+/**
+ * Moving Serve to BoxPilot's socket (M56.2): in the registry, named by no test. Owner-only for the
+ * reason the description gives — anything on this server can open the loopback port and claim to be
+ * Serve, apps on the host network included, and only BoxPilot and root can open the socket.
+ */
+describe("moving Tailscale Serve to the socket", () => {
+  const operation = () => tailscaleOperations().find((entry) => entry.id === "tailscale.serve.socket");
+
+  it("is the owner's, at medium, with nothing to choose", () => {
+    expect(operation()).toMatchObject({ risk: "medium", minimumRole: "owner", readOnly: false });
+    expect(Object.keys(operation().parameters?.fields ?? {})).toEqual([]);
+  });
+
+  it("carries the reason it is the owner's in its own words", () => {
+    expect(operation().description).toContain("claim to be Serve");
+  });
+
+  it("refuses before touching Tailscale when BoxPilot is not on the socket yet", async () => {
+    // The move itself is server/tasks/serve-socket.mjs and has its own tests. What matters at this
+    // level is the order: pointing Serve at a socket nothing is listening on would take the tailnet
+    // address down, so the check comes before the change, and the injected runner is never reached.
+    const run = () => { throw new Error("Tailscale was reconfigured before the socket was checked"); };
+    await expect(operation().run({}, { run, progress: () => {} })).rejects.toThrow(/not listening on/);
+  });
+});
