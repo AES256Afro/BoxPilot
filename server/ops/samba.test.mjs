@@ -67,9 +67,14 @@ describe("checking file sharing", () => {
     expect(Object.keys(operation().parameters?.fields ?? {})).toEqual([]);
   });
 
-  it("runs the check through the runner it is handed", async () => {
-    const run = vi.fn(async () => ({ ok: false, stdout: "", stderr: "" }));
-    await operation().run({}, { run });
-    expect(run).toHaveBeenCalled();
+  it("answers with checks rather than failing, whether or not Samba is on the host", async () => {
+    // It stops at the first check when /usr/sbin/smbd is absent and runs several when it is there —
+    // macOS ships smbd and the CI runner does not, so "the runner was called" is a fact about the
+    // machine. What holds everywhere is that a read asked for checks gets checks.
+    const read = await operation().run({}, { run: async () => ({ ok: false, stdout: "", stderr: "" }) });
+    expect(Array.isArray(read.checks)).toBe(true);
+    expect(read.checks.length).toBeGreaterThan(0);
+    expect(typeof read.ok).toBe("boolean");
+    for (const check of read.checks) expect(check).toMatchObject({ id: expect.any(String), state: expect.any(String), title: expect.any(String) });
   });
 });
