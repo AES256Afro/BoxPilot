@@ -102,17 +102,23 @@ function redact(value) {
   return String(value ?? "").replace(/\b(token|password|secret|api[_-]?key|authorization)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]").slice(0, 2000);
 }
 
+/**
+ * The inverse of `envFileLine`, for keeping a secret the owner already set through a reconfigure.
+ *
+ * Three forms, because files on a box may have been written by any version of BoxPilot:
+ * double-quoted with `\\`, `\"` and `\$` escaped (what is written now, M56.1), single-quoted with
+ * `\'` escaped (before that), and unquoted (before either).
+ */
 function parseEnvFile(text) {
   const env = {};
   for (const line of String(text ?? "").split("\n")) {
     const match = line.match(/^([A-Z][A-Za-z0-9_]*)=(.*)$/);
     if (!match) continue;
     const raw = match[2];
-    // Secrets are written single-quoted so Compose does not expand a dollar sign inside them;
-    // \' is the one escape that form recognises. Files written before that are still unquoted.
-    env[match[1]] = raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2
-      ? raw.slice(1, -1).replace(/\\'/g, () => "'")
-      : raw;
+    const quoted = (quote) => raw.length >= 2 && raw.startsWith(quote) && raw.endsWith(quote);
+    if (quoted('"')) env[match[1]] = raw.slice(1, -1).replace(/\\([\\"$])/g, (_all, character) => character);
+    else if (quoted("'")) env[match[1]] = raw.slice(1, -1).replace(/\\'/g, () => "'");
+    else env[match[1]] = raw;
   }
   return env;
 }

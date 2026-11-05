@@ -15,7 +15,7 @@ again. The same rule as `swept-and-verified-clean`: a cleared area is not re-aud
 | Category | Sweeps run | Consecutive empty | State |
 | --- | --- | --- | --- |
 | Code | 4 | 0 | active — sweeps 1-3 fixed; sweep 4: 1, open (M56) |
-| Bug | 4 | 0 | active — sweeps 1-3 fixed; sweep 4: 1, open (M56) |
+| Bug | 4 | 0 | active — sweeps 1-3 fixed; sweep 4: 1, fixed (M56.1) |
 | Security | 4 | **1** | active — sweep 4 found nothing; two more empty sweeps retires it |
 | Readability | 0 | — | queued |
 | Usability | 0 | n/a | queued — retires on coverage, see below |
@@ -609,7 +609,14 @@ Reachable: `resolveValues` rejects NULs and line breaks in an env value
 (`server/catalog/schema.mjs:568`) and caps the length, but not a backslash. The existing test covers
 a value with a dollar sign and a quote, and round-trips it; no case ends in a backslash.
 
-**Stated honestly: I could not verify this.** Confirming it needs `docker compose config` against a
+**Verified on the box afterwards, and it is worse than this said: compose rejects the whole file.**
+See M56.1 for the measured table of what each quoting form does in compose 2.40.3. The short of it:
+single quotes have no backslash escape, so a value ending in one cannot be written at all; double
+quotes escape `\\`, `\"` and `\$`, so every value can be. Fixed by writing the double-quoted form,
+with the reader taking all three forms a box may have on it.
+
+The original note, kept because being unable to check was the right thing to say at the time:
+**I could not verify this.** Confirming it needs `docker compose config` against a
 written `.env`, and the Docker socket is not reachable from here. The finding rests on the module's
 own documented model of the parser, which it says was verified. The first thing to do is to check it
 on the real box; if `\\` is in fact an escape, there is nothing here and the comment is what needs
