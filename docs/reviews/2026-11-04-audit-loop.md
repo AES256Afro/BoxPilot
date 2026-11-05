@@ -680,5 +680,26 @@ narrower and worth writing down as its own: **assert what the code does, not wha
 A `skipIf` would have been the wrong fix here — the operation's real property is that it answers with
 a shape instead of failing, whatever tools are installed, and that is now what the test says.
 
-Audited the rest of this session's new tests for the same mistake afterwards; the only other
-host-dependent line was already `typeof … === "boolean"` rather than a value.
+Audited the rest of this session's new tests for the same mistake afterwards — and the audit was no
+good. It grepped for the tokens of the bug I had just fixed (`toolPresent`, `existsSync`, absolute
+paths) instead of asking the question the bug was an instance of. CI then failed again, on
+`samba.diagnose`, where the host-dependent assertion was `expect(run).toHaveBeenCalled()`:
+`sambaDiagnose` stops at its first check when `/usr/sbin/smbd` is absent, macOS ships it and the
+Linux runner does not, so the runner is called here and not there. The same mistake in the opposite
+direction, in the same batch of tests, missed by an audit I had just reported as done.
+
+The second audit asked the real question — for each operation these tests drive, does its code probe
+the host before it touches an injected dependency? — and went through them one at a time. Three more
+places were host-dependent, two of them latent rather than failing:
+
+- `samba.diagnose`: fixed to assert the shape of the checks it answers with.
+- `tailscale.serve.socket`: the behaviour assertion is gone. It drove the real move, which stops when
+  BoxPilot's socket is absent — true on a laptop and on CI, false on a real BoxPilot host, where that
+  test would have behaved differently. The move has its own tests; what was untested here was the
+  operation's shape.
+- `app.stats.inspect`: asserted the docker binary's path, which comes from
+  `BOXPILOT_DOCKER_BINARY`. Now asserts the arguments, which are the operation's own.
+
+Written into `AGENTS.md` as a convention, because grepping for the last instance is not how this
+gets caught: **assert what the code does, not what the machine has.** A `skipIf` is the wrong fix —
+the property worth testing is that the read answers at all, whatever is installed.
