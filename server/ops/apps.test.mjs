@@ -340,3 +340,52 @@ describe("updating several apps in one job (M36)", () => {
     expect(validateParameters(spec, { ids: ["plex"], devicesByApp: { plex: ["/etc/shadow"] } }, "t")).toContain("/dev paths");
   });
 });
+
+/**
+ * Two app reads that were in the registry and named by no test (M56.2). `app.stats.inspect` is the
+ * one with logic of its own: it groups docker stats rows by app, and the comment above it records
+ * that the full inspection used to run here too, on every Apps page load, beside the one /catalog
+ * had already paid for.
+ */
+describe("app reads nothing had tested", () => {
+  const operation = (id) => appOperations().find((entry) => entry.id === id);
+
+  it("checks for updates through the catalog comparison, as a plain read", async () => {
+    const found = operation("app.updates.inspect");
+    expect(found).toMatchObject({ risk: "low", readOnly: true, minimumRole: null });
+    const apps = { checkUpdates: vi.fn(async () => ({ updates: [{ id: "immich" }] })) };
+    await expect(found.run({}, { apps })).resolves.toEqual({ updates: [{ id: "immich" }] });
+  });
+
+  it("reads live stats and asks only for the ids, not a full inspection", async () => {
+    const found = operation("app.stats.inspect");
+    expect(found).toMatchObject({ risk: "low", readOnly: true });
+    const rows = [
+      { Name: "bp-immich", CPUPerc: "12.00%", MemUsage: "100MiB / 1GiB" },
+      { Name: "bp-immich-db", CPUPerc: "3.00%", MemUsage: "50MiB / 1GiB" },
+      { Name: "something-else", CPUPerc: "1.00%", MemUsage: "10MiB / 1GiB" },
+    ].map((row) => JSON.stringify(row)).join("\n");
+    const apps = { installedIds: vi.fn(async () => ["immich"]), inspect: vi.fn() };
+    const run = vi.fn(async () => ({ ok: true, stdout: rows }));
+    const read = await found.run({}, { run, apps });
+    expect(read.available).toBe(true);
+    expect(Object.keys(read.stats)).toEqual(["immich"]);
+    // The cheap read, not the expensive one.
+    expect(apps.installedIds).toHaveBeenCalled();
+    expect(apps.inspect).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("docker"), ["stats", "--no-stream", "--format", "json"], expect.anything());
+  });
+
+  it("falls back to the full inspection only when there is no ids read", async () => {
+    const apps = { inspect: vi.fn(async () => ({ applications: [{ id: "immich" }] })) };
+    const read = await operation("app.stats.inspect").run({}, { run: async () => ({ ok: true, stdout: "" }), apps });
+    expect(apps.inspect).toHaveBeenCalled();
+    expect(read.available).toBe(true);
+  });
+
+  it("says the stats are unavailable rather than reporting none when docker will not answer", async () => {
+    const apps = { installedIds: async () => ["immich"] };
+    const read = await operation("app.stats.inspect").run({}, { run: async () => ({ ok: false, stdout: "" }), apps });
+    expect(read).toEqual({ available: false, stats: {} });
+  });
+});
