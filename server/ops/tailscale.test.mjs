@@ -31,11 +31,9 @@ describe("moving Tailscale Serve to the socket", () => {
     expect(operation().description).toContain("claim to be Serve");
   });
 
-  it("refuses before touching Tailscale when BoxPilot is not on the socket yet", async () => {
-    // The move itself is server/tasks/serve-socket.mjs and has its own tests. What matters at this
-    // level is the order: pointing Serve at a socket nothing is listening on would take the tailnet
-    // address down, so the check comes before the change, and the injected runner is never reached.
-    const run = () => { throw new Error("Tailscale was reconfigured before the socket was checked"); };
-    await expect(operation().run({}, { run, progress: () => {} })).rejects.toThrow(/not listening on/);
-  });
+  // No behaviour test at this level, deliberately. The move is server/tasks/serve-socket.mjs and has
+  // its own tests; the operation only forwards the runner to it. Driving it from here would assert a
+  // fact about the machine — whether BoxPilot's socket exists — which passes on a developer's laptop
+  // and on CI, and would behave differently on a real BoxPilot host, where the socket is there. The
+  // untested thing was this operation's own shape, which is what the cases above hold.
 });

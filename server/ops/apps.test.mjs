@@ -373,7 +373,9 @@ describe("app reads nothing had tested", () => {
     // The cheap read, not the expensive one.
     expect(apps.installedIds).toHaveBeenCalled();
     expect(apps.inspect).not.toHaveBeenCalled();
-    expect(run).toHaveBeenCalledWith(expect.stringContaining("docker"), ["stats", "--no-stream", "--format", "json"], expect.anything());
+    // The binary comes from BOXPILOT_DOCKER_BINARY, so the path is the host's business; the
+    // arguments are this operation's.
+    expect(run).toHaveBeenCalledWith(expect.any(String), ["stats", "--no-stream", "--format", "json"], expect.anything());
   });
 
   it("falls back to the full inspection only when there is no ids read", async () => {
