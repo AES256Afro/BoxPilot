@@ -667,3 +667,18 @@ Three guards now exist that did not when the loop started, each from a finding t
 recur: `check:exports`, `check:sweeps`, the clock lint rule, the self-tests that hold all of those
 to failing on bad input, and this registry invariant. That is the loop's real output — the findings
 were the occasion.
+
+### A test of mine asserted a fact about my laptop
+
+`storage.fs-snapshots.inspect` reads whether the btrfs and zfs tools are on the host before running
+anything. The test I wrote for it asserted they were **absent** — true here, false on the Linux
+runner, which has btrfs-progs. Green locally, red on CI.
+
+`AGENTS.md` already says this ("a run on macOS should be green, so a failure there is a regression
+worth chasing", and platform-gated tests come from `test/platform.mjs`). The rule I actually broke is
+narrower and worth writing down as its own: **assert what the code does, not what the machine has.**
+A `skipIf` would have been the wrong fix here — the operation's real property is that it answers with
+a shape instead of failing, whatever tools are installed, and that is now what the test says.
+
+Audited the rest of this session's new tests for the same mistake afterwards; the only other
+host-dependent line was already `typeof … === "boolean"` rather than a value.
