@@ -10,8 +10,8 @@ description: "Security news, CVEs and advisories in one timeline; a change regis
 website: https://github.com/AES256Afro/BaselineWatch
 risk: low
 image:
-  reference: ghcr.io/aes256afro/baselinewatch:0.54.0@sha256:811f934e964da8bc9dc8a989b71c68e27dd3b356ee66e758c5f6f21467e1fe49
-  version: "0.54.0"
+  reference: ghcr.io/aes256afro/baselinewatch:0.54.1@sha256:aa719d0dca618a19dad2af5df4ba2dcda1db4c4d8d4a3eb7997ea9ac773c43f7
+  version: "0.54.1"
 ports:
   - id: web
     label: Web UI
