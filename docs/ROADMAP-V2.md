@@ -3861,17 +3861,40 @@ escaping that carries an owner's settings into Docker, credentials at rest, and 
 operation registry any test has ever named. The ledger
 (`docs/reviews/2026-11-04-audit-loop.md`) holds what was cleared, which is most of it.
 
-- ⬜ **M56.1 Check what a backslash does to a `.env` value, then fix or correct the comment.**
+- ✅ **M56.1 Checked on the box: it breaks the whole file. Fixed by quoting differently.**
   `envFileLine` escapes `'` as `\'` and says `\'` is the only escape the parser recognises inside
   single quotes, verified against `docker compose config`. On that model a value ending in `\`
   escapes its own closing quote, the value never terminates, and the next line of the file is inside
   it — reachable, because env values are checked for NULs, line breaks and length but not for a
   backslash, and the existing test round-trips a dollar sign and a quote but nothing ending in one.
-  This could not be confirmed here: it needs `docker compose config` against a written `.env`, and
-  the Docker socket is not reachable from this machine. So the first step is to try it on the box. If
-  `\\` is an escape after all, nothing is broken and the comment is what needs correcting; if it is
-  not, a value whose trailing run of backslashes is odd cannot be represented in a single-quoted
-  value at all, and the choice is to reject it or to quote differently.
+  Verified against docker compose 2.40.3 on the box, and it is worse than the finding said. The file
+  is not misparsed, it is **rejected**: "unterminated quoted value", so compose refuses to read any
+  of it. Every setting in that app's `.env` is lost and the app cannot deploy at all, with an error
+  naming a "variable name" that is a fragment of the owner's password. Reachable by an owner typing
+  a password that ends in `\`.
+
+  The measured semantics, each case run in isolation on the box:
+
+  | written | compose 2.40.3 |
+  | --- | --- |
+  | `V='abc\'` | **file rejected**, unterminated quoted value |
+  | `V='abc\\'` | `abc\\` — two backslashes, so `\\` is not an escape in single quotes |
+  | `V='a\'b'` | `a'b` — `\'` is an escape, as the comment said |
+  | `V="abc\\"` | `abc\` — `\\` **is** an escape in double quotes |
+  | `V="a\$SECRET b"` | `a$SECRET b` literal — `\$` stops interpolation |
+  | `V="a${SECRET} b"` | `atopsecret b` — double quotes do interpolate, which is what `\$` is for |
+
+  So single quotes cannot represent a value whose trailing run of backslashes is odd, while double
+  quotes with `\\`, `\"` and `\$` escaped represent every value. `envFileLine` writes that form now,
+  and `parseEnvFile` in `app-helper.mjs` — which reads a secret back so a reconfigure does not ask
+  the owner to retype it — reads all three forms: the new one, the single-quoted one, and the
+  unquoted one from before either. Verified end to end on the box afterwards: a password ending in
+  one backslash, in three backslashes, and one holding `\ " $ '` all round-trip exactly, a
+  neighbouring `ADMIN=leaked` is not substituted into them, and the line after is untouched.
+
+  Nine tests asserted the single-quoted form and were updated. One of them turned out to be the
+  legacy path proving itself: an app restored from a machine snapshot whose archived `.env` was
+  single-quoted is read and rewritten in the new form with its token intact.
 - ⬜ **M56.2 Ten operations no test has ever named.** Of 265: `backup.remote.setup`,
   `tailscale.serve.socket`, `dns.names.clear` and `vpn.profile.clear` change the host;
   `app.updates.inspect`, `app.stats.inspect`, `storage.fs-snapshots.inspect`,
