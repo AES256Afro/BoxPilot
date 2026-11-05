@@ -53,3 +53,23 @@ describe("nfs operations", () => {
     expect(state).toHaveProperty("config.exports");
   });
 });
+
+/**
+ * Checking file sharing (M56.2): in the registry, named by no test. The check is
+ * server/tasks/samba.mjs and has its own tests; what was untested is the operation's own shape —
+ * a read open to every role, because it reports whether sharing answers, not who shares what.
+ */
+describe("checking file sharing", () => {
+  const operation = () => sambaOperations().find((entry) => entry.id === "samba.diagnose");
+
+  it("is a read with nothing to choose, open to viewers", () => {
+    expect(operation()).toMatchObject({ risk: "low", readOnly: true, minimumRole: null });
+    expect(Object.keys(operation().parameters?.fields ?? {})).toEqual([]);
+  });
+
+  it("runs the check through the runner it is handed", async () => {
+    const run = vi.fn(async () => ({ ok: false, stdout: "", stderr: "" }));
+    await operation().run({}, { run });
+    expect(run).toHaveBeenCalled();
+  });
+});

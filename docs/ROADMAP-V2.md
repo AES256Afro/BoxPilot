@@ -3895,13 +3895,33 @@ operation registry any test has ever named. The ledger
   Nine tests asserted the single-quoted form and were updated. One of them turned out to be the
   legacy path proving itself: an app restored from a machine snapshot whose archived `.env` was
   single-quoted is read and rewritten in the new form with its token intact.
-- ⬜ **M56.2 Ten operations no test has ever named.** Of 265: `backup.remote.setup`,
+- ✅ **M56.2 Ten operations no test had ever named, and a guard so there is never an eleventh.** Of 265: `backup.remote.setup`,
   `tailscale.serve.socket`, `dns.names.clear` and `vpn.profile.clear` change the host;
   `app.updates.inspect`, `app.stats.inspect`, `storage.fs-snapshots.inspect`,
   `backup.remote.inspect`, `samba.diagnose` and `vpn.profile.inspect` read. Being named in a test is
   a floor rather than coverage, but an operation no test mentions is certainly untested, and with
-  96% of the registry named these ten are an oversight rather than a norm. The four that mutate
-  first.
+  96% of the registry named these ten were an oversight rather than a norm.
+
+  All ten are tested now, and the tests are about behaviour where there is behaviour to test rather
+  than assertions that the entries exist. The off-box mirror's read gets a temporary secrets
+  directory and reports a key, its fingerprint and the count of pinned host keys — and still answers
+  when ssh-keygen fails or is missing, instead of failing the read. `app.stats.inspect` is held to
+  asking for the installed ids rather than the full inspection, which is what the comment above it
+  says it was changed to do, and to saying "unavailable" rather than "no apps are using anything"
+  when Docker will not answer. The Serve move is held to checking BoxPilot's socket *before*
+  reconfiguring Tailscale, since pointing Serve at a socket nothing is listening on would take the
+  tailnet address down. Removing the local names is held to passing the job's progress handler
+  through, so the job log says what happened.
+
+  Three ops modules had no test file at all (`host-backup`, `vpn`, `local-dns`) and now have one.
+
+  And the measurement is an invariant:
+  `server/ops/every-operation-is-named-by-a-test.test.mjs` fails on an operation no test names, with
+  the count of the registry asserted first so it cannot pass over an empty one (M54.4). Probed by
+  adding an operation and watching it fail. Its corpus is the filesystem, not `git ls-files` — the
+  opposite of `check:exports`, for a reason written in the file: that check asks "does anything
+  mention this name", where an uncommitted artifact lies, while this one asks "does a test cover
+  this", and a test file on disk runs whether it is staged or not.
 
 ## App catalogue candidates
 

@@ -14,7 +14,7 @@ again. The same rule as `swept-and-verified-clean`: a cleared area is not re-aud
 
 | Category | Sweeps run | Consecutive empty | State |
 | --- | --- | --- | --- |
-| Code | 4 | 0 | active — sweeps 1-3 fixed; sweep 4: 1, open (M56) |
+| Code | 4 | 0 | active — sweeps 1-3 fixed; sweep 4: 1, fixed (M56.2) |
 | Bug | 4 | 0 | active — sweeps 1-3 fixed; sweep 4: 1, fixed (M56.1) |
 | Security | 4 | **1** | active — sweep 4 found nothing; two more empty sweeps retires it |
 | Readability | 0 | — | queued |
@@ -650,3 +650,20 @@ registry being named makes the ten stand out rather than look like a norm.
   and the agents' connector (which is also where a proposed agent or assistant step is checked), and
   again inside `tasks/http-request.mjs` and `tasks/agents.mjs`. `http.request` is owner-only on top
   of that. The guard the comment describes is complete, and deeper than the comment claims.
+
+### Sweep 4's findings are both fixed
+
+M56.1 verified on the box and fixed by writing `.env` values double-quoted; M56.2 fixed by testing
+all ten operations and then making the measurement an invariant
+(`server/ops/every-operation-is-named-by-a-test.test.mjs`).
+
+That makes four sweeps where every finding was closed. The counters: code and bug are at four sweeps
+with no empty one; security has one of the three empty sweeps it needs. The honest read is that the
+two active categories are close to done — sweep 4 produced two findings against four or five, and
+both were in places a sweep had to go looking for rather than things that fell out of reading the
+code. Worth deciding on the evidence rather than grinding to three empties on principle.
+
+Three guards now exist that did not when the loop started, each from a finding that would otherwise
+recur: `check:exports`, `check:sweeps`, the clock lint rule, the self-tests that hold all of those
+to failing on bad input, and this registry invariant. That is the loop's real output — the findings
+were the occasion.
