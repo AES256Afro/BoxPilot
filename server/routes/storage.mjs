@@ -105,10 +105,12 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
   router.get("/storage/forecast", async (request, response) => {
     const history = state?.getSetting?.("diskUsageHistory", {}) ?? {};
     const usage = state?.getSetting?.("appDataUsageHistory", {}) ?? {};
-    const now = Date.now();
+    // The router's own clock, not the wall clock: this shadowed `now` with Date.now(), so a forecast
+    // read "full in 9 days" from a different clock than everything else here (M53.5).
+    const at = now();
     const forecasts = [];
     for (const [target, samples] of Object.entries(history)) {
-      const days = projectDaysToFull(samples, { now });
+      const days = projectDaysToFull(samples, { now: at });
       if (days === null) continue;
       const latest = Array.isArray(samples) && samples.length ? samples[samples.length - 1] : null;
       forecasts.push({ target, daysToFull: Math.max(0, Math.round(days)), availableBytes: latest?.availableBytes ?? null, totalBytes: latest?.totalBytes ?? null, samples: Array.isArray(samples) ? samples.length : 0 });
@@ -121,7 +123,7 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
     // Those sizes are app.data.usage's, which needs an operator (ADR-003): the path and size of
     // every app's data. A viewer gets the drive forecasts, which any account can read from df.
     const sizes = readsThroughHelper(request);
-    response.json({ forecasts, tracking: Object.keys(history).length, usage: sizes ? growthByApp(usage, { now, windowDays: 7, limit: 200, series: true }) : [], lastMeasured: sizes ? state?.getSetting?.("appDataUsageLastRun", null) ?? null : null });
+    response.json({ forecasts, tracking: Object.keys(history).length, usage: sizes ? growthByApp(usage, { now: at, windowDays: 7, limit: 200, series: true }) : [], lastMeasured: sizes ? state?.getSetting?.("appDataUsageLastRun", null) ?? null : null });
   });
 
   // Each disk's SMART readings over the last weeks, as the daily sampler kept them (M31.2): the same

@@ -327,4 +327,3 @@ if (invokedPath === import.meta.url) {
   });
 }
 
-export const storageScanInternals = { defaultFindmnt, defaultLsblk, defaultOutputPath, defaultSmartctl, filesystemErrorSummary, fixedDevicePattern, fixedFilesystemSourcePattern, fixedKernelNamePattern, fixedTransportPattern, parseDisks, safeCounter, safeNumber };

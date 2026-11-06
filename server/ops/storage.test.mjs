@@ -247,3 +247,30 @@ describe("what the kernel says about USB drives", () => {
     expect(parseUsbEvents(null).ports).toEqual([]);
   });
 });
+
+/**
+ * Reading filesystem snapshots (M56.2): in the registry, named by no test. The reading itself is
+ * server/tasks/fs-snapshots.mjs and has its own tests; what was untested is that the operation is a
+ * plain read with no parameters, and that it reads through the runner it is handed.
+ */
+describe("reading filesystem snapshots", () => {
+  const operation = () => storageOperations().find((entry) => entry.id === "storage.fs-snapshots.inspect");
+
+  it("is a read with nothing to choose", () => {
+    expect(operation()).toMatchObject({ risk: "low", readOnly: true });
+    expect(Object.keys(operation().parameters?.fields ?? {})).toEqual([]);
+  });
+
+  it("answers with both kinds and no snapshots, rather than failing, when every command fails", async () => {
+    // The Storage page needs an answer, not a failed read. What is asserted is the shape and that
+    // it resolves: whether the btrfs and zfs tools are present is a fact about the machine running
+    // the test, not about this code — the first version of this test asserted they were absent,
+    // passed here and failed on CI, where the runner has btrfs-progs.
+    const read = await operation().run({}, { run: async () => ({ ok: false, stdout: "", stderr: "" }) });
+    expect(read).toMatchObject({ supported: false });
+    expect(typeof read.btrfs.toolPresent).toBe("boolean");
+    expect(typeof read.zfs.toolPresent).toBe("boolean");
+    expect(read.btrfs.filesystems).toEqual([]);
+    expect(read.zfs.datasets).toEqual([]);
+  });
+});

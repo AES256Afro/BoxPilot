@@ -26,13 +26,6 @@ export const exposures = Object.freeze(["loopback", "lan"]);
  * matters for the several catalog apps that have no login of their own.
  */
 export const appExposures = Object.freeze(["lan", "tailnet"]);
-/**
- * The variables a manifest's env values may use besides its ports' ${PORT_<ID>}: ${TAILNET_HOST}
- * is this server's tailnet machine name (box.tail1234.ts.net), filled in at every deploy. An app
- * that must know the HTTPS address Tailscale Serve publishes it at (Zulip's EXTERNAL_HOST) says
- * `${TAILNET_HOST}:${PORT_WEB}` instead of asking the owner to type it.
- */
-export const serverVariableNames = Object.freeze(["TAILNET_HOST"]);
 /** An action on an installed app's sheet: a registered operation that takes only the app's id. */
 const operationIdPattern = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/;
 /**

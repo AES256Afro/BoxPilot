@@ -233,12 +233,6 @@ export class OperationRegistry {
     return operation.run(parameters, dependencies);
   }
 
-  /** Public, serializable description for the API and UI (no run functions). */
-  describe() {
-    return this.list().map(({ id, title, description, risk, readOnly, elevatedOnly, timeoutMs, parameters }) => ({
-      id, title, description, risk, readOnly, elevatedOnly, timeoutMs, parameterNames: Object.keys(parameters?.fields ?? {}),
-    }));
-  }
 }
 
 export function createRegistry(modules = []) {

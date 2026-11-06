@@ -99,4 +99,3 @@ export function createMaintenanceService({
   return { inspect };
 }
 
-export const maintenanceInternals = { aptListsPath, boundary, dpkgUpdatesPath, keyValues, rebootRequiredPath, systemctlBinary, systemStates };

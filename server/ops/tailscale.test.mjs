@@ -13,3 +13,27 @@ describe("tailscale operations", () => {
     expect(operation.risk).toBe("medium");
   });
 });
+
+/**
+ * Moving Serve to BoxPilot's socket (M56.2): in the registry, named by no test. Owner-only for the
+ * reason the description gives — anything on this server can open the loopback port and claim to be
+ * Serve, apps on the host network included, and only BoxPilot and root can open the socket.
+ */
+describe("moving Tailscale Serve to the socket", () => {
+  const operation = () => tailscaleOperations().find((entry) => entry.id === "tailscale.serve.socket");
+
+  it("is the owner's, at medium, with nothing to choose", () => {
+    expect(operation()).toMatchObject({ risk: "medium", minimumRole: "owner", readOnly: false });
+    expect(Object.keys(operation().parameters?.fields ?? {})).toEqual([]);
+  });
+
+  it("carries the reason it is the owner's in its own words", () => {
+    expect(operation().description).toContain("claim to be Serve");
+  });
+
+  // No behaviour test at this level, deliberately. The move is server/tasks/serve-socket.mjs and has
+  // its own tests; the operation only forwards the runner to it. Driving it from here would assert a
+  // fact about the machine — whether BoxPilot's socket exists — which passes on a developer's laptop
+  // and on CI, and would behave differently on a real BoxPilot host, where the socket is there. The
+  // untested thing was this operation's own shape, which is what the cases above hold.
+});

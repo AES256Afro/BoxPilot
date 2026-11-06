@@ -16,7 +16,7 @@ describe("Protec independent management portal", () => {
     expect(compose.services.protec.user).toBe("10001:10001");
     expect(compose.services.protec.ports).toEqual(["127.0.0.1:8765:8765"]);
     expect(compose.services.protec.volumes).toContain("./data:/data");
-    const token = envFile.match(/PROTEC_ADMIN_TOKEN='([A-Za-z0-9_-]+)'/)[1];
+    const token = envFile.match(/PROTEC_ADMIN_TOKEN="([A-Za-z0-9_-]+)"/)[1];
     expect(token.length).toBeGreaterThanOrEqual(32);
     expect(composeYaml).not.toContain(token);
     expect(resolveValues(manifest, {}).errors.length).toBeGreaterThan(0);

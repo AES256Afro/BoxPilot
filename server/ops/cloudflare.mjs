@@ -12,6 +12,7 @@ import os from "node:os";
 import { defineOperation } from "./registry.mjs";
 import { cloudflareApiCredential, cloudflareTunnelCredential, createTunnelStateStore, dnsLabelPattern, hostnamePattern, sameName, tunnelAppId, tunnelNameFor } from "../cloudflare-tunnel.mjs";
 import { normalizeBind } from "../ports.mjs";
+import { containerRunning } from "../app-run-state.mjs";
 
 const minutes = (count) => count * 60_000;
 const appIdField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
@@ -94,7 +95,7 @@ export async function publishTarget({ apps, appId, portId }) {
   if (!port || !Number.isInteger(port.host)) throw new Error(`${app.name} has no TCP port called ${portId}`);
   const bind = normalizeBind(port.bind);
   if (!reachableBinds.has(bind)) throw new Error(`${app.name} listens on that port only at ${bind}, which the Cloudflare Tunnel app cannot reach. On ${app.name}'s Reach tab, publish it on your home network, then publish it here again.`);
-  return { name: app.name ?? appId, hostPort: port.host, running: Boolean(app.container?.running) && app.container?.status !== "paused" };
+  return { name: app.name ?? appId, hostPort: port.host, running: containerRunning(app.container) };
 }
 
 export function cloudflareOperations() {

@@ -21,15 +21,35 @@ describe("values the owner typed", () => {
     const { composeYaml, envFile } = renderCompose(manifest, { env: { GREETING: "${ADMIN_PASSWORD} $HOME", ADMIN_PASSWORD: "s3cret" }, ports: {}, volumes: {} });
     expect(composeYaml).toContain("$${ADMIN_PASSWORD} $$HOME");
     expect(composeYaml).not.toContain("s3cret");
-    expect(envFile).toBe("ADMIN_PASSWORD='s3cret'\n");
+    expect(envFile).toBe('ADMIN_PASSWORD="s3cret"\n');
   });
 
   it("stores a secret containing a dollar sign or a quote exactly as typed", () => {
     const password = "pa$$w0rd ${NOPE} it's fine";
     const { envFile } = renderCompose(manifest, { env: { ADMIN_PASSWORD: password }, ports: {}, volumes: {} });
-    expect(envFile).toBe("ADMIN_PASSWORD='pa$$w0rd ${NOPE} it\\'s fine'\n");
-    // The reader is the inverse: what comes back out is what the owner typed.
+    // Double-quoted, with the dollars escaped so Compose does not expand them (M56.1).
+    expect(envFile).toBe('ADMIN_PASSWORD="pa\\$\\$w0rd \\${NOPE} it\'s fine"\n');
     expect(envFileLine("ADMIN_PASSWORD", password)).toBe(envFile.trimEnd());
+  });
+
+  /**
+   * Written single-quoted until M56.1, where `\'` is an escape and `\\` is not — so a value ending
+   * in one backslash escaped its own closing quote, ran on into the lines below it, and compose
+   * refused the whole file with "unterminated quoted value". Every setting in it was lost and the
+   * app could not deploy. Verified against docker compose 2.40.3 on the box, before and after.
+   */
+  it("stores a value ending in a backslash, which used to break the whole file", () => {
+    for (const password of ["abc\\", "abc\\\\", "x\\\\\\", "a\\\"$b'c\\"]) {
+      const line = envFileLine("ADMIN_PASSWORD", password);
+      expect(line, line).toMatch(/^ADMIN_PASSWORD=".*"$/);
+      const body = line.slice('ADMIN_PASSWORD="'.length, -1);
+      // The value's own last character cannot escape the closing quote: the run of backslashes the
+      // body ends with is always even, so the last one is itself escaped rather than escaping the
+      // quote. This is the whole bug, stated as a property.
+      expect((/(\\*)$/.exec(body)?.[1].length ?? 0) % 2, line).toBe(0);
+      // And it reads back as exactly what the owner typed.
+      expect(body.replace(/\\(["$\\])/g, (_all, character) => character)).toBe(password);
+    }
   });
 });
 
@@ -64,11 +84,14 @@ describe("the manifest's own fixed settings", () => {
     expect(url).toContain(`:\${${secret}}@`);
     expect(url).not.toContain("$${");
     // The password itself lives in .env, which is what the reference above is filled from.
-    expect(envFile).toMatch(new RegExp(`^${secret}='.+'$`, "m"));
+    expect(envFile).toMatch(new RegExp(`^${secret}=".+"$`, "m"));
   });
 
   it("never escapes a fixed value anywhere in the catalog", async () => {
     const { manifests } = await catalog.all();
+    // A catalog that failed to load would satisfy "nothing in it escapes" by holding nothing (M54).
+    // 174 manifests at the time of writing.
+    expect(manifests.length).toBeGreaterThan(120);
     const escaped = [];
     for (const manifest of manifests) {
       const { compose } = render(manifest);

@@ -231,7 +231,7 @@ owner's say.
 
 About fifteen top-level pages each act as a dashboard; panels open with paragraphs before the
 status; risk tiers appear only once a dialog opens. The owner reviewed ten directions
-(`docs/design-directions/04-eight-directions.html`, `HANDOFF-UI-REDESIGN.md`) and liked two:
+(`docs/design-directions/04-eight-directions.html`, `docs/HANDOFF-UI-REDESIGN.md`) and liked two:
 the Launcher and the Command Center.
 
 ### Decision

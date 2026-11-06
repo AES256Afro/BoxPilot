@@ -15,7 +15,6 @@ const json = (value) => JSON.stringify(value === undefined ? null : value);
 const parse = (value, fallback) => { try { return value === null || value === undefined ? fallback : JSON.parse(value); } catch { return fallback; } };
 export const digestToken = (token) => createHash("sha256").update(String(token)).digest("hex");
 
-export const runStates = Object.freeze(["queued", "running", "completed", "degraded", "failed", "cancelled", "killed", "interrupted", "refused", "timeout"]);
 export const finishedStates = new Set(["completed", "degraded", "failed", "cancelled", "killed", "interrupted", "refused", "timeout"]);
 
 export function createAgentStore({ databasePath, now = () => new Date(), random = randomBytes }) {

@@ -178,4 +178,3 @@ export function createInventoryService({
   return { inspect, forget: inspect.forget, cacheStats: inspect.stats };
 }
 
-export const inventoryInternals = { parseKeyValues, filesystemSummary, serviceUnits, storageHealthPath };

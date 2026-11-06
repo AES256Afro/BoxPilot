@@ -237,7 +237,7 @@ sidecars:
     await expect(apps.setPassword({ id: "hole", password: "short" })).rejects.toThrow("8 to 128");
     await expect(apps.setPassword({ id: "hole", password: "correct horse battery" })).resolves.toMatchObject({ id: "hole", changed: true });
     const after = Object.fromEntries(((await readFile(path.join(catalogRoot, "hole", ".env"), "utf8")).match(/^[A-Z_]+=.*$/gm) ?? []).map((line) => line.split("=")));
-    expect(after.ADMIN_PASSWORD).toBe("'correct horse battery'");
+    expect(after.ADMIN_PASSWORD).toBe('"correct horse battery"');
     expect(after.API_TOKEN).toBe(before.API_TOKEN); // the other secret survives
     expect(after.TZ).toBe(before.TZ); // and so does every ordinary setting
     // The sign-in link carries the page.
@@ -592,7 +592,7 @@ sidecars:
     await apps.reconfigure({ id: "tun", values: { exposure: "tailnet" } }, { checkpoint: false });
 
     const envFile = await readFile(path.join(catalogRoot, "tun", ".env"), "utf8");
-    expect(envFile).toContain("WG_KEY='the-private-key'");             // the secret survives untyped
+    expect(envFile).toContain("WG_KEY=\"the-private-key\"");             // the secret survives untyped
     const compose = await readFile(path.join(catalogRoot, "tun", "compose.yaml"), "utf8");
     expect(compose).toContain("PROVIDER: protonvpn");                  // not reset to mullvad
     expect(compose).toContain("/mnt/media:/data");                     // the owner's folder, not the default
@@ -2622,18 +2622,18 @@ describe("a required secret the saved settings never hold", () => {
     await rm(path.join(catalogDirectory, "tunnel.yaml"));
     await writeFile(path.join(catalogDirectory, "tunnel.yaml"), tunnelManifest("x/tunnel:2"));
     await expect(apps.update({ id: "tunnel" }, { checkpoint: false })).resolves.toMatchObject({ updated: true, reference: "x/tunnel:2" });
-    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN='eyJ-the-token'\n");
+    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN=\"eyJ-the-token\"\n");
     await expect(apps.rollbackApp({ id: "tunnel" }, { checkpoint: false })).resolves.toMatchObject({ rolledBack: true, restored: { tunnel: "x/tunnel:1" } });
-    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN='eyJ-the-token'\n");
+    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN=\"eyJ-the-token\"\n");
   });
 
   it("changes settings without the token typed again, and takes a new one when it is", async () => {
     const { apps, envFile } = await installed();
     await expect(apps.reconfigure({ id: "tunnel", values: {} }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
     await expect(apps.reconfigure({ id: "tunnel", values: { env: { TZ: "Europe/Berlin" } } }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
-    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN='eyJ-the-token'\n");
+    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN=\"eyJ-the-token\"\n");
     await apps.reconfigure({ id: "tunnel", values: { env: { TUNNEL_TOKEN: "eyJ-a-new-one" } } }, { checkpoint: false });
-    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN='eyJ-a-new-one'\n");
+    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN=\"eyJ-a-new-one\"\n");
   });
 
   it("rebuilds a pruned container whose compose project is gone too", async () => {
@@ -2641,7 +2641,7 @@ describe("a required secret the saved settings never hold", () => {
     containers.delete("bp-tunnel");
     await rm(path.join(catalogRoot, "tunnel", "compose.yaml"));
     await expect(apps.reinstall({ id: "tunnel" })).resolves.toMatchObject({ reinstalled: true, projectRewritten: true });
-    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN='eyJ-the-token'\n");
+    expect(await readFile(envFile, "utf8")).toBe("TUNNEL_TOKEN=\"eyJ-the-token\"\n");
   });
 
   it("still asks for it when there is no .env to take it from", async () => {
@@ -2689,7 +2689,7 @@ describe("saved settings from an older catalog", () => {
     const state = JSON.parse(await readFile(path.join(catalogRoot, "tunnel", "boxpilot.json"), "utf8"));
     expect(state).toMatchObject({ installed: true, restoredFrom: artifact, values: { env: { TZ: "Europe/Berlin" } } });
     expect(state.values.env).not.toHaveProperty("TUNNEL_METRICS");
-    expect(await readFile(path.join(catalogRoot, "tunnel", ".env"), "utf8")).toBe("TUNNEL_TOKEN='eyJ-the-token'\n");
+    expect(await readFile(path.join(catalogRoot, "tunnel", ".env"), "utf8")).toBe("TUNNEL_TOKEN=\"eyJ-the-token\"\n");  // the archived .env was single-quoted; it is read and written in the new form (M56.1)
   });
 
   it("still refuses a setting the owner sends that the catalog does not have", async () => {

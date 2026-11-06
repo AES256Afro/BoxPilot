@@ -60,20 +60,41 @@ export function parseLsblkTree(json) {
       continue;
     }
     let parent = (row.pkname ? byKname.get(row.pkname) : null) ?? row.visitParent ?? null;
-    while (parent && internal(parent)) parent = (parent.pkname ? byKname.get(parent.pkname) : null) ?? parent.visitParent ?? null;
+    // Climbing to the first real parent needs a visited set (M55.2): a node whose PKNAME is its own
+    // KNAME, on a name ending -real or -cow, resolved to itself for ever. This runs in the web
+    // process and is synchronous, so that was not a slow page, it was the event loop and every
+    // request with it. The kernel does not report a device as its own parent, so nothing has ever
+    // hit it; it costs two lines not to depend on that.
+    const climbed = new Set([row]);
+    while (parent && internal(parent) && !climbed.has(parent)) {
+      climbed.add(parent);
+      parent = (parent.pkname ? byKname.get(parent.pkname) : null) ?? parent.visitParent ?? null;
+    }
+    if (parent && internal(parent)) parent = null;
     if (parent && parent !== row) {
       if (!children.has(parent.path)) children.set(parent.path, []);
       children.get(parent.path).push(row);
     } else roots.push(row);
   }
   const ordered = [];
+  // `walk` carries its own visited set, because the parentage it follows can describe a cycle: two
+  // rows that each name the other as PKNAME put each in the other's children. Walking from a root
+  // never reached those, so they used to be dropped; walking them to keep them (below) recursed
+  // until the stack gave out, which is how this set came to be here (M55.2).
+  const placed = new Set();
   const walk = (row, depth) => {
+    if (!row.path || placed.has(row.path)) return;
+    placed.add(row.path);
     const { kname, pkname, visitParent, ...device } = row;
     void kname; void pkname; void visitParent;
     ordered.push({ ...device, depth });
     for (const child of children.get(row.path) ?? []) walk(child, depth + 1);
   };
   for (const root of roots) walk(root, 0);
+  // Anything the walk never reached: two rows that each claim the other as parent are in nobody's
+  // children and in no root, so they used to vanish from Storage without a word. A device BoxPilot
+  // cannot place is still a device the owner has (M55.2).
+  for (const row of rows) if (!internal(row)) walk(row, 0);
   return ordered;
 }
 
