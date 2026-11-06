@@ -7,7 +7,7 @@ description: Your own cloud. Files with phone and desktop sync, calendar, contac
 website: https://nextcloud.com
 risk: medium
 image:
-  reference: nextcloud:34.0.5-apache@sha256:b2255a301d94e004f1af0370e5f1256ffb4ee156b231ac4e76aadd6c0e5b44a4
+  reference: nextcloud:34.0.5-apache@sha256:b89746a4febc93de82141921417f43b0d5ce69c3746feb485372559e9fbeec3f
   version: 34.0.5
 ports:
   - id: web
@@ -76,7 +76,7 @@ env:
     default: Etc/UTC
 sidecars:
   - id: database
-    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+    image: postgres:16.15-alpine@sha256:1fb72075a1de85a1d39de23c2da81baef1b71bf5c0b61a14cbbfdb072a6246d9
     env:
       POSTGRES_DB: nextcloud
       POSTGRES_USER: nextcloud
