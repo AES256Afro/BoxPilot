@@ -387,7 +387,7 @@ In the Tailscale admin console:
 1. Open **DNS**.
 2. Keep **Override DNS servers** off.
 3. Keep MagicDNS on.
-4. Find the dead global nameserver `100.64.0.63`.
+4. Find the dead global nameserver (a 100.x address).
 5. Open its three-dot menu and remove it.
 6. Do not add `<server-ip>` as a DNS server unless a real DNS service is later installed and tested on this machine.
 7. Do not enable an exit node during the rebuild.
@@ -414,7 +414,7 @@ tailscale ip -4
 tailscale status
 ```
 
-The new server will receive a new `100.x.x.x` Tailscale address. Do not assume it will reclaim the old `100.64.0.63` address.
+The new server will receive a new `100.x.x.x` Tailscale address. Do not assume it will reclaim the old server's address.
 
 From the Mac, test:
 
