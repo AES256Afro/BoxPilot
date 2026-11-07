@@ -269,7 +269,7 @@ To display all interface MAC addresses:
 ip -o link
 ```
 
-The wired interface should show `a0:ad:9f:00:00:ee`.
+The wired interface should show the MAC address printed on the board or in the BIOS.
 
 ### Override only this server's DNS if necessary
 
