@@ -1,11 +1,12 @@
 # TheySpy (schemaVersion 2). Source of truth: AES256Afro/TheySpy boxpilot/theyspy.yaml, whose CI
-# validates it with this repository's validateManifest. The image is pinned to the digest the v1.30.0
+# validates it with this repository's validateManifest. The image is pinned to the digest the v1.37.0
 # release published, an image index for amd64 and arm64: signed keylessly, with an SBOM and build
 # provenance attested by GitHub.
-# Port 8797 is free in the BoxPilot catalog (BaselineWatch 8790, Protec 8765, BoxPilot itself 8787).
-# This version runs in bridge mode with no extra capabilities: discovery uses Pi-hole's network table
-# (for MACs) and unprivileged TCP probes, only inside TS_SCAN_RANGES. An optional host-network mode for
-# full ARP and mDNS/SSDP may come later, with risk raised to medium if it does.
+# Port 8797 is the dashboard and 8798 the same over HTTPS with TheySpy's own certificate (BaselineWatch
+# 8790, Protec 8765, BoxPilot itself 8787). This version runs in bridge mode with no extra capabilities:
+# discovery uses Pi-hole's network table (for MACs) and unprivileged TCP probes, only inside
+# TS_SCAN_RANGES. An optional host-network mode for full ARP and mDNS/SSDP may come later, with risk
+# raised to medium if it does.
 schemaVersion: 2
 id: theyspy
 name: TheySpy
@@ -15,14 +16,19 @@ description: "Watches for ad-delivered spyware. Hunts your Pi-hole's DNS history
 website: https://github.com/AES256Afro/TheySpy
 risk: low
 image:
-  reference: ghcr.io/aes256afro/theyspy:1.30.0@sha256:41e8bd79d93ff0b63dab6f9ca34e1961dc37e9a74fd5f4ac93c0b2a6ee5888da
-  version: "1.30.0"
+  reference: ghcr.io/aes256afro/theyspy:1.37.0@sha256:83bc87cdef382d82a20130a0995e01f06fd198273cece2c05ac222d9dd7e0f59
+  version: "1.37.0"
 user: "1000:1000"
 ports:
   - id: web
     label: Dashboard
     container: 8797
     host: 8797
+    exposure: lan
+  - id: tls
+    label: Dashboard over HTTPS (TheySpy's own certificate)
+    container: 8798
+    host: 8798
     exposure: lan
 volumes:
   - id: data
@@ -84,8 +90,16 @@ env:
     description: Reads Pi-hole's network table every 5 minutes and sweeps the networks you choose on the Fleet screen every 30 minutes. Nothing is swept until you choose networks.
   - name: TS_SCAN_RANGES
     label: Ranges TheySpy may scan
-    default: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10"
-    description: Comma-separated IPv4 ranges. Discovery never probes an address outside them; a sweep must also fit in one of them.
+    default: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7,fe80::/10"
+    description: Comma-separated IPv4 or IPv6 ranges. Discovery never probes an address outside them; a sweep must also fit in one of them (IPv6 is never swept).
+  - name: TS_TLS_PORT
+    label: HTTPS port
+    default: "8798"
+    description: TheySpy makes itself a certificate on first start and serves HTTPS here beside plain HTTP; its fingerprint is on Activity. "off" leaves HTTP only.
+  - name: TS_TLS_NAMES
+    label: Extra names on the certificate (optional)
+    default: ""
+    description: Comma-separated host names you reach TheySpy by, besides this server's own name and addresses, so the browser's warning names the right host.
   - name: TS_CVES_AUTO
     label: Keep the CVE list current
     type: boolean
