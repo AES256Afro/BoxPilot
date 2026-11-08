@@ -12,13 +12,15 @@ id: strata
 name: Strata
 category: AI
 icon: "🪨"
-description: "Runs Qwen3.8-Flash-Next on this server's NVIDIA card and serves it over OpenAI- and Anthropic-compatible APIs, with a chat page. Claude Code, Codex CLI, OpenCode, Open WebUI and anything that speaks the OpenAI API can use it. Needs an RTX 20 to 50 series card set up for Docker, 40 to 55 GB of RAM plus VRAM for the model, and tens of GB of disk for the download."
+description: "Runs Qwen3.8-Flash-Next on this server's NVIDIA card and serves it over OpenAI- and Anthropic-compatible APIs, with a chat page. Claude Code, Codex CLI, OpenCode, Open WebUI and anything that speaks the OpenAI API can use it. Needs an RTX 20 to 50 series card set up for Docker, 40 to 55 GB of RAM plus VRAM for the model, and 66 to 76 GB of disk for the download."
 website: https://github.com/AES256Afro/BoxStrataChat
 risk: medium
 # The engine runs on an NVIDIA GPU only. Without the NVIDIA Container Toolkit the container starts, says in plain words that the
 # engine does not match this computer's graphics card, and stops; BoxPilot then puts the install back. Repair Center shows the GPU state.
 gpu: optional
 shmSize: 2g
+# docker stop gives the engine two minutes to unload the model; at Docker's default 10 seconds a big model is killed mid-unload (exit 137).
+stopGracePeriod: 2m
 image:
   reference: ghcr.io/niko1221/strata:0.2.12-cuda13@sha256:c3a853420670f4c0f5a948c2d9e9904af4cedf52b11bc8cf167602dc5c578bcc
   version: "0.2.12-cuda13"
@@ -34,7 +36,7 @@ volumes:
     container: /data
     path: data
     backup: false
-    description: The downloaded model (tens of GB), the prepared pack, the saved preset and tuning results. Excluded from backups on purpose; the model downloads again after a restore, and the API key is kept by BoxPilot, not here.
+    description: The downloaded model (66 to 76 GB for the ISTA-DASLab sizes), the prepared pack, the saved preset and tuning results. Excluded from backups on purpose; the model downloads again after a restore, and the API key is kept by BoxPilot, not here.
   - id: models
     label: GGUF files you already have (optional)
     container: /models
@@ -46,12 +48,12 @@ volumes:
 env:
   - name: FAMILY
     label: Model family
-    description: Which Qwen3.8-Flash-Next packs to use. qwen = the ISTA-DASLab originals (recommended); unsloth = Unsloth's 4 to 8 bit files (72 to 136 GB of memory); gyro = the least memory, slower; coder = the coding-only build, about 32 GB.
+    description: Which Qwen3.8-Flash-Next packs to use. qwen = the ISTA-DASLab originals (recommended); unsloth = Unsloth's 4 to 8 bit files (72 to 136 GB of memory); gyro = the least memory, slower; coder = the coding-only build, about 32 GB; swift = the Swift 1.5 variant for low memory.
     default: qwen
-    options: ["qwen", "unsloth", "gyro", "coder"]
+    options: ["qwen", "unsloth", "gyro", "coder", "swift"]
   - name: MODEL
     label: Model size
-    description: "For the qwen family: Q2_0 (37.6 GB of RAM plus VRAM, fastest), IQ2_XS (39.2 GB), IQ3_XXS (47 GB, great quality), IQ3_S (54.8 GB, best). For unsloth: UD-IQ4_XS, UD-Q4_K_XL, UD-Q5_K_XL, UD-Q6_K_XL or Q8_0. Leave empty and Strata picks what suits the card."
+    description: "qwen and swift: Q2_0 (37.6 GB of RAM plus VRAM, fastest), IQ2_XS (39.2 GB), IQ3_XXS (47 GB, great quality), IQ3_S (54.8 GB, best). unsloth: UD-IQ4_XS, UD-Q4_K_XL, UD-Q5_K_XL, UD-Q6_K_XL or Q8_0. gyro: Gyro-S (27.6 GB) or Gyro-M (35 GB). coder: IQ1_M (about 32 GB). Any case. Leave empty and Strata picks what suits the card."
     default: IQ3_XXS
   - name: CONTEXT
     label: Context length
@@ -97,4 +99,4 @@ health:
   kind: running
   stableSeconds: 60
   timeoutSeconds: 900
-notes: "Strata is an NVIDIA-only engine (RTX 20 to 50 with driver 580 or newer and the NVIDIA Container Toolkit): on a server with no card the container stops at once with a message, and BoxPilot puts the install back. The first start downloads Qwen3.8-Flash-Next (37 to 55 GB depending on the size) into the data folder and takes a while; watch it from Logs. Other apps reach the model at http://<this server>:8111/v1 (OpenAI style) or http://<this server>:8111 (Anthropic style, Claude Code) with the API key as the Bearer token; GET /v1/models lists the model name. Keep it on your home network or the tailnet rather than opening it to the internet. The compose BoxPilot writes has no memlock ulimit, so the engine cannot pin its RAM; it warns and runs anyway. Model files are excluded from backups by design."
+notes: "Strata is an NVIDIA-only engine (RTX 20 to 50 with driver 580 or newer and the NVIDIA Container Toolkit): on a server with no card the container stops at once with a message, and BoxPilot puts the install back. The first start downloads Qwen3.8-Flash-Next (66 to 76 GB for the ISTA-DASLab sizes, about 76 GB for the default IQ3_XXS) into the data folder and takes a while; watch it from Logs. Other apps reach the model at http://<this server>:8111/v1 (OpenAI style) or http://<this server>:8111 (Anthropic style, Claude Code) with the API key as the Bearer token; GET /v1/models lists the model name. Keep it on your home network or the tailnet rather than opening it to the internet. BoxPilot's compose has no memlock ulimit, so the engine cannot pin its RAM; it warns and runs anyway. Model files are excluded from backups by design."

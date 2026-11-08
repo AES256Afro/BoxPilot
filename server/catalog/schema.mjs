@@ -93,6 +93,12 @@ export function isKnownTimeZone(value) {
 export const envOptionSources = Object.freeze(["ollama-models"]);
 export const riskTiers = Object.freeze(["low", "medium", "high"]);
 
+/** Seconds in a `30s` / `2m` stop grace period; NaN for anything else. */
+function stopGraceSeconds(text) {
+  const match = /^(\d+)([sm])$/.exec(text);
+  return match ? Number(match[1]) * (match[2] === "m" ? 60 : 1) : NaN;
+}
+
 function fail(errors, path, message) { errors.push(`${path}: ${message}`); }
 
 /**
@@ -132,7 +138,7 @@ export function keepsBackupData(manifest) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu", "defaultExposure", "actions", "publicHostname"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu", "defaultExposure", "actions", "publicHostname", "stopGracePeriod"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // defaultExposure: who can reach the app when the owner installs it without choosing. "tailnet"
   // binds its web ports to 127.0.0.1 and publishes them with Tailscale Serve (HTTPS, a real
@@ -163,6 +169,10 @@ export function validateManifest(raw) {
   // Container Toolkit), and run on the CPU otherwise. Never a reason not to install.
   if (raw.gpu !== undefined && raw.gpu !== "optional") fail(errors, "manifest.gpu", "must be optional");
   if (raw.shmSize !== undefined && !(typeof raw.shmSize === "string" && /^[1-9][0-9]{0,4}[mg]$/.test(raw.shmSize))) fail(errors, "manifest.shmSize", "must look like 256m or 1g");
+  // Docker gives a stopping container 10 seconds before it is killed. An app that has to write out
+  // or unload something large (a model engine freeing tens of GB) is killed mid-way at that
+  // default, which looks like a crash on the next start. Up to 10 minutes.
+  if (raw.stopGracePeriod !== undefined && !(typeof raw.stopGracePeriod === "string" && /^(?:[1-9][0-9]{0,2}s|[1-9]0?m)$/.test(raw.stopGracePeriod) && stopGraceSeconds(raw.stopGracePeriod) <= 600)) fail(errors, "manifest.stopGracePeriod", "must look like 30s or 2m, at most 10m");
   // usesVpnProfile: the app can be routed through the one shared VPN profile instead of its own
   // connection. It needs a networkVia sidecar (a Gluetun container) for the profile to configure.
   if (raw.usesVpnProfile !== undefined && typeof raw.usesVpnProfile !== "boolean") fail(errors, "manifest.usesVpnProfile", "must be boolean");
@@ -508,6 +518,7 @@ export function validateManifest(raw) {
     modelRunner,
     sysctls: raw.sysctls ?? [],
     shmSize: raw.shmSize ?? null,
+    stopGracePeriod: raw.stopGracePeriod ?? null,
     gpu: raw.gpu ?? null,
     sidecars: sidecars.map((sidecar) => ({
       id: sidecar.id,
