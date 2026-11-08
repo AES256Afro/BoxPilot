@@ -68,6 +68,10 @@ describe("manifest schema", () => {
     expect(validateManifest({ ...base, env: [{ name: "TZ", default: "x" }, { name: "TZ", default: "y" }] }).errors).toContainEqual(expect.stringContaining("env[1].name"));
     expect(validateManifest({ ...base, capabilities: ["NET_ADMIN"] }).errors).toContainEqual(expect.stringContaining("CAP_"));
     expect(validateManifest({ ...base, schemaVersion: 1 }).errors).toContainEqual(expect.stringContaining("schemaVersion"));
+    // stopGracePeriod: how long docker stop waits before killing; a model engine needs minutes to unload.
+    expect(validateManifest({ ...base, stopGracePeriod: "2m" }).manifest.stopGracePeriod).toBe("2m");
+    expect(validateManifest({ ...base }).manifest.stopGracePeriod).toBeNull();
+    for (const bad of ["2", "120", "15m", "2h", "0s", 120]) expect(validateManifest({ ...base, stopGracePeriod: bad }).errors, String(bad)).toContainEqual(expect.stringContaining("stopGracePeriod"));
   });
 
   it("resolves values with defaults and rejects bad input", () => {
