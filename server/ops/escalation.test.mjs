@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createRegistry } from "./registry.mjs";
 import { operationModules, registry } from "./index.mjs";
-import { escalationRiskHooks, higherOf, loginHomesFrom, packetFilterUnit, serveWithdrawRisk } from "./escalation.mjs";
+import { escalationRiskHooks, higherOf, homepageHostRisk, loginHomesFrom, packetFilterUnit, reachesBackupDestination, serveWithdrawRisk } from "./escalation.mjs";
+import { loadCatalog } from "../catalog/index.mjs";
 import { onLinux } from "../../test/platform.mjs";
 import { servesHome } from "../tasks/served-folder.mjs";
 import { readFile } from "node:fs/promises";
@@ -101,6 +102,33 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
     // No folder chosen: the manifest's own default, which the catalog wrote.
     expect(await tier("app.install", { id: "filebrowser", values: {} })).toBe("medium");
     expect(await tier("app.reconfigure", { id: "filebrowser", values: { ports: { web: 8080 } } })).toBe("medium");
+  });
+
+  it("raises a data folder that holds the backups or sits inside them, which /mnt is the way to", async () => {
+    for (const folder of ["/mnt/boxpilot", "/mnt/boxpilot/backup", "/mnt/boxpilot/backup/apps/vaultwarden", "/mnt/boxpilot-backup", "/mnt/boxpilot-backup/apps", "/mnt/", "/"]) {
+      expect(reachesBackupDestination(folder), folder).toBe(true);
+      expect(await tier("app.install", { id: "filebrowser", values: { volumes: { data: folder } } }), folder).toBe("high");
+      expect(await tier("app.reconfigure", { id: "filebrowser", values: { volumes: { data: folder } } }), folder).toBe("high");
+    }
+    for (const folder of ["/mnt/media", "/mnt/boxpilot2", "/mnt/boxpilot-backups", "/srv/files", "/media/usb"]) expect(reachesBackupDestination(folder), folder).toBe(false);
+    expect(reachesBackupDestination(undefined)).toBe(false);
+  });
+
+  it("holds every catalog app that is handed the Docker socket to write to, or a writable folder holding the backups, to the owner", async () => {
+    const { manifests } = await loadCatalog();
+    const reaching = manifests.filter((manifest) => (manifest.volumes ?? []).some((volume) => typeof volume.hostPath === "string" && !volume.readOnly
+      && (/docker\.sock$/.test(volume.hostPath) || reachesBackupDestination(volume.hostPath))));
+    expect(reaching.map((manifest) => manifest.id).sort()).toEqual(["backrest", "dockge", "duplicati", "filebrowser", "kopia", "portainer"]);
+    for (const manifest of reaching) expect(manifest.risk, manifest.id).toBe("high");
+  });
+
+  it("raises Homepage's links pointed at another machine, and leaves this server's own names one click", async () => {
+    const hooks = createRegistry(operationModules).useRiskHooks({ "homepage.sync": homepageHostRisk(async () => ["https://box.tail1234.ts.net", "https://box.tail1234.ts.net:8443"]) });
+    for (const host of ["evil.example", "192.0.2.7", "box.tail9999.ts.net"]) expect(await hooks.effectiveRisk("homepage.sync", { host }), host).toBe("high");
+    for (const host of ["box.tail1234.ts.net", "BOX.tail1234.ts.net.", "127.0.0.1", "localhost"]) expect(await hooks.effectiveRisk("homepage.sync", { host }), host).toBe("low");
+    expect(await hooks.effectiveRisk("homepage.sync", {})).toBe("low");   // no host: the server works out its own
+    const unreadable = createRegistry(operationModules).useRiskHooks({ "homepage.sync": homepageHostRisk(async () => { throw new Error("tailscale is not running"); }) });
+    expect(await unreadable.effectiveRisk("homepage.sync", { host: "evil.example" })).toBe("high");
   });
 
   it("stages an install at the higher of its manifest's tier and its folders'", async () => {

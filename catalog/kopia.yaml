@@ -5,7 +5,9 @@ category: Backup
 icon: "📦"
 description: "Fast, encrypted, deduplicated snapshots with a web UI. Back up folders on this server to a mounted share, an external disk, S3/B2, or another Kopia server; restore single files from any point in time."
 website: https://kopia.io
-risk: low
+# High (ADR-015): its repository folder is /mnt, writable, which holds BoxPilot's own backups (every app's
+# secrets and the database) at /mnt/boxpilot/backup.
+risk: high
 image:
   reference: kopia/kopia:0.23.1@sha256:89fd95ee2942880ca00eae964266958a394421ddbdf69bca62e38afc55f5900e
   version: "0.23.1"
