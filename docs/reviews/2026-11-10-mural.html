@@ -91,7 +91,7 @@ footer { color: var(--soft); font-size: 13px; border-top: 1px solid var(--line);
   <div class="head">
     <div>
       <div class="eyebrow">10 November 2026 · one working day</div>
-      <h1>Four rounds of sweeps, two releases, one wall.</h1>
+      <h1>Four rounds of sweeps, three releases, one wall.</h1>
     </div>
     <p class="lede">Every dot below is one finding from a sweep of BoxPilot. A filled dot was fixed, tested and shipped to the server the same day. A ring is planned. A diamond is waiting for a decision that is yours.</p>
   </div>
@@ -99,7 +99,7 @@ footer { color: var(--soft); font-size: 13px; border-top: 1px solid var(--line);
   <div class="nums">
     <div><b class="mono" id="n-sweeps">27</b><span>sweeps across nine categories, three or more each</span></div>
     <div><b class="mono" id="n-found">—</b><span>findings, each checked against the code before anyone acted</span></div>
-    <div><b class="mono" id="n-fixed">—</b><span>fixed with a test where one fits, in releases 1.239.0 and 1.240.0</span></div>
+    <div><b class="mono" id="n-fixed">—</b><span>fixed with a test where one fits, in releases 1.239.0, 1.240.0 and 1.240.1</span></div>
     <div><b class="mono">5,996</b><span>tests passing at the end, up from 5,696 in the morning</span></div>
   </div>
 
@@ -115,7 +115,8 @@ footer { color: var(--soft); font-size: 13px; border-top: 1px solid var(--line);
       <header><h2>Done</h2><span>shipped and checked<br>on the server</span></header>
       <ul>
         <li><i>1.239.0</i><b>Released mid-day and upgraded in place</b><p>The upgrade's first health round cleared a "Did not reconnect" warning that had stood for five days over a healthy drive.</p></li>
-        <li><i>1.240.0</i><b>Released with rounds three and four</b><p>Readability, the keyboard, the walked tasks, the Zulip and gateway hardening.</p></li>
+        <li><i>1.240.0</i><b>Released with rounds three and four</b><p>Readability, the keyboard, the walked tasks, the Zulip and gateway hardening, and the fixes from a review of the day's own diff.</p></li>
+        <li><i>1.240.1</i><b>A fix for what the upgrade itself broke</b><p>The upgrade to 1.240.0 left the model gateway stopped on the server. Found within a minute, fixed, and proven there: stop BoxPilot, start it, the gateway comes back.</p></li>
         <li><i>3 PRs</i><b>Merged what was waiting</b><p>The earlier audit loop (#640, brought up to date in its own session), the privacy fix (#645) and the SearXNG refresh (#643).</p></li>
         <li><i>6 apps</i><b>Raised to high risk</b><p>Portainer and Dockge reach the Docker socket; Kopia, Duplicati, Backrest and Filebrowser reach the backups. Installing one now needs the owner's password.</p></li>
         <li><i>4</i><b>Mockups drawn, two of them built the same day</b><p>Labelled choices and the folded bell shipped. "Since you last looked" and find-in-logs are in the plan.</p></li>
@@ -152,7 +153,9 @@ footer { color: var(--soft); font-size: 13px; border-top: 1px solid var(--line);
       <ul>
         <li><i>look</i><b>Sweep the running server, not only the code</b><p>Three of the day's best findings came from looking at the live pages. A monthly walk of the real box would keep finding what reading cannot.</p></li>
         <li><i>agents</i><b>The agents are the weakest visible part</b><p>Every one of the 28 cards said a limit was reached, and the digest was raw tool output. M58 is first in the plan for that reason.</p></li>
-        <li><i>disk</i><b>169 old database copies hold 1.1 GB</b><p>Every upgrade adds 35 MB and nothing removes one. Pick a number to keep.</p></li>
+        <li><i>today</i><b>17 Ubuntu updates are waiting, security fixes among them</b><p>Home has shown them all day. One click on Install, and no restart is needed.</p></li>
+        <li><i>key</i><b>No release key is set</b><p>Repair now says so: an update is built from whatever the GitHub tag points at. Setting a key on System, BoxPilot update closes that.</p></li>
+        <li><i>disk</i><b>172 old database copies hold 1.1 GB</b><p>Every upgrade adds 35 MB and nothing removes one. Pick a number to keep.</p></li>
         <li><i>rhythm</i><b>Releases outrun the public demo</b><p>The demo is a frozen copy deployed by hand. A deploy step in the release workflow would end the drift.</p></li>
         <li><i>proof</i><b>Restores are tested per app, not as a whole</b><p>The rebuild still stages network, firewall and mounts for review only. One real bare-metal drill a quarter would prove the claim.</p></li>
       </ul>
@@ -165,7 +168,7 @@ footer { color: var(--soft); font-size: 13px; border-top: 1px solid var(--line);
         <li><i>M60</i><b>One noisy alert cannot be silenced</b><p>Quiet hours exist; a snooze or a switch per condition does not.</p></li>
         <li><i>M63</i><b>A user's SSH keys can only grow</b><p>Nothing lists or removes a key, so a mistyped GitHub name stays.</p></li>
         <li><i>M62</i><b>Upgrades type-check and install dev dependencies on the server</b><p>A prebuilt, signed tarball removes both and closes the unpinned-download gap.</p></li>
-        <li><i>note</i><b>Two changes could not be run here</b><p>The Zulip connect script needs a live Zulip to prove; the gateway's sandbox was checked on the server after the upgrade.</p></li>
+        <li><i>note</i><b>One change is still unproven</b><p>The Zulip connect script's new refusals need a live Zulip to prove. The gateway's sandbox was checked on the server: it can no longer see the helper's socket.</p></li>
       </ul>
     </article>
   </section>
@@ -175,7 +178,7 @@ footer { color: var(--soft); font-size: 13px; border-top: 1px solid var(--line);
     <ol>
       <li><b>May a recovery-code sign-in set a new password?</b> <span>Today it cannot, so the last resort still cannot approve anything high-risk. The safer design spends a second code as proof.</span></li>
       <li><b>Should registering a passkey ask for the password?</b> <span>It is a documented trade-off; someone at an unlocked browser can add their own key.</span></li>
-      <li><b>How many old database copies to keep.</b> <span>169 now. Keeping the newest ten would return about 1 GB.</span></li>
+      <li><b>How many old database copies to keep.</b> <span>172 now, three of them from today. Keeping the newest ten would return about 1 GB.</span></li>
       <li><b>The tier of the seven apps that only read the Docker socket.</b> <span>Medium today; a read-only socket mount still answers the full Docker API.</span></li>
       <li><b>ADR-018, deduplicated app backups.</b> <span>Proposed since October and still waiting.</span></li>
     </ol>
