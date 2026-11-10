@@ -7,7 +7,7 @@ description: "Personal CRM: remember birthdays, gifts, conversations, and the li
 website: https://www.monicahq.com
 risk: low
 image:
-  reference: monica:4.1.2-apache@sha256:0027440cdb4a29795a25a6e2f5a714da0ddfeeb17c91ad7c7f782b0f40ad1b74
+  reference: monica:4.1.2-apache@sha256:5cc0f1a10decf289df5043402b8c72a47ae326fbf2ccc68d8e6dfe4954e94e92
   version: "4.1.2"
 ports:
   - id: web
