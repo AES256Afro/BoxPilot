@@ -61,7 +61,7 @@ describe("BoxPilot state store", () => {
     const bootstrap = store.createBootstrapToken({ ttlMs: 1000 });
     current = new Date("2026-08-15T12:00:02Z");
 
-    expect(() => store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" })).toThrow("invalid or expired");
+    expect(() => store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" })).toThrow("not valid or has run out");
     expect(store.ownerCount()).toBe(0);
     store.close();
   });

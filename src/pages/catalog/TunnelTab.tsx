@@ -153,6 +153,10 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
     if (!id || appId || !choices.some((candidate) => candidate.entry.manifest.id === id)) return;
     askedFor.current = null;
     pickApp(id);
+    // Used once: out of the address, so a reload or the next opening of this tab starts empty.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("publish");
+    window.history.replaceState(window.history.state, "", url);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [choices, appId]);
 

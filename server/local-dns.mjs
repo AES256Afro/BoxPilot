@@ -136,7 +136,7 @@ export function createLocalDnsService({
 
   async function inspect() {
     const spec = await platform();
-    if (!spec) return { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from the App catalog.", platform: null, records: [], apps: await nameable() };
+    if (!spec) return { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from Apps.", platform: null, records: [], apps: await nameable() };
     const records = await readRecords(spec);
     return { available: true, reason: null, platform: { id: spec.id, label: spec.label, running: spec.running }, file: fileFor(spec), records, apps: await nameable() };
   }

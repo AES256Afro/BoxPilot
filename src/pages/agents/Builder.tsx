@@ -591,7 +591,7 @@ function Webhook({ agent, csrfToken, onChanged }: { agent: AgentDetail; csrfToke
       {error && <Notice tone="danger" live>{error}</Notice>}
       {agent.canEdit && (
         <div className="agents-editor__foot">
-          {agent.webhook.minted && <Button variant="ghost" busy={busy} onClick={() => setAsking("remove")}>Take it away</Button>}
+          {agent.webhook.minted && <Button variant="ghost" busy={busy} onClick={() => setAsking("remove")}>Remove the URL</Button>}
           <Button busy={busy} onClick={() => (agent.webhook.minted ? setAsking("replace") : void act(mint))}>{agent.webhook.minted ? "Make a new URL" : "Make its URL"}</Button>
         </div>
       )}
@@ -605,10 +605,10 @@ function Webhook({ agent, csrfToken, onChanged }: { agent: AgentDetail; csrfToke
         }} />
       )}
       {asking === "remove" && (
-        <ConfirmSheet onClose={() => setAsking(null)} failed="The URL could not be taken away" confirmation={{
-          title: "Take the URL away?",
+        <ConfirmSheet onClose={() => setAsking(null)} failed="The URL could not be removed" confirmation={{
+          title: "Remove the URL?",
           body: `Nothing can start ${agent.name} from outside until you make a new one.`,
-          confirmLabel: "Take it away",
+          confirmLabel: "Remove the URL",
           onConfirm: async () => { await agentsApi.clearWebhook(csrfToken, agent.id); setUrl(null); setError(null); onChanged(); },
         }} />
       )}
@@ -733,7 +733,7 @@ export function Builder({ agentId, agents, catalog, canCreate, canGrant = false,
               </div>
             )}
             <Field label="What changed" optional className="agents-editor__note"><TextInput value={note} maxLength={200} placeholder="For the version list" onValueChange={setNote} /></Field>
-            <Button variant="ghost" disabled={!dirty} onClick={() => { setDraftState(clone(agent.spec)); setSaved(null); setSaveError(null); }}>Undo changes</Button>
+            <Button variant="ghost" disabled={!dirty} onClick={() => { setDraftState(clone(agent.spec)); setSaved(null); setSaveError(null); }}>Discard changes</Button>
             <Button variant="primary" busy={busy} disabled={!dirty} onClick={() => void save()}>Save as version {agent.version + 1}</Button>
           </div>
         ) : undefined}

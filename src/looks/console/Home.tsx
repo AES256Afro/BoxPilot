@@ -168,7 +168,7 @@ export default function ConsoleHome({ csrfToken, role, onNavigate, now = Date.no
             count={facts.catalog.state === "failed" || (catalog && !catalog.liveKnown) ? { status: "unknown", label: "not read" } : undefined}
             meta={catalog?.liveKnown ? <>{apps.length} installed · {up} up{unwell ? ` · ${unwell} need a look` : ""}</> : undefined}>
             {facts.catalog.state === "failed" && <p className="ops-quiet">Which apps are installed could not be read.</p>}
-            {catalog && !catalog.liveKnown && <p className="ops-quiet">Docker did not say which apps are installed. The App catalog has the details.</p>}
+            {catalog && !catalog.liveKnown && <p className="ops-quiet">Docker did not say which apps are installed. Apps has the details.</p>}
             <ul className="console-apps__grid">
               {cells.map(({ app, health, words }) => (
                 <li key={app.id}>

@@ -127,7 +127,7 @@ describe("the digest for the agents", () => {
   });
 
   it("says when the app is not installed, not running, or not known, and refuses an app with no reader", async () => {
-    expect(await harness([jellyfin]).glances.digest("baselinewatch")).toBe("BaselineWatch: not installed on this server (install it from the App catalog).");
+    expect(await harness([jellyfin]).glances.digest("baselinewatch")).toBe("BaselineWatch: not installed on this server (install it from Apps).");
     expect(await harness([app({ container: { running: false, status: "exited" } })]).glances.digest("baselinewatch")).toBe("BaselineWatch: installed but not running.");
     expect(await harness([app()], { helperFails: true }).glances.digest("baselinewatch")).toBe("BaselineWatch: whether it is installed could not be read.");
     await expect(harness([app()]).glances.digest("jellyfin")).rejects.toThrow(/no reader/);

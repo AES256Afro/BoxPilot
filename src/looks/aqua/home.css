@@ -7,7 +7,7 @@
 
 .aqua-home { display: grid; gap: 17.5px; min-width: 0; color: #111111; font-family: var(--font-aqua, "PT Sans", sans-serif); }
 
-/* The toolbar under the title: Check Again, App Catalog, Activity. */
+/* The toolbar under the title: Check Again, Apps, Activity. */
 .aqua-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 13.6px; }
 .aqua-home .aqua-tools .ui-button { min-height: 24.5px; padding: 0 14.7px; font-size: 12.8px; }
 .aqua-crumb .aqua-wintitle { display: none; }

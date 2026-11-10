@@ -426,7 +426,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
         meta={<>critical <b>{counts.critical}</b> · to fix <b>{counts.warning}</b> · suggestions <b>{counts.info}</b> · dismissed <b>{dismissed.length}</b>{scan?.checkedAt ? <> · checked <b>{time(scan.checkedAt)}</b></> : null}</>}
         actions={<>
           {safe.length > 0 && <Button variant="primary" risk="low" onClick={() => fixes.startBatch(safe)} disabled={fixes.busy}>{fixes.busy ? "Fixing…" : `Fix the safe ones (${safe.length})`}</Button>}
-          <Button variant="ghost" onClick={() => void refresh()} disabled={loading}>{loading ? "Checking..." : "Check again"}</Button>
+          <Button variant="ghost" onClick={() => void refresh()} disabled={loading}>{loading ? "Checking…" : "Check again"}</Button>
         </>}
         about="What is wrong on this server, worst first, each with the fix that fixes it. A fix runs through the approval dialog at its own tier, and the finding is checked again when it ends. Below the findings: prerequisites, the approval desk, the helper, BoxPilot's own resources, protection gaps, the rebuild checklist, the runbook and Activity."
       />
@@ -466,7 +466,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       <div className="rp-grid">
         <Panel title="Prerequisites" label="Prerequisites"
           count={!loading && !prerequisiteError && checks.length > 0 ? { status: ready === checks.length ? "good" : "warning", label: `${ready}/${checks.length}` } : undefined}
-          meta={loading ? "Checking..." : prerequisiteError ? "Prerequisites unavailable" : checks.length ? `${ready} of ${checks.length} ready` : "No prerequisite checks returned"}>
+          meta={loading ? "Checking…" : prerequisiteError ? "Prerequisites unavailable" : checks.length ? `${ready} of ${checks.length} ready` : "No prerequisite checks returned"}>
           {prerequisiteError && <p className="rp-note" data-tone="warning" role="status">{prerequisiteError}</p>}
           {error && errorAt === "prerequisites" && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
           {checks.length > 0 && <Table caption="Prerequisites" columns={prerequisiteColumns} rows={checks} rowKey={(item) => item.id} />}
@@ -505,7 +505,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
                         </Field>
                       )}
                       <div className="rp-finding__actions">
-                        <Button variant="primary" risk={tier} onClick={() => void approve()} disabled={pending || (passwordRequired && password.length < 12) || Boolean(approvalPolicy?.confirmText && confirmTyped !== approvalPolicy.confirmText)}>{pending ? "Working..." : tier === "low" && !passwordRequired ? "Run" : "Approve and run"}</Button>
+                        <Button variant="primary" risk={tier} onClick={() => void approve()} disabled={pending || (passwordRequired && password.length < 12) || Boolean(approvalPolicy?.confirmText && confirmTyped !== approvalPolicy.confirmText)}>{pending ? "Working…" : tier === "low" && !passwordRequired ? "Run" : "Approve and run"}</Button>
                         <Button variant="ghost" onClick={() => void withdraw()} disabled={pending}>Withdraw</Button>
                       </div>
                     </>
@@ -515,7 +515,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
             ) : (
               <>
                 <p className="rp-row__text">Run this if jobs fail to start or their output is missing: it asks BoxPilot's admin service to answer and writes a small test log.</p>
-                <div className="rp-finding__actions"><Button onClick={() => void runCanary()} busy={pending}>{pending ? "Checking..." : "Check the admin service"}</Button></div>
+                <div className="rp-finding__actions"><Button onClick={() => void runCanary()} busy={pending}>{pending ? "Checking…" : "Check the admin service"}</Button></div>
                 {canaryResult && <p className="rp-note" data-tone="good" role="status">{canaryResult}</p>}
               </>
             )}

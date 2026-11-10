@@ -38,6 +38,11 @@ export interface Command {
   tab?: string;
   /** With `app`: the tab its sheet opens at ("tunnel"). */
   sheet?: string;
+  /**
+   * For a command that must not be the first result by accident (Sign out, which Enter would run):
+   * it leads only when exactly one of these, or its label, was typed, and is last otherwise.
+   */
+  exactly?: string[];
   /** An address outside BoxPilot (an app's own web page), opened in a new tab. */
   href?: string;
   /** Extra words that should find it, searched like the label and ranked just under it. */
@@ -77,8 +82,8 @@ export function actionCommands(apps: AppActionFacts[], role: string | null | und
   };
   offer("updates.check", "Check for updates", "apt.refresh", "Check for updates", {}, "Refreshes the package lists (apt-get update), so Updates shows what can be installed. Nothing is installed.", "refresh package lists apt upgrades available");
   offer("updates.install", "Install all updates", "apt.upgrade", "Install all updates", {}, "Refreshes the package lists, then upgrades every package with apt-get upgrade --with-new-pkgs.", "upgrade packages apt security");
-  offer("database.backup", "Back up BoxPilot's database", "controller.backup.create", "Back up the BoxPilot database", {}, "Copies BoxPilot's database while it runs, then opens the copy to prove it reads.", "controller sqlite snapshot boxpilot");
-  offer("reboot", "Reboot the server", "system.reboot", "Reboot the server", {}, "First stops the apps using BoxPilot's drives and unmounts the drives, then reboots 5 seconds later. Running VMs and containers stop and the apps start again by themselves.", "restart machine power");
+  offer("database.backup", "Back up BoxPilot's database", "controller.backup.create", "Back up BoxPilot's database", {}, "Copies BoxPilot's database while it runs, then opens the copy to prove it reads.", "controller sqlite snapshot boxpilot");
+  offer("reboot", "Restart the server", "system.reboot", "Restart the server", {}, "First stops the apps using BoxPilot's drives and unmounts the drives, then restarts the server 5 seconds later. Running VMs and containers stop and the apps start again by themselves.", "reboot restart machine power");
   for (const app of apps) {
     const words = `${app.id} ${app.name}`;
     if (app.backup) offer(`backup:${app.id}`, `Back up ${app.name}`, "app.backup", `Back up ${app.name}`, { id: app.id }, `Stops ${app.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.`, `${words} backup save copy`);
@@ -104,7 +109,7 @@ export function actionCommands(apps: AppActionFacts[], role: string | null | und
 export function suggestedCommands({ waiting, failure, actions }: { waiting: number; failure: { id: string; title: string } | null; actions: Command[] }): Command[] {
   const suggested: Command[] = [];
   if (waiting > 0) suggested.push({ id: "suggest:approvals", group: "Suggested", label: `Review ${waiting === 1 ? "the job" : `${waiting} jobs`} waiting for approval`, hint: "Today", view: "today" });
-  if (failure) suggested.push({ id: "suggest:failure", group: "Suggested", label: `Failed: ${failure.title}`, hint: "Opens it in Activity, to run again or dismiss", job: failure.id });
+  if (failure) suggested.push({ id: "suggest:failure", group: "Suggested", label: `Failed: ${failure.title}`, hint: "Opens it in Activity, to try again or dismiss", job: failure.id });
   for (const action of actions) if (action.id.startsWith("action:update:")) suggested.push({ ...action, id: `suggest:${action.id}`, group: "Suggested" });
   return suggested;
 }
@@ -150,7 +155,7 @@ export function shellCommands(): Command[] {
     { id: "shell:activity", group: "Actions", label: "Open Activity", hint: "Jobs running, waiting and finished", shell: "activity", keywords: "jobs history queue running recent" },
     { id: "shell:notifications", group: "Actions", label: "Open notifications", hint: "What BoxPilot told you", shell: "notifications", keywords: "bell alerts inbox" },
     { id: "shell:push", group: "Actions", label: "Approvals on your phone", hint: "In the notifications", shell: "notifications", keywords: "push mobile iphone android notify device" },
-    { id: "shell:sign-out", group: "Actions", label: "Sign out", hint: "Ends this session", shell: "sign-out", keywords: "logout log out signout leave" },
+    { id: "shell:sign-out", group: "Actions", label: "Sign out", hint: "Ends this session", shell: "sign-out", keywords: "logout log out signout leave", exactly: ["sign out", "signout", "logout", "log out"] },
   ];
 }
 
@@ -254,7 +259,8 @@ export function buildCommands(catalog: CatalogEntry[], actions: Command[] = []):
  * Commands that contain every word typed, best first: a label that starts with what was typed,
  * then one with a word starting with it, then one containing it, then a match in its keywords,
  * then one only in its hint or its longer text. Pages come before apps and apps before features at
- * the same rank.
+ * the same rank. A command with `exactly` (Sign out) leads when one of those was typed whole, and
+ * is below every page, app and feature otherwise: "si", "sign" and "out" are on the way to other things.
  */
 export function searchCommands(commands: Command[], query: string, limit = 40): Command[] {
   const typed = query.trim().toLowerCase();
@@ -266,7 +272,8 @@ export function searchCommands(commands: Command[], query: string, limit = 40): 
     const named = `${label} ${(command.keywords ?? "").toLowerCase()}`;
     const haystack = `${named} ${command.hint.toLowerCase()} ${(command.text ?? "").toLowerCase()}`;
     if (!words.every((word) => haystack.includes(word))) return;
-    const score = label.startsWith(typed) ? 0
+    const score = command.exactly ? (label === typed || command.exactly.includes(words.join(" ")) ? -1 : 9)
+      : label.startsWith(typed) ? 0
       : label.split(/[\s&/(),.:-]+/).some((word) => word.startsWith(words[0])) ? 1
         : label.includes(typed) ? 2
           : words.every((word) => named.includes(word)) ? 3 : 4;

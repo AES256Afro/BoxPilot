@@ -21,7 +21,7 @@ import "./home.css";
  * drive and the processor; then the apps as glossy icons with what is wrong in orange under the
  * ones that need a look, and the dock of apps under the window. The window itself, the menu bar and
  * the source list are the look's skin (skin.css), the same on every page. The toolbar under the
- * window's title holds Check Again, App Catalog and Activity.
+ * window's title holds Check Again, Apps and Activity.
  */
 
 const severityWords = { danger: "Problem", warning: "Needs a look", neutral: "Suggestion" } as const;
@@ -165,7 +165,7 @@ export default function AquaHome({ csrfToken, role, onNavigate, now = Date.now }
 
       <div className="aqua-tools" role="toolbar" aria-label="Home">
         <Button busy={again.checking} onClick={again.run}>{again.checking ? "Checking…" : "Check Again"}</Button>
-        <Button onClick={() => onNavigate("catalog")}>App Catalog</Button>
+        <Button onClick={() => onNavigate("catalog")}>Apps</Button>
         <Button onClick={() => openActivity()}>Activity</Button>
         {again.said}
       </div>
@@ -225,9 +225,9 @@ export default function AquaHome({ csrfToken, role, onNavigate, now = Date.now }
       <section className="aqua-icons" aria-labelledby="aqua-apps-title">
         <h2 className="ui-visually-hidden" id="aqua-apps-title">Apps</h2>
         {facts.catalog.state === "failed" && <p className="aqua-icons__quiet">Which apps are installed could not be read. <Button onClick={() => refresh(["catalog"])}>Try again</Button></p>}
-        {catalog && !catalog.liveKnown && <p className="aqua-icons__quiet">Docker did not say which apps are installed, so none are shown. The App catalog has the details.</p>}
+        {catalog && !catalog.liveKnown && <p className="aqua-icons__quiet">Docker did not say which apps are installed, so none are shown. Apps has the details.</p>}
         {catalog && catalog.liveKnown && apps.length === 0 && (
-          <p className="aqua-icons__quiet">No apps are installed yet. <Button variant="primary" onClick={() => onNavigate(values.setup?.firstRun ? "setup" : "catalog")}>{values.setup?.firstRun ? "Choose a setup profile" : "Open the App catalog"}</Button></p>
+          <p className="aqua-icons__quiet">No apps are installed yet. <Button variant="primary" onClick={() => onNavigate(values.setup?.firstRun ? "setup" : "catalog")}>{values.setup?.firstRun ? "Choose a setup profile" : "Open Apps"}</Button></p>
         )}
         {healths.length > 0 && (
           <ul className="aqua-icons__grid">

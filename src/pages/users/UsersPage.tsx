@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { openView } from "../../activityEvents";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { inspectOperation } from "../../operations";
@@ -41,9 +41,11 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
   const [keysGithub, setKeysGithub] = useState("");
   const [keysPasted, setKeysPasted] = useState("");
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
     if (!canRead) return;
-    setLoading(true);
+    // A quiet read (a job ended somewhere) changes nothing but the facts: Check again does not spin,
+    // and what is on screen, an error included, stays until the answer is in.
+    if (!quiet) setLoading(true);
     try {
       const { result } = await inspectOperation<UsersReport>("users.inspect");
       if (!Array.isArray(result?.users)) throw new Error("The accounts came back in a shape this page cannot read.");
@@ -52,12 +54,12 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The accounts and SSH could not be read");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [canRead]);
   useEffect(() => { void refresh(); }, [refresh]);
-  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
+  // The bar's Refresh is Check again; a job ending anywhere (Activity, the command bar, a schedule) reads it again quietly.
+  useEffect(() => onPageRefresh({ asked: () => refresh(), job: () => refresh({ quiet: true }) }), [refresh]);
 
   // A change that took clears the form it came from, and only that form; a cancelled approval or a
   // failed job keeps it, so reopening the sheet shows what was typed. Any job ending (a sudo switch,
@@ -180,7 +182,7 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
       />
 
       {/* The sidebar says "Users": these are the server's own accounts, not who may sign in here. */}
-      <Notice tone="info" title="These are accounts on the server itself." action={role === "owner" ? <Button onClick={() => openView("settings", { tab: "people" })}>Open People</Button> : undefined}>
+      <Notice tone="info" title="These are accounts on the server itself" action={role === "owner" ? <Button onClick={() => openView("settings", { tab: "people" })}>Open People</Button> : undefined}>
         {role === "owner" ? "To let someone sign in to BoxPilot, use Settings, People." : "Who may sign in to BoxPilot is the owner's to change, under Settings, People."}
       </Notice>
       {!canRead && <Notice tone="info" title="Reading accounts needs an operator">Accounts and their keys are read as root, so an owner or operator reads them.</Notice>}

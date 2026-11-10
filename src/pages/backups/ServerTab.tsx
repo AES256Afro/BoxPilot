@@ -85,7 +85,7 @@ export default function ServerTab({ csrfToken, role, loading, backups, protectio
         title="BoxPilot database"
         count={backups ? list.length : undefined}
         meta={backups ? <>latest <b>{list[0] ? when(list[0].createdAt) : "never"}</b> · <b>{live.length}</b> encrypted {live.length === 1 ? "copy" : "copies"}</> : undefined}
-        actions={may("controller.backup.create") ? <Button variant="primary" risk={riskOf("controller.backup.create")} disabled={loading && !backups} onClick={() => start({ operationId: "controller.backup.create", title: "Back up the BoxPilot database", parameters: {}, preview: <span>Copies BoxPilot's database while it runs, then opens the copy to prove it reads. Nothing stops.</span> })}>Back up now</Button> : undefined}
+        actions={may("controller.backup.create") ? <Button variant="primary" risk={riskOf("controller.backup.create")} disabled={loading && !backups} onClick={() => start({ operationId: "controller.backup.create", title: "Back up BoxPilot's database", parameters: {}, preview: <span>Copies BoxPilot's database while it runs, then opens the copy to prove it reads. Nothing stops.</span> })}>Back up now</Button> : undefined}
         footer={retention?.policy ? (
           <span className="backups-foot backups-foot--row">
             <span>Retention keeps at least <b>{retention.policy.minimumCopies ?? 3}</b> restore-tested encrypted copies · <b>{candidates}</b> eligible to let go</span>
@@ -96,7 +96,7 @@ export default function ServerTab({ csrfToken, role, loading, backups, protectio
         ) : undefined}
       >
         {protection && !ready && (
-          <Notice tone="info" className="backups-inset" title="Encrypted second copies are not ready">{protection.destination?.blockers?.[0] ?? "They need restic on this server: Repair Center offers to install it, under Prerequisites, and sets the repository up from there."}</Notice>
+          <Notice tone="info" className="backups-inset" title="Encrypted second copies are not ready">{protection.destination?.blockers?.[0] ?? "They need restic on this server: Repair offers to install it, under Prerequisites, and sets the repository up from there."}</Notice>
         )}
         <Table
           caption="Backups of BoxPilot's database"

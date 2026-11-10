@@ -77,7 +77,7 @@ describe("Home in the Aqua look", () => {
     render(<FactsProvider><TopBarSlotProvider value={slot}><AquaHome csrfToken="csrf" role="owner" onNavigate={vi.fn()} /></TopBarSlotProvider></FactsProvider>);
     await vi.waitFor(() => expect(slot.querySelector(".cc-crumb__host")?.textContent).toBe("homebox"));
     const toolbar = screen.getByRole("toolbar", { name: "Home" });
-    expect(within(toolbar).getAllByRole("button").map((button) => button.textContent)).toEqual(["Check Again", "App Catalog", "Activity"]);
+    expect(within(toolbar).getAllByRole("button").map((button) => button.textContent)).toEqual(["Check Again", "Apps", "Activity"]);
     cleanup();
     slot.remove();
   });

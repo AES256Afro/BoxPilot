@@ -38,7 +38,7 @@ const arguments_ = {
     if (!backups?.total) return null;                       // nothing to lose yet
     if (offBox?.configured && offBox?.lastSyncAt) return null; // already covered
     const one = backups.total === 1;
-    if (offBox?.configured) return `${plural(backups.total, "backup is", "backups are")} on this box and the off-box destination has never been used.`;
+    if (offBox?.configured) return `${plural(backups.total, "backup is", "backups are")} on this server, and the destination off this server has never been used.`;
     return `${plural(backups.total, "backup is", "backups are")} on this box and nothing copies ${one ? "it" : "them"} anywhere else. A dead disk takes ${one ? "it" : "all of them"}.`;
   },
   "tidy-docker": ({ reclaimable }) => {

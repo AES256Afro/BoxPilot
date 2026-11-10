@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApproveDialog, useOperation, type PendingOperation } from "./ApproveDialog";
+import { pageIsFollowing } from "./refresh";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -505,10 +506,10 @@ describe("the approval dialog's tiers", () => {
     const ways = screen.getAllByRole("button", { name: "Keep working" });
     expect(ways).toHaveLength(2);
     expect(ways.every((button) => !button.hasAttribute("disabled"))).toBe(true);
-    expect(screen.getByText("You can close this. It carries on in Activity.")).toBeTruthy();
+    expect(screen.getByText("You can keep working. It carries on in Activity.")).toBeTruthy();
   });
 
-  it("closes while the job runs without withdrawing it, and still tells the page how it ended", async () => {
+  it.each(["completed", "failed"])("closes while the job runs without withdrawing it; when it has %s the page reads again and no form is put back", async (ending) => {
     stubTier({ tier: "medium", passwordRequired: false, confirmText: null }, { state: "applying" });
     const api = vi.mocked(fetch); const normal = api.getMockImplementation()!;
     let end: ((response: Response) => void) | null = null;
@@ -534,13 +535,74 @@ describe("the approval dialog's tiers", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(methods).not.toContain("DELETE");
     expect(withdrawn).not.toHaveBeenCalled();
-    // Not told it closed yet: a form is put back only for a job that did not complete.
     expect(closed).not.toHaveBeenCalled();
-    end!(new Response(JSON.stringify({ job: { id: "job-1", type: "op:apt.upgrade", title: "Install package updates", state: "completed", steps: [], parameters: {}, recovery: {} } }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    end!(new Response(JSON.stringify({ job: { id: "job-1", type: "op:apt.upgrade", title: "Install package updates", state: ending, error: ending === "failed" ? "E: Could not get lock" : null, steps: [], parameters: {}, recovery: {} } }), { status: 200, headers: { "Content-Type": "application/json" } }));
     await waitFor(() => expect(finished).toHaveBeenCalledTimes(1));
-    expect(finished.mock.calls[0][0].state).toBe("completed");
-    expect(closed).toHaveBeenCalledTimes(1);
-    expect(closed.mock.calls[0][0].state).toBe("completed");
+    expect(finished.mock.calls[0][0].state).toBe(ending);
+    // And that is all: minutes on, the page has moved on, and a form put back then lands over whatever is open.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(finished).toHaveBeenCalledTimes(1);
+    expect(closed).not.toHaveBeenCalled();
+  });
+
+  it("puts nothing back when it loses track of a job left running", async () => {
+    stubTier({ tier: "medium", passwordRequired: false, confirmText: null }, { state: "applying" });
+    const api = vi.mocked(fetch); const normal = api.getMockImplementation()!;
+    let fail: ((reason: Error) => void) | null = null;
+    let waits = 0;
+    api.mockImplementation((input, init) => {
+      if (/\/jobs\/[^/]+$/.test(input.toString()) && !init?.method && init?.signal) { waits += 1; return waits === 1 ? new Promise<Response>((_resolve, reject) => { fail = reject; }) : Promise.reject(new Error("offline")); }
+      return normal(input, init);
+    });
+    const finished = vi.fn(); const closed = vi.fn();
+    const noParameters = {};
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      function Page() {
+        const { start, dialog } = useOperation("csrf", finished);
+        return <><button type="button" onClick={() => start({ operationId: "apt.upgrade", title: "Install package updates", parameters: noParameters, onClosed: closed })}>Go</button>{dialog}</>;
+      }
+      render(<Page />);
+      fireEvent.click(screen.getByRole("button", { name: "Go" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+      await waitFor(() => expect(fail).toBeTruthy());
+      expect(pageIsFollowing("job-1")).toBe(true);
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      fail!(new Error("offline"));
+      // Five failed reads, two seconds apart, and it gives up.
+      await vi.advanceTimersByTimeAsync(12_000);
+      expect(waits).toBe(5);
+      expect(closed).not.toHaveBeenCalled();
+      expect(finished).not.toHaveBeenCalled();
+      // The job's end is the feed's to tell again.
+      expect(pageIsFollowing("job-1")).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
+
+  // Storage → Shares → Mount, refused by the NAS: "Open Shares" opened the page again and emptied the form to correct.
+  it("closes, and opens nothing, when the fix is on the page and tab already showing", async () => {
+    stubTier({ tier: "medium", passwordRequired: false, confirmText: null }, { state: "failed", error: "The NAS refused the credentials for //nas/media." });
+    const opened = vi.fn();
+    window.addEventListener("boxpilot:open-view", opened);
+    const close = vi.fn(); const closed = vi.fn();
+    window.history.replaceState(null, "", "/?view=storage&tab=shares");
+    try {
+      render(<ApproveDialog operationId="share.mount" title="Mount //nas/media" parameters={{}} csrfToken="csrf" onClose={close} onClosed={closed} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Close and fix it here" }));
+      expect(screen.queryByRole("button", { name: "Open Shares" })).toBeNull();
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(closed.mock.calls[0][0].state).toBe("failed");
+      expect(opened).not.toHaveBeenCalled();
+      cleanup();
+      // On another tab of the same page, or another page, it still opens the place.
+      window.history.replaceState(null, "", "/?view=storage");
+      render(<ApproveDialog operationId="share.mount" title="Mount //nas/media" parameters={{}} csrfToken="csrf" onClose={close} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Open Shares" }));
+      expect(opened).toHaveBeenCalledTimes(1);
+    } finally { window.removeEventListener("boxpilot:open-view", opened); window.history.replaceState(null, "", "/"); }
   });
 
   it("tells a page the job it staged, and hands the run over when asked to (Repair, M35)", async () => {

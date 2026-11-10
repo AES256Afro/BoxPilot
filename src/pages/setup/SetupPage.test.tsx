@@ -180,7 +180,7 @@ describe("Setup", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.endsWith("/api/v1/setup")) return json(setupState);
-      if (url.endsWith("/operations/app.install/jobs")) return json({ error: "Docker Engine is not available; install it from Repair Center first" }, 409);
+      if (url.endsWith("/operations/app.install/jobs")) return json({ error: "Docker Engine is not available; install it from Repair first" }, 409);
       if (url.endsWith("/api/v1/schedules")) return json({ schedule: { id: "s1" } }, 201);
       return json({ error: `unexpected ${url}` }, 500);
     }));

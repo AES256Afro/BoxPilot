@@ -1045,7 +1045,7 @@ export function createAppHelper({
   async function install({ id, values: rawValues = {}, devices = null }, { progress = null, timeScale = 1, storedValues = false } = {}) {
     const manifest = await ensureManifest(id);
     const existing = await readState(id);
-    if (existing?.installed) throw new Error(`${manifest.name} is already installed. Open it in the App catalog to change its settings or update it.`);
+    if (existing?.installed) throw new Error(`${manifest.name} is already installed. Open it in Apps to change its settings or update it.`);
     const given = storedValues ? withSavedSecrets(manifest, sanitizeStoredValues(manifest, rawValues ?? {}), await readEnv(id)) : rawValues;
     // An install that does not say who can reach the app takes the manifest's default: tailnet only
     // for an app that must not face the home network (Zulip). Only here: a reconfigure keeps what
@@ -1057,7 +1057,7 @@ export function createAppHelper({
     const refusal = storedValues ? null : hostNetworkTailnetRefusal(manifest, values, { switchingNetwork: false });
     if (refusal) throw new Error(refusal);
     const probe = await docker(["version", "--format", "{{.Server.Version}}"], { timeout: 10_000 });
-    if (!probe.ok) throw new Error("Docker Engine is not available; install it from Repair Center first");
+    if (!probe.ok) throw new Error("Docker Engine is not available; install it from Repair first");
     let directoryExisted = true;
     try { await stat(dirFor(id)); } catch { directoryExisted = false; }
     // Pull before the project is written, not after. writeProject hands each data folder to the user
@@ -1144,7 +1144,7 @@ export function createAppHelper({
   async function reinstall({ id, devices = null, start = true }, { progress = null, timeScale = 1 } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
-    if (!state?.installed) throw new Error(`${manifest.name} is not installed; install it from the App catalog`);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed; install it from Apps`);
     const before = await containerStatus(id);
     if (before.exists) throw new Error(`${manifest.name} already has a container (${before.status}); start or restart it instead`);
     const saved = await readProjectFiles(id);
@@ -1153,7 +1153,7 @@ export function createAppHelper({
       // As update does: settings a catalog revision has dropped are dropped, not a reason to refuse.
       const existingEnv = await readEnv(id);
       const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), existingEnv));
-      if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
+      if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from Apps`);
       const savedImage = catalogImagePin(state.image?.reference, manifest.image.reference, manifest.image.formerRepositories);
       const pinned = savedImage ? { ...manifest, image: { ...manifest.image, reference: savedImage } } : manifest;
       progress?.(`${manifest.name}'s compose project is gone too; writing it again from its saved settings, on ${pinned.image.reference}`, "stdout");
@@ -1206,7 +1206,7 @@ export function createAppHelper({
     // Stored state may predate the current manifest (or older releases stored values the
     // operator could not change); keep only what the manifest accepts today.
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));
-    if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
+    if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from Apps`);
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "update" }, { progress }) : null;
     // What is running right now, read from the deployed compose file before it is overwritten. This
     // is the only exact record: the manifest below has already moved to the new tags, and stored
@@ -1304,7 +1304,7 @@ export function createAppHelper({
     if (!Object.keys(restoreTo).length) throw new Error(`${manifest.name} has no recorded version that still matches how it is built today, so there is nothing to go back to`);
 
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));
-    if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
+    if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from Apps`);
     // Pin every service that moved, app and sidecars alike: restoring the app onto an upgraded
     // database is how a rollback reports success and leaves the app unable to read its own data.
     const pinned = {

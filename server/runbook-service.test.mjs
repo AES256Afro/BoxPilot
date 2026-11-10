@@ -122,7 +122,7 @@ async function setup({ version = "9.9.9-test", answers = answersFor(), failing =
   state.setSetting("notifications", { kind: "ntfy", url: `https://ntfy.example/${sentinel}` });
   state.setSetting("firewallProfile", { id: "home-server", services: [], appliedAt: "2026-09-20T10:00:00.000Z", appliedBy: owner.id });
   state.setSetting("appBackupVerifications", { jellyfin: { verified: true, checkedAt: "2026-09-27T04:00:00.000Z", by: owner.id, history: [] } });
-  state.setSetting("healthAlertsState", { "system.reboot": { title: "A reboot is required", since: "2026-09-26T00:00:00.000Z", notified: false } });
+  state.setSetting("healthAlertsState", { "system.reboot": { title: "A restart is required", since: "2026-09-26T00:00:00.000Z", notified: false } });
   const backupId = randomUUID();
   state.recordBackup({ id: backupId, applicationId: "boxpilot-controller", destination: "local-managed", artifactPath: `/var/lib/boxpilot-managed/backups/boxpilot-controller/${backupId}/boxpilot.sqlite3`, checksumSha256: "a".repeat(64), sizeBytes: 8192, downtimeMs: 0, restoreDrill: { passed: true }, createdBy: owner.id });
   state.recordControllerBackupProtection({ id: randomUUID(), backupId, destination: "mounted-restic-controller", repositoryId: "c".repeat(64), snapshotId: "2".repeat(64), sizeBytes: 8192, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true }, createdBy: owner.id });
@@ -276,7 +276,7 @@ describe("an operator's copy, through GET /runbook (sweep 3)", () => {
     const { state, service, owner, operator } = await setup({ answers });
     const since = "2026-09-27T00:00:00.000Z";
     state.setSetting("healthAlertsState", {
-      "system.reboot": { title: "A reboot is required", since, notified: false },
+      "system.reboot": { title: "A restart is required", since, notified: false },
       "agent.important:agent-1": { title: "Owner's Auditor: SECRET-FINDING in /srv/private", message: "SECRET-FINDING", since, notified: false },
       "approval.lapsed:job-1": { title: "Not approved in 7 days: SECRET-JOB", since, notified: false },
       "report.weekly": { title: "Weekly report: SECRET-REPORT", since, notified: false },
@@ -288,7 +288,7 @@ describe("an operator's copy, through GET /runbook (sweep 3)", () => {
       const mine = await markdownFor({ id: operator.id, role: "operator" });
       for (const secret of ["SECRET-FINDING", "SECRET-JOB", "SECRET-REPORT", "SECRET-FLOW", "SECRET-TUNNEL", "secret-zone"]) expect(mine, secret).not.toContain(secret);
       for (const line of [
-        "- A reboot is required (since 2026-09-27 00:00 UTC). Not announced.",
+        "- A restart is required (since 2026-09-27 00:00 UTC). Not announced.",
         "- Automation stopped: Operator's own (since 2026-09-27 00:00 UTC). Announced.",
         "- An automation stopped or did not run (since 2026-09-27 00:00 UTC). Announced.",
         "- An agent found something important (2026-09-27 00:00 UTC).",

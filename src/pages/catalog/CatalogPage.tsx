@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { useOperation, type PendingOperation } from "../../shell/ApproveDialog";
 import { appUrl } from "../../appLinks";
 import { countOf } from "../../data";
@@ -16,7 +16,7 @@ import "./catalog.css";
 const updateBatchLimit = 20;
 
 /*
- * The App catalog (M33.11), rebuilt in the console on the kit. Facts first: whether the installed
+ * Apps (M33.11), rebuilt in the console on the kit. Facts first: whether the installed
  * apps are well, and how many are installed, running and waiting for an update. Then the apps: the
  * ones on this server as Home's colour squares, the catalog to browse as cards, and the Compose
  * stacks BoxPilot did not start, a tab each, with one search and a category across them. Each app
@@ -49,6 +49,9 @@ function rememberApp(id: string | null, tab?: SheetTab) {
   const url = new URL(window.location.href);
   if (id) url.searchParams.set("app", id); else url.searchParams.delete("app");
   if (id && tab && tab !== "overview") url.searchParams.set("sheet", tab); else url.searchParams.delete("sheet");
+  // Which app the Tunnel tab was asked to start with is for the opening that asked: left in the
+  // address, every later opening of that tab chose the same app again.
+  url.searchParams.delete("publish");
   window.history.replaceState(window.history.state, "", url);
 }
 
@@ -110,8 +113,10 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     }));
   }, [csrfToken]);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    // A quiet read (a job ended somewhere) changes nothing but the facts: Check again does not spin,
+    // and what is on screen, an error included, stays until the answer is in.
+    if (!quiet) setLoading(true);
     try {
       const response = await fetch("/api/v1/catalog");
       const body = (await response.json().catch(() => ({}))) as CatalogResponse & { error?: string };
@@ -123,7 +128,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not load the catalog");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
     void loadSchedules();
     // Tailnet publishing and live resource use are extras: a failure hides them.
@@ -131,8 +136,8 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     inspectOperation<{ available: boolean; stats: Record<string, AppStats> }>("app.stats.inspect").then(({ result }) => setStats(result.available ? result.stats : null)).catch(() => setStats(null));
   }, [loadTunnels, loadSchedules]);
   useEffect(() => { void refresh(); }, [refresh]);
-  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
+  // The bar's Refresh is Check again; a job ending anywhere (Activity, the command bar, a schedule) reads it again quietly.
+  useEffect(() => onPageRefresh({ asked: () => refresh(), job: () => refresh({ quiet: true }) }), [refresh]);
 
   useEffect(() => {
     inspectOperation<{ available: boolean; projects: ForeignStack[] }>("compose.projects.inspect")
@@ -155,7 +160,12 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   const keptForm = useRef<{ config?: ConfigForm; composeDraft?: string; tunnelDraft?: TunnelDraft } | null>(null);
   const keptCompose = useRef<{ id: string; draft: string } | null>(null);
   const keptTunnel = useRef<TunnelDraft | null>(null);
-  const { start, dialog } = useOperation(csrfToken, (job) => { ended.current = job; void refresh(); });
+  // The job the approval now open staged. A job left running with "Keep working" ends later, while
+  // another approval may be open: it is read for like any other, but it is not how this one ended.
+  // Taken for that, cancelling the second approval looked like its install completing, and the form
+  // it came from was not put back.
+  const stagedId = useRef<string | null>(null);
+  const { start, dialog } = useOperation(csrfToken, (job) => { if (job.id === stagedId.current) ended.current = job; void refresh(); });
   const openSheet = useCallback((id: string, sheetTab?: SheetTab) => { setSheet({ id, tab: sheetTab }); rememberApp(id); }, []);
   const closeSheet = useCallback(() => { setSheet(null); rememberApp(null); }, []);
   const act = useCallback((operation: PendingOperation, keep?: { config?: ConfigForm; composeDraft?: string; tunnelDraft?: TunnelDraft }) => {
@@ -163,8 +173,10 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     ended.current = null;
     keptForm.current = keep ?? null;
     approved.current = false;
+    stagedId.current = null;
     const told = operation.onApproved;
-    closeSheet(); setConfig(null); start({ ...operation, onApproved: (job) => { approved.current = true; told?.(job); } });
+    const staged = operation.onStaged;
+    closeSheet(); setConfig(null); start({ ...operation, onStaged: (job) => { stagedId.current = job.id; staged?.(job); }, onApproved: (job) => { approved.current = true; told?.(job); } });
   }, [closeSheet, config, sheet, start]);
   const takeComposeDraft = useCallback((appId: string) => {
     const kept = keptCompose.current?.id === appId ? keptCompose.current.draft : null;
@@ -485,7 +497,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
       )}
 
       {foreignLogs && (
-        <Sheet kicker="Logs" title={foreignLogs.name} size="lg" onClose={() => setForeignLogs(null)} footer={<Button onClick={() => void showForeignLogs(foreignLogs.name)} busy={foreignLogs.lines === null && !foreignLogs.error}>Check again</Button>}>
+        <Sheet kicker="Logs" title={foreignLogs.name} size="lg" focusFirstField={false} onClose={() => setForeignLogs(null)} footer={<Button onClick={() => void showForeignLogs(foreignLogs.name)} busy={foreignLogs.lines === null && !foreignLogs.error}>Check again</Button>}>
           {foreignLogs.error
             ? <Notice tone="danger" live title="The logs could not be read">{foreignLogs.error}</Notice>
             : <CodeBlock label={`Logs for ${foreignLogs.name}`} meta={foreignLogs.lines ? `last ${foreignLogs.lines.length} lines` : undefined} follow empty={foreignLogs.lines === null ? "Reading…" : "(no output)"} maxHeight="calc(100vh - 220px)">{(foreignLogs.lines ?? []).join("\n")}</CodeBlock>}

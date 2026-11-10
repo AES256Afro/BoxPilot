@@ -28,7 +28,7 @@ export const share = domain("share.example.com");
 export const news = domain("news.example.com", {
   sources: ["cloudflared-config", "manual"], appId: "nasanow", appName: "Space news", service: "http://127.0.0.1:4321", label: "The site", manual: true,
   state: "down", headline: "Cloudflare cannot reach this server (HTTP 530)", problems: ["Cloudflare cannot reach this server (HTTP 530)", "the tunnel app is not running"],
-  advice: "Cloudflare answered for news.example.com with HTTP 530, which means it could not get an answer from this server. The Cloudflare Tunnel app is not running on this server, so Cloudflare has nowhere to send visitors. Start it from its Overview tab in the App catalog.",
+  advice: "Cloudflare answered for news.example.com with HTTP 530, which means it could not get an answer from this server. The Cloudflare Tunnel app is not running on this server, so Cloudflare has nowhere to send visitors. Start it from its Overview tab in Apps.",
   outside: { outcome: "answered", status: 530, ms: 92, server: "cloudflare", error: null, skipped: null },
   inside: { outcome: "answered", status: 200, ms: 4, error: null },
   backup: { state: "never", newestAt: null, scheduled: false, backups: 0 },

@@ -114,6 +114,24 @@ describe("publishing an app to the internet, from the app itself", () => {
     const sheet = await screen.findByRole("dialog", { name: "Cloudflare Tunnel" });
     await waitFor(() => expect((within(sheet).getByLabelText("App") as HTMLSelectElement).value).toBe("forgejo"));
   });
+
+  // ?publish= outlived its use: every later opening of the Tunnel tab chose that app again.
+  it("chooses the asked-for app once: the next opening of the Tunnel tab starts empty", async () => {
+    serve();
+    window.history.replaceState(null, "", "/?view=catalog&app=cloudflared&sheet=tunnel&publish=forgejo");
+    render(<CatalogPage csrfToken="csrf" role="owner" focusApp="cloudflared" />);
+    const sheet = await screen.findByRole("dialog", { name: "Cloudflare Tunnel" });
+    await waitFor(() => expect((within(sheet).getByLabelText("App") as HTMLSelectElement).value).toBe("forgejo"));
+    expect(new URLSearchParams(window.location.search).has("publish")).toBe(false);
+    expect(new URLSearchParams(window.location.search).get("app")).toBe("cloudflared");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(await screen.findByRole("button", { name: /^Cloudflare Tunnel, / }));
+    const again = await screen.findByRole("dialog", { name: "Cloudflare Tunnel" });
+    fireEvent.click(within(again).getByRole("tab", { name: "Tunnel" }));
+    await within(again).findByLabelText("App");
+    expect((within(again).getByLabelText("App") as HTMLSelectElement).value).toBe("");
+  });
 });
 
 describe("the Cloudflare Tunnel app's Tunnel tab", () => {

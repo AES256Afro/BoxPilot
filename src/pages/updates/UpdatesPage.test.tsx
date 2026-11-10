@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import UpdatesPage from "./UpdatesPage";
 
@@ -24,7 +24,7 @@ describe("Updates page", () => {
     expect(await screen.findByText("htop")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "Updates" })).toBeTruthy();
     expect(screen.getByText("1 security update").closest(".ui-chip")?.getAttribute("data-status")).toBe("warning");
-    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("2 upgradable · 1 security · reboot required · automatic updates off");
+    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("2 upgradable · 1 security · restart required · automatic updates off");
     expect(screen.getByText("Required")).toBeTruthy();
     const about = screen.getByRole("button", { name: "About Updates" });
     expect(about.getAttribute("aria-expanded")).toBe("false");
@@ -46,7 +46,7 @@ describe("Updates page", () => {
       return json({ error: "unexpected request" }, 500);
     }));
     render(<UpdatesPage csrfToken="csrf-token" />);
-    const refresh = await screen.findByRole("button", { name: "Refresh systemd manager" });
+    const refresh = await screen.findByRole("button", { name: "Finish applying updates" });
     expect(refresh.getAttribute("data-risk")).toBe("medium");
     fireEvent.click(refresh);
     // The approval says what happens, not the command (sweep four).
@@ -55,9 +55,9 @@ describe("Updates page", () => {
     expect(await screen.findByRole("button", { name: "Confirm and run" })).toBeTruthy();
     expect(calls.find((call) => call.url.endsWith("/operations/system.manager.reexec/jobs"))?.body).toBe(JSON.stringify({ parameters: {} }));
     expect(screen.queryByRole("button", { name: "Restart systemd-manager" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Restart cron.service" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Restart cron" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Restart systemd-user" })).toBeNull();
-    expect(screen.getByText("Reboot the server to refresh this process.")).toBeTruthy();
+    expect(screen.getByText("Restart the server to refresh this process.")).toBeTruthy();
   });
 
   it("says in plain words what each approval does, with no apt command", async () => {
@@ -82,7 +82,7 @@ describe("Updates page", () => {
     await said("Install all updates", "Installs all 2 waiting updates, after asking Ubuntu for the newest list.");
     await said("Refresh lists", "Asks Ubuntu's mirrors what is new. Installs nothing.");
     await said("Turn on automatic updates", "Security updates install by themselves every night.");
-    await said("Restart cron.service", "Stops and starts cron; anything using it is cut off for a moment.");
+    await said("Restart cron", "Stops and starts cron; anything using it is cut off for a moment.");
     fireEvent.click(screen.getByRole("tab", { name: /Install/ }));
     await said("Remove unused packages", "Removes packages nothing needs any more, with their settings.");
   });
@@ -134,7 +134,7 @@ describe("Updates page", () => {
       return json({ error: `unexpected ${url}` }, 500);
     }));
     render(<UpdatesPage csrfToken="csrf-token" />);
-    expect(await screen.findByText("Everything is up to date.")).toBeTruthy();
+    expect(await screen.findByText("Everything is up to date")).toBeTruthy();
     expect(screen.getByText("Up to date").closest(".ui-chip")?.getAttribute("data-status")).toBe("good");
     fireEvent.click(screen.getByRole("tab", { name: "Install" }));
     expect(window.location.search).toBe("?tab=install");
@@ -194,6 +194,64 @@ describe("Updates page", () => {
     expect(await screen.findByText("htop")).toBeTruthy();
     expect(document.querySelectorAll("button[data-risk]").length).toBe(0);
     expect(screen.queryByLabelText("Select htop")).toBeNull();
+  });
+
+  // A job ending anywhere reads the page again. Read loudly, Check again spun and "Refresh lists"
+  // and "Install all updates" went grey and back each time, and a shown error blinked away.
+  it("reads quietly when a job ends: nothing spins, no button goes grey, and the bar's Refresh is Check again", async () => {
+    let hold: Array<() => void> | null = null;
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/apt.upgradable.inspect/inspect")) {
+        reads += 1;
+        if (hold) await new Promise<void>((resolve) => { hold!.push(resolve); });
+        return json({ result: twoUpdates });
+      }
+      if (url.endsWith("/operations/apt.unattended.inspect/inspect")) return json({ result: { installed: true, enabled: false } });
+      return json({ error: "no" }, 500);
+    }));
+    render(<UpdatesPage csrfToken="csrf-token" />);
+    await screen.findByText("htop");
+    const again = screen.getByRole("button", { name: "Check again" });
+    const lists = screen.getByRole("button", { name: "Refresh lists" });
+    const all = screen.getByRole("button", { name: "Install all updates" });
+    await waitFor(() => expect(lists.hasAttribute("disabled")).toBe(false));
+    hold = [];
+    act(() => { window.dispatchEvent(new CustomEvent("boxpilot:refresh", { cancelable: true, detail: "job" })); });
+    await waitFor(() => expect(hold).toHaveLength(1));
+    expect(again.getAttribute("aria-busy")).toBeNull();
+    expect(lists.hasAttribute("disabled")).toBe(false);
+    expect(all.hasAttribute("disabled")).toBe(false);
+    // More jobs ending while that read is out do not stack reads; one more follows it.
+    act(() => { window.dispatchEvent(new CustomEvent("boxpilot:refresh", { cancelable: true, detail: "job" })); });
+    act(() => { window.dispatchEvent(new CustomEvent("boxpilot:refresh", { cancelable: true, detail: "job" })); });
+    expect(reads).toBe(2);
+    await act(async () => { hold!.shift()!(); });
+    await waitFor(() => expect(reads).toBe(3));
+    await act(async () => { hold!.shift()!(); });
+    // The bar's Refresh is the page's own Check again: it says it is reading.
+    await waitFor(() => expect(hold).toHaveLength(0));
+    act(() => { window.dispatchEvent(new Event("boxpilot:refresh", { cancelable: true })); });
+    await waitFor(() => expect(again.getAttribute("aria-busy")).toBe("true"));
+    expect(lists.hasAttribute("disabled")).toBe(true);
+    await act(async () => { hold!.shift()!(); });
+    await waitFor(() => expect(again.getAttribute("aria-busy")).toBeNull());
+  });
+
+  it("leaves a shown error where it is while a job's quiet read is out", async () => {
+    let hold: Array<() => void> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      if (hold) await new Promise<void>((resolve) => { hold!.push(resolve); });
+      return json({ error: "The helper is not answering" }, 503);
+    }));
+    render(<UpdatesPage csrfToken="csrf-token" />);
+    expect(await screen.findByText("The helper is not answering")).toBeTruthy();
+    hold = [];
+    act(() => { window.dispatchEvent(new CustomEvent("boxpilot:refresh", { cancelable: true, detail: "job" })); });
+    await waitFor(() => expect(hold!.length).toBeGreaterThan(0));
+    expect(screen.getByText("The helper is not answering")).toBeTruthy();
+    await act(async () => { for (const land of hold!.splice(0)) land(); });
   });
 
   it("says when updates could not be read, and offers to try again", async () => {

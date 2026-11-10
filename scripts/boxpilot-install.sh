@@ -377,6 +377,7 @@ if [ -n "$TOKEN_LINE" ]; then
   log "One-time setup code (valid 15 minutes; paste it on the setup screen):"
   printf '        %s\n' "$TOKEN_LINE"
 elif [ "$PRINT_TOKEN" -eq 1 ]; then
-  log "An owner already exists (or the token could not be created). Sign in with your existing account."
+  log "An owner already exists (or the setup code could not be made). Sign in with your existing account."
+  log "To make a setup code: sudo -u boxpilot env BOXPILOT_STATE_DIRECTORY=/var/lib/boxpilot /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs create-bootstrap-token"
 fi
 log "Re-run this installer any time to upgrade; logs: journalctl -u boxpilot -u boxpilot-helper"

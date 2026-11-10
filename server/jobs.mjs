@@ -307,7 +307,7 @@ export function createJobService(store, helper, {
     const reason = unreadableReason(status);
     store.addJobStep(jobId, "log", "failed", `BoxPilot could not open this job's output: ${reason}. The job itself ran; its output is not shown here.`.slice(0, 500));
     const title = store.getJob(jobId)?.title ?? "A job";
-    if (alerts) tell(() => alerts.raise({ key: jobLogAlertKey, title: "Job output cannot be read", message: `The helper wrote the output of ${title}, but BoxPilot could not open it: ${reason}. Jobs still run; their output is missing from Activity until the helper writes a log BoxPilot can read. The Root helper check on Repair says what to fix.`, priority: "high" }));
+    if (alerts) tell(() => alerts.raise({ key: jobLogAlertKey, title: "Job output cannot be read", message: `BoxPilot's admin service wrote the output of ${title}, but BoxPilot could not open it: ${reason}. Jobs still run; their output is missing from Activity until the admin service writes a log BoxPilot can read. The “BoxPilot's admin service” check on Repair says what to fix.`, priority: "high" }));
     return false;
   }
 
@@ -406,7 +406,7 @@ export function createJobService(store, helper, {
         return await send();
       } catch (error) {
         if (execution.run || !notStarted(error)) throw error;
-        note("waiting", error.code === "helper_restarting" ? "BoxPilot is restarting, so this has not started; it is sent again once BoxPilot is back" : "BoxPilot's helper is not answering, so this has not started; it is sent again once it is back");
+        note("waiting", error.code === "helper_restarting" ? "BoxPilot is restarting, so this has not started; it is sent again once BoxPilot is back" : "BoxPilot's admin service is not answering, so this has not started; it is sent again once it is back");
         if (!await helperBack()) throw Object.assign(new Error(`BoxPilot was not back within ${formatDuration(helperReturnMs)}, so this did not start and nothing was changed. Run it again once BoxPilot is back.`), { code: error.code });
         // From here it may start: a web restart now reads it as cut off, never as never started.
         note("completed", "Sent again now that BoxPilot is back");
@@ -417,7 +417,7 @@ export function createJobService(store, helper, {
       const result = splitOneTime(job, await sendOnceBack());
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
-      if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
+      if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "BoxPilot's admin service returned an invalid operation result");
       // Registry ops with durable evidence record it web-side; a failed record fails the job.
       if (job.type.startsWith("op:")) await recordResult(job, result);
       store.addJobStep(jobId, "verify", "completed", execution.verified);
@@ -514,7 +514,7 @@ export function createJobService(store, helper, {
       createdBy: ownerId,
       initialSteps: [
         { name: "preflight", state: "completed", detail: "Checked what was asked for." },
-        { name: "checkpoint", state: "completed", detail: `${tier[0].toUpperCase()}${tier.slice(1)} risk. Runs with admin rights.` },
+        { name: "checkpoint", state: "completed", detail: `${tier[0].toUpperCase()}${tier.slice(1)} risk. Done by BoxPilot's admin service.` },
         ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, ${rerunNeverStarted ? "never started" : "was cut off"}.` }] : []),
         ...(typeof retryOf === "string" && retryOf ? [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${retryOf}, ran out of time.` }] : []),
         ...(agentOrigin(origin) ? [{ name: "agent", state: "completed", detail: `${agentOrigin(origin).agentName} asked for this in its run ${agentOrigin(origin).runId}` }] : []),

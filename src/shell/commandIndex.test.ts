@@ -64,6 +64,18 @@ describe("the command bar's index", () => {
     for (const [words, first] of expected) expect(searchCommands(commands, words)[0], words).toMatchObject(first);
   });
 
+  // Enter runs the first result, and Sign out ends the session: only its own words put it first.
+  it("puts Sign out first only when it was typed whole, and below everything else on the way there", () => {
+    const commands = buildCommands([{ id: "signal", name: "Signal bridge", category: "Chat", installed: false, url: null }], actionCommands([], "owner"));
+    for (const words of ["si", "sig", "sign", "out", "sign o", "log"]) {
+      const found = searchCommands(commands, words);
+      expect(found[0]?.shell, words).not.toBe("sign-out");
+      const at = found.findIndex((command) => command.shell === "sign-out");
+      if (at >= 0) expect(at, words).toBe(found.length - 1);
+    }
+    for (const words of ["sign out", "Sign Out", "logout", "log out", " sign  out "]) expect(searchCommands(commands, words)[0], words).toMatchObject({ shell: "sign-out" });
+  });
+
   it("indexes Setup's features, though Setup is not in the navigation", () => {
     const setup = buildCommands([]).filter((command) => command.group === "Settings and features" && command.view === "setup");
     expect(setup.map((command) => command.label)).toEqual(viewFeatures.setup);

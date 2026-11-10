@@ -49,7 +49,7 @@ export function describePortConflict(conflict: PortConflict, appName: (id: strin
     return `${where} by ${appName(holder.app) ?? holder.app}, installed through BoxPilot (container ${holder.name}). Pick another port, or uninstall that app first.`
   }
   if (holder.composeProject) {
-    return `${where} by container ${holder.name}, part of the Docker Compose project "${holder.composeProject}" that BoxPilot didn't create. Pick another port, or stop that project with \`docker compose -p ${holder.composeProject} down\`.`
+    return `${where} by container ${holder.name}, part of the Docker Compose project “${holder.composeProject}” that BoxPilot didn't create. Pick another port, or stop that project with \`docker compose -p ${holder.composeProject} down\`.`
   }
   return `${where} by container ${holder.name}, which BoxPilot didn't create. Pick another port, or stop it with \`docker stop ${holder.name}\`.`
 }

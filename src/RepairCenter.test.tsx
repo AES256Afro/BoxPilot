@@ -181,7 +181,7 @@ describe("Repair Center", () => {
 
   it("says a refused approval in the approval desk, beside the button, not at the top of the page", async () => {
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-    const job = { id: "job-high", title: "Reboot the server", type: "op:system.reboot", state: "awaiting_approval", risk: "high", error: null, steps: [], recovery: { reason: "Reconnect when it is back." } };
+    const job = { id: "job-high", title: "Restart the server", type: "op:system.reboot", state: "awaiting_approval", risk: "high", error: null, steps: [], recovery: { reason: "Reconnect when it is back." } };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.includes("prerequisites")) return json({ checks: [] });

@@ -7,7 +7,8 @@ import { jobWarnings } from "../JobWarnings";
 import { formatDuration, jobTimeout } from "../JobTimeout";
 import { JobLogView } from "../JobLogView";
 import { adviseRetry } from "../retryAdvice";
-import { openView } from "../activityEvents";
+import { openView, viewIsShowing } from "../activityEvents";
+import { pageFollowsJob } from "./refresh";
 import { Button, Facts, Field, JobProgress, Notice, Progress, SecretInput, TextInput, riskOf } from "../ui";
 import { CloseIcon, LockIcon } from "../ui/icons";
 import "./look.css";
@@ -63,7 +64,9 @@ export interface PendingOperation {
   /**
    * Told when the dialog is closed, with the job as it ended here: null when it was cancelled, could
    * not be staged, or was not followed to its end. A form closes before its approval opens, so the
-   * page puts it back, as it was filled in, unless the job completed.
+   * page puts it back, as it was filled in, unless the job completed. Never told of a dialog closed
+   * with "Keep working": the job ends minutes later, on a page that has moved on, and a form put
+   * back then lands over whatever is open. That job's end is in Activity and behind the bell.
    */
   onClosed?: (job: Job | null) => void;
   /**
@@ -107,6 +110,11 @@ interface Props extends PendingOperation {
   csrfToken: string;
   onClose: () => void;
   onFinished?: (job: Job) => void;
+  /**
+   * Told the job this dialog will follow to its end and hand to `onFinished`; returns what to call
+   * if it loses track of it. `useOperation` gives it, so the job feed leaves that job's end to the page.
+   */
+  onFollowing?: (jobId: string) => (() => void) | void;
   /** Opens `next` in place of this dialog; without it, no Next is offered. */
   onNext?: (operation: PendingOperation) => void;
 }
@@ -126,7 +134,7 @@ function ParameterList({ parameters }: { parameters: Record<string, unknown> }) 
   );
 }
 
-export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, onApproved, onWithdrawn, onClosed, handoff, moreTimeFor, existingJobId, next, after, onNext, proposedBy }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, onApproved, onWithdrawn, onClosed, handoff, moreTimeFor, existingJobId, next, after, onNext, proposedBy, onFollowing }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [finished, setFinished] = useState<Job | null>(null);
@@ -142,7 +150,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const mounted = useRef(false);
   const stagedRef = useRef<{ jobId: string | null; approvalStarted: boolean; withdrawn: boolean; owned: boolean } | null>(null);
   // Closed with "Keep working" while its job runs: the job is still followed to its end, so the page
-  // hears how it went, but nothing here is drawn again.
+  // reads its facts again then (onFinished), but nothing here is drawn again and nothing is put back.
   const detached = useRef(false);
   // Staging the same operation again after it failed ("Try again").
   const [attempt, setAttempt] = useState(0);
@@ -163,6 +171,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   handoffRef.current = handoff;
   const onFinishedRef = useRef(onFinished);
   onFinishedRef.current = onFinished;
+  const onFollowingRef = useRef(onFollowing);
+  onFollowingRef.current = onFollowing;
   useDialogFocus(dialogRef);
 
   useEffect(() => {
@@ -231,6 +241,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     const tracking = new AbortController();
     observation.current = tracking;
     let accepted = false;
+    let lostTrack: (() => void) | undefined;
     setPhase("approving");
     setError(null);
     try {
@@ -245,10 +256,12 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       // JobProgress shows the run as it happens; this waits for the end, so the dialog can say how
       // it went and hand the finished job to the page.
       setPhase("running");
+      lostTrack = onFollowingRef.current?.(job.id) ?? undefined;
       const ended = await waitForJob(job.id, { signal: tracking.signal });
       if (tracking.signal.aborted) return;
       if (!mounted.current) {
-        if (detached.current) { onFinishedRef.current?.(ended); onClosedRef.current?.(ended); }
+        // Closed with "Keep working": the page reads again, and that is all. Its form is not put back.
+        if (detached.current) onFinishedRef.current?.(ended);
         return;
       }
       setJob(ended);
@@ -258,7 +271,9 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       onFinishedRef.current?.(ended);
     } catch (approveError) {
       if (tracking.signal.aborted) return;
-      if (!mounted.current) { if (detached.current && accepted) onClosedRef.current?.(null); return; }
+      // Lost track of a running job (five failed reads, or two hours): its end is the feed's to tell.
+      if (accepted) lostTrack?.();
+      if (!mounted.current) return;
       if (!accepted && stagedRef.current) stagedRef.current.approvalStarted = false;
       const detail = approveError instanceof Error ? approveError.message : "Could not follow this job";
       setError(accepted ? `${detail}. The job may still be running. Check Activity for its current state.` : detail);
@@ -299,9 +314,12 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   // its log; one this dialog did not stage, or a cancelled one, is not its to run again.
   const advice = phase === "error" && finished?.state === "failed" && jobTimeout(finished) === null ? adviseRetry(finished.error) : null;
   const fixElsewhere = advice?.next ?? null;
+  // The fix is on the page under this dialog, at the tab it is on: closing is how to get to it, and
+  // the form to correct is still there as it was filled in.
+  const fixHere = fixElsewhere ? viewIsShowing(fixElsewhere.view, fixElsewhere.tab) : false;
   const canTryAgain = Boolean(advice?.retry && !fixElsewhere && !retryFrom && !existingJobId);
   const ended = phase === "done" || phase === "error";
-  const actionLabel = phase === "running" ? "Running..." : phase === "approving" ? "Approving..." : passwordRequired ? "Approve and run" : tier === "low" ? "Run" : "Confirm and run";
+  const actionLabel = phase === "running" ? "Running…" : phase === "approving" ? "Approving…" : passwordRequired ? "Approve and run" : tier === "low" ? "Run" : "Confirm and run";
   const canApprove = !approvalExpired && !busy && phase === "ready" && !(passwordRequired && password.length < 12) && !(Boolean(confirmRequired) && typedConfirm !== confirmRequired);
   const kicker = phase === "done" ? "Finished" : ranOut ? "Ran out of time" : phase === "error" ? "Needs attention" : retryFrom && phase === "ready" ? "Approval · more time" : "Approval";
   const operation = job?.type?.startsWith("op:") ? job.type.slice(3) : operationId;
@@ -411,7 +429,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
               <h3 id={`${titleId}-how`} className="approve-section__title">To approve</h3>
               {ownError && <Notice tone="danger" live title={errorTitle}>{ownError}</Notice>}
               {policy?.expiresAt && (approvalExpired
-                ? <Notice tone="warning" live title="This approval expired.">Close it and stage the operation again with its credentials.</Notice>
+                ? <Notice tone="warning" live title="This approval expired">Close it and stage the operation again with its credentials.</Notice>
                 : <p className="approve-note" role="status">Credentials are held temporarily. Approve before {new Date(policy.expiresAt).toLocaleTimeString()}, or stage the operation again.</p>)}
               {confirmRequired && (
                 <Field label="Typed confirmation" hint={<>Type <code>{confirmRequired}</code> exactly as shown.</>}>
@@ -431,7 +449,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
             <section className="approve-section" aria-labelledby={`${titleId}-run`}>
               <h3 id={`${titleId}-run`} className="approve-section__title">Progress</h3>
               {phase === "approving" ? <Progress label="Sending the approval…" /> : <JobProgress jobId={job.id} title={title} showOutput />}
-              {phase === "running" && <p className="approve-note">You can close this. It carries on in Activity.</p>}
+              {phase === "running" && <p className="approve-note">You can keep working. It carries on in Activity.</p>}
             </section>
           )}
 
@@ -464,8 +482,10 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
                   </>
               : fixElsewhere
                 ? <>
-                    <Button onClick={dismiss}>Close</Button>
-                    <Button variant="primary" onClick={() => { dismiss(); openView(fixElsewhere.view, fixElsewhere.tab ? { tab: fixElsewhere.tab } : {}); }}>{fixElsewhere.label}</Button>
+                    {!fixHere && <Button onClick={dismiss}>Close</Button>}
+                    {fixHere
+                      ? <Button variant="primary" onClick={dismiss}>Close and fix it here</Button>
+                      : <Button variant="primary" onClick={() => { dismiss(); openView(fixElsewhere.view, fixElsewhere.tab ? { tab: fixElsewhere.tab } : {}); }}>{fixElsewhere.label}</Button>}
                   </>
                 : canTryAgain
                   ? <>
@@ -492,6 +512,15 @@ export function useOperation(csrfToken: string, onFinished?: (job: Job) => void)
   const [pending, setPending] = useState<{ operation: PendingOperation; key: number } | null>(null);
   const start = useCallback((operation: PendingOperation) => setPending((current) => ({ operation, key: (current?.key ?? 0) + 1 })), []);
   const close = useCallback(() => setPending(null), []);
-  const dialog = pending ? <ApproveDialog key={pending.key} {...pending.operation} csrfToken={csrfToken} onClose={close} onFinished={onFinished} onNext={start} /> : null;
+  // A job followed here is read for by this page when it ends (onFinished), so the job feed does not
+  // ask the page for a second read of the same facts; once the page has gone, the feed has it back.
+  const following = useRef(new Set<() => void>());
+  useEffect(() => { const held = following.current; return () => { for (const release of held) release(); held.clear(); }; }, []);
+  const follow = useCallback((jobId: string) => {
+    const release = pageFollowsJob(jobId);
+    following.current.add(release);
+    return () => { following.current.delete(release); release(); };
+  }, []);
+  const dialog = pending ? <ApproveDialog key={pending.key} {...pending.operation} csrfToken={csrfToken} onClose={close} onFinished={onFinished} onFollowing={onFinished ? follow : undefined} onNext={start} /> : null;
   return { start, close, dialog, active: pending !== null };
 }

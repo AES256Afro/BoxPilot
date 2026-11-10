@@ -4,6 +4,7 @@ import { countOf, type ViewName } from "../../data";
 import { formatBytes } from "../../formatBytes";
 import type { OffBoxVerdict } from "../../offBox";
 import { Button, CodeBlock, EmptyState, Field, KeyValue, Notice, Panel, SecretInput, Select, Sheet, TextInput, Textarea, mayStart, riskOf, type Status } from "../../ui";
+import { passwordAsked, passwordAskedWords, useOwnerPassword } from "../../ownerPassword";
 import { ago, syncedAt, when, type CloudSettings, type CloudState, type MachineSnapshotState, type RemoteDestination, type RemoteMirrorState, type RemoteSettings } from "./types";
 
 /*
@@ -67,6 +68,8 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
 
   // The port is held as typed (parsed on Save): as a number, an emptied box could not be retyped.
   const [ssh, setSsh] = useState<(Omit<RemoteDestination, "port"> & { port: string; password: string }) | null>(null);
+  // Inside the window a password already opened, saving the destination asks for none (ownerPassword.tsx).
+  const owner = useOwnerPassword();
   const sshFormId = useId();
   const [sshError, setSshError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -89,14 +92,16 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
     ...(sshPort === null ? ["a port from 1 to 65535"] : []),
     ...(!ssh.user.trim() ? ["User"] : []),
     ...(!ssh.path.trim() ? ["Path"] : []),
-    ...(!ssh.password ? ["Owner password"] : []),
+    ...(!owner.free && !ssh.password ? ["Owner password"] : []),
   ] : [];
   const saveSsh = async () => {
     if (!ssh || sshMissing.length || sshPort === null || saving) return;
     setSaving(true); setSshError(null);
     try {
-      const response = await fetch("/api/v1/settings/backup-destination", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ password: ssh.password, destination: { host: ssh.host.trim(), port: sshPort, user: ssh.user.trim(), path: ssh.path.trim() } }) });
-      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      const response = await fetch("/api/v1/settings/backup-destination", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ ...(owner.free ? {} : { password: ssh.password }), destination: { host: ssh.host.trim(), port: sshPort, user: ssh.user.trim(), path: ssh.path.trim() } }) });
+      const body = (await response.json().catch(() => ({}))) as { error?: string; code?: string };
+      // Sent without the password, inside a window that has since ended: the field shows, to send it again.
+      if (owner.free && passwordAsked(response, body)) { owner.refused(); return; }
       if (!response.ok) throw new Error(body.error ?? "The destination could not be saved");
       setSsh(null);
       onChanged();
@@ -207,16 +212,16 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
       </Panel>
 
       <Panel
-        title="Another machine over SSH"
+        title="Another computer over SSH"
         count={remote || remoteSettings ? sshState : undefined}
         meta="rsync over SSH with BoxPilot's own key · nothing deleted there"
         padded
         actions={<>
-          {remote && !remote.keyReady && may("backup.remote.setup") && <Button risk={riskOf("backup.remote.setup")} onClick={() => start({ operationId: "backup.remote.setup", title: "Create the second copy key", parameters: {}, preview: <span>Makes a key for BoxPilot to sign in to the other machine with. The private half never leaves this server; the public half is shown here afterwards, for you to add on that machine.</span> })}>Create key</Button>}
+          {remote && !remote.keyReady && may("backup.remote.setup") && <Button risk={riskOf("backup.remote.setup")} onClick={() => start({ operationId: "backup.remote.setup", title: "Create the key for copies on another computer", parameters: {}, preview: <span>Makes a key for BoxPilot to sign in to the other computer with. The private half never leaves this server; the public half is shown here afterwards, for you to add on that computer.</span> })}>Create key</Button>}
           {role === "owner" && <Button onClick={() => { setSshError(null); setSsh({ host: destination?.host ?? "", port: String(destination?.port ?? 22), user: destination?.user ?? "", path: destination?.path ?? "", password: "" }); }}>{destination ? "Change destination" : "Set destination"}</Button>}
-          {destination && remote?.keyReady && may("backup.remote.test") && <Button risk={riskOf("backup.remote.test")} onClick={() => start({ operationId: "backup.remote.test", title: "Test the second copy destination", parameters: {}, preview: <span>Connects as <code>{destination.user}@{destination.host}</code>, creates <code>{destination.path}</code> if needed, checks it is writable, and pins the destination's host key on first use.</span> })}>Test connection</Button>}
+          {destination && remote?.keyReady && may("backup.remote.test") && <Button risk={riskOf("backup.remote.test")} onClick={() => start({ operationId: "backup.remote.test", title: "Test the other computer", parameters: {}, preview: <span>Connects as <code>{destination.user}@{destination.host}</code>, creates <code>{destination.path}</code> if needed, checks it is writable, and pins the destination's host key on first use.</span> })}>Test connection</Button>}
           {destination && remote?.keyReady && (remote.rsyncInstalled
-            ? may("backup.remote.sync") && <Button variant="primary" risk={riskOf("backup.remote.sync")} disabled={!pinned} title={pinned ? undefined : "Test the connection first"} onClick={() => start({ operationId: "backup.remote.sync", title: `Mirror backups to ${destination.host}`, parameters: {}, preview: <span>Copies the database backups, app backups and machine snapshots to <code>{destination.host}</code>. Files already there are not sent again; nothing there is ever deleted.{summary && !summary.scheduled ? " “Keep a second copy nightly”, on this tab, keeps it current." : ""}</span> })}>Mirror now</Button>
+            ? may("backup.remote.sync") && <Button variant="primary" risk={riskOf("backup.remote.sync")} disabled={!pinned} title={pinned ? undefined : "Test the connection first"} onClick={() => start({ operationId: "backup.remote.sync", title: `Copy backups to ${destination.host}`, parameters: {}, preview: <span>Copies the database backups, app backups and machine snapshots to <code>{destination.host}</code>. Files already there are not sent again; nothing there is ever deleted.{summary && !summary.scheduled ? " “Keep a second copy nightly”, on this tab, keeps it current." : ""}</span> })}>Copy now</Button>
             : may("apt.install") && <Button risk={riskOf("apt.install")} onClick={() => start({ operationId: "apt.install", title: "Install rsync", parameters: { packages: ["rsync"] }, preview: <span>Installs the <code>rsync</code> package from Ubuntu's repositories; the mirror needs it on this server.</span> })}>Install rsync</Button>)}
         </>}
       >
@@ -238,7 +243,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           {cloud && !cloud.rcloneInstalled && may("apt.install") && <Button risk={riskOf("apt.install")} onClick={() => start({ operationId: "apt.install", title: "Install rclone", parameters: { packages: ["rclone"] }, preview: <span>Installs rclone from Ubuntu's repositories: the program that copies backups to a cloud bucket. Nothing is copied until a destination is set.</span> })}>Install rclone</Button>}
           {cloud && may("backup.cloud.setup") && <Button risk={riskOf("backup.cloud.setup")} disabled={!cloud.rcloneInstalled} title={cloud.rcloneInstalled ? undefined : "Install rclone first"} onClick={openCloud}>{savedCloud ? "Change destination" : "Set destination"}</Button>}
           {savedCloud && may("backup.cloud.test") && <Button risk={riskOf("backup.cloud.test")} onClick={() => start({ operationId: "backup.cloud.test", title: "Test the cloud destination", parameters: {}, preview: <span>Creates the destination folder with the saved credentials and lists it. Nothing is copied yet.</span> })}>Test connection</Button>}
-          {savedCloud && may("backup.cloud.sync") && <Button variant="primary" risk={riskOf("backup.cloud.sync")} onClick={() => start({ operationId: "backup.cloud.sync", title: "Mirror backups to the cloud", parameters: {}, preview: <span>Copies the database backups, app backups and machine snapshots to the bucket, sealed with your passphrase. Files already there are not sent again; nothing there is ever deleted.</span> })}>Mirror now</Button>}
+          {savedCloud && may("backup.cloud.sync") && <Button variant="primary" risk={riskOf("backup.cloud.sync")} onClick={() => start({ operationId: "backup.cloud.sync", title: "Copy backups to the cloud", parameters: {}, preview: <span>Copies the database backups, app backups and machine snapshots to the bucket, sealed with your passphrase. Files already there are not sent again; nothing there is ever deleted.</span> })}>Copy now</Button>}
         </>}
       >
         {cloudError && <Notice tone="danger" live title="The cloud destination could not be read" action={<Button onClick={onChanged}>Try again</Button>}>{cloudError}</Notice>}
@@ -255,7 +260,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
       {ssh && (
         <Sheet
           className="backups-sheet"
-          kicker="Another machine over SSH"
+          kicker="Another computer over SSH"
           title={destination ? "Change the destination" : "Set the destination"}
           onClose={() => setSsh(null)}
           footer={<>
@@ -278,9 +283,13 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           <Field label="Path" hint="An absolute folder; it is created if needed. Nothing there is ever deleted.">
             <TextInput mono placeholder="/volume1/boxpilot" value={ssh.path} onValueChange={(value) => setSsh({ ...ssh, path: value })} />
           </Field>
-          <Field label="Owner password" hint="Changing where backups go asks for yours. No password for the destination is stored here.">
-            <SecretInput autoComplete="current-password" value={ssh.password} onValueChange={(value) => setSsh({ ...ssh, password: value })} />
-          </Field>
+          {owner.free
+            ? <p className="backups-note">{owner.note} No password for the destination is stored here.</p>
+            : (
+              <Field label="Owner password" hint={owner.asked ? passwordAskedWords : "Changing where backups go asks for yours. No password for the destination is stored here."}>
+                <SecretInput autoComplete="current-password" value={ssh.password} onValueChange={(value) => setSsh({ ...ssh, password: value })} />
+              </Field>
+            )}
           {sshError && <Notice tone="danger" live title="The destination was not saved">{sshError}</Notice>}
           </form>
         </Sheet>

@@ -380,7 +380,7 @@ export function createAgentService({
       const { background } = coresNow();
       const burst = target > background;
       if (!force && !burst && cpu.applied === target) return true;
-      if (!helper) { cpu.error = { at: now().toISOString(), message: "The helper is not available" }; return false; }
+      if (!helper) { cpu.error = { at: now().toISOString(), message: "BoxPilot's admin service is not available" }; return false; }
       try {
         const result = await helper.request("agents.runtime.cpu", { processors: target, background, resetAfterSeconds: Math.min(7_200, Math.max(60, Math.round(resetAfterSeconds))) }, { timeoutMs: limits.cpuChangeTimeoutMs });
         Object.assign(cpu, { applied: target, burst, at: now().toISOString(), resetAt: result?.resetAt ?? null, error: null });
@@ -1218,7 +1218,7 @@ export function createAgentService({
     const waiting = wanted > background;
     const words = applied
       ? `The runner took this run, with ${processorsForRun} processors and ${threads} model threads${waiting ? " while you wait" : ""}.`
-      : waiting ? `The runner took this run. It could not be given ${wanted} processors (${cpu.error?.message ?? "the helper did not answer"}), so it runs with ${background}.` : "The runner took this run.";
+      : waiting ? `The runner took this run. It could not be given ${wanted} processors (${cpu.error?.message ?? "BoxPilot's admin service did not answer"}), so it runs with ${background}.` : "The runner took this run.";
     return { processors: processorsForRun, wanted, threads, waiting: waiting && applied, applied, words };
   }
 
@@ -1926,7 +1926,7 @@ export function createAgentService({
         // an agent that met its step limit every night left a card a night (28 of them on the owner's
         // server, 2026-11-10). The escalation is still audited; a run that read something like an
         // instruction always gets its card.
-        if (risky || !store.findOpenEscalation(agent.id, reasons.join(" "))) card("escalation", `${agent.name} needs you to look`, reasons.join(" "));
+        if (risky || !store.findOpenEscalation(agent.id, reasons.join(" "), forRole)) card("escalation", `${agent.name} needs you to look`, reasons.join(" "));
         audit("agents.escalated", { actorId: run.requestedBy, subjectId: run.id, details: { agentId: agent.id, lowConfidence: !clarify && typeof confidence === "number" && confidence < limits.lowConfidence, limit: Boolean(run.flags?.limitReached), risk: Boolean(risky) } });
       }
       // Nothing proves the agent did not act on what it read (it may have proposed a plan or kept a

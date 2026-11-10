@@ -24,7 +24,7 @@ describe("Hosted domains page", () => {
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows.map((row) => within(row).getByRole("link").textContent)).toEqual(["news.example.com", "wiki.example.com", "share.example.com"]);
     expect(within(rows[0]).getByText("Down").closest(".ui-chip")?.getAttribute("data-status")).toBe("danger");
-    expect(within(rows[0]).getByText(/Start it from its Overview tab in the App catalog/)).toBeTruthy();
+    expect(within(rows[0]).getByText(/Start it from its Overview tab in Apps/)).toBeTruthy();
     expect(within(rows[0]).getByText("HTTP 530")).toBeTruthy();
     expect(within(rows[0]).getByText("Never")).toBeTruthy();
     expect(within(rows[0]).getByText("Space news")).toBeTruthy();
@@ -107,7 +107,7 @@ describe("Hosted domains page", () => {
     const add = within(sheet).getByRole("button", { name: "Add" });
     expect(add.hasAttribute("disabled")).toBe(true);
     // A pasted address is cut down to the name the server takes.
-    fireEvent.change(within(sheet).getByLabelText(/^Name/), { target: { value: "https://Status.Example.com:8443/path?x=1" } });
+    fireEvent.paste(within(sheet).getByLabelText(/^Name/), { clipboardData: { getData: () => "https://Status.Example.com:8443/path?x=1" } });
     expect((within(sheet).getByLabelText(/^Name/) as HTMLInputElement).value).toBe("status.example.com");
     fireEvent.change(within(sheet).getByLabelText(/Answered on this server at/), { target: { value: "http://127.0.0.1:3001" } });
     await within(sheet).findByRole("option", { name: "BookStack" });
@@ -189,6 +189,36 @@ describe("Hosted domains page", () => {
     expect(hostnameFrom("news.")).toBe("news."); // still being typed
     expect(hostnameFrom("news.example.com.", true)).toBe("news.example.com"); // as it is sent
     expect(hostnameFrom("example.com/blog")).toBe("example.com");
+  });
+
+  // Cut down on every keystroke, "https://news.example.com" ended as "httpsnews.example.com".
+  it("keeps an address as it is typed, character by character, and sends the bare name", async () => {
+    const sent: Array<{ method: string; url: string; body: unknown; headers: Record<string, string> }> = [];
+    for (const [typed, name] of [["https://News.Example.com", "news.example.com"], ["news.example.com:8443", "news.example.com"]]) {
+      sent.length = 0;
+      mockFetch({ "POST /api/v1/hosted-domains/manual": json({ added: name }, 201) }, sent);
+      render(<HostedPage csrfToken="csrf" now={now} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Add a domain…" }));
+      const sheet = await screen.findByRole("dialog", { name: "Add a domain" });
+      const field = within(sheet).getByLabelText(/^Name/) as HTMLInputElement;
+      for (let length = 1; length <= typed.length; length += 1) fireEvent.change(field, { target: { value: `${field.value}${typed[length - 1]}` } });
+      expect(field.value, typed).toBe(typed);
+      fireEvent.click(within(sheet).getByRole("button", { name: "Add" }));
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0].body, typed).toMatchObject({ hostname: name });
+      cleanup();
+    }
+  });
+
+  it("cuts the name field down when it is left", async () => {
+    mockFetch();
+    render(<HostedPage csrfToken="csrf" now={now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add a domain…" }));
+    const field = within(await screen.findByRole("dialog", { name: "Add a domain" })).getByLabelText(/^Name/) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "https://news.example.com:8443/feed" } });
+    expect(field.value).toBe("https://news.example.com:8443/feed");
+    fireEvent.blur(field);
+    expect(field.value).toBe("news.example.com");
   });
 
   it("says when the installed apps could not be listed, rather than offering none", async () => {

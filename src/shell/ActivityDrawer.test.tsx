@@ -140,7 +140,7 @@ describe("Activity drawer", () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ error: "Unavailable" }, 503)));
     render(<ActivityDrawer />);
     fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
-    expect(screen.getByText("Reading job history...")).toBeTruthy();
+    expect(screen.getByText("Reading job history…")).toBeTruthy();
     expect(screen.queryByText(/No jobs are visible/)).toBeNull();
     act(() => FakeEventSource.instances.at(-1)?.onerror?.());
     expect(await screen.findByText(/Job history is unavailable/)).toBeTruthy();

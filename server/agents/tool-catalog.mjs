@@ -89,7 +89,7 @@ export const toolCatalog = Object.freeze([
   },
   {
     id: "backups.status", title: "Backups", category: "boxpilot", role: "viewer", cost: "cheap",
-    description: "The most recent app backups, their restore checks, the off-box and cloud copies, and restore rehearsals.",
+    description: "The most recent app backups, their restore checks, the copies off this server and in the cloud, and restore rehearsals.",
     use: "when apps were backed up and whether the backups restore",
     askedFor: [/\b(backups?|backed up|restores?|snapshots?)\b/i],
     params: {},
@@ -119,7 +119,7 @@ export const toolCatalog = Object.freeze([
   },
   {
     id: "repair.findings", title: "Repair's findings", category: "boxpilot", role: "viewer", cost: "moderate",
-    description: "What the Repair Center found: dead or read-only mounts, drives needing a check, apps missing their container or a data folder, ports held while an app is stopped, backups never tested, worst first, each with the fix it offers or what to do by hand. The same list as the Repair page.",
+    description: "What Repair found: dead or read-only mounts, drives needing a check, apps missing their container or a data folder, ports held while an app is stopped, backups never tested, worst first, each with the fix it offers or what to do by hand. The same list as the Repair page.",
     use: "what Repair found, what needs fixing, the fixes BoxPilot offers",
     askedFor: [/\b(repair|repair cent(er|re)|needs? (fixing|a fix)|to fix|fixes? (offered|available))\b/i],
     params: {},

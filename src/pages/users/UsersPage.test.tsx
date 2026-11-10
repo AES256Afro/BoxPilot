@@ -51,7 +51,7 @@ describe("Users & SSH page", () => {
     const listener = (event: Event) => opened((event as CustomEvent).detail);
     window.addEventListener("boxpilot:open-view", listener);
     const { unmount } = render(<UsersPage csrfToken="csrf-token" role="owner" />);
-    expect(await screen.findByText("These are accounts on the server itself.")).toBeTruthy();
+    expect(await screen.findByText("These are accounts on the server itself")).toBeTruthy();
     expect(screen.getByText("To let someone sign in to BoxPilot, use Settings, People.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open People" }));
     expect(opened).toHaveBeenCalledWith({ view: "settings", options: { tab: "people" } });

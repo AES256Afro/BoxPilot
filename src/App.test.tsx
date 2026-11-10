@@ -326,6 +326,27 @@ describe("BoxPilot console", () => {
     expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
   });
 
+  // "Open Shares" from a failed mount, pressed on Shares: the page opened again and the form to correct was empty.
+  it("keeps the page as it is when asked for the tab it is already on, and opens it again for another tab", async () => {
+    const catalog = { applications: [], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => (input.toString().startsWith("/api/v1/catalog")
+      ? Promise.resolve(new Response(JSON.stringify(catalog), { status: 200, headers: { "Content-Type": "application/json" } }))
+      : authenticatedFetch(input))));
+    window.history.replaceState(null, "", "/?view=catalog&tab=browse");
+    render(<App />);
+    const search = () => screen.getByRole("searchbox", { name: "Search applications" }) as HTMLInputElement;
+    await screen.findByRole("searchbox", { name: "Search applications" });
+    fireEvent.change(search(), { target: { value: "half typed" } });
+    const ask = (tab: string) => act(() => { window.dispatchEvent(new CustomEvent("boxpilot:open-view", { detail: { view: "catalog", options: { tab } } })); });
+    ask("browse");
+    expect(search().value).toBe("half typed");
+    expect(window.location.search).toBe("?view=catalog&tab=browse");
+    // Another tab of the same page is read from the address as the page opens: it opens again.
+    ask("installed");
+    await vi.waitFor(() => expect(screen.queryByDisplayValue("half typed")).toBeNull());
+    expect(window.location.search).toContain("view=catalog");
+  });
+
   it("opens the design system gallery only when the server is the demo", async () => {
     // The gallery (M33.1) is for reviewing components; a real BoxPilot ignores ?gallery.
     const demoFetch = (input: RequestInfo | URL) => input.toString().endsWith("/api/v1/health")

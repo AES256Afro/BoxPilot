@@ -1,4 +1,4 @@
-/* The App catalog (M33.11): the page's own layout, on the kit's components. Tokens only, and every
+/* Apps (M33.11): the page's own layout, on the kit's components. Tokens only, and every
    selector starts with .catalog-, so no other page is touched (docs/UI-PAGES.md). The app's sheet
    and the install form are drawn over the page, so their rules stand on their own. */
 

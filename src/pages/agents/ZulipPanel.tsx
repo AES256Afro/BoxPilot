@@ -7,7 +7,7 @@ import { errorText } from "./format";
 import { PasswordSheet } from "./PasswordSheet";
 
 /*
- * The team chat (M38): Zulip, which the owner installs from the App catalog and connects here. Whether
+ * The team chat (M38): Zulip, which the owner installs from Apps and connects here. Whether
  * it is installed and connected; the four channels and what goes to each; the last post or what
  * went wrong; what came in from #agent-files; and, for the owner, the last few posts. Connect is a
  * registered operation approved in the ordinary dialog: it makes the bot and the channels with
@@ -179,10 +179,10 @@ export function ZulipPanel({ csrfToken, role, now, onStart, refreshKey, agents =
         {error && <Notice tone="danger" live onDismiss={() => setError(null)}>{error}</Notice>}
         {notice && <Notice tone="success" live onDismiss={() => setNotice(null)}>{notice}</Notice>}
         {!state.app?.installed && !state.connected && (
-          <p className="agents-quiet">Zulip is the agents' team chat: they post what they find, their traces and what they learn there, and you drop files there for them. Install it from the <a href="?view=catalog&amp;app=zulip">App catalog</a>; it is reached through Tailscale only. Then create your organization from its sheet, and connect here.</p>
+          <p className="agents-quiet">Zulip is the agents' team chat: they post what they find, their traces and what they learn there, and you drop files there for them. Install it from <a href="?view=catalog&amp;app=zulip">Apps</a>; it is reached through Tailscale only. Then create your organization from its sheet, and connect here.</p>
         )}
         {state.app?.installed && !state.connected && (
-          <p className="agents-quiet">{state.app.running ? "Zulip is installed. Create your organization from its sheet in the App catalog first, then connect: BoxPilot makes the agents' bot and channels in it with Zulip's own tools." : "Zulip is installed but not running; start it from the App catalog, then connect."}</p>
+          <p className="agents-quiet">{state.app.running ? "Zulip is installed. Create your organization from its sheet in Apps first, then connect: BoxPilot makes the agents' bot and channels in it with Zulip's own tools." : "Zulip is installed but not running; start it from Apps, then connect."}</p>
         )}
         {state.connected && !state.active && <Notice tone="info" title="Waiting while Agents are off or paused">Posts wait in the outbox and files wait in Zulip until Agents run again.</Notice>}
         {state.notPrivate.length > 0 && <Notice tone="warning" title="Not every channel is private">{state.notPrivate.map((name) => `#${name}`).join(", ")} {state.notPrivate.length === 1 ? "was" : "were"} already there and public: anyone in the organization can read what agents post there. Make {state.notPrivate.length === 1 ? "it" : "them"} private in Zulip's channel settings.</Notice>}

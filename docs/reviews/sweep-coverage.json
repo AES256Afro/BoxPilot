@@ -7,30 +7,30 @@
     "visual",
     "qol"
   ],
-  "note": "lastReviewed is an ISO date, sweep the sweep number within this loop, found the count of findings that pass raised (0 is a real answer and the one that retires a category; null means not reviewed in this loop). Pages are checked against navItems in src/data.ts by scripts/check-sweep-coverage.mjs, so a page added to the dock cannot go missing from here.",
+  "note": "lastReviewed is an ISO date, sweep the sweep number within this loop, found the count of findings that pass raised (0 is a real answer and the one that retires a category; null means not reviewed in this loop). Pages are checked against navItems in src/data.ts by scripts/check-sweep-coverage.mjs, so a page added to the dock cannot go missing from here. The 2026-11-10 rows: usability and quality of life were swept together in three passes (every page read, the shell and what the first pass only grepped, ten owner tasks walked end to end), so both carry the same count, taken from the file references in the three reports and approximate to within one or two a page; visual is set only for the surfaces looked at in a browser that day.",
   "pages": {
     "agents": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 9
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 2
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 9
       }
     },
     "automations": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 6
       },
       "visual": {
         "lastReviewed": null,
@@ -38,50 +38,50 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 6
       }
     },
     "backups": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 8
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 1
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 8
       }
     },
     "catalog": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 12
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 0
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 12
       }
     },
     "firewall": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       },
       "visual": {
         "lastReviewed": null,
@@ -89,16 +89,16 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       }
     },
     "github": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 2
       },
       "visual": {
         "lastReviewed": null,
@@ -106,50 +106,50 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 2
       }
     },
     "home": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 5
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 0
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 5
       }
     },
     "hosted": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 7
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 0
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 7
       }
     },
     "logs": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       },
       "visual": {
         "lastReviewed": null,
@@ -157,33 +157,33 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       }
     },
     "network": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 0
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       }
     },
     "ops": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 2
       },
       "visual": {
         "lastReviewed": null,
@@ -191,16 +191,16 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 2
       }
     },
     "performance": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       },
       "visual": {
         "lastReviewed": null,
@@ -208,33 +208,33 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       }
     },
     "repairs": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 1
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       }
     },
     "services": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 2
       },
       "visual": {
         "lastReviewed": null,
@@ -242,16 +242,16 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 2
       }
     },
     "settings": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 9
       },
       "visual": {
         "lastReviewed": null,
@@ -259,16 +259,16 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 9
       }
     },
     "setup": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       },
       "visual": {
         "lastReviewed": null,
@@ -276,16 +276,16 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       }
     },
     "signin": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 5
       },
       "visual": {
         "lastReviewed": null,
@@ -293,33 +293,33 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 5
       }
     },
     "storage": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 9
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 0
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 9
       }
     },
     "system": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       },
       "visual": {
         "lastReviewed": null,
@@ -327,50 +327,50 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       }
     },
     "today": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 2
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       }
     },
     "updates": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 0
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       }
     },
     "users": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       },
       "visual": {
         "lastReviewed": null,
@@ -378,16 +378,16 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       }
     },
     "virtualization": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       },
       "visual": {
         "lastReviewed": null,
@@ -395,18 +395,18 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       }
     }
   },
   "shell": {
     "command bar": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       },
       "visual": {
         "lastReviewed": null,
@@ -414,16 +414,16 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 4
       }
     },
     "activity drawer": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       },
       "visual": {
         "lastReviewed": null,
@@ -431,16 +431,16 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 3
       }
     },
     "notification centre": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 2
       },
       "visual": {
         "lastReviewed": null,
@@ -448,16 +448,16 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 2
       }
     },
     "approval dialog": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 5
       },
       "visual": {
         "lastReviewed": null,
@@ -465,16 +465,16 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 5
       }
     },
     "account menu": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 0
       },
       "visual": {
         "lastReviewed": null,
@@ -482,33 +482,33 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 0
       }
     },
     "top bar and view switch": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 1
       },
       "visual": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 2,
+        "found": 1
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 1
       }
     },
     "offline and session banners": {
       "usability": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 2
       },
       "visual": {
         "lastReviewed": null,
@@ -516,9 +516,9 @@
         "found": null
       },
       "qol": {
-        "lastReviewed": null,
-        "sweep": null,
-        "found": null
+        "lastReviewed": "2026-11-10",
+        "sweep": 3,
+        "found": 2
       }
     },
     "page error and loading states": {

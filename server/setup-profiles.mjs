@@ -21,50 +21,50 @@ export const setupProfiles = Object.freeze([
   {
     id: "home-server", name: "Home server", icon: "🏠",
     description: "Media, a dashboard, uptime monitoring, and nightly backups. The usual first box.",
-    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("homepage", "Homepage"), app("jellyfin", "Jellyfin"), app("uptime-kuma", "Uptime Kuma"), app("dockge", "Dockge"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
+    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("homepage", "Homepage"), app("jellyfin", "Jellyfin"), app("uptime-kuma", "Uptime Kuma"), app("dockge", "Dockge"), schedule("database-backup", "Back up BoxPilot's database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
   },
   {
     id: "dns-appliance", name: "Ad blocking", icon: "🛡️",
     description: "AdGuard Home for the whole network, with monitoring and backups.",
-    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("adguard-home", "AdGuard Home"), app("uptime-kuma", "Uptime Kuma"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
+    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("adguard-home", "AdGuard Home"), app("uptime-kuma", "Uptime Kuma"), schedule("database-backup", "Back up BoxPilot's database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
   },
   {
     id: "hypervisor", name: "Virtual machines", icon: "🖥️",
     description: "Everything needed to create virtual machines.",
-    steps: [prerequisite("virtualization", "Install KVM, QEMU, and libvirt"), foundation, prerequisite("smartmontools", "Install smartmontools for disk health"), unattended, schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
+    steps: [prerequisite("virtualization", "Install KVM, QEMU, and libvirt"), foundation, prerequisite("smartmontools", "Install smartmontools for disk health"), unattended, schedule("database-backup", "Back up BoxPilot's database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
   },
   {
     id: "dev-box", name: "Development", icon: "🧰",
     description: "Git hosting, a browser IDE, and compose management.",
-    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("forgejo", "Forgejo"), app("code-server", "code-server"), app("dockge", "Dockge"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
+    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("forgejo", "Forgejo"), app("code-server", "code-server"), app("dockge", "Dockge"), schedule("database-backup", "Back up BoxPilot's database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
   },
   {
     id: "media-server", name: "Media server", icon: "🎬",
     description: "Movies, shows, music, and audiobooks with request management and a dashboard.",
-    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("jellyfin", "Jellyfin"), app("jellyseerr", "Jellyseerr"), app("navidrome", "Navidrome"), app("audiobookshelf", "Audiobookshelf"), app("homepage", "Homepage"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
+    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("jellyfin", "Jellyfin"), app("jellyseerr", "Jellyseerr"), app("navidrome", "Navidrome"), app("audiobookshelf", "Audiobookshelf"), app("homepage", "Homepage"), schedule("database-backup", "Back up BoxPilot's database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
   },
   {
     id: "media-automation", name: "Media automation", icon: "🧲",
     description: "Magnet links from any device land in the library: qBittorrent through a VPN, Prowlarr feeding Sonarr and Radarr, Jellyfin playing the result.",
     steps: [prerequisite("docker", "Install Docker Engine"), unattended,
-      configuredApp("qbittorrent", "qBittorrent (through a VPN)", "It needs your VPN provider and key, so install it from its App catalog card; everything else here works before or after."),
+      configuredApp("qbittorrent", "qBittorrent (through a VPN)", "It needs your VPN provider and key, so install it from its sheet in Apps; everything else here works before or after."),
       app("prowlarr", "Prowlarr"), app("sonarr", "Sonarr"), app("radarr", "Radarr"), app("jellyfin", "Jellyfin"), app("jellyseerr", "Jellyseerr"),
-      schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
+      schedule("database-backup", "Back up BoxPilot's database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
   },
   {
     id: "smart-home", name: "Smart home", icon: "💡",
     description: "Home Assistant with push notifications and uptime monitoring.",
-    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("home-assistant", "Home Assistant"), app("ntfy", "ntfy"), app("uptime-kuma", "Uptime Kuma"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
+    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("home-assistant", "Home Assistant"), app("ntfy", "ntfy"), app("uptime-kuma", "Uptime Kuma"), schedule("database-backup", "Back up BoxPilot's database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
   },
   {
     id: "observability", name: "Monitoring", icon: "📈",
     description: "Grafana, uptime checks, and a notification relay for alerts.",
-    steps: [prerequisite("docker", "Install Docker Engine"), prerequisite("smartmontools", "Install smartmontools for disk health"), unattended, app("grafana", "Grafana"), app("uptime-kuma", "Uptime Kuma"), app("ntfy", "ntfy"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
+    steps: [prerequisite("docker", "Install Docker Engine"), prerequisite("smartmontools", "Install smartmontools for disk health"), unattended, app("grafana", "Grafana"), app("uptime-kuma", "Uptime Kuma"), app("ntfy", "ntfy"), schedule("database-backup", "Back up BoxPilot's database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
   },
   {
     id: "essentials", name: "Essentials only", icon: "✅",
     description: "Docker, automatic security updates, disk health, and backup schedules. Add apps later.",
-    steps: [prerequisite("docker", "Install Docker Engine"), prerequisite("smartmontools", "Install smartmontools for disk health"), prerequisite("restic", "Install restic for encrypted backups"), unattended, schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
+    steps: [prerequisite("docker", "Install Docker Engine"), prerequisite("smartmontools", "Install smartmontools for disk health"), prerequisite("restic", "Install restic for encrypted backups"), unattended, schedule("database-backup", "Back up BoxPilot's database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
   },
 ]);
 

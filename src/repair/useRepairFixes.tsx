@@ -196,7 +196,7 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
     void fetch(`/api/v1/jobs/${encodeURIComponent(target.jobId)}/dismiss`, { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } })
       .then((response) => readJson(response))
       .then(() => recheckRef.current().catch(() => null))
-      .catch((error: unknown) => setJobProblem(`Could not dismiss "${target.title}": ${error instanceof Error ? error.message : "that did not work"}`));
+      .catch((error: unknown) => setJobProblem(`Could not dismiss “${target.title}”: ${error instanceof Error ? error.message : "that did not work"}`));
   }, [csrfToken]);
 
   let dialog: ReactNode = null;

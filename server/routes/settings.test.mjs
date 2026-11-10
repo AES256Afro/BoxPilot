@@ -65,7 +65,7 @@ describe("GET /settings/watch", () => {
       "schedule.failed:s1": { title: "Scheduled task failed: Back up application data (jellyfin)", since: "2026-09-27T03:00:00Z", message: "disk full", notified: false },
       "flow.failed:f1": { title: "Automation stopped: Nightly", since: "2026-09-27T03:10:00Z", notified: true },
       "record.failed:vm.export.create:lab": { title: "Result not saved: Export a stopped VM (lab)", since: "2026-09-27T03:20:00Z", message: "UNIQUE constraint failed", notified: false },
-      "system.reboot": { title: "A reboot is required", since: "2026-09-26T00:00:00Z", notified: false },
+      "system.reboot": { title: "A restart is required", since: "2026-09-26T00:00:00Z", notified: false },
     });
     const body = await (await fetch(`${base}/api/v1/settings/watch`)).json();
     expect(body.activeCount).toBe(4);
@@ -80,7 +80,7 @@ describe("GET /settings/watch", () => {
 
   it("counts news that reached no one with the rest, without calling it a condition (M27.2)", async () => {
     settings.set("healthAlertsState", {
-      "system.reboot": { title: "A reboot is required", since: "2026-09-26T00:00:00Z", notified: true },
+      "system.reboot": { title: "A restart is required", since: "2026-09-26T00:00:00Z", notified: true },
       "signin.new:owner-1:100.64.0.20": { title: "New sign-in from 100.64.0.20", since: "2026-09-27T08:00:00Z", message: "alex signed in from 100.64.0.20", notified: false },
       "release.available": { title: "Version 1.127.0 is available", since: "2026-09-27T09:00:00Z", message: "You are running 1.126.0.", notified: false },
       "job.interrupted:apt.upgrade": { title: "Install all package updates was interrupted", since: "2026-09-27T10:00:00Z", message: "m", notified: false },

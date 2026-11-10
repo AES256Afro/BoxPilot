@@ -25,6 +25,57 @@ export function onRefresh(read: (why: "asked" | "job") => void): () => void {
 }
 
 /**
+ * For a page with its own "Check again". `asked` is that button's own function, so the bar's Refresh
+ * reads everything the button does. `job` is the read a job ending asks for: the same facts, read
+ * quietly (no busy button, a shown error left alone). Job reads never pile up: one that is asked for
+ * while a read is out waits for it and then runs once, and one asked for while the tab is hidden is
+ * made once, when the tab is looked at again. Return the read's promise from both, so this knows
+ * when it has landed.
+ */
+export function onPageRefresh({ asked, job }: { asked: () => unknown; job: () => unknown }): () => void {
+  let reading = 0;
+  let owed = false;
+  let stopped = false;
+  const hidden = () => typeof document !== "undefined" && document.hidden;
+  const track = (started: unknown, after: () => void) => {
+    if (!started || typeof (started as PromiseLike<unknown>).then !== "function") return;
+    reading += 1;
+    const landed = () => { reading -= 1; after(); };
+    (started as PromiseLike<unknown>).then(landed, landed);
+  };
+  const readForJob = () => {
+    if (stopped) return;
+    if (reading > 0 || hidden()) { owed = true; return; }
+    owed = false;
+    track(job(), () => { if (owed) readForJob(); });
+  };
+  const stopListening = onRefresh((why) => {
+    if (why === "job") { readForJob(); return; }
+    // Everything is read again: nothing a job ended meanwhile is still owed.
+    owed = false;
+    track(asked(), () => { if (owed) readForJob(); });
+  });
+  const visible = () => { if (owed && !hidden()) readForJob(); };
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", visible);
+  return () => { stopped = true; stopListening(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", visible); };
+}
+
+/*
+ * Jobs a page is following to their end itself (its approval dialog hands it the finished job, and
+ * the page reads again then). The feed's news of the same job would be a second read of the same
+ * facts, so it is not sent for these.
+ */
+const followedByPage = new Set<string>();
+
+/** Says a page will hear of this job's end itself; returns the function that takes that back. */
+export function pageFollowsJob(jobId: string): () => void {
+  followedByPage.add(jobId);
+  return () => { followedByPage.delete(jobId); };
+}
+
+export const pageIsFollowing = (jobId: string): boolean => followedByPage.has(jobId);
+
+/**
  * A job has finished, wherever it was started (the command bar, Activity, a schedule, another tab):
  * the page in front reads its facts again, so Apps stops saying "Update ready" once the update ran.
  * Only a page that listens does anything; nothing is loaded again. Jobs that finish together make

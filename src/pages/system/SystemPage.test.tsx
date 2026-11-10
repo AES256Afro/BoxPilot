@@ -90,6 +90,28 @@ describe("System page", () => {
     expect(screen.getByRole("tab", { name: "Time & name" }).getAttribute("aria-selected")).toBe("true");
   });
 
+  // The bar's Refresh read the settings alone: the release, the cleanup figures, the UPS and the power settings stayed as they were.
+  it("reads everything Check again reads when the bar's Refresh is pressed, and only the settings when a job ends", async () => {
+    serve();
+    const reads = (suffix: string) => vi.mocked(fetch).mock.calls.filter(([url]) => url.toString().endsWith(suffix)).length;
+    const everything = ["/operations/system.settings.inspect/inspect", "/api/v1/system/update", "/operations/housekeeping.inspect/inspect", "/api/v1/power/ups/detect", "/api/v1/power/overview"];
+    render(<SystemPage csrfToken="csrf-token" />);
+    await waitFor(() => expect(document.querySelector(".ui-page-header__verdict")?.textContent).toBe("Up to date"));
+    await waitFor(() => { for (const suffix of everything) expect(reads(suffix), suffix).toBeGreaterThan(0); });
+    const count = () => everything.map(reads);
+    const first = count();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(count()).toEqual(first.map((value) => value + 1)));
+    act(() => { window.dispatchEvent(new Event("boxpilot:refresh", { cancelable: true })); });
+    await waitFor(() => expect(count()).toEqual(first.map((value) => value + 2)));
+    // A job ending somewhere: the settings again, quietly, and nothing else.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Check again" }).getAttribute("aria-busy")).toBeNull());
+    act(() => { window.dispatchEvent(new CustomEvent("boxpilot:refresh", { cancelable: true, detail: "job" })); });
+    await waitFor(() => expect(reads(everything[0])).toBe(first[0] + 3));
+    expect(screen.getByRole("button", { name: "Check again" }).getAttribute("aria-busy")).toBeNull();
+    expect(count().slice(1)).toEqual(first.slice(1).map((value) => value + 2));
+  });
+
   it("says the look is in Settings, and opens Appearance from here", async () => {
     serve();
     const onOpenAppearance = vi.fn();
@@ -743,7 +765,7 @@ describe("power", () => {
     render(<SystemPower {...props({ start, overview })} />);
     const panel = screen.getByRole("region", { name: "Restart the server" });
     expect(panel.textContent).toContain("The apps come back by themselves");
-    fireEvent.click(within(panel).getByRole("button", { name: /Restart the server…/ }));
+    fireEvent.click(within(panel).getByRole("button", { name: /Restart the server/ }));
     expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "system.reboot", title: "Restart the server", parameters: {} }));
     cleanup();
     render(<SystemPower {...props({ role: "viewer", hardware: null, overview })} />);

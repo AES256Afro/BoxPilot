@@ -14,15 +14,15 @@ again. The same rule as `swept-and-verified-clean`: a cleared area is not re-aud
 
 | Category | Sweeps run | Consecutive empty | State |
 | --- | --- | --- | --- |
-| Code | 4 | 0 | active — sweeps 1-3 fixed; sweep 4: 1, fixed (M56.2) |
-| Bug | 4 | 0 | active — sweeps 1-3 fixed; sweep 4: 1, fixed (M56.1) |
-| Security | 4 | **1** | active — sweep 4 found nothing; two more empty sweeps retires it |
-| Readability | 0 | — | queued |
-| Usability | 0 | n/a | queued — retires on coverage, see below |
-| Visual | 0 | n/a | queued — retires on coverage, see below |
-| Quality of life | 0 | n/a | queued — retires on coverage, see below |
-| Platform features | 0 | — | queued |
-| Optimization | 0 | — | queued |
+| Code | 7 | 0 | active — sweeps 1-4 fixed (M52-M56); sweeps 5-7 (2026-11-10): 15, then 8 with the bug sweep, then the review of the day's own diff (9 in the server, 11 in the pages; 18 fixed, 2 in M62); fixed (M57) |
+| Bug | 7 | 0 | active — sweeps 1-4 fixed; sweeps 5-7 (2026-11-10): 9, 11, 8; fixed (M57.1) |
+| Security | 7 | 0 | active — sweep 4 was empty; sweeps 5-7 (2026-11-10): 5, 4, 6, on surfaces sweep 4 had not reached; fixed (M57.2). The empty count starts again |
+| Readability | 3 | 0 | active — 2026-11-10: 40 (fixed, M57.4), then 27 in the day's new copy and 21 in the documents (fixed, bar a handful of "mirror" labels) |
+| Usability | 3 | n/a | active — 2026-11-10: every page; the shell; ten tasks walked. 23 of 23 pages and 7 of 8 shell surfaces reviewed, none at zero |
+| Visual | 3 | n/a | active — 2026-11-10: the owner's server at desktop width, phone width, then again after the release. 10 of 23 pages reviewed |
+| Quality of life | 3 | n/a | active — swept with usability; same coverage |
+| Platform features | 3 | 0 | active — 2026-11-10: 20, 12, 12 ideas; the plan from M57 orders them |
+| Optimization | 3 | 0 | active — 2026-11-10: 10 from the code, 10 more, then measured on the owner's server (idle: no processes of its own); fixed or in M62 |
 
 Code, bug, security, readability, platform features and optimization leave the loop at three in the
 "consecutive empty" column: for those, "nothing found" is a state the thing can genuinely be in.
@@ -37,8 +37,9 @@ over all of them found nothing. A review goes stale after eight weeks and then c
 dock cannot go missing from the ledger, and a row for a page that is gone fails too. Staleness is
 reported, never red: a check that turns red while nobody has touched the code gets ignored.
 
-Every row in the coverage ledger starts unreviewed. That is the honest state — none of those three
-sweeps has run yet — and it is why the next sweep has somewhere to start.
+Every row in the coverage ledger started unreviewed. Since 2026-11-10 usability and quality of life
+have a pass over every page and all but one shell surface, none of them at zero, and visual has ten
+pages: the rows say which, and the next sweep starts with the ones still empty.
 
 ## Out of scope, already cleared
 
@@ -728,3 +729,56 @@ The merge was made twice, by two sessions an hour apart, and the second took in 
 five conflicts settled the same way, plus the two pull requests main had merged in between. Where
 they differed, the second kept more of this branch: `containerRunning` stays the one predicate in
 `hosted-domains.mjs` (M52.6), and M53.2's per-file tests stay, rewritten against `sourceLimits`.
+
+---
+
+## 2026-11-10: sweeps 5 to 7, and the six queued categories
+
+Asked for again on 2026-11-10, with four mockups first. Run in four rounds from a worktree of main,
+each round a set of read-only sweeps, then fixes by fixers that held disjoint files, then the whole
+check. Released as 1.239.0 and 1.240.0; written up as M57 in the roadmap, with the plan that
+follows it. What is below is what a later sweep should know, not a second copy of the roadmap.
+
+**What retired nothing.** Code, bug and security each found something in every sweep, so none has
+an empty sweep to its name; security's one empty sweep (sweep 4) is no longer consecutive. The
+findings did move: sweep 5 was proven faults in code written since 2026-10-28, sweep 6 the
+long-lived core (the scheduler across the autumn clock change, alerts that never clear), sweep 7
+the edges (ufw rules narrowed by interface, a mirrored root's second disk, the Zulip connect
+script, the gateway's unit). A sweep 8 should start from the review of 2026-11-10's own diff.
+
+**Ground cleared on 2026-11-10 (do not re-audit unless the code changes).** ADR-015 across all 264
+operations (three gaps found and closed: socket apps, `/mnt` binds, `homepage.sync`); ADR-003 on
+every helper read and composite GET; the helper protocol and socket; the parameter validation
+engine; uploads and downloads; no `dangerouslySetInnerHTML` in `src/`; the agents' tool layer;
+sessions and cookies; the CSP; the install, upgrade and doctor scripts; every spawn is an argv
+array; webhooks; the demo worker; `npm audit --omit=dev` at zero. Bugs: `jobs.mjs` transitions,
+helper lanes, flows templating, retention maths, the `.env` round trip, the app lifecycle apart
+from what M57.1 lists, the agents' budget arithmetic.
+
+**What the sweeps could not see and a browser could.** Three of the day's better findings came
+from looking at the owner's server, not from reading: the stale "Did not reconnect", Repair's port
+53 "conflict", and twenty-eight identical agent cards. And one from measuring: the default look had
+no touch-size rule at all. A code sweep finds what is wrong with what is written; only a look at
+the running thing finds what is missing.
+
+**Methods that paid.** Probing a pure function with hostile input (most of the proven bugs).
+Checking a claim on the real box before fixing it (rclone's obscure format, the alert ledger, the
+idle process count). Walking a task end to end instead of reading a page (the forgotten-password
+dead end is on no page, so no page-by-page sweep could find it). Reviewing the day's own diff with
+a reader who did not write it.
+
+**Open decisions, the owner's.** A recovery-code session cannot set a new password: (A) a
+ten-minute one-time flag on such a session, or (B) a second recovery code as the proof; B plus the
+new console command is the safer pair. Whether registering a passkey should ask for the password.
+The tier of the seven apps that mount the Docker socket read-only. A rule for the 169 old database
+copies (1.1 GB). ADR-018.
+
+**The review of the day's own diff was the most useful sweep of the day per finding.** Twenty
+findings in code written hours before, among them the first fix of the morning: clearing "Did not
+reconnect" on every healthy round also cleared an automation's own failure and "Could not
+reconnect", whose hold then refused every later drop in silence. The others of note: "Sign out"
+had become the command bar's top hit for "si" and "sign"; a job left running behind "Keep
+working" later reopened or emptied a form on a page that had moved on; a database restore left the
+model gateway stopped, because the new `PartOf` carries a stop and not a start. A sweep that ends
+without a reader who did not write the code has not ended.
+

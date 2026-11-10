@@ -131,7 +131,7 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
     confirmText: device.path ?? "",
     // A formatted drive is not in use until it is mounted: the next step, not a hunt down the table.
     after: may("storage.mount") && device.path ? { label: "Mount it", open: () => { setMountNext(device.path); onChanged(); } } : undefined,
-    preview: <span>Runs <code>wipefs -a</code> then <code>mkfs.ext4</code> on <code>{device.path}</code> ({gib(device.sizeBytes)}{device.model ? `, ${device.model}` : ""}). {holdsWords(device, report?.devices ?? [])} <strong>Everything on it is destroyed.</strong></span>,
+    preview: <span>Erases <code>{device.path}</code> ({gib(device.sizeBytes)}{device.model ? `, ${device.model}` : ""}) and formats it as ext4. {holdsWords(device, report?.devices ?? [])} <strong>Everything on it is destroyed.</strong></span>,
   });
   // A drive with no label of its own (one just formatted) starts with a name rather than an empty
   // box: BoxPilot's backups when nothing is mounted for them yet, else "data", or the first of

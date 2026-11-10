@@ -183,7 +183,7 @@ describe("when a push goes", () => {
     await test.push.sweep();
     expect(test.opened().map((push) => push.payload.notification.title)).toEqual(["Update an app (Jellyfin): approve?"]);
     test.store.stage({ type: "op:apt.upgrade", title: "Install all updates", parameters: {}, createdAt: new Date(start + 20 * minute).toISOString() });
-    test.store.stage({ type: "op:system.reboot", title: "Reboot the server", parameters: {}, risk: "high", createdAt: new Date(start + 20 * minute).toISOString() });
+    test.store.stage({ type: "op:system.reboot", title: "Restart the server", parameters: {}, risk: "high", createdAt: new Date(start + 20 * minute).toISOString() });
     test.at(23 * minute);
     await test.push.sweep();
     expect(test.opened().map((push) => push.payload.notification.title)).toEqual(["Update an app (Jellyfin): approve?", "2 approvals waiting"]);

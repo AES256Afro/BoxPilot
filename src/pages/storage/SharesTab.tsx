@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mountpoints";
@@ -50,8 +50,15 @@ export default function SharesTab({ csrfToken, role, report, loading, tailnetHos
   const [listed, setListed] = useState<Array<{ name: string; comment: string | null }> | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const hostsId = useId();
-  // The password is held only until the job that uses it has run.
-  const { start, dialog } = useOperation(csrfToken, () => { setPassword(""); onChanged(); });
+  // The password is held only until the job that uses it has run: the mount of the share the form
+  // still names. A mount left running ("Keep working") that ends while a second share is being typed
+  // in does not empty that one's password.
+  const formName = useRef(name);
+  formName.current = name;
+  const { start, dialog } = useOperation(csrfToken, (job) => {
+    if (job.type === "op:share.mount" && job.parameters?.name === formName.current) setPassword("");
+    onChanged();
+  });
 
   const shares = report?.shares ?? [];
   const tools = report?.tools;

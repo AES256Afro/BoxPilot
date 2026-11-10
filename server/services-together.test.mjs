@@ -168,7 +168,7 @@ describe("upgrading a database v1.121.0 left", () => {
     ids.flow = flow.id;
     store.setSetting("healthAlertsState", {
       "storage.root.full": { since: "2026-09-20T00:00:00.000Z", title: "Root disk is 92% full", notified: true },
-      "system.reboot": { since: "2026-09-21T00:00:00.000Z", title: "A reboot is required" }, // from before the ledger had the flag
+      "system.reboot": { since: "2026-09-21T00:00:00.000Z", title: "A restart is required" }, // from before the ledger had the flag
     }, { updatedBy: null });
     webhookTarget(store);
     store.close();

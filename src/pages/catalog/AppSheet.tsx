@@ -80,7 +80,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   };
 
   return (
-    <Sheet kicker={manifest.category} title={manifest.name} size="lg" onClose={onClose} className="catalog-sheet">
+    <Sheet kicker={manifest.category} title={manifest.name} size="lg" onClose={onClose} className="catalog-sheet" focusFirstField={false}>
       <div className="catalog-sheet__head">
         <AppIcon id={manifest.id} name={manifest.name} icon={manifest.icon} size="lg" />
         <div className="catalog-sheet__lead">
@@ -228,7 +228,7 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
                     operationId: "app.rollback",
                     title: `Put ${name} back on ${update.from[manifest.id]}`,
                     parameters: { id: manifest.id, at: update.at },
-                    preview: <span>Takes a checkpoint, then puts {name} back on <code>{update.from[manifest.id]}</code>{Object.keys(update.from).length > 1 ? <> along with{Object.entries(update.from).filter(([service]) => service !== manifest.id).map(([service, reference]) => <span key={service}> its {service} on <code>{reference}</code></span>)}</> : null}. Your data and settings are untouched; only the versions change.</span>,
+                    preview: <span>Takes a backup of its data first, then puts {name} back on <code>{update.from[manifest.id]}</code>{Object.keys(update.from).length > 1 ? <> along with{Object.entries(update.from).filter(([service]) => service !== manifest.id).map(([service, reference]) => <span key={service}> its {service} on <code>{reference}</code></span>)}</> : null}. Your data and settings are untouched; only the versions change.</span>,
                   })}>Go back to this</Button>
                 )}
               </li>

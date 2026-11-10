@@ -113,7 +113,10 @@ export function createStandIns({ hosts = [], domains = [], users = [] } = {}) {
 /** A parsed JSON value with `change` applied to every string in it, object keys included. */
 function mapStrings(value, change, depth = 0) {
   if (typeof value === "string") return change(value);
-  if (depth > 64 || value === null || typeof value !== "object") return value;
+  if (value === null || typeof value !== "object") return value;
+  // Past any depth a real tool call has, the rest is changed as text rather than walked: left
+  // alone, a name buried seventy objects deep went out unhidden.
+  if (depth > 64) { try { return JSON.parse(change(JSON.stringify(value))); } catch { return change(JSON.stringify(value)); } }
   if (Array.isArray(value)) return value.map((entry) => mapStrings(entry, change, depth + 1));
   // defineProperty, so a key called __proto__ stays a key.
   const out = {};

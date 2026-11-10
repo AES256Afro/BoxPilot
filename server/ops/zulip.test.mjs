@@ -129,8 +129,9 @@ describe("connecting the agents to Zulip (M38)", () => {
       [{ error: "channel-shared", realm: "Our house", channel: "agent-logs", others: 1 }, /The channel #agent-logs already exists in Zulip, the organization's owner did not make it, and someone else is in it\./],
       [{ error: "channel-shared", realm: "Our house", channel: "agent-files", others: 3 }, /#agent-files .* other people are in it\. Remove them from it or rename it in Zulip, then connect again\./],
       [{ error: "key-not-renewed", realm: "Our house", bot: made.bot }, /no way to give the bot a new key/],
+      [{ error: "channel-public", realm: "Our house", channel: "agent-findings" }, /open to everyone there/],
       // A refusal this release does not know is still a refusal, key or no key beside it.
-      [{ ...made, error: "something-new" }, /refused for a reason BoxPilot does not recognise/],
+      [{ ...made, error: "something-new" }, /Zulip refused, and BoxPilot does not recognise why/],
     ];
     for (const [result, sentence] of refusals) {
       const context = setup({ script: printed(result) });
@@ -151,7 +152,7 @@ describe("connecting the agents to Zulip (M38)", () => {
     expect(script).toContain("apiKey=api_key,");
     expect(script).not.toContain("apiKey=bot.api_key");
     const first = (text) => { const at = script.indexOf(text); expect(at).toBeGreaterThan(-1); return at; };
-    for (const refusal of ['error="bot-not-yours"', 'error="channel-shared"', 'error="key-not-renewed"']) {
+    for (const refusal of ['error="bot-not-yours"', 'error="channel-shared"', 'error="channel-public"', 'error="key-not-renewed"']) {
       for (const change of ["bot = do_create_user(", "do_reactivate_user(bot", "do_regenerate_api_key(bot, owner)", "create_stream_if_needed(\n", "bulk_add_subscriptions(realm"]) expect(first(refusal)).toBeLessThan(first(change));
     }
   });

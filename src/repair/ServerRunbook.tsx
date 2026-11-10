@@ -130,8 +130,8 @@ export default function ServerRunbook() {
   return (
     <Panel title="Runbook" label="Document this server" count={state} meta="what is installed, where data lives, how to restore; no passwords"
       actions={<>
-        <Button onClick={() => void showPreview()} busy={busy === "preview"} disabled={busy !== null}>{busy === "preview" ? "Putting it together..." : "Preview runbook"}</Button>
-        {status?.canDownload && <Button onClick={() => void download()} busy={busy === "download"} disabled={busy !== null}>{busy === "download" ? "Putting it together..." : "Download runbook (.md)"}</Button>}
+        <Button onClick={() => void showPreview()} busy={busy === "preview"} disabled={busy !== null}>{busy === "preview" ? "Putting it together…" : "Preview runbook"}</Button>
+        {status?.canDownload && <Button onClick={() => void download()} busy={busy === "download"} disabled={busy !== null}>{busy === "download" ? "Putting it together…" : "Download runbook (.md)"}</Button>}
       </>}>
       {statusError && <p className="rp-note" data-tone="warning" role="status">{statusError}</p>}
       {error && <p className="rp-note" data-tone="danger" role="alert"><strong>Runbook not ready</strong><span>{error}</span></p>}

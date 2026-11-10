@@ -7,7 +7,7 @@ describe("describePortConflict", () => {
   it("names a leftover Compose project and how to stop it", () => {
     const text = describePortConflict({ ...base, containers: [{ name: "llmcoach-ollama-1", app: null, composeProject: "llmcoach" }] });
     expect(text).toContain("container llmcoach-ollama-1");
-    expect(text).toContain('project "llmcoach"');
+    expect(text).toContain("project “llmcoach”");
     expect(text).toContain("docker compose -p llmcoach down");
   });
 

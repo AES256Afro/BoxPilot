@@ -558,7 +558,7 @@ export function unwritableAppFolders(facts = {}) {
         operationId: "app.reconfigure",
         parameters: { id: app.id, values: {} },
         label: "Fix folder access",
-        preview: `Takes a checkpoint of ${app.name}'s data, then redeploys it with its current settings; the deploy hands ${problem.path}, which root owns, to the user ${app.name} runs as. Only that folder's owner changes, not what is inside it. Nothing else changes.`,
+        preview: `Takes a backup of ${app.name}'s data first, then redeploys it with its current settings; the deploy hands ${problem.path}, which root owns, to the user ${app.name} runs as. Only that folder's owner changes, not what is inside it. Nothing else changes.`,
       }],
       manual: someoneElses ? `${problem.path} belongs to user ${problem.ownerUid}, somebody's own folder, which BoxPilot does not take over. Point ${app.name} at a folder of its own in its Settings, or give user ${problem.appUid ?? appUser} write access to this one.` : null,
     });
@@ -1063,10 +1063,10 @@ export function releasesNotChecked({ releaseSigner = null } = {}) {
     id: "releases-not-checked",
     severity: "warning",
     title: "An update is built from whatever GitHub says is the latest release",
-    detail: "BoxPilot updates itself by building a release tag from GitHub, and no key is set for it to check, so it will build whatever that tag points at. Anyone who takes the GitHub account the releases come from — or anyone who can change what that tag points at — can have this server build and run their code as root, and the update would look entirely ordinary. With a release key set, an update stops before anything changes unless that key signed the tag.",
+    detail: "BoxPilot updates itself by building a release tag from GitHub, and no key is set for it to check, so it will build whatever that tag points at. Anyone who takes over that GitHub account, or changes what the tag points at, can make this server run their code with admin rights. The update would look ordinary. With a release key set, an update stops before anything changes unless that key signed the tag.",
     evidence: ["no release signing key is set on this server", "an update verifies nothing before it builds"],
     fixes: [],
-    manual: "On the System page, under BoxPilot update, choose \"Require signed releases\" and paste the public half of the key you sign releases with (ssh-keygen prints it; sign a release with git tag -s and git config gpg.format ssh). Keep the private half off this server.",
+    manual: "On System, BoxPilot update, press Release key… and paste the public half of the key you sign releases with. Keep the private half off this server.",
   })];
 }
 

@@ -233,8 +233,8 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
       {leavingFor && ((buildDirty && shown === "build") || (usageDirty && shown === "usage")) && (
         <Notice tone="warning" live title="Your changes are not saved"
           action={<>
-            <Button variant="primary" onClick={() => setLeavingFor(null)}>Stay</Button>
-            <Button variant="ghost" onClick={() => { const next = leavingFor; setLeavingFor(null); setBuildDirty(false); setUsageDirty(false); setTab(next); if (next !== "test") setRunId(null); }}>Leave without saving</Button>
+            <Button variant="primary" onClick={() => setLeavingFor(null)}>Keep editing</Button>
+            <Button variant="ghost" onClick={() => { const next = leavingFor; setLeavingFor(null); setBuildDirty(false); setUsageDirty(false); setTab(next); if (next !== "test") setRunId(null); }}>Drop the changes</Button>
           </>}>
           {shown === "usage"
             ? "Leaving the Usage tab drops them; the settings stay as they were. Save settings is at the foot of the Settings panel."

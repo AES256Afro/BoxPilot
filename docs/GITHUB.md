@@ -1,6 +1,6 @@
 # GitHub provenance
 
-BoxPilot `0.24.0` introduced, and `0.26.0` retains, a credential-free read-only view of one fixed public repository:
+The GitHub page is a credential-free read-only view of one fixed public repository:
 
 - `AES256Afro/BoxPilot`
 
@@ -12,7 +12,7 @@ The service uses GitHub's public REST API without an authorization header. GitHu
 
 ## Data collected
 
-For each fixed repository, BoxPilot retains only the current response in a 15-minute in-memory cache and returns sanitized fields:
+For that repository, BoxPilot retains only the current response in a 15-minute in-memory cache and returns sanitized fields:
 
 - Public repository identity, default branch, archived state, and last push time
 - Default-branch head SHA and GitHub-reported verification result
@@ -20,33 +20,22 @@ For each fixed repository, BoxPilot retains only the current response in a 15-mi
 - Release-tag commit SHA and GitHub-reported verification result
 - Up to 16 asset names, content types, byte counts, and valid `sha256:` digests reported by GitHub
 
-Commit author email, committer email, raw signature, signed payload, release body, asset download URL, owner profile, and arbitrary API response fields are discarded. Responses are limited to 512 KiB and six seconds. One repository can degrade without hiding the other.
+Commit author email, committer email, raw signature, signed payload, release body, asset download URL, owner profile, and arbitrary API response fields are discarded. Responses are limited to 512 KiB and six seconds. When one of the requests fails, the page says so and still shows what the others returned.
 
 ## Trust boundary
 
 GitHub's `verified` field means GitHub reports that commit verification succeeded. It does not mean BoxPilot independently verified the signature. A GitHub-reported asset digest is also metadata only. BoxPilot has not verified that digest until a future adapter downloads the exact bytes to a confined staging path and computes SHA-256 locally.
 
-Version `0.26.0` does not:
+## The GitHub page does not
 
 - Accept or store a GitHub token
 - Query an operator-supplied owner, repository, ref, URL, or API path
 - Clone a repository or download source or release assets
 - Write to a repository, issue, pull request, release, branch, or Actions workflow
 - Configure a webhook or GitHub App
-- Install or update BoxPilot, Keel Notes, or an adapter
 - Claim that a GitHub release is safe, compatible, backed up, restorable, or deployable
 
-## Future installation gate
-
-A later curated adapter must still:
-
-1. Pin an allowed repository, release tag, platform asset name, and SHA-256 digest in an immutable plan.
-2. Download into a confined non-executable staging directory with a strict byte limit.
-3. Compute and compare the full local digest before extracting anything.
-4. Reject links, path traversal, devices, unexpected archive members, and changed metadata.
-5. Verify platform compatibility, prerequisites, ports, storage, backup coverage, and rollback.
-6. Require owner-password approval immediately before installation.
-7. Preserve the previous version and prove application health before reporting success.
+Updating BoxPilot is done from *System → BoxPilot update*; what an update checks before it builds is under [Signed releases](#signed-releases).
 
 Private repositories and repository write capabilities require a separate encrypted credential design and are not implied by this foundation.
 

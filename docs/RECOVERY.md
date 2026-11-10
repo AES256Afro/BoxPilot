@@ -1,6 +1,6 @@
 # Recovery kit
 
-*Repair Center → Recovery readiness* answers one question: **if this server died tonight, what
+*Repair → Rebuild checklist* answers one question: **if this server died tonight, what
 could you actually get back?** It reads what BoxPilot has recorded and says, per area, whether
 recovery is covered, needs a decision from you, or is not set up at all.
 
@@ -35,7 +35,7 @@ no app data, and no keys. Download it (JSON or Markdown) and keep it with the th
 cannot hold for you:
 
 - the recovery password for the encrypted `restic` repository;
-- the credentials for your off-box destination (SSH key or cloud keys);
+- the credentials for the destination off this server (SSH key or cloud keys);
 - your Tailscale account access, and your GitHub account if you sign in with it;
 - your router's configuration, which BoxPilot never touches.
 

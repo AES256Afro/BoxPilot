@@ -178,6 +178,7 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
           kicker={runningCount > 0 ? `${runningCount} job${runningCount === 1 ? "" : "s"} running` : "Latest"}
           side="right"
           className="look-console jobs-sheet"
+          focusFirstField={false}
           onClose={() => setOpen(false)}
         >
           {listed && jobs.length > 0 && (
@@ -191,7 +192,7 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
               <SearchField label="Filter jobs" value={query} onValueChange={setQuery} />
             </div>
           )}
-          {feedStatus === "loading" && <p className="jobs-quiet">Reading job history...</p>}
+          {feedStatus === "loading" && <p className="jobs-quiet">Reading job history…</p>}
           {feedStatus === "unavailable" && (
             <Notice tone="danger" live action={<Button onClick={() => setRetry((value) => value + 1)}>Try refreshing Activity</Button>}>
               Activity could not be refreshed. {jobs.length > 0 ? "The entries below may be out of date." : "Job history is unavailable."}
@@ -201,7 +202,7 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
           {/* Asked for from elsewhere, and older than the fifty listed here. */}
           {expandedId && !expanded && feedStatus !== "loading" && <div className="jobs-item jobs-item--open"><JobLogView jobId={expandedId} /></div>}
           {jobs.length === 0 && (feedStatus === "live" || feedStatus === "polling") && (
-            <EmptyState title="No jobs are visible to this account in the recent history.">Approved operations appear here, with their steps and output.</EmptyState>
+            <EmptyState title="No jobs are visible to this account in the recent history">Approved operations appear here, with their steps and output.</EmptyState>
           )}
           {jobs.length > 0 && shown.length === 0 && (
             <p className="jobs-quiet" role="status">

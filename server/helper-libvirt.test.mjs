@@ -33,7 +33,7 @@ describe("helper-backed libvirt client", () => {
     await expect(libvirt.getStatus()).resolves.toMatchObject({ ready: false, checks: [{ id: "helper", ok: false }] });
     await expect(libvirt.listDomains()).resolves.toMatchObject({ connected: false, domains: [] });
     await expect(libvirt.listResources()).resolves.toMatchObject({ connected: false, networks: [], pools: [] });
-    await expect(libvirt.getDomain("ubuntu-lab")).rejects.toThrow("Restricted virtualization helper is unavailable");
+    await expect(libvirt.getDomain("ubuntu-lab")).rejects.toThrow("BoxPilot's admin service cannot reach libvirt");
   });
 
   it("builds only a fixed Cockpit URL from a constrained Tailscale name", () => {

@@ -196,7 +196,7 @@ export default function BlueprintHome({ csrfToken, role, onNavigate, now = Date.
                       <rect className="blueprint-part__box" x="0.5" y="0.5" width="91" height="51" />
                       <text className="blueprint-part__name" x="46" y="30" textAnchor="middle">+{apps.length - shownParts.length} MORE</text>
                     </svg>
-                    <span className="ui-visually-hidden">{apps.length - shownParts.length} more apps in the App catalog</span>
+                    <span className="ui-visually-hidden">{apps.length - shownParts.length} more apps in Apps</span>
                   </button>
                 </li>
               )}

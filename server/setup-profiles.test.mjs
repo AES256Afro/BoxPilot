@@ -59,7 +59,7 @@ describe("first-run setup profiles", () => {
     const qbt = media.steps.find((step) => step.id === "app-qbittorrent");
     expect(qbt.status).toBe("blocked");
     expect(qbt.job).toBeNull();
-    expect(qbt.detail).toMatch(/needs your VPN provider and key.*App catalog card/);
+    expect(qbt.detail).toMatch(/needs your VPN provider and key.*sheet in Apps/);
     // The rest of the stack installs normally, and an installed qBittorrent counts as done.
     expect(media.steps.find((step) => step.id === "app-sonarr").status).toBe("ready");
     const after = createSetupService({ helper: helperWith({ ...bare, "app.inspect": { applications: [{ id: "qbittorrent", installed: true }] } }), scheduler: { list: () => [] } });

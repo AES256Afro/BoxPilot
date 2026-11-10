@@ -17,7 +17,7 @@ export function createControllerProtectionService({ store, helper }) {
         repositoryId: null,
         destinationRevision: null,
         destinationFreeBytes: null,
-        blockers: ["The restricted helper could not inspect controller disaster protection"],
+        blockers: ["BoxPilot's admin service could not check how BoxPilot's own database is protected"],
         setupCommand: "sudo /opt/boxpilot/scripts/boxpilot-controller-restic-setup.sh",
         recoveryKeyRequired: true,
       };

@@ -13,7 +13,7 @@ export function controllerOperations() {
       run: () => databaseHealth(),
     }),
     defineOperation({
-      id: "controller.backup.create", title: "Back up the BoxPilot database", risk: "low", timeoutMs: 10 * 60_000,
+      id: "controller.backup.create", title: "Back up BoxPilot's database", risk: "low", timeoutMs: 10 * 60_000,
       description: "Copies BoxPilot's database while it runs, then opens the copy to prove it reads.",
       run: async (_parameters, { controllerBackups, progress }) => {
         const result = await controllerBackups.createBackup({ backupId: randomUUID() });

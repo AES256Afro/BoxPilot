@@ -83,7 +83,7 @@ export function logOperations() {
     }),
     defineOperation({
       id: "logs.sources", title: "List log sources", risk: "low", readOnly: true, timeoutMs: 60_000,
-      description: "Fixed journal groups, every systemd unit with journal output, and every Docker container.",
+      description: "Fixed journal groups, every service with journal output, and every Docker container.",
       run: async (_parameters, { run }) => {
         const [units, containers] = await Promise.all([
           run(systemctl, ["list-units", "--type=service,timer", "--all", "--no-pager", "--plain", "--output=json"], { timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }),
@@ -97,7 +97,7 @@ export function logOperations() {
     }),
     defineOperation({
       id: "logs.read", title: "Read logs", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
-      description: "Tail a journal group, one systemd unit, or one container, with optional time window and text filter. Lines are redacted.",
+      description: "Tail a journal group, one service, or one container, with optional time window and text filter. Lines are redacted.",
       parameters: { fields: {
         kind: { type: "string", enum: ["group", "unit", "container"] },
         target: { type: "string", maxLength: 200 },

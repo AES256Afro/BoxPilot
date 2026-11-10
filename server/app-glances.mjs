@@ -54,7 +54,7 @@ export function createAppGlances({ helper = null, fetcher = fetch, now = () => n
 
   /** The installed apps that have a reader, from the helper's own record; none when it cannot say. */
   async function installed() {
-    if (!helper) throw new Error("The helper is not available");
+    if (!helper) throw new Error("BoxPilot's admin service is not available");
     const listed = await helper.request("app.inspect", {}, { timeoutMs: helperTimeoutMs });
     return (Array.isArray(listed?.applications) ? listed.applications : []).filter((application) => application?.installed && readers[application.id]);
   }
@@ -96,7 +96,7 @@ export function createAppGlances({ helper = null, fetcher = fetch, now = () => n
     const name = appId === baselinewatchAppId ? "BaselineWatch" : appId;
     if (!applications) return describeDigest({ available: false, reason: "whether it is installed could not be read." }, { name });
     const application = applications.find((candidate) => candidate.id === appId) ?? null;
-    if (!application) return describeDigest({ available: false, reason: "not installed on this server (install it from the App catalog)." }, { name: application?.name ?? name });
+    if (!application) return describeDigest({ available: false, reason: "not installed on this server (install it from Apps)." }, { name: application?.name ?? name });
     if (application.container?.running !== true) return describeDigest({ available: false, reason: "installed but not running." }, { name: application.name ?? name });
     const url = reachableUrl(application);
     if (!url) return describeDigest({ available: false, reason: "publishes no web port this server can reach." }, { name: application.name ?? name });

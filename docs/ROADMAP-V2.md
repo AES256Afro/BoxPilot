@@ -3937,6 +3937,129 @@ operation registry any test has ever named. The ledger
   mention this name", where an uncommitted artifact lies, while this one asks "does a test cover
   this", and a test file on disk runs whether it is staged or not.
 
+## M57: The loop's fifth to seventh sweeps, and the six categories it had queued
+
+Asked for 2026-11-10 ("four mockups, a quality-of-life sweep, then code, bug and security audits, then
+readability, usability, visual, quality-of-life, feature and optimization sweeps, three each, then say
+what I am missing"). Run as the audit loop's next rounds (`docs/reviews/2026-11-04-audit-loop.md`
+holds every sweep's findings and what was cleared): four rounds of read-only sweeps, each followed by
+fixes in files no other fixer held, the whole check after each, and an independent review of the
+day's own diff at the end. None of code, bug or security came back empty, so all three stay in the
+loop; what changed is where the findings were, from proven faults in new code down to edges.
+
+- ✅ **M57.1 What the bug sweeps proved** (1.239.0, 1.240.0). By probe or on the owner's server: an
+  hourly schedule or flow came due at every tick of the second pass of the hour the clocks repeat in
+  autumn (sixty runs in that hour); "Did not reconnect" stood on Home for five days for a drive that
+  had come back and checked clean, because only a reconnect job could clear it (cleared on the
+  owner's server by the upgrade's first health round); one failed helper read wiped a hosted name's
+  week of history and cleared its live alerts; a tunnel whose registration had scrolled out of the
+  last 300 log lines read "Not connected"; re-saving the cloud mirror with another passphrase left
+  the bucket's copies readable only by the old one while the mirror reported success; a condition
+  that got worse was never said again; a failure dismissed after a restart was pushed as new; an ntfy
+  title outside Latin-1 could never be sent; the disk forecast and SMART trend alerted on drives
+  unplugged weeks before; an app the nightly update touched stayed "stopped on purpose"; a backup
+  could prune the copy it had just written when the clock was behind; Repair called the owner's own
+  Pi-hole a port 53 conflict; an agent that met a limit every night left a card a night (28
+  standing); firewall advice offered deletions `ufw` could never match; the second disk of a mirrored
+  root was offered for formatting; removing a managed fstab entry took whatever line followed a
+  stray marker; a refused install left its folder behind.
+- ✅ **M57.2 What the security sweeps closed** (1.239.0, 1.240.0). An operator approves a medium job
+  alone: Portainer and Dockge, medium, are handed the Docker socket to write to and serve a page that
+  starts containers, which was root without a password; Kopia, Duplicati, Backrest and Filebrowser
+  bind `/mnt` writable, which holds the backups. All six are high, a test holds any later manifest of
+  either kind to the same, a chosen data folder that holds the backups or sits inside them raises
+  `app.install` and `app.reconfigure`, and `homepage.sync` is high for a host that is not this
+  server's own (ADR-015). The root helper read container-written proxy files with no limit (a FIFO
+  held a thread for good, `/dev/zero` filled memory, one file could name 50,000 hosts, a `$server`
+  value aimed the web process at any loopback path): opened without following links, bounded and
+  counted, probe targets rebuilt from scheme, host and port, the connection pinned to the vetted
+  address. Viewers no longer receive journal lines from a power cut's evidence nor a tunnel's log
+  line (ADR-003). The Zulip connect refuses a bot or channel it did not make and renews the bot's
+  key. The model gateway cannot reach the root helper's socket, and an upgrade restarts it (on the
+  owner's server it had run twelve-day-old code across some thirty releases). House names after a
+  line break no longer reach the cloud model; an agent webhook's User-Agent no longer reaches the
+  prompt. Left as the owner's decisions: whether a recovery-code session may set a new password (two
+  designs in the ledger), whether registering a passkey should ask for the password, and the tier of
+  the seven apps that only read the Docker socket.
+- ✅ **M57.3 Quality of life and usability, three passes** (1.239.0, 1.240.0). The first read every
+  page; the second the shell and what the first only grepped; the third walked ten owner tasks end to
+  end. A manifest's choice may carry a label and a line of its own (Pi-hole's listening mode read
+  "all, local, single, bind"). A sheet opens on its first field and submits on Enter; the approval
+  dialog focuses the password; the browser's Back button moves between pages; the command bar finds
+  forty everyday words it missed and opens the right tab. A job's dialog closes while the job runs
+  (it locked the tab for up to three hours) and every page refreshes when any job ends, wherever it
+  was started. Look-alike agent cards and notifications fold into groups with one action; Activity
+  can try a failed job again. An install form names a taken port on its own field with the next free
+  one and starts in the server's time zone. One file or folder can be restored from the Backups
+  page, which says when an app's files were never in its backups. A flow is scheduled at any cadence
+  and picks its app from a list. Format leads to Mount leads to the first copy. A forgotten password
+  has a way back: a root-only console command, named on the sign-in page. The owner can set a
+  member's password, and people and settings changes accept a live elevated session.
+- ✅ **M57.4 Readability** (1.240.0). Every job's first steps, the setup profiles, the errors a person
+  meets when an app will not start, and some ninety operation titles and descriptions say what
+  happens and what is lost; one name per page (the header takes the rail's word: Apps, Metrics,
+  Repair, Setup, Network); "service" where it said "unit"; "Check again" and "off this server"
+  everywhere; three `redact()` copies of different strength are one; ADR-005 to ADR-016 carry their
+  true status.
+- ✅ **M57.5 Visual** (1.240.0). Two passes on the owner's server and one at phone width. The default
+  look and six others overrode the kit's 44 px touch size with their own 26 to 32 px pills, so on a
+  phone the buttons, tabs and the bar were the smallest things to tap: each look restores them, and
+  `looksCss.test.ts` fails a look that shrinks a control without doing so. On a phone Today's empty
+  approvals panel follows what needs a look. No page scrolls sideways at 375 px.
+- ✅ **M57.6 Optimization** (1.239.0, 1.240.0). Measured on the owner's server: at idle BoxPilot
+  starts no process at all (seven program starts a minute on the whole machine, none its own), the
+  web service holds 69 MB and the helper 50 MB. Fixed from the reads: memory search loaded every
+  stored vector, the performance poll was not shared between tabs, `/catalog` re-projected 175
+  manifests a request, the push sweep rewrote its state 2,880 times a day when idle, Home fetched the
+  inventory twice a minute, Ops rebuilt its needs every five seconds, the Apps page read tunnels one
+  at a time. Found and left for M62: 169 database copies from earlier upgrades take 1.1 GB.
+- ✅ **M57.7 Four mockups** (`docs/mockups/2026-11-sweep-four.html`): Today's "since you last looked",
+  find in the logs, choices that say what they do (built in M57.3), and a bell that folds
+  ninety-seven into five (built in M57.3).
+
+## The plan from M57: seven milestones
+
+What the sweeps found and did not fix in a day, and the forty-four feature ideas of the three
+feature sweeps, in the order they earn their place. Sizes are a person-week unless said.
+
+- **M58: Agents worth leaving on** (1 to 2 weeks). The owner's Agents page showed raw tool output as
+  the "Latest digest" and twenty-eight cards that all said a limit was reached. A digest that is
+  never raw tool output (a degraded one falls back to the last good one, said so); the morning
+  digest composed in code with the model adding two sentences at most; one rolling health card per
+  agent with a one-tap fix; `followTheWork` raising a budget past the template within a ceiling the
+  owner sets once; three missing readers (`changes.since`, `apps.disk`, `backups.growth`) and
+  `exposure.summary`; a track record per agent beside its golden questions.
+- **M59: Updates you can trust** (2 weeks). Hold an app at its version, and "skip this version"
+  after a failed update (today Update all pulls the same failing image every night); release notes
+  in the update preview; `health.kind: http`; a soak after an update with automatic rollback; a
+  reboot night.
+- **M60: Know what changed** (2 weeks). A change log page over the audit trail (`GET /audit` has no
+  reader); Today's "since you last looked" (mockup one); find in the logs (mockup two); explain a
+  failed job; snooze an alert and a switch per condition; "why is it slow right now"; drift findings
+  for the files BoxPilot writes.
+- **M61: The first hour and the worst day** (2 weeks). "Protect this server in ten minutes" (backup
+  destination, first backup, restore drill, notifications, recovery kit) as one guided path; an
+  installer preflight; "if this drive died right now" per drive; a printable recovery kit and an
+  "if I'm not around" sheet; the recovery-code decision of M57.2; TOTP for the password path
+  (M19.2); a Home row while no recovery codes are saved.
+- **M62: Hardening and upkeep** (2 weeks). The helper socket owned by the web user at 0600 (the
+  durable form of M57.2's gateway mask); the runner token read without following a link; job logs
+  redacted; a prebuilt, signed release tarball (M4.1), which also takes the type-check and the dev
+  dependencies out of every upgrade; Brotli for static assets; hourly buckets for hosted-domain
+  history; a rule for old database copies (the owner's decision: 169 copies, 1.1 GB); the dead
+  `verify` stage in `jobs.mjs`; one constant for the password rule; `RepairCenter` split.
+- **M63: People and the house** (2 weeks). A family status page (M21.3); per-app sign-in rules and a
+  per-person launcher on one data model; managing a user's SSH keys (today the count can only
+  grow); power off beside restart; a second notification target and presets for Discord, Telegram
+  and Matrix; larger text, stronger contrast and a colour-blind-safe status palette across the
+  thirteen looks.
+- **M64: Data moves, and automations that react** (3 weeks). Health alerts as a flow trigger and a
+  dry run of a flow; six library flows from existing operations; move an app's data to another
+  drive; SMART self-tests on a schedule; the backup policy page (M20.1); finish the rebuild (M6.4,
+  M20.4); read-only API tokens, a documented read API and `/metrics`; the decision ADR-018 waits on.
+- **Later, each a month:** names without ports (M3.8); adopt a compose file (M22.1); prepare a
+  replacement server.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

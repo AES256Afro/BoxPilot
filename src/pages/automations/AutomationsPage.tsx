@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { JobLogView } from "../../JobLogView";
 import { countOf } from "../../data";
 import { mountpointFor } from "../../mountpoints";
@@ -75,7 +75,8 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
   useEffect(() => { void refresh(); }, [refresh]);
   // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
   const { refresh: refreshSchedules } = schedules;
-  useEffect(() => onRefresh(() => { void refresh(); void refreshSchedules(); }), [refresh, refreshSchedules]);
+  const checkAgain = useCallback(() => Promise.all([refresh(), refreshSchedules()]), [refresh, refreshSchedules]);
+  useEffect(() => onPageRefresh({ asked: checkAgain, job: checkAgain }), [checkAgain]);
 
   // The server's time zone, which schedules' times are in. Nice to have: a failure hides it.
   useEffect(() => {
@@ -372,7 +373,7 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
         title="Automations"
         status={verdict}
         meta={flows ? <><b>{list.length}</b> {list.length === 1 ? "automation" : "automations"} · <b>{running}</b> running · <b>{scheduleList.length}</b> {scheduleList.length === 1 ? "schedule" : "schedules"}{webhooks ? <> · <b>{webhooks}</b> {webhooks === 1 ? "webhook" : "webhooks"}</> : null}</> : undefined}
-        actions={<Button variant="ghost" onClick={() => { void refresh(); void schedules.refresh(); }}>Check again</Button>}
+        actions={<Button variant="ghost" onClick={() => void checkAgain()}>Check again</Button>}
         about={<>
           <p>Chains of the operations you already trust, run in order as ordinary jobs under your account, with every step recorded. A step that fails stops the run; what already ran stands.</p>
           <p>Ready to use holds flows that already know what a home server gets wrong: add one and it is on your list, to run or to schedule. Schedules run a single operation hourly, daily or weekly, each run a job in Activity.</p>

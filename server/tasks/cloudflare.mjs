@@ -22,13 +22,13 @@ function toolsOf({ credentials = createCredentialStore(), state = createTunnelSt
 
 async function apiFor(credentials, fetcher) {
   const token = await credentials.read(cloudflareApiCredential);
-  if (!token) throw new Error("BoxPilot has no Cloudflare API token: connect Cloudflare first (the App catalog, Cloudflare Tunnel, Tunnel tab)");
+  if (!token) throw new Error("BoxPilot has no Cloudflare API token: connect Cloudflare first (Apps, Cloudflare Tunnel, Tunnel tab)");
   return createCloudflareApi({ token, fetcher });
 }
 
 async function connectedState(state) {
   const current = await state.read();
-  if (!current?.accountId || !current.tunnelId) throw new Error("Cloudflare is not connected yet: connect it first (the App catalog, Cloudflare Tunnel, Tunnel tab)");
+  if (!current?.accountId || !current.tunnelId) throw new Error("Cloudflare is not connected yet: connect it first (Apps, Cloudflare Tunnel, Tunnel tab)");
   return current;
 }
 

@@ -377,6 +377,49 @@ describe("App catalog: installing", () => {
     expect(await screen.findByRole("button", { name: "Jellyfin, Running" })).toBeTruthy();
   });
 
+  // The page kept one "how it ended" for whichever approval was open: an install left running ended
+  // while a second app's approval was up, and cancelling that one read as "the install completed".
+  it("puts a cancelled install's form back even when another install, left running, ended meanwhile", async () => {
+    let finish: ((response: Response) => void) | null = null;
+    let staged = 0;
+    const mealie = { ...manifest, id: "mealie", name: "Mealie", category: "Food", description: "Recipes" };
+    const fetchMock = serve(catalogOf([{ manifest, live: absent("jellyfin") }, { manifest: mealie, live: absent("mealie") }]), (url, init) => {
+      if (url.endsWith("/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) {
+        staged += 1;
+        return json({ job: { id: `job-${staged}`, type: "op:app.install", title: "Install", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium" } }, 201);
+      }
+      if (url.endsWith("/jobs/job-1/approve")) return json({ job: { id: "job-1", state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/jobs/job-1") && init?.signal) return new Promise<Response>((resolve) => { finish = resolve; });
+      if (url.endsWith("/jobs/job-1")) return json({ job: { id: "job-1", type: "op:app.install", title: "Install Jellyfin", state: "applying", risk: "medium", error: null, result: null, steps: [], approvals: [] } });
+      if (url.endsWith("/jobs/job-2") && init?.method === "DELETE") return json({ job: { id: "job-2", state: "cancelled" } });
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const first = await openInstall("Jellyfin");
+    fireEvent.click(within(first).getByRole("button", { name: "Continue to install" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await waitFor(() => expect(finish).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: "Keep working" })[0]);
+    await waitFor(() => expect(screen.queryByText("Approval")).toBeNull());
+    // A second app, typed into and taken as far as its approval.
+    fireEvent.click(await screen.findByRole("button", { name: "Install Mealie" }));
+    const second = await screen.findByRole("dialog", { name: "Mealie" });
+    fireEvent.change(within(second).getByLabelText("Web UI port"), { target: { value: "9925" } });
+    fireEvent.click(within(second).getByRole("button", { name: "Continue to install" }));
+    await screen.findByRole("button", { name: "Confirm and run" });
+    // The first install ends now, under the second approval; the page reads the catalog again for it.
+    const reads = () => fetchMock.mock.calls.filter(([url]) => url.toString() === "/api/v1/catalog").length;
+    const before = reads();
+    finish!(json({ job: { id: "job-1", type: "op:app.install", title: "Install Jellyfin", state: "completed", risk: "medium", error: null, result: {}, steps: [], approvals: [] } }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    // Its form is back, as it was filled in.
+    const back = await screen.findByRole("dialog", { name: "Mealie" });
+    expect(within(back).getByRole("button", { name: "Continue to install" })).toBeTruthy();
+    expect((within(back).getByLabelText("Web UI port") as HTMLInputElement).value).toBe("9925");
+  });
+
   it("goes back to the app's sheet when an action started there is approved or cancelled", async () => {
     serve(catalogOf([{ manifest, live: running("jellyfin") }]), (url) => (url.includes("/jobs") ? stagedJob("app.action") : undefined));
     render(<CatalogPage csrfToken="csrf-token" />);

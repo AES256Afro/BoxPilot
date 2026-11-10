@@ -160,7 +160,7 @@ const withSnapshotDevices = createSnapshotDeviceResolver({ catalog: catalogServi
 const jobLogReader = createJobLogReader();
 function pinnedBackupDestination() {
   const destination = state.getSetting("backupDestination", null);
-  if (!destination) throw new Error("Save an off-box destination on the Backups page first");
+  if (!destination) throw new Error("Save a destination off this server on the Backups page first");
   return { host: destination.host, port: destination.port ?? 22, user: destination.user, path: destination.path };
 }
 function pinnedCloudDestination() {

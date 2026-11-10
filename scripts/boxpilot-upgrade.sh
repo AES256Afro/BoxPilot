@@ -2,7 +2,7 @@
 # Upgrade (or first-install the code for) a native BoxPilot deployment under /opt/boxpilot.
 #
 #   sudo sh scripts/boxpilot-upgrade.sh [git-ref]        # default: main
-#   curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-upgrade.sh | sudo sh -s -- phase-0
+#   curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-upgrade.sh | sudo sh -s -- v1.240.0
 #
 # What it does:
 #   0. Holds /run/boxpilot-upgrade.lock for the whole run: a second upgrade started meanwhile refuses
@@ -411,7 +411,7 @@ rollback() {
   # unit) must not cut the way back short and leave the box with neither tree running. Nor may a
   # write to a terminal or pipe that has gone: ignored, it fails and log() goes on.
   trap '' HUP INT TERM PIPE
-  log "rolling back to previous tree"
+  log "rolling back to the previous version's files"
   systemctl stop boxpilot.service 2>/dev/null || true
   # The old helper looks for the backup destination where it used to be. Undone while the new tree,
   # which made the move, is still at INSTALL_DIR; the move only ever happens after the swap. Its
@@ -437,10 +437,10 @@ rollback() {
     # Never into the new tree: a move aside that failed leaves it where it is, and says so.
     if [ -e "$INSTALL_DIR" ]; then
       RESTORED=0
-      log "could not move the new tree aside; the previous tree is still at ${PREVIOUS}"
+      log "could not move the new version's files aside; the previous version's files are still at ${PREVIOUS}"
     elif ! mv "$PREVIOUS" "$INSTALL_DIR"; then
       RESTORED=0
-      log "could not move the previous tree back to ${INSTALL_DIR}; it is still at ${PREVIOUS}"
+      log "could not move the previous version's files back to ${INSTALL_DIR}; they are still at ${PREVIOUS}"
     fi
   fi
   # Old code under new unit files would keep failing for the same reason the upgrade did.
@@ -462,16 +462,16 @@ rollback() {
   # releases change nothing in it - but if the old version cannot read it, this is the way back.
   if [ -n "$DB_COPY" ]; then
     log "the database as ${OLD_VERSION} left it is ${DB_COPY}"
-    log "if ${OLD_VERSION} misbehaves on the current database: System, Housekeeping, Database copies, Put back on that copy; or by hand: systemctl stop boxpilot, copy that file over ${DATABASE} (keeping its owner and mode), delete ${DATABASE}-wal and ${DATABASE}-shm, and start boxpilot. Anything recorded after ${STAMP} is not in the copy."
+    log "if ${OLD_VERSION} misbehaves on the current database: System, Housekeeping, Database copies from updates, Put back on that copy; or by hand: systemctl stop boxpilot, copy that file over ${DATABASE} (keeping its owner and mode), delete ${DATABASE}-wal and ${DATABASE}-shm, and start boxpilot. Anything recorded after ${STAMP} is not in the copy."
   fi
   if [ "$RESTORED" -ne 1 ]; then
     if [ -e "$INSTALL_DIR" ]; then
-      trees="the new tree is still at ${INSTALL_DIR}"
+      trees="the new version's files are still at ${INSTALL_DIR}"
     else
       trees="${INSTALL_DIR} is missing"
-      [ ! -d "${INSTALL_DIR}.failed.${STAMP}" ] || trees="${trees}, the new tree is at ${INSTALL_DIR}.failed.${STAMP}"
+      [ ! -d "${INSTALL_DIR}.failed.${STAMP}" ] || trees="${trees}, the new version's files are at ${INSTALL_DIR}.failed.${STAMP}"
     fi
-    fail "upgrade failed and the previous tree could not be put back: it is at ${PREVIOUS}; ${trees}. Move ${PREVIOUS} to ${INSTALL_DIR} by hand, then restart boxpilot-helper and boxpilot."
+    fail "update failed and the previous version's files could not be put back: they are at ${PREVIOUS}; ${trees}. Move ${PREVIOUS} to ${INSTALL_DIR} by hand, then restart boxpilot-helper and boxpilot."
   fi
   # Whether the old version is really back: a restart's exit code says little, so the service is
   # asked, as the upgrade asks the new one, for a short while, and then the helper is checked as the
@@ -500,9 +500,9 @@ rollback() {
     esac
   fi
   if [ -d "${INSTALL_DIR}.failed.${STAMP}" ]; then
-    fail "upgrade failed; previous tree restored, ${back} (failed tree kept at ${INSTALL_DIR}.failed.${STAMP})"
+    fail "update failed; previous version's files restored, ${back} (failed version's files kept at ${INSTALL_DIR}.failed.${STAMP})"
   fi
-  fail "upgrade failed before the new tree was in place; the previous BoxPilot was left as it was, ${back}"
+  fail "update failed before the new version's files were in place; the previous BoxPilot was left as it was, ${back}"
 }
 
 HAD_PREVIOUS=0
@@ -625,4 +625,4 @@ ls -d "${INSTALL_DIR}".failed.* 2>/dev/null | sort | head -n -1 | while read -r 
 
 # Kept, never pruned here: which old copies to let go of is the owner's call (System, Housekeeping).
 if [ -n "$DB_COPY" ]; then log "the database as ${OLD_VERSION} left it stays at ${DB_COPY}"; fi
-log "BoxPilot ${NEW_VERSION} (${REF}) is live; ${UNITS_CHANGED} unit file(s) updated; previous tree at ${PREVIOUS}"
+log "BoxPilot ${NEW_VERSION} (${REF}) is live; ${UNITS_CHANGED} unit file(s) updated; previous version's files at ${PREVIOUS}"

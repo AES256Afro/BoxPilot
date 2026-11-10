@@ -135,7 +135,7 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
       <JobTimeoutNotice job={job} onMoreTime={onMoreTime ? () => onMoreTime(job) : undefined} />
       <JobWarnings result={job.result} />
       {outputError && <Notice tone="danger" live action={retryButton}>{outputError}</Notice>}
-      {readingOutput && <p className="jobs-quiet">Reading saved output...</p>}
+      {readingOutput && <p className="jobs-quiet">Reading saved output…</p>}
       {/* A staged job has run nothing yet (M36): an empty "Live output" read as if it were stuck. */}
       {waiting && !output && <p className="jobs-quiet">Nothing has run yet: it waits for someone to approve it.</p>}
       {(output || (!finished && !waiting)) && (
@@ -143,7 +143,7 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
           label={`Output for ${name}`}
           meta={finished ? "saved" : "live"}
           follow={!finished}
-          empty="Waiting for output..."
+          empty="Waiting for output…"
           className="jobs-output"
         >
           {output}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Field, Notice, Panel, SecretInput, Tag } from "../../ui";
+import { passwordAsked, passwordAskedWords, useOwnerPassword } from "../../ownerPassword";
 
 type Mode = "tiered" | "always-password";
 interface ApprovalModeResponse { approvalMode: Mode; modes: string[]; elevationTtlMs?: number }
@@ -8,8 +9,9 @@ const modeWords: Record<Mode, string> = { tiered: "Tiered", "always-password": "
 
 /**
  * Settings → Approvals (owner only, ADR-003): risk-tiered approvals (the default) or the password
- * every time. Changing it asks for the owner's password. The tiers themselves never weaken: this
- * only chooses whether low and medium ask for the password too.
+ * every time. Changing it asks for the owner's password, unless one typed a moment ago still stands
+ * (ownerPassword.tsx). The tiers themselves never weaken: this only chooses whether low and medium
+ * ask for the password too.
  */
 export default function ApprovalsPanel({ csrfToken, onChange }: { csrfToken: string; /** The mode changed: the page reads its facts again. */ onChange?: () => void }) {
   const [mode, setMode] = useState<Mode | null>(null);
@@ -19,6 +21,7 @@ export default function ApprovalsPanel({ csrfToken, onChange }: { csrfToken: str
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const owner = useOwnerPassword();
 
   useEffect(() => {
     fetch("/api/v1/settings/approval-mode").then((response) => response.json()).then((body: ApprovalModeResponse) => {
@@ -31,8 +34,10 @@ export default function ApprovalsPanel({ csrfToken, onChange }: { csrfToken: str
   const save = async () => {
     setSaving(true); setError(null); setMessage(null);
     try {
-      const response = await fetch("/api/v1/settings/approval-mode", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ approvalMode: choice, password }) });
-      const body = (await response.json()) as ApprovalModeResponse & { error?: string };
+      const response = await fetch("/api/v1/settings/approval-mode", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ approvalMode: choice, ...(owner.free ? {} : { password }) }) });
+      const body = (await response.json()) as ApprovalModeResponse & { error?: string; code?: string };
+      // Sent without the password, inside a window that has since ended: the field shows, to send it again.
+      if (owner.free && passwordAsked(response, body)) { owner.refused(); return; }
       if (!response.ok) throw new Error(body.error ?? "Could not change the approval mode");
       setMode(body.approvalMode); setPassword(""); setMessage(body.approvalMode === "tiered" ? "Tiered approvals are on." : "Every approval will ask for your password.");
       onChange?.();
@@ -69,12 +74,16 @@ export default function ApprovalsPanel({ csrfToken, onChange }: { csrfToken: str
         ))}
       </fieldset>
       {mode !== null && choice !== mode && (
-        <form className="settings-form settings-form--row" onSubmit={(event) => { event.preventDefault(); if (password.length >= 12) void save(); }}>
-          <Field label="Owner password" hint={`Switches to ${modeWords[choice].toLowerCase()} approvals.`}>
-            <SecretInput autoComplete="current-password" value={password} onValueChange={setPassword} />
-          </Field>
+        <form className="settings-form settings-form--row" onSubmit={(event) => { event.preventDefault(); if (owner.free || password.length >= 12) void save(); }}>
+          {owner.free
+            ? <p className="settings-quiet">Switches to {modeWords[choice].toLowerCase()} approvals. {owner.note}</p>
+            : (
+              <Field label="Owner password" hint={owner.asked ? passwordAskedWords : `Switches to ${modeWords[choice].toLowerCase()} approvals.`}>
+                <SecretInput autoComplete="current-password" value={password} onValueChange={setPassword} />
+              </Field>
+            )}
           <div className="settings-actions">
-            <Button variant="primary" type="submit" disabled={saving || password.length < 12}>{saving ? "Saving..." : "Save"}</Button>
+            <Button variant="primary" type="submit" disabled={saving || (!owner.free && password.length < 12)}>{saving ? "Saving…" : "Save"}</Button>
             <Button variant="ghost" onClick={() => { setChoice(mode ?? "tiered"); setPassword(""); }}>Cancel</Button>
           </div>
         </form>

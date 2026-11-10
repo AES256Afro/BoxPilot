@@ -27,7 +27,7 @@ describe("owner authentication screen", () => {
     fireEvent.change(screen.getByLabelText("Setup code"), { target: { value: "server-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Create owner" }));
 
-    expect(await screen.findByRole("button", { name: "Verifying..." })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Verifying…" })).toBeTruthy();
     await vi.waitFor(() => expect(onAuthenticated).toHaveBeenCalled());
   });
 
@@ -122,7 +122,7 @@ describe("the sign-in page's ways in (M33.13)", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     cleanup();
     render(<SignInLoading />);
-    expect(screen.getByRole("heading", { name: "Loading BoxPilot..." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Loading BoxPilot…" })).toBeTruthy();
   });
 });
 
@@ -171,7 +171,7 @@ describe("the ways in, each to its end", () => {
     const { unmount } = render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
     const forgot = screen.getByText("Forgot your password?").closest("details")!;
     expect(forgot.textContent).toContain("Use a recovery code or a passkey if you saved one. Otherwise, from an SSH session on the server, run:");
-    expect(forgot.querySelector("code")?.textContent).toBe("sudo node /opt/boxpilot/scripts/boxpilot-owner.mjs reset-password <your user name>");
+    expect(forgot.querySelector("code")?.textContent).toBe("sudo /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs reset-password <user name>");
     expect(forgot.textContent).toContain("It asks for a new password twice.");
     expect(forgot.querySelector("button")?.textContent).toContain("Copy");
     unmount();

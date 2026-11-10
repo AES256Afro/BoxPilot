@@ -47,7 +47,7 @@ export function hostBackupOperations() {
   return [
     defineOperation({
       id: "host.snapshot.inspect", title: "List machine snapshots", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
-      description: "Recorded machine snapshots plus the off-box mirror destination state.",
+      description: "Recorded machine snapshots, plus the state of the destination off this server.",
       run: (_parameters, { machineSnapshot }) => machineSnapshot.inspect(),
     }),
     defineOperation({
@@ -58,7 +58,7 @@ export function hostBackupOperations() {
     }),
     defineOperation({
       id: "host.snapshot.sources", title: "List restorable machine snapshots", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
-      description: "Machine snapshots in the local store and on the off-box mirror.",
+      description: "Machine snapshots in the local store and in the copy off this server.",
       run: (_parameters, { machineSnapshot }) => machineSnapshot.sources(),
     }),
     defineOperation({
@@ -96,7 +96,7 @@ export function hostBackupOperations() {
       run: (parameters, { machineSnapshot, apps, run, progress }) => machineSnapshot.restore({ ...parameters, apps: parameters.apps ?? "all", restoreData: parameters.restoreData ?? true }, { apps, progress, serve: run ? (deployed) => serveTailnetOnly(deployed, { run, progress }) : null }),
     }),
     defineOperation({
-      id: "backup.remote.inspect", title: "Read the off-box SSH destination state", risk: "low", readOnly: true, timeoutMs: 30_000,
+      id: "backup.remote.inspect", title: "Read the state of the SSH destination off this server", risk: "low", readOnly: true, timeoutMs: 30_000,
       description: "Whether the mirror key exists (and its public half), whether a host key is pinned, and whether rsync is installed.",
       run: async (_parameters, { run }) => {
         const secrets = process.env.BOXPILOT_SECRETS_DIRECTORY ?? "/etc/boxpilot/secrets";

@@ -106,7 +106,7 @@ export const viewFeatures: Record<ViewName, string[]> = {
   setup: ["Setup profiles", "Checks what is already in place", "Installs the rest in order", "Autoinstall files for a new server"],
   updates: ["APT updates, all or selected", "Automatic security updates", "Restart hints", "Common tools with one click", "Snapshot before upgrading", "Install and remove packages"],
   catalog: [`${__BOXPILOT_CATALOG_SIZE__} apps${__BOXPILOT_CATALOG_CATEGORIES__ > 0 ? ` in ${__BOXPILOT_CATALOG_CATEGORIES__} categories` : ""}`, "Install, update, configure, uninstall", "Per-app backups and restores", "Logs and resource use", "HTTPS on your tailnet", "Image tags verified"],
-  services: ["systemd units and timers", "Start, stop, restart", "Enable and disable", "Journal", "SSH, Tailscale, and BoxPilot protected"],
+  services: ["Services and timers", "Start, stop, restart", "Enable and disable", "Journal", "SSH, Tailscale, and BoxPilot protected"],
   system: ["Hostname", "Time zone and language", "Swap and swappiness", "SSD trim", "Docker housekeeping", "UPS monitoring", "Schedules", "BoxPilot update"],
   performance: ["CPU, memory and swap live", "Load average and temperatures", "Disk use per filesystem", "CPU and memory per app", "Pause, resume, stop, restart", "AI services pinned to the top"],
   users: ["Accounts", "sudo membership", "SSH keys from GitHub", "Password-login policy"],

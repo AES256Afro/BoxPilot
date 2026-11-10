@@ -67,7 +67,7 @@ export function SignInLoading() {
   const titleId = useId();
   return (
     <SignInFrame labelledBy={titleId}>
-      <h1 id={titleId} className="signin-title">Loading BoxPilot...</h1>
+      <h1 id={titleId} className="signin-title">Loading BoxPilot…</h1>
       <Progress label="Asking BoxPilot whether you are signed in" hideLabel />
     </SignInFrame>
   );
@@ -87,7 +87,7 @@ export function SignInUnavailable({ problem }: { problem: string }) {
 }
 
 /** Resets an account's password from the server itself (scripts/boxpilot-owner.mjs), when nothing else is left. */
-const resetCommand = "sudo node /opt/boxpilot/scripts/boxpilot-owner.mjs reset-password <your user name>";
+const resetCommand = "sudo /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs reset-password <user name>";
 
 export default function SignInPage({ bootstrapRequired, onAuthenticated, notice = null }: { bootstrapRequired: boolean; onAuthenticated: (status: AuthStatus) => void; notice?: SignedOutNotice | null }) {
   const titleId = useId();
@@ -279,7 +279,7 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
           </Field>
         )}
         {errorFor("password")}
-        <Button variant={bootstrapRequired || lead === "password" ? "primary" : "secondary"} type="submit" busy={submitting}>{submitting ? "Verifying..." : bootstrapRequired ? "Create owner" : "Sign in"}</Button>
+        <Button variant={bootstrapRequired || lead === "password" ? "primary" : "secondary"} type="submit" busy={submitting}>{submitting ? "Verifying…" : bootstrapRequired ? "Create owner" : "Sign in"}</Button>
       </form>
 
       {/* The way back in when the password is gone: said here, where it is needed, not only in the docs. */}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { behindBackupSchedules, judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "../../backupProtection";
 import type { ViewName } from "../../data";
 import { readJson } from "../../http";
@@ -67,8 +67,10 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
 
   // Every read is checked for its shape as well as its status: an answer in an unexpected shape is
   // "not read", said as such, never a crash and never an all-clear.
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    // A quiet read (a job ended somewhere) changes nothing but the facts: Check again does not spin,
+    // and what is on screen, an error included, stays until the answer is in.
+    if (!quiet) setLoading(true);
     try {
       const [list, protectionState, retentionState, machineState, remoteState, remoteConfig, cloudState, cloudConfig, apps, scheduleList, reviews] = await Promise.all([
         requestJson<{ backups?: BackupRecord[] }>("/api/v1/backups").then(
@@ -107,13 +109,13 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
       setSchedules(scheduleList);
       setRestores(reviews);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
       setLoaded(true);
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
-  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
+  // The bar's Refresh is Check again; a job ending anywhere (Activity, the command bar, a schedule) reads it again quietly.
+  useEffect(() => onPageRefresh({ asked: () => refresh(), job: () => refresh({ quiet: true }) }), [refresh]);
 
   /**
    * Schedule each operation daily, one request each, so a refusal on one does not cost the others;
@@ -214,7 +216,7 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
         {(current) => {
           if (current === "server") return <ServerTab csrfToken={csrfToken} role={role} loading={loading} backups={backups} protection={protection} retention={retention} machine={machine} onChanged={() => void refresh()} />;
           if (current === "offbox") return <OffBoxTab csrfToken={csrfToken} role={role} tailnetHosts={tailnetHosts} machine={machine} remote={remote} remoteSettings={remoteSettings} cloud={cloud} cloudSettings={cloudSettings} cloudError={cloudError} summary={summary} summaryUnknown={offBoxUnknown} scheduling={scheduling} onMirrorNightly={mirrorNightly} onChanged={() => void refresh()} onNavigate={onNavigate} />;
-          if (current === "restore") return <RestoreTab csrfToken={csrfToken} role={role} restores={restores} onChanged={() => void refresh()} />;
+          if (current === "restore") return <RestoreTab csrfToken={csrfToken} role={role} restores={restores} onChanged={() => void refresh()} onOpenApps={() => setTab("apps")} />;
           return <AppsTab csrfToken={csrfToken} role={role} protection={appProtection} protectionError={appProtectionError} behind={behind} scheduling={scheduling} onSchedule={protectNightly} onChanged={() => void refresh()} onNavigate={onNavigate} />;
         }}
       </Tabs>

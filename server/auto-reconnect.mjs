@@ -96,7 +96,7 @@ export function reconnectedNotice({ name, what, result = null, flowName = null, 
   const message = [
     `It ${what}. It is mounted again${result.source ? ` from ${result.source}` : ""} and reads.`,
     restarted.length ? `${listed(restarted)} ${restarted.length === 1 ? "was" : "were"} restarted so ${restarted.length === 1 ? "it sees" : "they see"} it.` : "",
-    failed.length ? `Could not restart ${listed(failed)}; restart ${failed.length === 1 ? "it" : "them"} from the App catalog.` : "",
+    failed.length ? `Could not restart ${listed(failed)}; restart ${failed.length === 1 ? "it" : "them"} from Apps.` : "",
   ].filter(Boolean).join(" ") + allowance;
   return { title, message, priority: failed.length ? "high" : "default" };
 }
@@ -182,15 +182,25 @@ export function createAutoReconnect({ store, flows, alerts = null, now = () => n
    * A paused flow is a revoked trigger. Drives are taken one at a time, so two on one enclosure do
    * not remount at once.
    */
-  async function onRound({ active = [] } = {}) {
+  async function onRound({ active = [], availability = null } = {}) {
     const everyArmed = armedFlows();
     const armed = new Map(everyArmed.filter((flow) => flow.enabled !== false).map((flow) => [flow.triggerDrive, flow]));
     const lost = lostDrives(active);
     // A drive this round found well has nothing left to answer for: it came back some way other
     // than a reconnect job here (a restart, a mount by hand), and "Did not reconnect" would
     // otherwise stand on Home for as long as nobody pressed Reconnect on a drive that is fine.
-    // Quietly: nothing "ran and succeeded" to announce. A hold stays until a reconnect lifts it.
-    for (const flow of everyArmed) if (!lost.has(flow.triggerDrive) && !inFlight.has(flow.triggerDrive)) await quietly(() => alerts?.clear(alertKey(flow), { quietly: true }));
+    // Quietly: nothing "ran and succeeded" to announce. Only that refusal is cleared, and only on
+    // a round that could read the drives: the key is also the automation's own failure ("stopped
+    // at a step") and "Could not reconnect", whose hold waits for a person and refuses in silence,
+    // so clearing those left a drive that would never be reconnected with nothing saying so
+    // (found by the review of this change, the same day).
+    const drivesRead = !availability || (availability["storage.mount.detached"] !== false && availability["storage.mount.readonly"] !== false);
+    const standing = store.getSetting("healthAlertsState", {}) ?? {};
+    for (const flow of everyArmed) {
+      const name = flow.triggerDrive;
+      if (!drivesRead || lost.has(name) || inFlight.has(name) || readAll()[name]?.heldSince) continue;
+      if (String(standing[alertKey(flow)]?.title ?? "").startsWith("Did not reconnect ")) await quietly(() => alerts?.clear(alertKey(flow), { quietly: true }));
+    }
     const outcomes = [];
     for (const [name, loss] of lost) {
       const flow = armed.get(name);

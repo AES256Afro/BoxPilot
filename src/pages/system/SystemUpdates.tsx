@@ -100,7 +100,7 @@ export function SystemUpdates({ release, releaseError, checking, onCheck, status
       )}
 
       {keying && onSigner && (
-        <Sheet kicker="BoxPilot updates" title="Release key" onClose={() => setKeying(false)} footer={<>
+        <Sheet kicker="BoxPilot update" title="Release key" onClose={() => setKeying(false)} footer={<>
           {signer && <Button variant="ghost" risk={riskOf("system.update.signer.set")} onClick={() => { setKeying(false); onSigner(null); }}>Stop checking signatures</Button>}
           <Button variant="primary" risk={riskOf("system.update.signer.set")} disabled={!publicKey.trim()} onClick={() => { setKeying(false); onSigner(publicKey.trim()); }}>Require this key</Button>
         </>}>

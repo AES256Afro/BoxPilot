@@ -84,11 +84,11 @@ export default function AppsTab({ csrfToken, role, protection, protectionError, 
         actions={canBackUp && protection?.available && verdicts.length > 0
           ? <>
               {verdicts.length > 1 && <Button risk={riskOf("app.backup.many")} onClick={backUpAll}>Back up all now</Button>}
-              {unscheduled.length > 0 && <Button variant="primary" disabled={scheduling?.busy} onClick={() => onSchedule(unscheduled)}>Back up everything nightly</Button>}
+              {unscheduled.length > 0 && <Button variant="primary" disabled={scheduling?.busy} onClick={() => onSchedule(unscheduled)}>Back up all nightly</Button>}
             </>
           : undefined}
         footer={<span className="backups-foot backups-foot--row">
-          <span className="backups-foot__text">Caches and re-downloadable models are left out. Each app also backs up from its card in the App catalog; VMs are protected on Virtual Machines.</span>
+          <span className="backups-foot__text">Caches and re-downloadable models are left out. Each app also backs up from its Backups tab in Apps; VMs are protected on Virtual Machines.</span>
           {onNavigate && <span className="backups-links">
             <Button variant="ghost" className="backups-inline" onClick={() => onNavigate("catalog")}>Apps</Button>
             <Button variant="ghost" className="backups-inline" onClick={() => onNavigate("virtualization")}>Virtual Machines</Button>

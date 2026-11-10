@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import BackupsPage from "./BackupsPage";
+import { SessionProvider } from "../../ownerPassword";
 import { nightlySlot } from "./types";
 
 beforeEach(() => { window.history.replaceState(null, "", "/?view=backups"); });
@@ -118,6 +119,22 @@ describe("Backups page", () => {
     expect(screen.getByText("Restore from a machine snapshot")).toBeTruthy();
   });
 
+  // "Apps' data" asked the shell for Backups at its Apps tab, from inside Backups: the whole page opened again.
+  it("turns to Apps' data from Restore in place, without asking the shell to open the page again", async () => {
+    mockFetch();
+    render(<BackupsPage csrfToken="csrf-token" />);
+    await screen.findByText("Protected");
+    const asked = vi.fn();
+    window.addEventListener("boxpilot:open-view", asked);
+    openTab(/^Restore/);
+    expect(window.location.search).toBe("?view=backups&tab=restore");
+    fireEvent.click(screen.getByRole("button", { name: "Apps' data" }));
+    expect(screen.getByRole("tab", { name: /^Apps/ }).getAttribute("aria-selected")).toBe("true");
+    expect(window.location.search).toBe("?view=backups");
+    expect(asked).not.toHaveBeenCalled();
+    window.removeEventListener("boxpilot:open-view", asked);
+  });
+
   describe("Apps", () => {
     it("backs up an app from its row, through the approval dialog, with its tier on the button", async () => {
       const { bodies } = mockFetch({ apps: [{ id: "vaultwarden", name: "Vaultwarden", protectable: true, backups: 0, newestAt: null }], schedules: [] });
@@ -165,7 +182,7 @@ describe("Backups page", () => {
         extra: (url, init) => (url.endsWith("/api/v1/schedules") && init?.method === "POST" ? (posted.push(JSON.parse(init.body as string)), json({ schedule: { id: "s" } }, 201)) : null),
       });
       render(<BackupsPage csrfToken="csrf-token" />);
-      fireEvent.click(await screen.findByRole("button", { name: "Back up everything nightly" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Back up all nightly" }));
       expect(await screen.findByText("Scheduled nightly backups for 2 apps. The first runs tonight.")).toBeTruthy();
       expect(posted).toEqual([
         { operationId: "app.backup", parameters: { id: "immich" }, frequency: "daily", hour: 2, minute: 0 },
@@ -270,6 +287,41 @@ describe("Backups page", () => {
       expect(onNavigate).toHaveBeenCalledWith("storage");
     });
 
+    // Inside the window a password already opened, the destination is saved without one (ownerPassword.tsx).
+    it("saves the SSH destination without the owner's password inside the window, and asks for it once that has lapsed", async () => {
+      const saves: Array<Record<string, unknown>> = [];
+      mockFetch({ extra: (url, init) => {
+        if (url.endsWith("/api/v1/settings/approval-mode")) return json({ approvalMode: "tiered", modes: [] });
+        if (url.endsWith("/api/v1/settings/backup-destination") && init?.method === "PUT") {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+          saves.push(body);
+          return body.password ? json({ destination: body.destination, lastSync: null }) : json({ error: "Owner password required", code: "reauthentication_required" }, 401);
+        }
+        return null;
+      } });
+      const elevatedUntil = new Date(Date.now() + 10 * 60_000).toISOString();
+      render(<SessionProvider value={{ elevatedUntil, accountId: "o1" }}><BackupsPage csrfToken="csrf-token" /></SessionProvider>);
+      await screen.findByRole("tab", { name: /^Off this server/ });
+      openTab(/^Off this server/);
+      fireEvent.click(within(await screen.findByRole("region", { name: "Another computer over SSH" })).getByRole("button", { name: "Set destination" }));
+      const sheet = screen.getByRole("dialog", { name: "Set the destination" });
+      fireEvent.change(within(sheet).getByLabelText("Host"), { target: { value: "nas.local" } });
+      fireEvent.change(within(sheet).getByLabelText("User"), { target: { value: "backup" } });
+      fireEvent.change(within(sheet).getByLabelText("Path"), { target: { value: "/srv/boxpilot" } });
+      await waitFor(() => expect(within(sheet).queryByLabelText("Owner password")).toBeNull());
+      expect(within(sheet).getByText(/^No password needed until/)).toBeTruthy();
+      expect(within(sheet).queryByText(/Still needed/)).toBeNull();
+      fireEvent.click(within(sheet).getByRole("button", { name: "Save destination" }));
+      const field = await within(sheet).findByLabelText("Owner password");
+      expect(within(sheet).getByText("Type your password to continue.")).toBeTruthy();
+      expect((within(sheet).getByLabelText("Host") as HTMLInputElement).value).toBe("nas.local");
+      fireEvent.change(field, { target: { value: "correct horse battery" } });
+      fireEvent.click(within(sheet).getByRole("button", { name: "Save destination" }));
+      await waitFor(() => expect(saves).toHaveLength(2));
+      const destination = { host: "nas.local", port: 22, user: "backup", path: "/srv/boxpilot" };
+      expect(saves).toEqual([{ destination }, { password: "correct horse battery", destination }]);
+    });
+
     it("walks the SSH destination from its sheet to a test and a mirror", async () => {
       let saved: string | undefined;
       let destination: unknown = null;
@@ -282,7 +334,7 @@ describe("Backups page", () => {
       await screen.findByRole("tab", { name: /^Off this server/ });
       openTab(/^Off this server/);
       expect(await screen.findByLabelText("Mirror public key")).toBeTruthy();
-      fireEvent.click(within(screen.getByRole("region", { name: "Another machine over SSH" })).getByRole("button", { name: "Set destination" }));
+      fireEvent.click(within(screen.getByRole("region", { name: "Another computer over SSH" })).getByRole("button", { name: "Set destination" }));
       const sheet = screen.getByRole("dialog", { name: "Set the destination" });
       fireEvent.change(within(sheet).getByLabelText("Host"), { target: { value: "nas.local" } });
       fireEvent.change(within(sheet).getByLabelText("User"), { target: { value: "backup" } });
@@ -304,12 +356,12 @@ describe("Backups page", () => {
       fireEvent.submit(sheet.querySelector("form")!);
       expect(await screen.findByText("backup@nas.local:/srv/boxpilot")).toBeTruthy();
       expect(JSON.parse(saved ?? "{}")).toEqual({ password: "correct horse battery", destination: { host: "nas.local", port: 22, user: "backup", path: "/srv/boxpilot" } });
-      const ssh = screen.getByRole("region", { name: "Another machine over SSH" });
+      const ssh = screen.getByRole("region", { name: "Another computer over SSH" });
       fireEvent.click(within(ssh).getByRole("button", { name: "Test connection" }));
       expect(await screen.findByText(/pins the destination's host key/)).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
-      fireEvent.click(within(ssh).getByRole("button", { name: "Mirror now" }));
-      const mirror = await screen.findByRole("dialog", { name: "Mirror backups to nas.local" });
+      fireEvent.click(within(ssh).getByRole("button", { name: "Copy now" }));
+      const mirror = await screen.findByRole("dialog", { name: "Copy backups to nas.local" });
       expect(mirror.textContent).toContain("Copies the database backups, app backups and machine snapshots to nas.local. Files already there are not sent again; nothing there is ever deleted.");
       expect(mirror.textContent).not.toMatch(/rsync|checksum|System page/);
       expect(staged).toEqual(["backup.remote.test", "backup.remote.sync"]);
@@ -410,7 +462,7 @@ describe("Backups page", () => {
       openTab(/^Off this server/);
       expect(await screen.findByText("set (an operator or the owner can see where)")).toBeTruthy();
       expect(screen.queryByText(/undefined/)).toBeNull();
-      expect(screen.queryByRole("button", { name: /Test connection|Mirror now|Change destination/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Test connection|Copy now|Change destination/ })).toBeNull();
     });
 
     it("offers rclone when it is missing, and a saved cloud destination's test and mirror to the owner only", async () => {
@@ -423,7 +475,7 @@ describe("Backups page", () => {
       expect(within(cloud).getByText("home-backups")).toBeTruthy();
       expect(within(cloud).getByRole("button", { name: "Install rclone" })).toBeTruthy();
       // The cloud destination is the owner's: an operator sees it, and none of its actions.
-      expect(within(cloud).queryByRole("button", { name: /destination|Test connection|Mirror now/ })).toBeNull();
+      expect(within(cloud).queryByRole("button", { name: /destination|Test connection|Copy now/ })).toBeNull();
       cleanup();
 
       const { staged } = mockFetch({ cloud: { rcloneInstalled: true, configured: true, provider: "b2", providers }, cloudSettings });

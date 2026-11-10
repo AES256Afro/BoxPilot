@@ -94,7 +94,7 @@ export function Memory({ agents, agentId, csrfToken, role, now, tools = null, on
         ...(draft.freshDays === "always" ? { freshDays: null } : draft.freshDays ? { freshDays: Number(draft.freshDays) } : {}),
       });
       setEditing(null);
-      setNotice("The fact is changed; its embedding is made again in quiet hours.");
+      setNotice("The fact is changed. Search finds the new wording after the next quiet hours.");
       setError(null);
       await read(agent.id);
     } catch (requestError) {

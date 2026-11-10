@@ -135,7 +135,7 @@ function richFacts() {
     issues: {
       available: true, targetConfigured: false,
       conditions: [
-        { family: "system.reboot", subject: null, label: "A reboot is required", title: "A reboot is required", since: "2026-09-26T00:00:00.000Z", announced: false },
+        { family: "system.reboot", subject: null, label: "A restart is required", title: "A restart is required", since: "2026-09-26T00:00:00.000Z", announced: false },
         { family: "schedule.failed", subject: "s-sync", label: "A scheduled task failed or did not run", title: "Scheduled task failed: Mirror local backups to the off-box SSH destination", since: "2026-09-28T04:31:00.000Z", announced: false, scheduleCreatedBy: owner },
       ],
       notices: [{ family: "release.available", subject: null, label: "A new BoxPilot release", title: "BoxPilot 9.9.10 is out", since: "2026-09-27T12:00:00.000Z" }],
@@ -207,7 +207,7 @@ describe("the runbook", () => {
       "- Data:",
       "  - Configuration: `/var/lib/boxpilot-managed/catalog/jellyfin/config`, managed by BoxPilot, in its backups; on the filesystem at `/`",
       "  - Media library: `/mnt/media/library`, a folder you chose, read-only, not in its backups; on drive `media` (`/mnt/media`)",
-      "- Sign-in: App catalog → Jellyfin → Sign in. The password is in the app's `.env`; BoxPilot shows it there to the owner, after the owner's password.",
+      "- Sign-in: Apps → Jellyfin → Sign in. The password is in the app's `.env`; BoxPilot shows it there to the owner, after the owner's password.",
       "- Backups: 4 backups in `/var/lib/boxpilot-managed/backups/catalog/jellyfin`, newest 2026-09-28 03:00 UTC (`20260928T030000Z.tar.gz`). Scheduled daily at 03:00, keeping 5. Last restore drill 2026-09-27 04:00 UTC: passed.",
     ].join("\n"));
   });

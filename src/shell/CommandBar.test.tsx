@@ -214,7 +214,7 @@ describe("the / shortcut", () => {
 });
 
 describe("what the shell does, from the command bar", () => {
-  it("opens Activity and the notifications, and signs out where it was given the means", async () => {
+  it("opens Activity and the notifications", async () => {
     vi.stubGlobal("fetch", stub({ ready: false }));
     const onSignOut = vi.fn();
     render(<CommandBar csrfToken="csrf" onNavigate={vi.fn()} onStart={vi.fn()} onSignOut={onSignOut} />);
@@ -232,11 +232,59 @@ describe("what the shell does, from the command bar", () => {
     expect(activity).toHaveBeenCalledTimes(1);
     choose("open notifications");
     expect(notifications).toHaveBeenCalledTimes(1);
-    choose("sign out");
-    expect(onSignOut).toHaveBeenCalledTimes(1);
     window.removeEventListener(openActivityEvent, activity);
     window.removeEventListener(openNotificationsEvent, notifications);
   });
+
+  // "si" and Enter used to end the session: Sign out is first only for its own words, and asks first.
+  it("asks before signing out, in the bar, and Enter confirms only once the question is showing", async () => {
+    vi.stubGlobal("fetch", stub({ ready: false }));
+    const onSignOut = vi.fn();
+    render(<CommandBar csrfToken="csrf" onNavigate={vi.fn()} onStart={vi.fn()} onSignOut={onSignOut} />);
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const input = screen.getByRole("combobox");
+    fireEvent.change(input, { target: { value: "sign out" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSignOut).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog", { name: "Search BoxPilot" });
+    expect(within(dialog).getByText("Sign out of BoxPilot on this device?")).toBeTruthy();
+    const confirm = within(dialog).getByRole("button", { name: "Sign out" });
+    expect(document.activeElement).toBe(confirm);
+    // The Enter that chose it, still held down, confirms nothing; nor does another in the search box.
+    fireEvent.keyDown(confirm, { key: "Enter", repeat: true });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSignOut).not.toHaveBeenCalled();
+    // Staying goes back to the list, with what was typed.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stay signed in" }));
+    expect(within(dialog).queryByText("Sign out of BoxPilot on this device?")).toBeNull();
+    expect(within(dialog).getByRole("option", { name: /^Sign out/ })).toBeTruthy();
+    expect(onSignOut).not.toHaveBeenCalled();
+    // Escape on the question is "stay" too, and does not close the bar.
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: "Search BoxPilot" })).toBeTruthy();
+    expect(within(dialog).queryByText("Sign out of BoxPilot on this device?")).toBeNull();
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(within(dialog).getByRole("button", { name: "Sign out" }), { key: "Enter" });
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("does not sign out on Enter after the first letters of something else", async () => {
+    vi.stubGlobal("fetch", stub({ ready: false }));
+    const onSignOut = vi.fn(); const onNavigate = vi.fn();
+    render(<CommandBar csrfToken="csrf" onNavigate={onNavigate} onStart={vi.fn()} onSignOut={onSignOut} />);
+    for (const words of ["si", "sig", "sign", "out"]) {
+      fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+      const input = screen.getByRole("combobox");
+      fireEvent.change(input, { target: { value: words } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(screen.queryByText("Sign out of BoxPilot on this device?"), words).toBeNull();
+      if (screen.queryByRole("dialog")) fireEvent.keyDown(document, { key: "Escape" });
+    }
+    expect(onSignOut).not.toHaveBeenCalled();
+  });
+
 
   it("offers no Sign out where it could not do it", () => {
     const { dialog, input } = open();
@@ -293,11 +341,11 @@ describe("actions in the command bar", () => {
   it("offers each role only what it could start, and a viewer nothing", () => {
     const apps = [{ id: "plex", name: "Plex", running: true, paused: false, updateAvailable: false, backup: true }];
     const labels = (role: string | null) => actionCommands(apps, role).map((command) => command.label);
-    expect(labels("owner")).toEqual(["Check for updates", "Install all updates", "Back up BoxPilot's database", "Reboot the server", "Back up Plex", "Restart Plex", "Stop Plex"]);
-    expect(labels("operator")).not.toContain("Reboot the server");
+    expect(labels("owner")).toEqual(["Check for updates", "Install all updates", "Back up BoxPilot's database", "Restart the server", "Back up Plex", "Restart Plex", "Stop Plex"]);
+    expect(labels("operator")).not.toContain("Restart the server");
     expect(labels("viewer")).toEqual([]);
     expect(labels(null)).toEqual([]);
-    expect(actionCommands(apps, "owner").find((command) => command.label === "Reboot the server")?.action?.risk).toBe("high");
+    expect(actionCommands(apps, "owner").find((command) => command.label === "Restart the server")?.action?.risk).toBe("high");
   });
 
   it("offers to start a stopped app, and no backup where an app keeps nothing worth one", () => {
@@ -310,7 +358,7 @@ describe("actions in the command bar", () => {
   it("finds actions only when something is typed, so an empty bar still lists the pages", () => {
     const commands = buildCommands([], actionCommands([], "owner"));
     expect(searchCommands(commands, "").every((command) => command.group === "Pages")).toBe(true);
-    expect(searchCommands(commands, "reboot")[0]).toMatchObject({ label: "Reboot the server", group: "Actions" });
+    expect(searchCommands(commands, "reboot")[0]).toMatchObject({ label: "Restart the server", group: "Actions" });
   });
 });
 
@@ -320,7 +368,7 @@ describe("the command bar with nothing typed (M36)", () => {
   it("suggests the approvals waiting, the failure nobody has dealt with, and the updates ready, above the pages", async () => {
     act(() => publishWaiting([
       feedJob("w1", "awaiting_approval", "Install updates", "2026-10-18T09:03:00Z"),
-      feedJob("w2", "awaiting_approval", "Reboot the server", "2026-10-18T09:02:00Z"),
+      feedJob("w2", "awaiting_approval", "Restart the server", "2026-10-18T09:02:00Z"),
       feedJob("f2", "failed", "Back up Immich", "2026-10-18T09:01:00Z"),
       feedJob("f1", "failed", "Back up Jellyfin", "2026-10-18T08:00:00Z"),
     ]));

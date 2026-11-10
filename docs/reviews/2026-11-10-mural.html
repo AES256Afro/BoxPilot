@@ -1,0 +1,218 @@
+<title>BoxPilot Sweep Mural</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: one painted wall read top to bottom: a skyline of the day, a field with one dot per finding, then four panels (done, changed, planned, suggested). */
+:root {
+  --wall: #f3ecdd; --ink: #1c2540; --soft: #55607c; --line: rgba(28,37,64,.16); --panel: #fbf7ee;
+  --night: #1c2540; --sea: #2f8f8a; --ochre: #c98a1b; --coral: #d4553a; --plum: #6b4a8e; --moss: #5d7f3a; --sky: #3b6fb5;
+  --on-paint: #fffaf0;
+  --display: "Bricolage Grotesque", "Figtree", ui-sans-serif, system-ui, sans-serif;
+  --body: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --wall: #141a2e; --ink: #f2ecdc; --soft: #a9b1c8; --line: rgba(242,236,220,.16); --panel: #1b2340; --night: #0c1122; --sea: #4fb8b1; --ochre: #e5a93a; --coral: #ee7a5f; --plum: #a685cf; --moss: #8fb563; --sky: #6f9fe0; --on-paint: #10162a; color-scheme: dark } }
+:root[data-theme="dark"] { --wall: #141a2e; --ink: #f2ecdc; --soft: #a9b1c8; --line: rgba(242,236,220,.16); --panel: #1b2340; --night: #0c1122; --sea: #4fb8b1; --ochre: #e5a93a; --coral: #ee7a5f; --plum: #a685cf; --moss: #8fb563; --sky: #6f9fe0; --on-paint: #10162a; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--wall); color: var(--ink); font: 15px/1.55 var(--body); padding-block: 0 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+.wall { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 44px }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0 }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums }
+
+/* Skyline */
+.sky { position: relative; margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px))); }
+.sky svg { display: block; width: 100%; height: auto }
+.head { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px 40px; align-items: end; margin-top: -8px }
+@media (max-width: 760px) { .head { grid-template-columns: minmax(0, 1fr) } }
+.eyebrow { font: 700 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--coral) }
+h1 { font-size: clamp(38px, 7vw, 76px); font-weight: 800; line-height: .95; letter-spacing: -.03em; margin-top: 10px }
+.lede { color: var(--soft); max-width: 58ch; margin: 0 }
+.nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-top: 3px solid var(--ink); border-bottom: 1px solid var(--line) }
+.nums div { padding: 14px 14px 14px 0; min-width: 0 }
+.nums div + div { border-left: 1px solid var(--line); padding-left: 14px }
+.nums b { display: block; font: 800 clamp(26px, 4.4vw, 44px)/1 var(--display); letter-spacing: -.02em }
+.nums span { display: block; margin-top: 6px; color: var(--soft); font-size: 12.5px; line-height: 1.3 }
+@media (max-width: 560px) { .nums { grid-template-columns: repeat(2, minmax(0, 1fr)) } .nums div:nth-child(3) { border-left: 0; padding-left: 0 } .nums div:nth-child(n+3) { border-top: 1px solid var(--line) } }
+
+/* Dot field */
+.field h2, .panels h2 { font-size: clamp(24px, 3.4vw, 34px); font-weight: 800; letter-spacing: -.02em }
+.field > p { color: var(--soft); max-width: 68ch; margin: 8px 0 18px }
+.rows { display: grid; gap: 10px }
+.row { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line) }
+.row:last-child { border-bottom: 1px solid var(--line) }
+.row h3 { font: 700 15px var(--body) } .row small { display: block; color: var(--soft); font-size: 12px; font-weight: 500 }
+.dots { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0 }
+.d { width: 13px; height: 13px; border-radius: 50%; background: var(--c); flex: none }
+.d.p { background: transparent; box-shadow: inset 0 0 0 2.5px var(--c) }
+.d.y { border-radius: 2px; transform: rotate(45deg) scale(.82); background: var(--c) }
+.d.gap { width: 6px; background: none; box-shadow: none }
+.tally { font: 700 13px var(--mono); white-space: nowrap; color: var(--soft) } .tally b { color: var(--ink) }
+@media (max-width: 680px) { .row { grid-template-columns: minmax(0, 1fr) auto } .dots { grid-column: 1 / -1; order: 3 } }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 14px; color: var(--soft); font-size: 13px } .legend span { display: inline-flex; align-items: center; gap: 8px } .legend .d { --c: var(--ink) }
+
+/* Panels */
+.panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px }
+@media (max-width: 820px) { .panels { grid-template-columns: minmax(0, 1fr) } }
+.pan { background: var(--panel); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; min-width: 0 }
+.pan header { background: var(--c); color: var(--on-paint); padding: 18px 20px 16px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px }
+.pan header h2 { font-size: 28px } .pan header span { font: 700 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; opacity: .9; text-align: right }
+.pan ul { list-style: none; margin: 0; padding: 6px 20px 18px; display: grid; gap: 0 }
+.pan li { padding: 11px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px }
+.pan li:first-child { border-top: 0 }
+.pan li i { font: 700 12px var(--mono); color: var(--c); font-style: normal; padding-top: 2px; min-width: 3.2em }
+.pan li b { font-weight: 700 } .pan li p { margin: 0; grid-column: 2; color: var(--soft); font-size: 13.5px; line-height: 1.45 }
+.wide { grid-column: 1 / -1 }
+.stones { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0; padding: 18px 20px 20px }
+.stone { padding: 0 12px 0 0; border-top: 4px solid var(--c); margin-right: 6px; padding-top: 10px; min-width: 0 }
+.stone i { font: 700 12px var(--mono); font-style: normal; color: var(--c) } .stone b { display: block; font: 700 15px/1.2 var(--display); margin: 3px 0 5px } .stone p { margin: 0; color: var(--soft); font-size: 12.5px; line-height: 1.4 } .stone em { display: block; margin-top: 6px; font: 500 11.5px var(--mono); font-style: normal; color: var(--soft) }
+@media (max-width: 980px) { .stones { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 0 } }
+@media (max-width: 480px) { .stones { grid-template-columns: minmax(0, 1fr) } }
+.ask { border: 2px solid var(--ink); border-radius: 6px; padding: 20px }
+.ask h2 { font-size: 24px; font-weight: 800 } .ask ol { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 8px } .ask li { padding-left: 4px } .ask li span { color: var(--soft) }
+footer { color: var(--soft); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px }
+</style>
+
+<div class="wall">
+  <div class="sky" aria-hidden="true">
+    <svg viewBox="0 0 1200 230" preserveAspectRatio="xMidYMax slice" role="img">
+      <rect x="0" y="0" width="1200" height="230" fill="var(--night)"/>
+      <circle cx="930" cy="150" r="118" fill="var(--ochre)"/>
+      <circle cx="930" cy="150" r="78" fill="var(--coral)"/>
+      <path d="M0 230 L0 150 Q140 70 300 140 T600 130 T900 160 T1200 110 L1200 230 Z" fill="var(--plum)"/>
+      <path d="M0 230 L0 185 Q180 120 360 175 T720 165 T1080 185 T1200 160 L1200 230 Z" fill="var(--sea)"/>
+      <path d="M0 230 L0 212 Q220 178 440 210 T880 204 T1200 200 L1200 230 Z" fill="var(--wall)"/>
+      <g fill="var(--on-paint)" opacity=".9">
+        <rect x="118" y="96" width="46" height="62" rx="3"/><rect x="126" y="106" width="30" height="5" fill="var(--night)"/><rect x="126" y="117" width="30" height="5" fill="var(--night)"/><circle cx="131" cy="146" r="3" fill="var(--sea)"/>
+      </g>
+      <g fill="var(--ochre)"><circle cx="250" cy="52" r="3"/><circle cx="420" cy="34" r="2.4"/><circle cx="560" cy="66" r="3"/><circle cx="700" cy="30" r="2.4"/><circle cx="1090" cy="48" r="3"/><circle cx="340" cy="84" r="2"/><circle cx="640" cy="98" r="2"/></g>
+    </svg>
+  </div>
+
+  <div class="head">
+    <div>
+      <div class="eyebrow">10 November 2026 · one working day</div>
+      <h1>Four rounds of sweeps, two releases, one wall.</h1>
+    </div>
+    <p class="lede">Every dot below is one finding from a sweep of BoxPilot. A filled dot was fixed, tested and shipped to the server the same day. A ring is planned. A diamond is waiting for a decision that is yours.</p>
+  </div>
+
+  <div class="nums">
+    <div><b class="mono" id="n-sweeps">27</b><span>sweeps across nine categories, three or more each</span></div>
+    <div><b class="mono" id="n-found">—</b><span>findings, each checked against the code before anyone acted</span></div>
+    <div><b class="mono" id="n-fixed">—</b><span>fixed with a test where one fits, in releases 1.239.0 and 1.240.0</span></div>
+    <div><b class="mono">5,996</b><span>tests passing at the end, up from 5,696 in the morning</span></div>
+  </div>
+
+  <section class="field">
+    <h2>The field</h2>
+    <p>Grouped by what kind of sweep found it. The gaps separate one sweep from the next, left to right in the order they ran.</p>
+    <div class="rows" id="rows"></div>
+    <div class="legend"><span><i class="d"></i>fixed and shipped</span><span><i class="d p"></i>planned (M58 to M64)</span><span><i class="d y"></i>your decision</span></div>
+  </section>
+
+  <section class="panels">
+    <article class="pan" style="--c: var(--sea)">
+      <header><h2>Done</h2><span>shipped and checked<br>on the server</span></header>
+      <ul>
+        <li><i>1.239.0</i><b>Released mid-day and upgraded in place</b><p>The upgrade's first health round cleared a "Did not reconnect" warning that had stood for five days over a healthy drive.</p></li>
+        <li><i>1.240.0</i><b>Released with rounds three and four</b><p>Readability, the keyboard, the walked tasks, the Zulip and gateway hardening.</p></li>
+        <li><i>3 PRs</i><b>Merged what was waiting</b><p>The earlier audit loop (#640, brought up to date in its own session), the privacy fix (#645) and the SearXNG refresh (#643).</p></li>
+        <li><i>6 apps</i><b>Raised to high risk</b><p>Portainer and Dockge reach the Docker socket; Kopia, Duplicati, Backrest and Filebrowser reach the backups. Installing one now needs the owner's password.</p></li>
+        <li><i>4</i><b>Mockups drawn, two of them built the same day</b><p>Labelled choices and the folded bell shipped. "Since you last looked" and find-in-logs are in the plan.</p></li>
+      </ul>
+    </article>
+
+    <article class="pan" style="--c: var(--coral)">
+      <header><h2>Changed</h2><span>what you will<br>notice</span></header>
+      <ul>
+        <li><i>keys</i><b>Sheets start where you type and finish on Enter</b><p>The approval dialog focuses the password. The browser's Back button moves between pages.</p></li>
+        <li><i>jobs</i><b>A running job no longer locks the tab</b><p>Close the dialog and it carries on in Activity. Every page refreshes when any job ends.</p></li>
+        <li><i>words</i><b>Operations say what happens, in plain words</b><p>About ninety titles and descriptions, the errors when an app will not start, one name per page.</p></li>
+        <li><i>many</i><b>Twenty-eight cards and ninety-seven notifications fold</b><p>Groups with one action; "Needs a look" first in the bell; Activity can try a failed job again.</p></li>
+        <li><i>phone</i><b>Buttons are big enough to tap</b><p>The default look had lost the 44 px touch size. A test now stops any look from doing that.</p></li>
+        <li><i>lost</i><b>A forgotten password has a way back</b><p>A root-only console command, named on the sign-in page. The owner can also set a member's password.</p></li>
+      </ul>
+    </article>
+
+    <article class="pan wide" style="--c: var(--plum)">
+      <header><h2>Planned</h2><span>seven milestones, in the order they earn their place</span></header>
+      <div class="stones">
+        <div class="stone"><i>M58</i><b>Agents worth leaving on</b><p>A digest that is never raw tool output; one health card per agent with a one-tap fix.</p><em>1–2 weeks</em></div>
+        <div class="stone"><i>M59</i><b>Updates you can trust</b><p>Hold a version, release notes, a soak with automatic rollback, a reboot night.</p><em>2 weeks</em></div>
+        <div class="stone"><i>M60</i><b>Know what changed</b><p>A change log, "since you last looked", find in logs, snooze, explain a failed job.</p><em>2 weeks</em></div>
+        <div class="stone"><i>M61</i><b>The first hour and the worst day</b><p>Protect this server in ten minutes; if this drive died; a printable recovery kit.</p><em>2 weeks</em></div>
+        <div class="stone"><i>M62</i><b>Hardening and upkeep</b><p>Helper socket ownership, job-log redaction, a signed prebuilt release, old database copies.</p><em>2 weeks</em></div>
+        <div class="stone"><i>M63</i><b>People and the house</b><p>A family status page, per-app sign-in rules, SSH key management, power off.</p><em>2 weeks</em></div>
+        <div class="stone"><i>M64</i><b>Data moves, automations react</b><p>Alerts as flow triggers, a dry run, moving an app's data, read-only API tokens.</p><em>3 weeks</em></div>
+      </div>
+    </article>
+
+    <article class="pan" style="--c: var(--ochre)">
+      <header><h2>Suggested</h2><span>what you may<br>be missing</span></header>
+      <ul>
+        <li><i>look</i><b>Sweep the running server, not only the code</b><p>Three of the day's best findings came from looking at the live pages. A monthly walk of the real box would keep finding what reading cannot.</p></li>
+        <li><i>agents</i><b>The agents are the weakest visible part</b><p>Every one of the 28 cards said a limit was reached, and the digest was raw tool output. M58 is first in the plan for that reason.</p></li>
+        <li><i>disk</i><b>169 old database copies hold 1.1 GB</b><p>Every upgrade adds 35 MB and nothing removes one. Pick a number to keep.</p></li>
+        <li><i>rhythm</i><b>Releases outrun the public demo</b><p>The demo is a frozen copy deployed by hand. A deploy step in the release workflow would end the drift.</p></li>
+        <li><i>proof</i><b>Restores are tested per app, not as a whole</b><p>The rebuild still stages network, firewall and mounts for review only. One real bare-metal drill a quarter would prove the claim.</p></li>
+      </ul>
+    </article>
+
+    <article class="pan" style="--c: var(--sky)">
+      <header><h2>Still open</h2><span>found, not fixed<br>today</span></header>
+      <ul>
+        <li><i>M59</i><b>A failed update is offered again every night</b><p>Nothing remembers the failure; "Update all" pulls the same image. Needs hold and skip.</p></li>
+        <li><i>M60</i><b>One noisy alert cannot be silenced</b><p>Quiet hours exist; a snooze or a switch per condition does not.</p></li>
+        <li><i>M63</i><b>A user's SSH keys can only grow</b><p>Nothing lists or removes a key, so a mistyped GitHub name stays.</p></li>
+        <li><i>M62</i><b>Upgrades type-check and install dev dependencies on the server</b><p>A prebuilt, signed tarball removes both and closes the unpinned-download gap.</p></li>
+        <li><i>note</i><b>Two changes could not be run here</b><p>The Zulip connect script needs a live Zulip to prove; the gateway's sandbox was checked on the server after the upgrade.</p></li>
+      </ul>
+    </article>
+  </section>
+
+  <section class="ask">
+    <h2>Five decisions that are yours</h2>
+    <ol>
+      <li><b>May a recovery-code sign-in set a new password?</b> <span>Today it cannot, so the last resort still cannot approve anything high-risk. The safer design spends a second code as proof.</span></li>
+      <li><b>Should registering a passkey ask for the password?</b> <span>It is a documented trade-off; someone at an unlocked browser can add their own key.</span></li>
+      <li><b>How many old database copies to keep.</b> <span>169 now. Keeping the newest ten would return about 1 GB.</span></li>
+      <li><b>The tier of the seven apps that only read the Docker socket.</b> <span>Medium today; a read-only socket mount still answers the full Docker API.</span></li>
+      <li><b>ADR-018, deduplicated app backups.</b> <span>Proposed since October and still waiting.</span></li>
+    </ol>
+  </section>
+
+  <footer>Counts are from the sweeps' own reports. Usability and quality of life were swept together, so they share a row. The plan and every finding are in the repository: docs/ROADMAP-V2.md (M57 and the plan after it) and docs/reviews/2026-11-04-audit-loop.md.</footer>
+</div>
+
+<script>
+// f = fixed, p = planned, y = your decision; one array per sweep, in the order the sweeps ran.
+const rows = [
+  { name: "Bugs", note: "new code, the core, the edges", c: "var(--coral)", sweeps: [[9,0,0],[10,1,0],[8,0,0]] },
+  { name: "Security", note: "new surfaces, tiers, deploy", c: "var(--plum)", sweeps: [[5,0,0],[3,0,1],[6,0,0]] },
+  { name: "Code audit", note: "health, then a review of the day's own diff", c: "var(--sky)", sweeps: [[7,2,0],[7,2,0],[11,0,0]] },
+  { name: "Usability and quality of life", note: "pages, the shell, ten tasks walked", c: "var(--sea)", sweeps: [[30,0,0],[22,7,0],[24,5,1]] },
+  { name: "Readability", note: "product words, new copy, documents", c: "var(--moss)", sweeps: [[36,4,0],[24,3,0],[19,2,0]] },
+  { name: "Visual", note: "the live server, a phone, after release", c: "var(--ochre)", sweeps: [[4,2,0],[2,0,0],[0,0,0]] },
+  { name: "Optimization", note: "code, code again, measured", c: "var(--night)", sweeps: [[4,2,0],[6,4,0],[0,0,1]] },
+  { name: "Features", note: "ideas, not faults: all planned", c: "var(--soft)", sweeps: [[0,20,0],[0,12,0],[0,12,0]] },
+];
+let found = 0, fixed = 0;
+const host = document.getElementById("rows");
+for (const row of rows) {
+  const el = document.createElement("div"); el.className = "row"; el.style.setProperty("--c", row.c);
+  const dots = document.createElement("div"); dots.className = "dots";
+  let f = 0, all = 0;
+  row.sweeps.forEach((sweep, index) => {
+    if (index && dots.children.length) { const gap = document.createElement("i"); gap.className = "d gap"; dots.append(gap); }
+    [["", sweep[0]], [" p", sweep[1]], [" y", sweep[2]]].forEach(([kind, count]) => { for (let i = 0; i < count; i += 1) { const dot = document.createElement("i"); dot.className = "d" + kind; dots.append(dot); } });
+    f += sweep[0]; all += sweep[0] + sweep[1] + sweep[2];
+  });
+  const title = document.createElement("h3"); title.textContent = row.name;
+  const note = document.createElement("small"); note.textContent = row.note; title.append(note);
+  const tally = document.createElement("div"); tally.className = "tally"; tally.innerHTML = "<b>" + f + "</b> of " + all;
+  el.append(title, dots, tally); host.append(el);
+  if (row.name !== "Features") { found += all; fixed += f; }
+}
+document.getElementById("n-found").textContent = found;
+document.getElementById("n-fixed").textContent = fixed;
+</script>
