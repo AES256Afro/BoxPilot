@@ -398,6 +398,13 @@ describe("surviving a reboot with the backup drive still waking up", () => {
     // systemd never retries.
     const web = await readFile("deploy/boxpilot.service", "utf8");
     expect(web).toMatch(/^Wants=boxpilot-helper\.service$/m);
+    // A stop then a start of BoxPilot brings the gateway back (PartOf alone only carries the stop),
+    // and only where a key was stored.
+    expect(web).toMatch(/^Wants=boxpilot-model-gateway\.service$/m);
+    const gateway = await readFile("deploy/boxpilot-model-gateway.service", "utf8");
+    expect(gateway).toMatch(/^PartOf=.*boxpilot\.service/m);
+    expect(gateway).toMatch(/^ConditionPathExists=\/etc\/boxpilot\/secrets\/anthropic-api-key$/m);
+    expect(gateway).toMatch(/^After=.*boxpilot\.service/m);
     expect(web).not.toMatch(/^Requires=boxpilot-helper\.service$/m);
     expect(web).toMatch(/^After=boxpilot-helper\.service$/m);
   });
