@@ -25,6 +25,7 @@ import { createKeelPromotionHelper } from "./keel-promotion-helper.mjs";
 import { createKeelRollbackHelper } from "./keel-rollback-helper.mjs";
 import { createApplicationRetentionHelper } from "./application-retention-helper.mjs";
 import { createVmMediaHelper } from "./vm-media-helper.mjs";
+import { createUbuntuMediaHelper } from "./ubuntu-media-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
@@ -34,6 +35,7 @@ const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
 const vmRetention = createVmRetentionHelper();
 const vmMedia = createVmMediaHelper();
+const ubuntuMedia = createUbuntuMediaHelper({ inspectMedia: () => vmMedia.inspect() });
 const migrations = createMigrationTransferHelper();
 const applications = createApplicationHelper();
 const applicationProtection = createApplicationProtectionHelper();
@@ -63,7 +65,7 @@ const keelBackupRecovery = await keelBackups.recoverInterrupted();
 const keelDrillRecovery = await keelRecoveryDrill.recoverInterrupted();
 const keelPromotionRecovery = await keelPromotion.recoverInterrupted();
 const keelRollbackRecovery = await keelRollback.recoverInterrupted();
-const helperDependencies = { applications, applicationProtection, applicationRetention, controllerBackups, controllerProtection, controllerRetention, keelDiscovery, keelArtifacts, keelArchive, keelStage, keelInstall, keelBackups, keelRecovery, keelRecoveryDrill, keelPromotion, keelRollback, migrations, prerequisites, foundation, vmMedia, vmRestoreDrill, vmRecovery, vmRetention };
+const helperDependencies = { applications, applicationProtection, applicationRetention, controllerBackups, controllerProtection, controllerRetention, keelDiscovery, keelArtifacts, keelArchive, keelStage, keelInstall, keelBackups, keelRecovery, keelRecoveryDrill, keelPromotion, keelRollback, migrations, prerequisites, foundation, vmMedia, ubuntuMedia, vmRestoreDrill, vmRecovery, vmRetention };
 if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
 }
@@ -124,6 +126,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (request.operation === "prerequisite.apt-metadata.refresh") connection.setTimeout(15 * 60 * 1000);
       if (request.operation === "virtualization.foundation.initialize") connection.setTimeout(5 * 60 * 1000);
       if (request.operation === "virtualization.media.import") connection.setTimeout(6 * 60 * 60 * 1000);
+      if (request.operation === "virtualization.media.acquire") connection.setTimeout(3 * 60 * 60 * 1000);
       if (request.operation === "application.keel.stage") connection.setTimeout(15 * 60 * 1000);
       if (request.operation === "application.keel.install") connection.setTimeout(15 * 60 * 1000);
       if (request.operation === "application.keel.backup") connection.setTimeout(20 * 60 * 1000);
@@ -159,7 +162,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.61.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper 0.62.0 listening on ${socketPath}`);
 });
 
 async function shutdown() {

@@ -1,5 +1,6 @@
 import { verifyPassword } from "./security.mjs";
 import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
+import { getUbuntuMediaSpec } from "./ubuntu-media-spec.mjs";
 
 export function createJobService(store, helper, {
   validateApplicationJob = async () => {},
@@ -20,6 +21,7 @@ export function createJobService(store, helper, {
   validateMigrationTransferJob = async () => {},
   validateVmCreationJob = async () => {},
   validateVmMediaImportJob = async () => {},
+  validateUbuntuMediaAcquireJob = async () => {},
   validateVmExportJob = async () => {},
   validateVmProtectionJob = async () => {},
   validateVmRetentionJob = async () => {},
@@ -70,7 +72,7 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.media.import", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.media.acquire", "virtualization.media.import", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
@@ -87,6 +89,7 @@ export function createJobService(store, helper, {
     const validatedMigrationTransferPlan = job.type === "migration.bundle.transfer" ? await validateMigrationTransferJob(job) : null;
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
     const validatedVmMediaImportPlan = job.type === "virtualization.media.import" ? await validateVmMediaImportJob(job) : null;
+    const validatedUbuntuMediaAcquirePlan = job.type === "virtualization.media.acquire" ? await validateUbuntuMediaAcquireJob(job) : null;
     const validatedVmExportPlan = job.type === "virtualization.domain.export.create" ? await validateVmExportJob(job) : null;
     const validatedVmProtectionPlan = job.type === "virtualization.export.backup.create" ? await validateVmProtectionJob(job) : null;
     const validatedVmRetentionPlan = job.type === "virtualization.export.backup.retention.apply" ? await validateVmRetentionJob(job) : null;
@@ -100,6 +103,7 @@ export function createJobService(store, helper, {
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
     if (job.type === "virtualization.media.import" && !validatedVmMediaImportPlan?.input) throw new Error("The staged VM media import plan is unavailable or changed");
+    if (job.type === "virtualization.media.acquire" && !validatedUbuntuMediaAcquirePlan?.input) throw new Error("The staged Ubuntu media acquisition plan is unavailable or changed");
     if (job.type === "controller.database.backup.protect" && !validatedControllerProtectionPlan?.input) throw new Error("The staged controller protection plan is unavailable or changed");
     if (job.type === "application.backup.protect" && !validatedApplicationProtectionPlan?.input) throw new Error("The staged application protection plan is unavailable or changed");
     if (job.type === "application.backup.retention.apply" && !validatedApplicationRetentionPlan?.input) throw new Error("The staged application retention plan is unavailable or changed");
@@ -723,6 +727,23 @@ export function createJobService(store, helper, {
       verified: "Every staged file passed SHA-256 and complete inventory verification; activation and source deletion remain disabled",
       failed: "Migration staging did not complete; the source remains unchanged and an isolated partial destination may be resumable",
       validate: (result) => result?.created && result?.transferId === validatedMigrationTransferPlan.input.transferId && result?.bundleId === validatedMigrationTransferPlan.input.bundleId && result?.contentVerified === true && result?.sourcePreserved === true && result?.activationPerformed === false && result?.networkCutoverPerformed === false && result?.sourceDeletionPerformed === false,
+    } : job.type === "virtualization.media.acquire" ? {
+      operation: "virtualization.media.acquire",
+      parameters: validatedUbuntuMediaAcquirePlan.input,
+      timeoutMs: 3 * 60 * 60 * 1000,
+      applying: "Downloading the exact approved Ubuntu Server ISO from the fixed official HTTPS location into private staging",
+      applied: "The isolated acquisition unit published the ISO staging pair only after complete size and SHA-256 verification",
+      verified: "Fixed catalog identity, official host, local bytes, evidence, non-overwrite, staging-only, and no-VM boundaries passed",
+      failed: "Ubuntu media acquisition or verification did not complete; generated partial files were removed and existing media and VMs were unchanged",
+      validate: (result) => {
+        const expected = getUbuntuMediaSpec(validatedUbuntuMediaAcquirePlan.input.imageId);
+        return result?.acquired === true && result?.staged === true && result?.locallyVerified === true && result?.evidenceRecorded === true
+          && result?.acquisitionId === validatedUbuntuMediaAcquirePlan.input.acquisitionId
+          && result?.imageId === expected?.id && result?.name === expected?.name && result?.sizeBytes === expected?.sizeBytes && result?.sha256 === expected?.sha256
+          && result?.boundary?.fixedOfficialSource === true && result?.boundary?.arbitraryUrlAccepted === false
+          && result?.boundary?.browserDigestAccepted === false && result?.boundary?.existingMediaOverwritten === false
+          && result?.boundary?.virtualMachineCreated === false && result?.boundary?.libvirtChanged === false && result?.boundary?.networkConfigurationChanged === false;
+      },
     } : job.type === "virtualization.media.import" ? {
       operation: "virtualization.media.import",
       parameters: validatedVmMediaImportPlan.input,

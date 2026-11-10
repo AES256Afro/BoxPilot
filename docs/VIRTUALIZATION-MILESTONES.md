@@ -2,7 +2,7 @@
 
 This plan turns the current QEMU/KVM module into a dependable home-server virtualization control plane. Milestones are dependency ordered. A later milestone cannot ship merely because its interface is complete.
 
-## Current baseline: 0.61.0
+## Current baseline: 0.62.0
 
 Shipped:
 

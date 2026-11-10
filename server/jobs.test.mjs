@@ -716,6 +716,25 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and executes only a staged fixed Ubuntu media acquisition", async () => {
+    const input = { acquisitionId: "88888888-8888-4888-8888-888888888888", imageId: "ubuntu-server-26.04-amd64", expectedCatalogRevision: "a".repeat(64) };
+    const result = {
+      acquired: true, staged: true, locallyVerified: true, evidenceRecorded: true, acquisitionId: input.acquisitionId, imageId: input.imageId,
+      name: "ubuntu-26.04-live-server-amd64.iso", sizeBytes: 2918598656, sha256: "dec49008a71f6098d0bcfc822021f4d042d5f2db279e4d75bdd981304f1ca5d9",
+      boundary: { fixedOfficialSource: true, arbitraryUrlAccepted: false, browserDigestAccepted: false, existingMediaOverwritten: false, virtualMachineCreated: false, libvirtChanged: false, networkConfigurationChanged: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateUbuntuMediaAcquireJob = vi.fn(async () => ({ input }));
+    const jobs = createJobService(store, helper, { validateUbuntuMediaAcquireJob });
+    const job = store.createJob({ type: "virtualization.media.acquire", title: "Acquire Ubuntu Server", parameters: { input }, recovery: { automaticRollback: true }, createdBy: owner.id });
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+    expect(validateUbuntuMediaAcquireJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("virtualization.media.acquire", input, { timeoutMs: 3 * 60 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { acquired: true, staged: true, imageId: input.imageId } });
+    store.close();
+  });
+
   it("revalidates and executes a typed VM lifecycle plan", async () => {
     const input = { name: "ubuntu-lab", action: "shutdown", expectedState: "running", expectedAutostart: false };
     const helper = { request: vi.fn(async () => ({ verified: true, domain: input.name, action: input.action, current: { state: "stopped", autostart: false } })) };

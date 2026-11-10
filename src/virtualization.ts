@@ -174,6 +174,41 @@ export interface VmMediaImportPlan {
   adapterRevision: string;
 }
 
+export interface UbuntuMediaCatalogImage {
+  id: string;
+  label: string;
+  release: string;
+  architecture: "amd64";
+  name: string;
+  sizeBytes: number;
+  sha256: string;
+  sourceUrl: string;
+  checksumUrl: string;
+  signatureUrl: string;
+  state: "available" | "staged" | "managed";
+}
+
+export interface UbuntuMediaCatalog {
+  revision: string;
+  images: UbuntuMediaCatalogImage[];
+  boundary: { officialHostOnly: "releases.ubuntu.com"; arbitraryUrlAccepted: false; browserDigestAccepted: false; automaticDownload: false; importAutomatic: false };
+}
+
+export interface UbuntuMediaAcquisitionPlan {
+  id: string;
+  revision: string;
+  status: "draft" | "staged";
+  expiresAt: string;
+  executable: true;
+  input: { acquisitionId: string; expectedCatalogRevision: string; imageId: string };
+  artifact: Omit<UbuntuMediaCatalogImage, "state">;
+  changes: string[];
+  verification: string[];
+  boundaries: string[];
+  recovery: string;
+  catalogRevision: string;
+}
+
 export interface VmPlanInput {
   name: string;
   osProfile: string;
@@ -514,6 +549,28 @@ export async function fetchVmPlanningOptions(): Promise<VmPlanningOptions> {
 
 export async function fetchVmMedia(): Promise<VmMediaInventory> {
   return readJson<VmMediaInventory>(await fetch("/api/v1/virtualization/media"));
+}
+
+export async function fetchUbuntuMediaCatalog(): Promise<UbuntuMediaCatalog> {
+  return readJson<UbuntuMediaCatalog>(await fetch("/api/v1/virtualization/media/catalog"));
+}
+
+export async function createUbuntuMediaAcquisitionPlan(imageId: string, csrfToken: string): Promise<UbuntuMediaAcquisitionPlan> {
+  const response = await fetch(`/api/v1/virtualization/media/catalog/${encodeURIComponent(imageId)}/plans`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: "{}",
+  });
+  return (await readJson<{ plan: UbuntuMediaAcquisitionPlan }>(response)).plan;
+}
+
+export async function stageUbuntuMediaAcquisitionPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
+  const response = await fetch(`/api/v1/virtualization/media/acquisition-plans/${encodeURIComponent(planId)}/stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ revision }),
+  });
+  return (await readJson<{ job: VmCreationJob }>(response)).job;
 }
 
 export async function uploadVmMedia(file: File, csrfToken: string): Promise<{ name: string; sizeBytes: number; sha256: string; uploadedAt: string }> {

@@ -15,6 +15,7 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("Environment=BOXPILOT_VM_EXPORT_ROOT=/var/lib/boxpilot-managed/vm-exports");
     expect(helperUnit).toContain("Environment=BOXPILOT_VM_MEDIA_INBOX=/var/lib/boxpilot-managed/vm-media-inbox");
     expect(helperUnit).toContain("ExecStartPre=/usr/bin/install -d -o boxpilot -g boxpilot -m 0700 /var/lib/boxpilot-managed/vm-media-inbox");
+    expect(helperUnit).toContain("ExecStartPre=/usr/bin/install -d -o boxpilot -g boxpilot -m 0700 /var/lib/boxpilot-managed/vm-media-acquisitions");
     expect(helperUnit).toContain("Environment=BOXPILOT_MIGRATION_INBOX=/var/lib/boxpilot-migration/inbox");
     expect(helperUnit).toContain("Environment=BOXPILOT_MIGRATION_STAGING_ROOT=/var/lib/boxpilot-managed/migration-staging");
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_DATABASE=/var/lib/boxpilot/boxpilot.sqlite3");
@@ -50,13 +51,28 @@ describe("native systemd network boundaries", () => {
     expect(prerequisites).not.toContain('runCommand("virsh"');
   });
 
+  it("ships a fixed unprivileged official Ubuntu media acquisition unit", async () => {
+    const service = await readFile("deploy/boxpilot-ubuntu-media.service", "utf8");
+    const downloader = await readFile("scripts/boxpilot-ubuntu-media.mjs", "utf8");
+    expect(service).toContain("User=boxpilot");
+    expect(service).toContain("ConditionPathExists=/run/boxpilot/ubuntu-media-approval.json");
+    expect(service).toContain("ReadOnlyPaths=/run/boxpilot/ubuntu-media-approval.json");
+    expect(service).toContain("ReadWritePaths=/var/lib/boxpilot-managed/vm-media-inbox");
+    expect(service).toContain("ReadWritePaths=/var/lib/boxpilot-managed/vm-media-acquisitions");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-ubuntu-media.mjs");
+    expect(service).not.toContain("%i");
+    expect(downloader).toContain('url.hostname !== "releases.ubuntu.com"');
+    expect(downloader).toContain("process.argv.length !== 2");
+    expect(downloader).not.toContain("process.argv[2]");
+  });
+
   it("keeps the disposable container preview writable only in temporary state", async () => {
     const dockerfile = await readFile("Dockerfile", "utf8");
     const compose = await readFile("docker-compose.yml", "utf8");
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.61.0");
+    expect(compose).toContain("image: boxpilot:0.62.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });

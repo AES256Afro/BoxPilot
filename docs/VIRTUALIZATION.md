@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.61.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF prerequisites on a clean hardware-ready host, initialize and verify the canonical default NAT network and storage pool through a separate approved workflow, upload and separately import SHA-256-verified ISO installation media, inspect the local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, prove one backup bootable through an isolated transient restore drill, create a separately named stopped no-network recovery clone, and apply one fixed exact no-prune retention policy. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.62.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF prerequisites on a clean hardware-ready host, initialize and verify the canonical default NAT network and storage pool through a separate approved workflow, upload an ISO or acquire one of two fixed official Ubuntu Server identities, separately import SHA-256-verified installation media, inspect the local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, prove one backup bootable through an isolated transient restore drill, create a separately named stopped no-network recovery clone, and apply one fixed exact no-prune retention policy. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -16,6 +16,8 @@ BoxPilot `0.61.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install,
 - Revalidate lifecycle state before staging, after password approval, and after the fixed helper operation
 - Detect the host's Tailscale name and an existing Tailscale Serve URL
 - Discover managed ISO images, libvirt networks, pools, guest disks, interfaces, and snapshot count
+- Review two compiled Ubuntu Server amd64 artifacts, stage one fixed official download, and require fresh password approval before the unprivileged acquisition unit runs
+- Verify the exact official response length and complete SHA-256 before publishing only into the private staging inbox; require a separate approval before importing it into libvirt
 - Stream an authenticated ISO upload into a fixed staging directory while computing its complete SHA-256
 - Review and stage a separate immutable import plan that never overwrites existing managed media
 - Rehash the staged source, atomic managed copy, and published ISO after owner-password approval

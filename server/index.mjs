@@ -40,6 +40,7 @@ import { createVmCreationService } from "./vm-creation.mjs";
 import { createVmExportService } from "./vm-export.mjs";
 import { createVmLifecycleService } from "./vm-lifecycle.mjs";
 import { createVmMediaService } from "./vm-media.mjs";
+import { createUbuntuMediaService } from "./ubuntu-media.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
 import { createVmProtectionService } from "./vm-protection.mjs";
 import { createVmRecoveryService } from "./vm-recovery.mjs";
@@ -88,6 +89,7 @@ const inventory = createInventoryService({ helper, maintenance });
 const migrations = createMigrationService({ store: state, inventory, helper });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
 const vmMedia = createVmMediaService({ store: state, helper });
+const ubuntuMedia = createUbuntuMediaService({ store: state, helper });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
 const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
 const vmSnapshots = createVmSnapshotService({ store: state, libvirt });
@@ -133,6 +135,7 @@ const jobs = createJobService(state, helper, {
   recordMigrationTransferResult: migrations.recordTransferResult,
   validateVmCreationJob: vmCreation.validateJob,
   validateVmMediaImportJob: vmMedia.validateJob,
+  validateUbuntuMediaAcquireJob: ubuntuMedia.validateJob,
   validateVmExportJob: vmExports.validateJob,
   recordVmExportResult: vmExports.recordResult,
   validateVmProtectionJob: vmProtection.validateJob,
@@ -168,7 +171,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.61.0",
+    version: "0.62.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -239,13 +242,13 @@ app.get("/api/v1/capabilities", (_request, response) => {
     backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-uptime-kuma-pi-hole-and-keel-local-restore-drills-stopped-keel-recovery-clones-isolated-keel-startup-rehearsals-rollback-backed-keel-promotion-operator-rollback-and-vm-protection",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance-plus-signed-second-device-evidence",
-    privilegedHelper: "typed-canary-exact-smartmontools-restic-docker-and-virtualization-repairs-fixed-apt-metadata-refresh-fixed-libvirt-foundation-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-rollback-backed-promotion-and-operator-rollback-migration-inventory-logs-and-vm-workflows",
+    privilegedHelper: "typed-canary-exact-smartmontools-restic-docker-and-virtualization-repairs-fixed-apt-metadata-refresh-fixed-libvirt-foundation-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-and-ubuntu-artifacts-stage-install-backup-stopped-recovery-isolated-recovery-drill-rollback-backed-promotion-and-operator-rollback-migration-inventory-logs-and-vm-workflows",
     identity: "owner-password-foundation",
     durableJobs: "sqlite-approved-prerequisite-libvirt-foundation-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-rollback-backed-promotion-and-operator-rollback-dns-migration-and-vm-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     libvirtFoundation: { inspect: "parameter-free-canonical-default-only", initialize: "durable-approved-static-unit", network: "default-nat-192.168.122.0/24", pool: "default-dir-var-lib-libvirt-images", automaticRollback: "job-changes-only", browserResourceInput: false },
-    vmCreationPlanning: "validated-durable-approved-with-authenticated-staged-iso-import",
-    vmMedia: { upload: "authenticated-csrf-fixed-staging-only", import: "durable-approved-sha256-verified-atomic-non-overwrite", maximumIsoBytes: 17179869184, browserPath: false, arbitraryDestination: false, existingOverwrite: false },
+    vmCreationPlanning: "validated-durable-approved-with-authenticated-or-fixed-official-staged-iso-import",
+    vmMedia: { upload: "authenticated-csrf-fixed-staging-only", officialAcquisition: "approved-fixed-releases-ubuntu-com-size-and-sha256-pinned", import: "durable-approved-sha256-verified-atomic-non-overwrite", maximumIsoBytes: 17179869184, browserUrl: false, browserDigest: false, browserPath: false, arbitraryDestination: false, existingOverwrite: false },
     audit: "redacted-jsonl-foundation",
     vmActions: { enabled: true, mode: "durable-approved-helper-jobs" },
     applicationActions: { uptimeKuma: ["start", "stop", "restart"], pihole: ["start", "stop", "restart"], privateAccess: { uptimeKuma: ["publish", "unpublish"], mode: "tailscale-serve-tailnet-only", funnel: false, arbitraryTarget: false }, mode: "durable-approved-exact-managed-container-only", routerCutover: false, remove: false, arbitraryContainer: false },
@@ -861,7 +864,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.media.acquire", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -930,6 +933,33 @@ app.get("/api/v1/virtualization/media", async (_request, response) => {
     response.json(await vmMedia.inspect());
   } catch (error) {
     response.status(503).json({ error: error.message, code: "vm_media_inspection_failed" });
+  }
+});
+
+app.get("/api/v1/virtualization/media/catalog", async (_request, response) => {
+  try {
+    response.json(await ubuntuMedia.catalog());
+  } catch (error) {
+    response.status(503).json({ error: error.message, code: "ubuntu_media_catalog_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/media/catalog/:imageId/plans", async (request, response) => {
+  try {
+    const plan = await ubuntuMedia.plan(request.params.imageId, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "ubuntu_media_acquisition_plan_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/media/acquisition-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await ubuntuMedia.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "ubuntu_media_acquisition_stage_failed" });
   }
 });
 
@@ -1183,7 +1213,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.61.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.62.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

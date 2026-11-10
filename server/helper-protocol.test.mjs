@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { executeHelperOperation, validateHelperRequest } from "./helper-protocol.mjs";
+import { ubuntuMediaCatalogRevision } from "./ubuntu-media-spec.mjs";
 
 function request(overrides = {}) {
   return { version: 1, id: randomUUID(), operation: "canary.verify", parameters: {}, ...overrides };
@@ -12,6 +13,10 @@ function vmParameters(overrides = {}) {
 
 function vmMediaParameters(overrides = {}) {
   return { importId: "77777777-7777-4777-8777-777777777777", filename: "ubuntu.iso", expectedSizeBytes: 8192, expectedSha256: "a".repeat(64), expectedRevision: "b".repeat(64), ...overrides };
+}
+
+function ubuntuMediaParameters(overrides = {}) {
+  return { acquisitionId: "88888888-8888-4888-8888-888888888888", imageId: "ubuntu-server-26.04-amd64", expectedCatalogRevision: ubuntuMediaCatalogRevision, ...overrides };
 }
 
 function lifecycleParameters(overrides = {}) {
@@ -73,7 +78,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.61.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.62.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -522,6 +527,14 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.media.inspect", parameters: {} }), { vmMedia })).resolves.toMatchObject({ ok: true, result: { boundary: { mutationPerformed: false } } });
     await expect(executeHelperOperation(request({ operation: "virtualization.media.import", parameters: vmMediaParameters() }), { vmMedia })).resolves.toMatchObject({ ok: true, result: { imported: true, filename: "ubuntu.iso" } });
+  });
+
+  it("accepts only a fixed Ubuntu catalog acquisition identity", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.media.acquire", parameters: ubuntuMediaParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.media.acquire", parameters: ubuntuMediaParameters({ imageId: "other" }) }))).toContain("catalog id is invalid");
+    expect(validateHelperRequest(request({ operation: "virtualization.media.acquire", parameters: ubuntuMediaParameters({ url: "https://example.com/ubuntu.iso" }) }))).toContain("only the fixed identity fields");
+    const ubuntuMedia = { acquire: async (parameters) => ({ acquired: true, staged: true, imageId: parameters.imageId, acquisitionId: parameters.acquisitionId }) };
+    await expect(executeHelperOperation(request({ operation: "virtualization.media.acquire", parameters: ubuntuMediaParameters() }), { ubuntuMedia })).resolves.toMatchObject({ ok: true, result: { acquired: true, staged: true, imageId: "ubuntu-server-26.04-amd64" } });
   });
 
   it("accepts only fixed lifecycle state and action fields", async () => {
