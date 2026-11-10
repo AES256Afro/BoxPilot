@@ -704,16 +704,27 @@ Written into `AGENTS.md` as a convention, because grepping for the last instance
 gets caught: **assert what the code does, not what the machine has.** A `skipIf` is the wrong fix —
 the property worth testing is that the read answers at all, whatever is installed.
 
----
+### Merging main, 2026-11-10: the loop met someone else sweeping the same floor
 
-## Merged with v1.239.0 (2026-11-10)
+PR #640 conflicted with main in five files. Two were trivial (a bullet list and an import). The
+other three were the hosted-domains read, where main had done M53.2's job far more thoroughly while
+this branch was open — treating those files as an app's data a container writes, refusing links and
+unbounded reads, and replacing the per-file caps with a global budget. The merge took main's version
+whole, and M53.2 in the roadmap now says so rather than describing code that is no longer there.
 
-`main` bounded the hosted-domains read on its own in the 2026-11-10 sweep, and that is the version
-that stands: `readSmallFile` (no link followed, 256 KiB), 32 names per file, 200 in all
-(`sourceLimits`). M53.2's 500-per-file caps, the 2 MiB parse limit and the `cut` flag with its
-"more names than BoxPilot shows" line are gone; its tests are kept against the shipped limits. What
-was lost with them is the notice: a list cut at a cap no longer says so. Open, for a later sweep.
+Two things worth keeping from that:
 
-The export check flagged two exports the release added that nothing else reads (`glanceHoldMs`,
-`helperLabel`, both un-exported) and one allowlist line whose name had gained a reader
-(`sealedFolder`). The clock rule found nothing in the new code.
+- **The guard earned its keep on someone else's code.** `check:exports` failed on the merge, not on
+  this branch: main had added `glanceHoldMs` and `helperLabel`, each read only inside its own file,
+  and `sealedFolder` had gained a real reader so its allowlist line was stale. All three were fixed
+  the way the convention says. That is the first time one of this loop's checks found something
+  nobody here wrote — which is the whole point of putting it in the gate rather than in a sweep.
+- **A merge is the wrong place to decide what a page says.** The one idea of M53.2 that main does
+  not have is telling the owner a name list was cut. Main has since claimed the `problem` line for
+  which sources could not be read. Combining them is a product decision, so it is written down as
+  open instead of guessed at.
+
+The merge was made twice, by two sessions an hour apart, and the second took in the first: the same
+five conflicts settled the same way, plus the two pull requests main had merged in between. Where
+they differed, the second kept more of this branch: `containerRunning` stays the one predicate in
+`hosted-domains.mjs` (M52.6), and M53.2's per-file tests stay, rewritten against `sourceLimits`.
