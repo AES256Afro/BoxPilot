@@ -121,3 +121,14 @@ describe("each disk's SMART history as the Storage page charts it (M31.2)", () =
     ]);
   });
 });
+
+describe("a disk that is no longer read", () => {
+  it("stops being called a disk developing errors once it has been gone over a week", () => {
+    const day = 86_400_000;
+    const start = Date.parse("2026-10-01T00:00:00Z");
+    const history = { "/dev/sdb": Array.from({ length: 5 }, (_, index) => ({ at: new Date(start + index * day).toISOString(), mediaErrors: index, percentageUsed: 10 })) };
+    const last = start + 4 * day;
+    expect(evaluateSmartTrends(history, { now: last + 2 * day }).map((alert) => alert.key)).toEqual(["smart.errors:/dev/sdb"]);
+    expect(evaluateSmartTrends(history, { now: last + 9 * day })).toEqual([]);
+  });
+});

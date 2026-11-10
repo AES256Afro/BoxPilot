@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { openView } from "../../activityEvents";
 import { deletePasskey, fetchPasskeyStatus, generateRecoveryCodes, passkeysSupported, registerPasskey, renamePasskey, type PasskeyInfo } from "../../passkey";
 import { Button, CodeBlock, EmptyState, Facts, Field, Notice, Panel, SecretInput, TextInput } from "../../ui";
 
@@ -85,7 +86,7 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
   if (!supported) {
     return (
       <Panel title="Passkeys" padded className="settings-panel">
-        <Notice tone="info" title="This browser cannot use passkeys here">Passkeys need a secure connection: open BoxPilot over Tailscale, or set up HTTPS on your local network from the Network page, then come back.</Notice>
+        <Notice tone="info" title="This browser cannot use passkeys here" action={<Button onClick={() => openView("network")}>Open Network</Button>}>Passkeys need a secure connection: open BoxPilot over Tailscale, or set up HTTPS on your local network, then come back.</Notice>
       </Panel>
     );
   }

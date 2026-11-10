@@ -86,6 +86,28 @@ export function isKnownTimeZone(value) {
 export const envOptionSources = Object.freeze(["ollama-models"]);
 export const riskTiers = Object.freeze(["low", "medium", "high"]);
 
+/** Seconds in a `30s` / `2m` stop grace period; NaN for anything else. */
+function stopGraceSeconds(text) {
+  const match = /^(\d+)([sm])$/.exec(text);
+  return match ? Number(match[1]) * (match[2] === "m" ? 60 : 1) : NaN;
+}
+
+/** The longest stop grace period a manifest may ask for. */
+const longestStopGraceSeconds = 600;
+/** What Docker needs past the grace period itself: to act on it, kill what outstayed it, and stop a sidecar after the app. */
+const stopMarginMs = 60_000;
+/**
+ * How long BoxPilot waits for `docker compose stop` (or `down`, `restart`) on an app: its own stop grace period
+ * and a margin, never less than `floorMs`. A wait that ended when the grace period did cut the command off at the
+ * instant Docker was about to kill the container itself, and reported a stop that was a moment from done as failed.
+ */
+export function stopBudgetMs(manifest, floorMs = 120_000) {
+  const grace = stopGraceSeconds(String(manifest?.stopGracePeriod ?? ""));
+  return Math.max(floorMs, Number.isFinite(grace) ? grace * 1000 + stopMarginMs : 0);
+}
+/** The same for the slowest app a manifest can describe, for a budget set before the app is known. */
+export const longestStopBudgetMs = longestStopGraceSeconds * 1000 + stopMarginMs;
+
 function fail(errors, path, message) { errors.push(`${path}: ${message}`); }
 
 /**
@@ -106,6 +128,15 @@ function secretsOnCommandLine(command, secretNames) {
   return [...found];
 }
 function isObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
+/** The value of one of a setting's options, written as the value itself or as { value, label, hint }. */
+function optionValue(option) { return typeof option === "string" ? option : String(option?.value ?? ""); }
+/** What to call each option, for a setting whose manifest names any of them; null when the values are the names. */
+function optionLabelsOf(options) {
+  if (!Array.isArray(options) || options.every((option) => typeof option === "string")) return null;
+  return options.map((option) => (typeof option === "string"
+    ? { value: option, label: option, hint: null }
+    : { value: optionValue(option), label: String(option.label ?? option.value ?? ""), hint: typeof option.hint === "string" ? option.hint : null }));
+}
 function checkKeys(errors, path, value, allowed, required = []) {
   for (const key of Object.keys(value)) if (!allowed.includes(key)) fail(errors, `${path}.${key}`, "is not a recognised field");
   for (const key of required) if (!(key in value)) fail(errors, `${path}.${key}`, "is required");
@@ -125,7 +156,7 @@ export function keepsBackupData(manifest) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu", "defaultExposure", "actions", "publicHostname"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu", "defaultExposure", "actions", "publicHostname", "stopGracePeriod"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // defaultExposure: who can reach the app when the owner installs it without choosing. "tailnet"
   // binds its web ports to 127.0.0.1 and publishes them with Tailscale Serve (HTTPS, a real
@@ -156,6 +187,10 @@ export function validateManifest(raw) {
   // Container Toolkit), and run on the CPU otherwise. Never a reason not to install.
   if (raw.gpu !== undefined && raw.gpu !== "optional") fail(errors, "manifest.gpu", "must be optional");
   if (raw.shmSize !== undefined && !(typeof raw.shmSize === "string" && /^[1-9][0-9]{0,4}[mg]$/.test(raw.shmSize))) fail(errors, "manifest.shmSize", "must look like 256m or 1g");
+  // Docker gives a stopping container 10 seconds before it is killed. An app that has to write out
+  // or unload something large (a model engine freeing tens of GB) is killed mid-way at that
+  // default, which looks like a crash on the next start. Up to 10 minutes.
+  if (raw.stopGracePeriod !== undefined && !(typeof raw.stopGracePeriod === "string" && /^(?:[1-9][0-9]{0,2}s|[1-9]0?m)$/.test(raw.stopGracePeriod) && stopGraceSeconds(raw.stopGracePeriod) <= longestStopGraceSeconds)) fail(errors, "manifest.stopGracePeriod", "must look like 30s or 2m, at most 10m");
   // usesVpnProfile: the app can be routed through the one shared VPN profile instead of its own
   // connection. It needs a networkVia sidecar (a Gluetun container) for the profile to configure.
   if (raw.usesVpnProfile !== undefined && typeof raw.usesVpnProfile !== "boolean") fail(errors, "manifest.usesVpnProfile", "must be boolean");
@@ -274,7 +309,29 @@ export function validateManifest(raw) {
     if (entry.type !== undefined && !envTypes.includes(entry.type)) fail(errors, `${path}.type`, `must be one of ${envTypes.join(", ")}`);
     for (const flag of ["required", "secret", "generate", "fixed"]) if (entry[flag] !== undefined && typeof entry[flag] !== "boolean") fail(errors, `${path}.${flag}`, "must be boolean");
     if (entry.default !== undefined && !["string", "number", "boolean"].includes(typeof entry.default)) fail(errors, `${path}.default`, "must be a scalar");
-    if (entry.options !== undefined && !(Array.isArray(entry.options) && entry.options.every((option) => typeof option === "string"))) fail(errors, `${path}.options`, "must be a list of strings");
+    // options: the choices of a pick-one setting. Each is the value itself, or { value, label, hint }
+    // where the value is a machine's word ("bind", "9.9.9.9;149.112.112.112") and a person needs
+    // the label to choose. Only the value is ever stored, compared or written to the app's .env.
+    if (entry.options !== undefined) {
+      if (!Array.isArray(entry.options)) fail(errors, `${path}.options`, "must be a list of strings, or of { value, label, hint }");
+      else {
+        const seen = new Set();
+        entry.options.forEach((option, optionIndex) => {
+          const optionPath = `${path}.options[${optionIndex}]`;
+          if (typeof option !== "string") {
+            if (!isObject(option)) return fail(errors, optionPath, "must be a string or a mapping of value, label and hint");
+            checkKeys(errors, optionPath, option, ["value", "label", "hint"], ["value", "label"]);
+            if (typeof option.value !== "string") return fail(errors, `${optionPath}.value`, "must be a string");
+            if (typeof option.label !== "string" || !option.label.trim() || option.label.length > 80) fail(errors, `${optionPath}.label`, "must be 1 to 80 characters of text");
+            if (option.hint !== undefined && (typeof option.hint !== "string" || !option.hint.trim() || option.hint.length > 300)) fail(errors, `${optionPath}.hint`, "must be 1 to 300 characters of text");
+          }
+          const value = optionValue(option);
+          if (seen.has(value)) fail(errors, optionPath, `repeats the value ${JSON.stringify(value)}`);
+          seen.add(value);
+        });
+        if (entry.default !== undefined && ["string", "number", "boolean"].includes(typeof entry.default) && !seen.has(String(entry.default))) fail(errors, `${path}.default`, "must be one of the options");
+      }
+    }
     if (entry.generate && entry.type !== "password") fail(errors, `${path}.generate`, "only password entries can be generated");
     if (entry.fixed && entry.default === undefined) fail(errors, `${path}.fixed`, "fixed entries need a default");
   });
@@ -477,7 +534,7 @@ export function validateManifest(raw) {
     ports: ports.map((port) => ({ id: port.id, label: port.label ?? port.id, container: port.container, host: port.host ?? port.container, protocol: port.protocol ?? "tcp", exposure: port.exposure ?? "lan", fixed: port.fixed ?? false, tailnet: port.tailnet ?? ((port.protocol ?? "tcp") === "udp" ? "unchanged" : "serve"), containerFollowsHost: port.containerFollowsHost ?? false })),
     volumes: volumes.map((volume) => ({ id: volume.id, label: volume.label ?? volume.id, container: volume.container, path: volume.path ?? null, hostPath: volume.hostPath ?? null, readOnly: volume.readOnly ?? false, backup: volume.backup ?? (volume.path !== undefined), configurable: volume.configurable ?? false, description: volume.description ?? null, subdirectories: volume.subdirectories ?? [] })),
     files: files.map((file) => ({ path: file.path, container: file.container, content: file.content, readOnly: file.readOnly ?? true })),
-    env: env.map((entry) => ({ name: entry.name, label: entry.label ?? entry.name, description: entry.description ?? null, type: entry.type ?? "string", default: entry.default ?? null, required: entry.required ?? false, secret: entry.type === "password" || entry.secret === true, generate: entry.generate ?? false, options: entry.options ?? null, optionsFrom: entry.optionsFrom ?? null, fixed: entry.fixed ?? false, fromVpnProfile: entry.fromVpnProfile ?? false })),
+    env: env.map((entry) => ({ name: entry.name, label: entry.label ?? entry.name, description: entry.description ?? null, type: entry.type ?? "string", default: entry.default ?? null, required: entry.required ?? false, secret: entry.type === "password" || entry.secret === true, generate: entry.generate ?? false, options: entry.options ? entry.options.map(optionValue) : null, optionLabels: optionLabelsOf(entry.options), optionsFrom: entry.optionsFrom ?? null, fixed: entry.fixed ?? false, fromVpnProfile: entry.fromVpnProfile ?? false })),
     health: { kind: raw.health?.kind ?? "running", stableSeconds: raw.health?.stableSeconds ?? 10, timeoutSeconds: raw.health?.timeoutSeconds ?? 180 },
     capabilities: raw.capabilities ?? [],
     devices: raw.devices ?? [],
@@ -501,6 +558,7 @@ export function validateManifest(raw) {
     modelRunner,
     sysctls: raw.sysctls ?? [],
     shmSize: raw.shmSize ?? null,
+    stopGracePeriod: raw.stopGracePeriod ?? null,
     gpu: raw.gpu ?? null,
     sidecars: sidecars.map((sidecar) => ({
       id: sidecar.id,

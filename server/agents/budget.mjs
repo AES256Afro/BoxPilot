@@ -80,7 +80,11 @@ export function nextScheduledRun(schedule, after) {
     candidate.setMinutes(schedule.minute);
     // By elapsed time, as the scheduler does: adding one to the local hour skips the hour the
     // clocks repeat in autumn.
-    return candidate <= after ? new Date(candidate.getTime() + 60 * 60_000) : candidate;
+    // In the second pass of the repeated hour the minute lands in the first, so one hour on may
+    // still not be after `after`: move on until it is.
+    let due = candidate.getTime();
+    while (due <= new Date(after).getTime()) due += 60 * 60_000;
+    return new Date(due);
   }
   if (schedule.every === "every-6-hours") {
     candidate.setMinutes(schedule.minute);

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { Fragment, useId, useState } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf, type ViewName } from "../../data";
 import { formatBytes } from "../../formatBytes";
@@ -44,6 +44,17 @@ export interface OffBoxTabProps {
 const fieldLabels: Record<string, string> = { account: "Key ID", bucket: "Bucket", path: "Folder in the bucket", endpoint: "Endpoint URL", region: "Region", accessKeyId: "Access key ID", url: "WebDAV URL", user: "Username", key: "Application key", secretAccessKey: "Secret access key", password: "Password", token: "Token (from rclone authorize)", passphrase: "Encryption passphrase" };
 const placeholders: Record<string, string> = { bucket: "home-backups", path: "boxpilot", endpoint: "https://s3.eu-central-1.wasabisys.com", region: "us-east-1", url: "https://cloud.example.com/remote.php/dav/files/me/" };
 
+/** Where the cloud sheet holds the passphrase's second typing; never a field of the provider, so never sent. */
+const passphraseAgainKey = "passphraseAgain";
+
+/** The port a box holds, or null while it is empty or not a port. */
+function portOf(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^\d{1,5}$/.test(trimmed)) return null;
+  const port = Number(trimmed);
+  return port >= 1 && port <= 65535 ? port : null;
+}
+
 function destinationState(configured: boolean, lastSyncAt: string | null): { status: Status; label: string } {
   if (!configured) return { status: "neutral", label: "Not set up" };
   return lastSyncAt ? { status: "good", label: `Mirrored ${ago(lastSyncAt) ?? ""}`.trim() } : { status: "warning", label: "Never mirrored" };
@@ -54,10 +65,14 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   const may = (operationId: string) => mayStart(role, operationId);
   const hostsId = useId();
 
-  const [ssh, setSsh] = useState<(RemoteDestination & { password: string }) | null>(null);
+  // The port is held as typed (parsed on Save): as a number, an emptied box could not be retyped.
+  const [ssh, setSsh] = useState<(Omit<RemoteDestination, "port"> & { port: string; password: string }) | null>(null);
+  const sshFormId = useId();
   const [sshError, setSshError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [cloudForm, setCloudForm] = useState<{ provider: string; values: Record<string, string> } | null>(null);
+  // Why the last save of the cloud destination did not complete, said in its sheet when it comes back.
+  const [cloudRefusal, setCloudRefusal] = useState<string | null>(null);
 
   const mounted = Boolean(machine?.sync.mount.mounted);
   // What the last sync to the drive left out (R5B4-7): recent, and still not every backup.
@@ -68,11 +83,19 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   const hiddenDestination = Boolean(saved && "hidden" in saved);
   const pinned = (remote?.hostKeysPinned ?? 0) > 0;
 
+  const sshPort = ssh ? portOf(ssh.port) : null;
+  const sshMissing = ssh ? [
+    ...(!ssh.host.trim() ? ["Host"] : []),
+    ...(sshPort === null ? ["a port from 1 to 65535"] : []),
+    ...(!ssh.user.trim() ? ["User"] : []),
+    ...(!ssh.path.trim() ? ["Path"] : []),
+    ...(!ssh.password ? ["Owner password"] : []),
+  ] : [];
   const saveSsh = async () => {
-    if (!ssh) return;
+    if (!ssh || sshMissing.length || sshPort === null || saving) return;
     setSaving(true); setSshError(null);
     try {
-      const response = await fetch("/api/v1/settings/backup-destination", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ password: ssh.password, destination: { host: ssh.host.trim(), port: Number(ssh.port) || 22, user: ssh.user.trim(), path: ssh.path.trim() } }) });
+      const response = await fetch("/api/v1/settings/backup-destination", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ password: ssh.password, destination: { host: ssh.host.trim(), port: sshPort, user: ssh.user.trim(), path: ssh.path.trim() } }) });
       const body = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "The destination could not be saved");
       setSsh(null);
@@ -89,12 +112,25 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   const secrets = spec?.secrets ?? [];
   const required = fields.filter((field) => !["endpoint", "region", "path"].includes(field));
   const valueOf = (field: string) => (cloudForm?.values[field] ?? "").trim();
-  const missing = [...required, ...secrets].filter((field) => !valueOf(field));
-  const complete = Boolean(cloudForm) && missing.length === 0 && (cloudForm?.provider !== "s3" || Boolean(valueOf("endpoint") || valueOf("region")));
+  // The passphrase is typed twice and never shown: lost or mistyped, nobody can read the copies.
+  const sealed = secrets.includes("passphrase");
+  const passphrase = cloudForm?.values.passphrase ?? "";
+  const passphraseAgain = cloudForm?.values[passphraseAgainKey] ?? "";
+  const passphraseShort = sealed && passphrase.length > 0 && passphrase.trim().length < 12;
+  const passphraseDiffers = sealed && passphraseAgain.length > 0 && passphraseAgain !== passphrase;
+  const missing = [
+    ...[...required, ...secrets].filter((field) => !valueOf(field)).map((field) => fieldLabels[field] ?? field),
+    ...(cloudForm?.provider === "s3" && !valueOf("endpoint") && !valueOf("region") ? ["an endpoint or a region"] : []),
+    ...(passphraseShort ? ["a passphrase of at least 12 characters"] : []),
+    ...(sealed && passphrase && !passphraseAgain ? ["the passphrase typed again"] : []),
+    ...(passphraseDiffers ? ["the same passphrase both times"] : []),
+  ];
+  const complete = Boolean(cloudForm) && missing.length === 0;
   const openCloud = () => {
     const saved = cloudSettings?.destination;
     const values = saved ? Object.fromEntries(Object.entries(saved).filter(([key, value]) => key !== "provider" && typeof value === "string").map(([key, value]) => [key, value as string])) : {};
     const first = Object.keys(cloud?.providers ?? {})[0] ?? "b2";
+    setCloudRefusal(null);
     setCloudForm({ provider: saved?.provider ?? (cloud?.providers?.b2 ? "b2" : first), values });
   };
   const saveCloud = () => {
@@ -102,13 +138,15 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
     const kept = cloudForm;
     const { provider, values } = kept;
     setCloudForm(null);
+    setCloudRefusal(null);
     start({
       operationId: "backup.cloud.setup",
       title: `Save the ${spec?.label ?? provider} backup destination`,
       parameters: { provider, ...Object.fromEntries([...fields, ...secrets].map((field) => [field, (values[field] ?? "").trim()]).filter(([, value]) => value)) },
-      preview: <span>Writes the rclone remote to <code>/etc/boxpilot/secrets/rclone.conf</code> (root only). The {secrets.map((field) => fieldLabels[field] ?? field).join(" and ")} stays in memory until this job runs and is never stored in BoxPilot's database. Test the connection afterwards.</span>,
-      // The sheet closes for the approval, and comes back as it was filled in unless the job completed.
-      onClosed: (job) => { if (job?.state !== "completed") setCloudForm(kept); },
+      preview: <span>Saves where the copies go and how to sign in there, in a file on this server that only root can read. The {secrets.map((field) => (fieldLabels[field] ?? field).toLowerCase()).join(" and ")} {secrets.length === 1 ? "is" : "are"} held in memory until this job runs and never stored in BoxPilot's database. Test the connection afterwards.</span>,
+      // The sheet closes for the approval, and comes back as it was filled in unless the job completed;
+      // a save the server refused (a changed passphrase for a folder already sealed) says why there.
+      onClosed: (job) => { if (job?.state !== "completed") { setCloudForm(kept); setCloudRefusal(job?.state === "failed" ? job.error ?? "The job failed; Activity has its log." : null); } },
     });
   };
 
@@ -174,11 +212,11 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
         meta="rsync over SSH with BoxPilot's own key · nothing deleted there"
         padded
         actions={<>
-          {remote && !remote.keyReady && may("backup.remote.setup") && <Button risk={riskOf("backup.remote.setup")} onClick={() => start({ operationId: "backup.remote.setup", title: "Create the second copy key", parameters: {}, preview: <span>Generates an ed25519 key pair under <code>/etc/boxpilot/secrets</code>. The private key never leaves this server.</span> })}>Create key</Button>}
-          {role === "owner" && <Button onClick={() => { setSshError(null); setSsh({ host: destination?.host ?? "", port: destination?.port ?? 22, user: destination?.user ?? "", path: destination?.path ?? "", password: "" }); }}>{destination ? "Change destination" : "Set destination"}</Button>}
+          {remote && !remote.keyReady && may("backup.remote.setup") && <Button risk={riskOf("backup.remote.setup")} onClick={() => start({ operationId: "backup.remote.setup", title: "Create the second copy key", parameters: {}, preview: <span>Makes a key for BoxPilot to sign in to the other machine with. The private half never leaves this server; the public half is shown here afterwards, for you to add on that machine.</span> })}>Create key</Button>}
+          {role === "owner" && <Button onClick={() => { setSshError(null); setSsh({ host: destination?.host ?? "", port: String(destination?.port ?? 22), user: destination?.user ?? "", path: destination?.path ?? "", password: "" }); }}>{destination ? "Change destination" : "Set destination"}</Button>}
           {destination && remote?.keyReady && may("backup.remote.test") && <Button risk={riskOf("backup.remote.test")} onClick={() => start({ operationId: "backup.remote.test", title: "Test the second copy destination", parameters: {}, preview: <span>Connects as <code>{destination.user}@{destination.host}</code>, creates <code>{destination.path}</code> if needed, checks it is writable, and pins the destination's host key on first use.</span> })}>Test connection</Button>}
           {destination && remote?.keyReady && (remote.rsyncInstalled
-            ? may("backup.remote.sync") && <Button variant="primary" risk={riskOf("backup.remote.sync")} disabled={!pinned} title={pinned ? undefined : "Test the connection first"} onClick={() => start({ operationId: "backup.remote.sync", title: "Mirror backups second copy", parameters: {}, preview: <span>rsync pushes the database backups, app backups, and machine snapshots to <code>{destination.host}</code> with checksum verification. Nothing on the destination is deleted. Schedule it on the System page to keep it current.</span> })}>Mirror now</Button>
+            ? may("backup.remote.sync") && <Button variant="primary" risk={riskOf("backup.remote.sync")} disabled={!pinned} title={pinned ? undefined : "Test the connection first"} onClick={() => start({ operationId: "backup.remote.sync", title: `Mirror backups to ${destination.host}`, parameters: {}, preview: <span>Copies the database backups, app backups and machine snapshots to <code>{destination.host}</code>. Files already there are not sent again; nothing there is ever deleted.{summary && !summary.scheduled ? " “Keep a second copy nightly”, on this tab, keeps it current." : ""}</span> })}>Mirror now</Button>
             : may("apt.install") && <Button risk={riskOf("apt.install")} onClick={() => start({ operationId: "apt.install", title: "Install rsync", parameters: { packages: ["rsync"] }, preview: <span>Installs the <code>rsync</code> package from Ubuntu's repositories; the mirror needs it on this server.</span> })}>Install rsync</Button>)}
         </>}
       >
@@ -197,10 +235,10 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
         meta="B2, S3, WebDAV, Google Drive, OneDrive or Dropbox through rclone · copies only"
         padded
         actions={<>
-          {cloud && !cloud.rcloneInstalled && may("apt.install") && <Button risk={riskOf("apt.install")} onClick={() => start({ operationId: "apt.install", title: "Install rclone", parameters: { packages: ["rclone"] }, preview: <span><code>apt-get install --no-install-recommends rclone</code></span> })}>Install rclone</Button>}
+          {cloud && !cloud.rcloneInstalled && may("apt.install") && <Button risk={riskOf("apt.install")} onClick={() => start({ operationId: "apt.install", title: "Install rclone", parameters: { packages: ["rclone"] }, preview: <span>Installs rclone from Ubuntu's repositories: the program that copies backups to a cloud bucket. Nothing is copied until a destination is set.</span> })}>Install rclone</Button>}
           {cloud && may("backup.cloud.setup") && <Button risk={riskOf("backup.cloud.setup")} disabled={!cloud.rcloneInstalled} title={cloud.rcloneInstalled ? undefined : "Install rclone first"} onClick={openCloud}>{savedCloud ? "Change destination" : "Set destination"}</Button>}
           {savedCloud && may("backup.cloud.test") && <Button risk={riskOf("backup.cloud.test")} onClick={() => start({ operationId: "backup.cloud.test", title: "Test the cloud destination", parameters: {}, preview: <span>Creates the destination folder with the saved credentials and lists it. Nothing is copied yet.</span> })}>Test connection</Button>}
-          {savedCloud && may("backup.cloud.sync") && <Button variant="primary" risk={riskOf("backup.cloud.sync")} onClick={() => start({ operationId: "backup.cloud.sync", title: "Mirror backups to the cloud", parameters: {}, preview: <span><code>rclone copy --checksum</code> of the controller backups, app backups, and machine snapshots to the destination. Files already there are verified, not re-uploaded; nothing is ever deleted at the destination.</span> })}>Mirror now</Button>}
+          {savedCloud && may("backup.cloud.sync") && <Button variant="primary" risk={riskOf("backup.cloud.sync")} onClick={() => start({ operationId: "backup.cloud.sync", title: "Mirror backups to the cloud", parameters: {}, preview: <span>Copies the database backups, app backups and machine snapshots to the bucket, sealed with your passphrase. Files already there are not sent again; nothing there is ever deleted.</span> })}>Mirror now</Button>}
         </>}
       >
         {cloudError && <Notice tone="danger" live title="The cloud destination could not be read" action={<Button onClick={onChanged}>Try again</Button>}>{cloudError}</Notice>}
@@ -221,16 +259,18 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           title={destination ? "Change the destination" : "Set the destination"}
           onClose={() => setSsh(null)}
           footer={<>
+            {sshMissing.length > 0 && <span className="backups-blocker">Still needed: {sshMissing.join(", ")}.</span>}
             <Button variant="ghost" onClick={() => setSsh(null)}>Cancel</Button>
-            <Button variant="primary" busy={saving} disabled={!ssh.host.trim() || !ssh.user.trim() || !ssh.path.trim() || !ssh.password} onClick={() => void saveSsh()}>{saving ? "Saving…" : "Save destination"}</Button>
+            <Button variant="primary" type="submit" form={sshFormId} busy={saving} disabled={sshMissing.length > 0}>{saving ? "Saving…" : "Save destination"}</Button>
           </>}
         >
+          <form id={sshFormId} className="backups-form" onSubmit={(event) => { event.preventDefault(); void saveSsh(); }}>
           <Field label="Host" hint="A name or address, or a device on your tailnet.">
             <TextInput mono list={hostsId} placeholder="nas.local" autoComplete="off" value={ssh.host} onValueChange={(value) => setSsh({ ...ssh, host: value })} />
           </Field>
           <datalist id={hostsId}>{tailnetHosts.map((entry) => <option value={entry} key={entry} />)}</datalist>
-          <Field label="Port">
-            <TextInput mono type="number" min={1} max={65535} value={String(ssh.port)} onValueChange={(value) => setSsh({ ...ssh, port: Number(value) })} />
+          <Field label="Port" error={ssh.port.trim() && sshPort === null ? "A number from 1 to 65535." : undefined}>
+            <TextInput mono type="number" min={1} max={65535} value={ssh.port} onValueChange={(value) => setSsh({ ...ssh, port: value })} />
           </Field>
           <Field label="User" hint="The account on the destination that holds BoxPilot's public key.">
             <TextInput mono autoComplete="off" placeholder="backup" value={ssh.user} onValueChange={(value) => setSsh({ ...ssh, user: value })} />
@@ -242,6 +282,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
             <SecretInput autoComplete="current-password" value={ssh.password} onValueChange={(value) => setSsh({ ...ssh, password: value })} />
           </Field>
           {sshError && <Notice tone="danger" live title="The destination was not saved">{sshError}</Notice>}
+          </form>
         </Sheet>
       )}
 
@@ -253,11 +294,12 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           onClose={() => setCloudForm(null)}
           footer={<>
             {/* Six fields and a greyed-out button is a guessing game; say which one is empty. */}
-            {!complete && <span className="backups-blocker">Still needed: {missing.length ? missing.map((field) => fieldLabels[field] ?? field).join(", ") : "an endpoint or a region"}.</span>}
+            {!complete && <span className="backups-blocker">Still needed: {missing.join(", ")}.</span>}
             <Button variant="ghost" onClick={() => setCloudForm(null)}>Cancel</Button>
             <Button variant="primary" risk={riskOf("backup.cloud.setup")} disabled={!complete || !cloud.rcloneInstalled} onClick={saveCloud}>Save destination</Button>
           </>}
         >
+          {cloudRefusal && <Notice tone="danger" live title="The destination was not saved">{cloudRefusal}</Notice>}
           <Field label="Provider" hint={spec?.help}>
             <Select value={cloudForm.provider} onValueChange={(value) => setCloudForm({ ...cloudForm, provider: value })} options={Object.entries(cloud.providers ?? {}).map(([id, entry]) => ({ value: id, label: entry.label }))} />
           </Field>
@@ -267,11 +309,18 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
             </Field>
           ))}
           {secrets.map((field) => (
-            <Field key={field} label={fieldLabels[field] ?? field} hint={field === "token" ? "Paste what rclone authorize printed." : field === "passphrase" ? "Every copy is encrypted with it before it leaves this server: app backups hold each app's passwords and keys. At least 12 characters. Keep it somewhere other than this server; without it nobody, you included, can read the copies in the bucket." : "Goes only to the root-only rclone.conf, never to BoxPilot's database."}>
-              {field === "token"
-                ? <Textarea mono rows={3} placeholder='{"access_token":"...","token_type":"Bearer",...}' value={cloudForm.values[field] ?? ""} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [field]: value } })} />
-                : <SecretInput autoComplete="new-password" value={cloudForm.values[field] ?? ""} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [field]: value } })} />}
-            </Field>
+            <Fragment key={field}>
+              <Field label={fieldLabels[field] ?? field} error={field === "passphrase" && passphraseShort ? "At least 12 characters." : undefined} hint={field === "token" ? "Paste what rclone authorize printed." : field === "passphrase" ? "Every copy is encrypted with it before it leaves this server: app backups hold each app's passwords and keys. At least 12 characters. Keep it somewhere other than this server; without it nobody, you included, can read the copies in the bucket." : "Kept in a file on this server that only root can read, never in BoxPilot's database."}>
+                {field === "token"
+                  ? <Textarea mono rows={3} placeholder='{"access_token":"...","token_type":"Bearer",...}' value={cloudForm.values[field] ?? ""} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [field]: value } })} />
+                  : <SecretInput autoComplete="new-password" value={cloudForm.values[field] ?? ""} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [field]: value } })} />}
+              </Field>
+              {field === "passphrase" && (
+                <Field label="Type it again" error={passphraseDiffers ? "The two do not match." : undefined}>
+                  <SecretInput autoComplete="new-password" value={passphraseAgain} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [passphraseAgainKey]: value } })} />
+                </Field>
+              )}
+            </Fragment>
           ))}
         </Sheet>
       )}

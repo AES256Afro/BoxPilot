@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { appUrl } from "../../appLinks";
 import type { AppFact } from "../../home/facts";
-import { relativeTime } from "../../home/format";
 import { readJson } from "../../http";
 import { onRefresh } from "../../shell/refresh";
-import { MetricStrip, MetricTile, Notice, Panel } from "../../ui";
+import { MetricStrip, MetricTile, Notice, Panel, RelativeTime } from "../../ui";
 import type { Status } from "../../ui/types";
 
 /*
@@ -22,6 +21,8 @@ export interface GlanceMetric {
   label: string;
   /** Null when that one read could not be made: drawn as "?", never as 0. */
   value: number | null;
+  /** The app's list was full, so there may be more than `value`: drawn "200+". */
+  more?: boolean;
   caption: string | null;
   status: Status;
   /** Where in the app the figure comes from, relative to the app's root. */
@@ -43,18 +44,25 @@ export interface AppGlance {
   digest: { period: string | null; generatedAt: string | null } | null;
 }
 
+/** The glances, or a refusal: also when the server could not tell which apps are installed (`liveKnown: false`), which is not "no apps". */
 export async function readAppGlances(): Promise<AppGlance[]> {
-  const body = await readJson<{ glances?: AppGlance[] }>(await fetch("/api/v1/apps/glances"));
+  const body = await readJson<{ glances?: AppGlance[]; liveKnown?: boolean }>(await fetch("/api/v1/apps/glances"));
   if (!Array.isArray(body?.glances)) throw new Error("The apps' glances were missing");
+  if (body.liveKnown === false) throw new Error("The installed apps could not be listed");
   return body.glances;
 }
 
-/** The glances, read when the page opens and again on the bar's Refresh; `reload` for Check again. */
-export function useAppGlances(): { glances: AppGlance[]; reload: () => Promise<void> } {
+/**
+ * The glances, read when the page opens and again on the bar's Refresh; `reload` for Check again.
+ * A failed read keeps the cards it had and says so (`unread`): it used to empty the list, so every
+ * app's card vanished as if no app had one.
+ */
+export function useAppGlances(): { glances: AppGlance[]; unread: boolean; reload: () => Promise<void> } {
   const [glances, setGlances] = useState<AppGlance[]>([]);
-  const reload = useCallback(() => readAppGlances().then(setGlances, () => setGlances([])), []);
+  const [unread, setUnread] = useState(false);
+  const reload = useCallback(() => readAppGlances().then((read) => { setGlances(read); setUnread(false); }, () => setUnread(true)), []);
   useEffect(() => { void reload(); return onRefresh(() => { void reload(); }); }, [reload]);
-  return { glances, reload };
+  return { glances, unread, reload };
 }
 
 const rank: Record<Status, number> = { good: 0, neutral: 0, unknown: 1, warning: 2, danger: 3 };
@@ -91,7 +99,6 @@ export function AppGlancePanel({ glance, apps, clock }: AppGlancePanelProps) {
     if (!base) return;
     window.open(`${base}${path && path !== "/" ? path : ""}`, "_blank", "noopener");
   };
-  const written = glance.digest?.generatedAt ? relativeTime(glance.digest.generatedAt, clock) : null;
   const action = base ? <a className="ui-button ui-button--ghost" href={base} target="_blank" rel="noreferrer"><span className="ui-button__label">Open {glance.name}</span></a> : undefined;
   return (
     <Panel className="today-glance" title={glance.title} count={glanceCount(glance)} meta={glance.available ? glance.window : undefined} actions={action} padded>
@@ -102,7 +109,7 @@ export function AppGlancePanel({ glance, apps, clock }: AppGlancePanelProps) {
               <MetricTile
                 key={metric.id}
                 label={metric.label}
-                value={metric.value ?? "?"}
+                value={metric.value === null ? "?" : metric.more ? `${metric.value}+` : metric.value}
                 caption={metric.caption ?? undefined}
                 status={metric.status === "neutral" || metric.status === "good" ? undefined : metric.status}
                 onSelect={base && metric.path ? () => open(metric.path) : undefined}
@@ -111,7 +118,7 @@ export function AppGlancePanel({ glance, apps, clock }: AppGlancePanelProps) {
           </MetricStrip>
         )
         : <Notice tone="warning" title={`${glance.name} could not be read`}>{glance.reason ?? "It did not answer."}</Notice>}
-      {glance.available && written && <p className="today-glance__meta">Digest written {written}.</p>}
+      {glance.available && glance.digest?.generatedAt && <p className="today-glance__meta">Digest written <RelativeTime at={glance.digest.generatedAt} now={clock} />.</p>}
     </Panel>
   );
 }

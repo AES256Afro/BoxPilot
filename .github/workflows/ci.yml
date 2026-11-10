@@ -2,15 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main, phase-0]
+    branches: [main]
   pull_request:
   # The Catalog updates workflow opens its pull request with the workflow token, which starts no
   # pull_request runs, so it starts this one on the branch instead.
   workflow_dispatch:
 
-# Same reason as the install smoke test: a release pushes two branches with one tree. Keyed by
-# SHA so only the duplicate pair collapses — a different commit's run is a different answer and
-# must never be cancelled by this one.
+# Keyed by SHA, as the install smoke test is: a second run for the same commit (started by hand, or
+# a pull request and a push of one tree) replaces the first, since it can only give the same answer.
+# A different commit's run is a different answer and must never be cancelled by this one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true

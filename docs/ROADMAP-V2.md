@@ -3702,6 +3702,20 @@ exists and nothing enforces it.
   domains page losing every file-derived name to "Helper response exceeds the 33554432-byte limit"
   — a bound reported in bytes to someone who wanted to know where their domains point. Cap the
   names per file and the rules per file, and say the list was cut.
+
+  **Superseded on main, and the merge took main's version.** While this branch was open, main
+  hardened the same read much further: these files are an app's data, a container writes them and
+  root reads them, so only a regular file is opened, never through a link, never one that could
+  block or has no end; and the budget is global (`sourceLimits`: 256 KiB a file, 500 proxy files,
+  5,000 directory entries looked through, 32 names from one file, 200 names in all) rather than
+  per-file. It also validates the upstream host, which this did not. Every bound this item added,
+  main bounds tighter.
+
+  One thing of this item did not survive the merge, and is not lost by accident: it told the owner
+  when a list had been cut, through the snapshot's `problem` line. Main now uses `problem` for
+  which sources could not be read, which is a different and larger fact, and chose not to report
+  truncation. Whether the page should say both — and how one line carries them — is a decision
+  about what the page says, not something a merge should settle, so it is left open here.
 - ✅ **M53.3 One retention path, not two copies that drift.**
   `controller-retention-helper.mjs` and `vm-retention-helper.mjs` share 136 of 164 lines after
   renaming; `controller-retention.mjs` and `vm-retention.mjs` 98 of 164;

@@ -32,4 +32,4 @@ health:
   kind: running
   stableSeconds: 10
   timeoutSeconds: 120
-notes: "Other apps connect to mqtt://<this server>:1883 with no username. That is fine behind the Firewall page's deny-by-default profile (only this machine and your tailnet reach it). To require passwords, replace the command with a custom mosquitto.conf via Config."
+notes: "Other apps connect to mqtt://<this server>:1883 with no username. That is fine behind the Firewall page's deny-by-default profile (only this machine and your tailnet reach it). To require passwords, replace the command with a custom mosquitto.conf on its Compose tab."

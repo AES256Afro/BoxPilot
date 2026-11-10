@@ -703,3 +703,23 @@ places were host-dependent, two of them latent rather than failing:
 Written into `AGENTS.md` as a convention, because grepping for the last instance is not how this
 gets caught: **assert what the code does, not what the machine has.** A `skipIf` is the wrong fix —
 the property worth testing is that the read answers at all, whatever is installed.
+
+### Merging main, 2026-11-10: the loop met someone else sweeping the same floor
+
+PR #640 conflicted with main in five files. Two were trivial (a bullet list and an import). The
+other three were the hosted-domains read, where main had done M53.2's job far more thoroughly while
+this branch was open — treating those files as an app's data a container writes, refusing links and
+unbounded reads, and replacing the per-file caps with a global budget. The merge took main's version
+whole, and M53.2 in the roadmap now says so rather than describing code that is no longer there.
+
+Two things worth keeping from that:
+
+- **The guard earned its keep on someone else's code.** `check:exports` failed on the merge, not on
+  this branch: main had added `glanceHoldMs` and `helperLabel`, each read only inside its own file,
+  and `sealedFolder` had gained a real reader so its allowlist line was stale. All three were fixed
+  the way the convention says. That is the first time one of this loop's checks found something
+  nobody here wrote — which is the whole point of putting it in the gate rather than in a sweep.
+- **A merge is the wrong place to decide what a page says.** The one idea of M53.2 that main does
+  not have is telling the owner a name list was cut. Main has since claimed the `problem` line for
+  which sources could not be read. Combining them is a product decision, so it is written down as
+  open instead of guessed at.

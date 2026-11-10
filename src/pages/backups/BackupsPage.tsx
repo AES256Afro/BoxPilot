@@ -195,9 +195,9 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
         status={verdict}
         meta={loaded ? <>
           {appProtection?.available ? <><b>{verdicts.length}</b> apps with data · <b>{verdicts.filter((entry) => entry.scheduled).length}</b> nightly · </> : null}
-          <b>{backups?.length ?? "—"}</b> database backups · <b>{machine?.snapshots.length ?? "—"}</b> machine snapshots · off-box <b>{offAge ?? "never"}</b>
+          <b>{backups?.length ?? "—"}</b> database backups · <b>{machine?.snapshots.length ?? "—"}</b> machine snapshots · off this server <b>{offAge ?? "never"}</b>
         </> : undefined}
-        actions={<Button variant="ghost" busy={loading && loaded} onClick={() => void refresh()}>Read again</Button>}
+        actions={<Button variant="ghost" busy={loading && loaded} onClick={() => void refresh()}>Check again</Button>}
         about={<>
           <p>What protects this server's data: each app's backups and whether something keeps making them, BoxPilot's own database, machine snapshots, the copies kept somewhere else, and restoring from a snapshot.</p>
           <p>A database backup is taken with no downtime and restore-drilled before it is recorded; Protect keeps an encrypted second copy. A machine snapshot is one archive to redeploy this server: the database, every app's settings and secrets, network and firewall config, and each VM's definition. The data stays in the per-app backups, so an app with no backup comes back installed and empty.</p>

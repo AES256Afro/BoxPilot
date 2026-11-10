@@ -1,8 +1,9 @@
+import { createDecipheriv } from "node:crypto";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
-import { cloudTarget, isSealedConfig, minimumPassphraseLength, normalizeCloudDestination, parseRcloneStats, renderRcloneConfig, sealedTarget } from "../backup-cloud.mjs";
+import { cloudTarget, isSealedConfig, minimumPassphraseLength, normalizeCloudDestination, parseRcloneStats, renderRcloneConfig, sealedFolder, sealedRemote, sealedTarget } from "../backup-cloud.mjs";
 
 /**
  * Cloud backup mirror with rclone (root side, runs in boxpilot-run@ with network).
@@ -29,6 +30,29 @@ async function requireRclone(rclone) {
   if (!present) throw new Error("rclone is not installed; install it from the Backups page first");
 }
 
+/**
+ * What `rclone obscure` wrote, read back. Obscuring is not encryption: it is AES-256-CTR under a key printed in
+ * rclone's source (fs/config/obscure), a fresh IV in front, base64url without padding, so two obscurings of one
+ * passphrase never match and the saved one has to be read to be compared. Read here rather than by `rclone reveal`,
+ * which takes the value on its command line, where every local user could see it for a moment.
+ */
+const rcloneObscureKey = Buffer.from("9c935b48730a554d6bfd7c63c886a92bd390198eb8128afbf4de162b8b95f638", "hex");
+export function revealObscured(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) return null;
+  const bytes = Buffer.from(value, "base64url");
+  if (bytes.length < 16) return null;
+  const decipher = createDecipheriv("aes-256-ctr", rcloneObscureKey, bytes.subarray(0, 16));
+  return Buffer.concat([decipher.update(bytes.subarray(16)), decipher.final()]).toString("utf8");
+}
+
+/** The saved destination's kind, the folder its sealed copies went to and the passphrase that sealed them; null when nothing sealed was saved. */
+function savedSeal(config) {
+  if (!isSealedConfig(config)) return null;
+  const [plain, sealed = ""] = String(config).split(`[${sealedRemote}]\n`);
+  const line = (text, name) => text.match(new RegExp(`^${name} = (.*)$`, "m"))?.[1] ?? null;
+  return { type: line(plain, "type"), remote: line(sealed, "remote"), passphrase: revealObscured(line(sealed, "password")) };
+}
+
 /** Write the rclone remote. Secrets arrive as parameters (kept in memory by the job service) and go straight into the 0600 file. */
 export async function backupCloudSetup(parameters = {}, { run = fixedRun, log = null, secretsDirectory = defaults.secretsDirectory, rclone = defaults.rclone } = {}) {
   const destination = normalizeCloudDestination(parameters);
@@ -49,6 +73,13 @@ export async function backupCloudSetup(parameters = {}, { run = fixedRun, log = 
     secrets.token = parameters.token.trim().replace(/\s*\n\s*/g, "");
   }
   if (typeof parameters.passphrase !== "string" || parameters.passphrase.length < minimumPassphraseLength) throw new Error(`An encryption passphrase of at least ${minimumPassphraseLength} characters is required: app backups hold each app's secrets, so nothing leaves this server unencrypted`);
+  // The copy compares sizes (a sealed remote offers no hashes), so archives already sealed under another passphrase
+  // look up to date and stay: the mirror would report success while the folder held copies only the old passphrase opens.
+  const before = savedSeal(await readFile(configPath(secretsDirectory), "utf8").catch(() => null));
+  const folder = `${cloudTarget(destination)}/${sealedFolder}`;
+  if (before && before.type === destination.provider && before.remote === folder && before.passphrase !== parameters.passphrase) {
+    throw new Error(`The copies already in ${folder.replace(/^boxpilot:/, "")} were sealed with the passphrase you set before. Keep that passphrase, or choose a new folder so the new copies do not sit beside ones this passphrase cannot open.`);
+  }
   // Obscured the way rclone keeps every password in its config, on stdin, never on a command line.
   const sealed = await run(rclone, ["obscure", "-"], { timeout: 15_000, input: `${parameters.passphrase}` });
   if (!sealed.ok || !sealed.stdout.trim()) throw new Error(`rclone obscure failed: ${tail(sealed.stderr)}`);
@@ -106,12 +137,13 @@ export async function backupCloudSync(parameters = {}, { run = fixedRun, log = n
   const common = ["--config", configPath(secretsDirectory), "--contimeout", "30s", "--timeout", "10m", "--transfers", "4", "--checkers", "8", "--stats", "1h", "--stats-one-line", "-v"];
   const mirrored = [];
   let filesTransferred = 0; let errors = 0;
+  // By size: the sealed remote has no hashes to offer, so `--checksum` fell back to sizes anyway while reading as more.
   for (const source of sources) {
     const exists = await stat(source.root).then((info) => info.isDirectory(), () => false);
     if (!exists) continue;
-    log?.(`$ rclone copy --checksum ${source.root} ${target}${source.name}`, "stdout");
+    log?.(`$ rclone copy --size-only ${source.root} ${target}${source.name}`, "stdout");
     const excludes = source.name === "machine-snapshots" ? machineSnapshotExcludes : [];
-    const result = await run(rclone, [...common, "copy", "--checksum", ...inProgressExcludes, ...excludes, source.root, `${target}${source.name}`], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+    const result = await run(rclone, [...common, "copy", "--size-only", ...inProgressExcludes, ...excludes, source.root, `${target}${source.name}`], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
     const stats = parseRcloneStats(`${result.stdout}\n${result.stderr}`);
     if (!result.ok) throw new Error(`rclone copy failed for ${source.name}: ${tail(result.stderr)}`);
     filesTransferred += stats.filesTransferred; errors += stats.errors;
@@ -122,5 +154,5 @@ export async function backupCloudSync(parameters = {}, { run = fixedRun, log = n
   if (errors > 0) throw new Error(`rclone reported ${errors} error(s) while copying, so this mirror is not complete. Check the log and run it again.`);
   const completedAt = now().toISOString();
   log?.(`Mirrored ${mirrored.length} backup root(s) to ${target} (encrypted, in ${cloudTarget(destination)}/sealed): ${filesTransferred} file(s) transferred`, "stdout");
-  return { synced: true, encrypted: true, destination: `${cloudTarget(destination)}/sealed`, completedAt, mirrored, filesTransferred, bytesTransferred: mirrored.map((entry) => entry.bytesTransferred).filter(Boolean).join(" + ") || null, errors, boundary: { deletesPerformed: false, checksumVerified: true } };
+  return { synced: true, encrypted: true, destination: `${cloudTarget(destination)}/sealed`, completedAt, mirrored, filesTransferred, bytesTransferred: mirrored.map((entry) => entry.bytesTransferred).filter(Boolean).join(" + ") || null, errors, boundary: { deletesPerformed: false, checksumVerified: false } };
 }

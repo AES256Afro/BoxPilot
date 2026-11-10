@@ -98,7 +98,7 @@ export default function ConsoleHome({ csrfToken, role, onNavigate, now = Date.no
   const failed = ran.filter((job) => job.state === "failed").length;
   const shownRan = ran.slice(-shownJobs);
   const took = (job: (typeof ran)[number]) => {
-    const from = Date.parse(job.createdAt ?? "");
+    const from = Date.parse(job.approvals?.[0]?.createdAt ?? job.createdAt ?? "");   // from the approval, not the staging
     if (!Number.isFinite(from)) return "—";
     if (job.state === "applying" || job.state === "verifying") return elapsed(clock - from);
     const to = Date.parse(job.updatedAt ?? "");
@@ -136,7 +136,7 @@ export default function ConsoleHome({ csrfToken, role, onNavigate, now = Date.no
           <p className="console-verdict__sentence">{verdict.sentence}</p>
         </div>
         {again.said}
-        <Button variant="ghost" className="console-verdict__again" busy={again.checking} onClick={again.run}>{again.checking ? "Reading…" : "Read again"}</Button>
+        <Button variant="ghost" className="console-verdict__again" busy={again.checking} onClick={again.run}>{again.checking ? "Checking…" : "Check again"}</Button>
       </header>
 
       <MetricStrip label="Processor, memory, disks, network and temperature" className="console-strip" minTile="9.5rem">

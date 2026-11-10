@@ -14,8 +14,8 @@ export interface HostedDomain {
   sources: DomainSource[];
   appId: string | null;
   appName: string | null;
-  /** Where the tunnel sends visitors on this server: http://127.0.0.1:<port>, when known. */
-  service: string | null;
+  /** Where the tunnel sends visitors on this server: http://127.0.0.1:<port>, when known. Left out for a viewer. */
+  service?: string | null;
   label: string | null;
   manual: boolean;
   wildcard: boolean;
@@ -41,8 +41,10 @@ export interface TunnelFacts {
   running: boolean;
   status: string | null;
   since: string | null;
+  /** How many connections to Cloudflare; null when they could not be counted, which is not the same as none. */
   connections: number | null;
-  lastProblem: string | null;
+  /** Left out for a viewer. */
+  lastProblem?: string | null;
   cloudflare: { connected: boolean; tunnelName: string | null } | null;
 }
 
@@ -58,7 +60,8 @@ export interface HostedStatus {
   intervals: number[];
   manual: ManualEntry[];
   alertsTarget: boolean;
-  problem: string | null;
+  /** A sentence, when some names could not be read: the list is then not the whole picture. */
+  problem?: string | null;
 }
 
 /** Whether a response has the shape the page reads, so a proxy's page or an older server is said as such. */

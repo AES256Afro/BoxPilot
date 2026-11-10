@@ -258,6 +258,24 @@ describe("no-new-privileges and the ports an app cannot otherwise bind", () => {
   });
 });
 
+describe("how long docker stop waits", () => {
+  const manifest = {
+    id: "engine", sha256: "x", image: { reference: "example/engine:1" }, network: "bridge", ports: [], volumes: [], env: [],
+    capabilities: [], devices: [], extraHosts: [], sysctls: [], sidecars: [],
+  };
+  const values = { ports: {}, env: {}, volumes: {} };
+
+  it("writes the manifest's stop grace period, so a model engine can unload before it is killed", () => {
+    const { compose } = renderCompose({ ...manifest, stopGracePeriod: "2m" }, values);
+    expect(compose.services.engine.stop_grace_period).toBe("2m");
+  });
+
+  it("leaves Docker's default when the manifest says nothing", () => {
+    const { compose } = renderCompose(manifest, values);
+    expect(compose.services.engine).not.toHaveProperty("stop_grace_period");
+  });
+});
+
 describe("sidecarEnvOverrides", () => {
   const tunneled = {
     id: "app", sha256: "x", image: { reference: "app:1" }, network: "bridge", networkModes: ["bridge"], networkVia: "vpn",

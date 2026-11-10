@@ -26,6 +26,14 @@ export interface ConfigSheetProps {
   modelRunnerApps?: string[];
 }
 
+/** The port a box holds, or null while it is empty or not a port. */
+function portNumber(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^\d{1,5}$/.test(trimmed)) return null;
+  const port = Number(trimmed);
+  return port >= 1 && port <= 65535 ? port : null;
+}
+
 function Section({ title, children, hint }: { title: string; children: ReactNode; hint?: ReactNode }) {
   return (
     <fieldset className="catalog-form__section">
@@ -40,6 +48,9 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
   const formId = useId();
   const foldersId = useId();
   const [values, setValues] = useState<Values>(() => seed ?? initialValues(manifest, live));
+  // A port as it is being typed. Parsed at every keystroke, an emptied box got "0" put back in it
+  // and the number could not be retyped; the text is held, and Save waits for a port it can read.
+  const [portText, setPortText] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries((seed ?? initialValues(manifest, live)).ports).map(([id, host]) => [id, String(host)])));
   // Secrets are never sent to the browser. These say which ones have a saved value, so the box can
   // read "Saved" instead of looking forgotten, and which the owner asked to clear on save.
   const savedSecrets = new Set(mode === "reconfigure" ? live?.state?.secretsSaved ?? [] : []);
@@ -96,6 +107,7 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
   }, [wantsModels, runnerKey, csrfToken]);
 
   const submit = async () => {
+    if (badPorts.length) return;
     const compact = { ...compactValues(manifest, values, mode === "reconfigure" ? live?.state?.values : undefined), ...(cleared.length ? { clearSecrets: cleared } : {}) };
     // The precheck resolves against the catalog's defaults, so it needs unchanged required settings
     // and custom ports too. The mutation still sends only what changed from the stored values.
@@ -116,7 +128,11 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
     }
   };
 
-  const setPort = (id: string, value: string) => setValues((current) => ({ ...current, ports: { ...current.ports, [id]: Number.parseInt(value, 10) || 0 } }));
+  const setPort = (id: string, value: string) => {
+    setPortText((current) => ({ ...current, [id]: value }));
+    const port = portNumber(value);
+    if (port !== null) setValues((current) => ({ ...current, ports: { ...current.ports, [id]: port } }));
+  };
   const setEnv = (name: string, value: string) => {
     setValues((current) => ({ ...current, env: { ...current.env, [name]: value } }));
     if (value) setCleared((current) => current.filter((entry) => entry !== name)); // typing a new one replaces, not clears
@@ -125,6 +141,7 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
   const toggleSetup = (id: string, checked: boolean) => setValues((current) => ({ ...current, setup: checked ? [...new Set([...(current.setup ?? []), id])] : (current.setup ?? []).filter((entry) => entry !== id) }));
 
   const editablePorts = manifest.ports.filter((port) => !port.fixed);
+  const badPorts = editablePorts.filter((port) => portNumber(portText[port.id] ?? String(values.ports[port.id] ?? port.host)) === null);
   const editableEnv = manifest.env.filter((entry) => !entry.fixed && !entry.generate);
   // When an app is routed through the shared VPN profile, the connection fields come from the
   // profile, so they are hidden here rather than asked for twice.
@@ -147,8 +164,9 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
       onClose={onCancel}
       className="catalog-config"
       footer={<>
+        {badPorts.length > 0 && <span className="catalog-form__blocker" role="status">Still needed: a port number from 1 to 65535 for {badPorts.map((port) => port.label).join(", ")}.</span>}
         <Button onClick={onCancel}>Cancel</Button>
-        <Button variant="primary" type="submit" form={formId} risk={mode === "install" ? installTier(manifest) : riskOf(operationId)} disabled={checking}>{checking ? "Checking…" : mode === "install" ? "Continue to install" : "Apply settings"}</Button>
+        <Button variant="primary" type="submit" form={formId} risk={mode === "install" ? installTier(manifest) : riskOf(operationId)} disabled={checking || badPorts.length > 0}>{checking ? "Checking…" : mode === "install" ? "Continue to install" : "Apply settings"}</Button>
       </>}
     >
       <form id={formId} className="catalog-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
@@ -176,8 +194,8 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
         {editablePorts.length > 0 && (
           <Section title="Ports">
             {editablePorts.map((port) => (
-              <Field key={port.id} label={`${port.label} port`} hint={`${port.containerFollowsHost ? "The app listens here" : `Container ${port.container}/${port.protocol}`} · ${port.exposure === "loopback" ? "this server only" : mode === "install" && manifest.defaultExposure === "tailnet" && port.protocol === "tcp" ? "your tailnet, over HTTPS" : "your network"}`}>
-                <TextInput type="number" mono min={1} max={65535} value={values.ports[port.id] ?? port.host} onValueChange={(value) => setPort(port.id, value)} />
+              <Field key={port.id} label={`${port.label} port`} error={badPorts.includes(port) ? "A number from 1 to 65535." : undefined} hint={`${port.containerFollowsHost ? "The app listens here" : `Container ${port.container}/${port.protocol}`} · ${port.exposure === "loopback" ? "this server only" : mode === "install" && manifest.defaultExposure === "tailnet" && port.protocol === "tcp" ? "your tailnet, over HTTPS" : "your network"}`}>
+                <TextInput type="number" mono min={1} max={65535} value={portText[port.id] ?? String(values.ports[port.id] ?? port.host)} onValueChange={(value) => setPort(port.id, value)} />
               </Field>
             ))}
           </Section>
@@ -204,14 +222,16 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
               const modelHint = pickModel && installedModels !== null && !installedModels.length
                 ? "No downloaded models were found in this server's Ollama apps. Type a model name, or download one from Ollama's Models tab."
                 : null;
-              const hint = <>{entry.description}{modelHint ? <>{entry.description ? " " : ""}{modelHint}</> : null}{entry.name === "USE_VPN_PROFILE" && usingVpnProfile ? <>{entry.description ? " " : ""}The VPN provider and key come from your VPN profile (set it up on the Network page). If none is saved, the install will ask you to save one first.</> : null}</>;
-              const hasHint = Boolean(entry.description) || Boolean(modelHint) || (entry.name === "USE_VPN_PROFILE" && usingVpnProfile);
+              const labels = entry.optionLabels ?? null;
+              const chosen = labels?.find((option) => option.value === (values.env[entry.name] ?? "")) ?? null;
+              const hint = <>{entry.description}{chosen?.hint ? <>{entry.description ? " " : ""}<strong>{chosen.label}:</strong> {chosen.hint}</> : null}{modelHint ? <>{entry.description ? " " : ""}{modelHint}</> : null}{entry.name === "USE_VPN_PROFILE" && usingVpnProfile ? <>{entry.description ? " " : ""}The VPN provider and key come from your VPN profile (set it up on the Network page). If none is saved, the install will ask you to save one first.</> : null}</>;
+              const hasHint = Boolean(entry.description) || Boolean(chosen?.hint) || Boolean(modelHint) || (entry.name === "USE_VPN_PROFILE" && usingVpnProfile);
               return (
                 <Field key={entry.name} label={entry.label} required={entry.required} hint={hasHint ? hint : undefined}>
                   {modelChoices
                     ? <Select value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} options={modelChoices.map((model) => ({ value: model, label: installedModels?.includes(model) ? model : `${model} (not downloaded)` }))} />
                     : entry.options
-                    ? <Select value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} options={entry.options.map((option) => ({ value: option, label: option }))} />
+                    ? <Select value={values.env[entry.name] ?? ""} onValueChange={(value) => setEnv(entry.name, value)} options={entry.options.map((option) => ({ value: option, label: labels?.find((named) => named.value === option)?.label ?? option }))} />
                     : entry.type === "boolean"
                       ? <Select value={values.env[entry.name] || "false"} onValueChange={(value) => setEnv(entry.name, value)} options={[{ value: "true", label: "Yes" }, { value: "false", label: "No" }]} />
                       : entry.type === "password" || entry.secret

@@ -707,6 +707,30 @@ sidecars:
     expect(chowns).toEqual([["store", 3000, 3000]]);
   });
 
+  it("waits for an app's own stop grace period, and a margin, wherever it stops it", async () => {
+    // Strata asks for two minutes to unload (stopGracePeriod) and the schema allows ten: BoxPilot gave every
+    // `docker compose stop` two minutes flat, so it gave up at the instant Docker's own grace ended.
+    const { apps, catalogDirectory, runDocker } = await setup();
+    await writeFile(path.join(catalogDirectory, "slow.yaml"), "schemaVersion: 2\nid: slow\nname: Slow\ncategory: AI\ndescription: d\nimage:\n  reference: x/slow:1\nvolumes:\n  - id: data\n    container: /data\n    path: data\nstopGracePeriod: 5m\nhealth:\n  kind: running\n  stableSeconds: 4\n  timeoutSeconds: 30\n");
+    const timeoutsOf = (verb, id) => runDocker.mock.calls.filter(([, args]) => args[0] === "compose" && args.includes(`bp-${id}`) && args.includes(verb)).map(([, , options]) => options.timeout);
+    for (const id of ["slow", "demo"]) {
+      await apps.install({ id });
+      await apps.backup({ id });
+      await apps.action({ id, action: "stop" });
+      await apps.action({ id, action: "start" });
+      await apps.action({ id, action: "restart" });
+      await apps.uninstall({ id });
+    }
+    // Five minutes and a minute's margin for the app that asked; what every app had before for the one that did not.
+    expect(timeoutsOf("stop", "slow")).toEqual([360_000, 360_000]);
+    expect(timeoutsOf("restart", "slow")).toEqual([360_000]);
+    expect(timeoutsOf("down", "slow")).toEqual([360_000]);
+    expect(timeoutsOf("stop", "demo")).toEqual([120_000, 180_000]);
+    expect(timeoutsOf("restart", "demo")).toEqual([180_000]);
+    expect(timeoutsOf("down", "demo")).toEqual([180_000]);
+    expect(timeoutsOf("start", "slow")).toEqual(timeoutsOf("start", "demo"));
+  });
+
   describe("logTail", () => {
     it("leads with the line that says what went wrong, not the frame above it", () => {
       const traceback = [

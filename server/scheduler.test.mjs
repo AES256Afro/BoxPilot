@@ -707,3 +707,27 @@ describe("next runs across a daylight-saving change", () => {
     expect(computeNextRun({ frequency: "weekly", minute: 0, hour: 4, weekday: 1 }, from).toISOString()).toBe("2026-11-02T09:00:00.000Z"); // Monday 04:00 EST
   }));
 });
+
+describe("an hourly run in the hour the clocks repeat", () => {
+  // Needs a zone with daylight saving: the suite's TZ is whatever the machine has, so the zone is set for the test.
+  it("comes due once an hour, not at every tick of the second pass", () => {
+    const zone = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      // 2026-11-01 06:05:20Z is 01:05:20 EST, the second 01:05 of the night the clocks go back.
+      const from = new Date("2026-11-01T06:05:20Z");
+      const next = computeNextRun({ frequency: "hourly", minute: 5 }, from);
+      expect(next.getTime()).toBeGreaterThan(from.getTime());
+      expect(next.toISOString()).toBe("2026-11-01T07:05:00.000Z");
+      // Ticked a minute at a time across the whole night, it runs once in each elapsed hour.
+      let due = computeNextRun({ frequency: "hourly", minute: 5 }, new Date("2026-11-01T03:00:00Z"));
+      let runs = 0;
+      for (let at = Date.parse("2026-11-01T03:00:00Z"); at < Date.parse("2026-11-01T09:00:00Z"); at += 60_000) {
+        if (due.getTime() <= at) { runs += 1; due = computeNextRun({ frequency: "hourly", minute: 5 }, new Date(at)); }
+      }
+      expect(runs).toBe(6);
+    } finally {
+      if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+    }
+  });
+});

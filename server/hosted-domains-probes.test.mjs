@@ -27,6 +27,11 @@ describe("telling Cloudflare's and the house's addresses apart", () => {
     for (const address of ["10.1.2.3", "172.31.255.1", "192.168.50.20", "127.0.0.1", "169.254.169.254", "100.101.102.103", "::1", "fd7a:115c:a1e0::1", "fe80::1", "::ffff:192.168.1.10"]) expect(isPrivateAddress(address), address).toBe(true);
     for (const address of ["93.184.216.34", "104.21.5.7", "2606:4700::1", "8.8.8.8", "example.com", ""]) expect(isPrivateAddress(address), address).toBe(false);
   });
+
+  it("knows the ranges that are nobody's host, and the IPv6 ways of writing an IPv4 address", () => {
+    for (const address of ["198.18.0.1", "198.19.255.254", "224.0.0.251", "239.255.255.250", "240.0.0.1", "255.255.255.255", "::", "::127.0.0.1", "::192.168.1.10", "::a00:1", "64:ff9b::10.0.0.1", "64:ff9b::7f00:1", "2002:c0a8:10a::1", "2002:7f00:1::", "fec0::1", "feff::1", "ff02::1", "ff0e::fb"]) expect(isPrivateAddress(address), address).toBe(true);
+    for (const address of ["198.17.255.255", "198.20.0.1", "223.255.255.254", "2001:4860:4860::8888", "2003::1", "64:ff9a::1", "::ffff:8.8.8.8"]) expect(isPrivateAddress(address), address).toBe(false);
+  });
 });
 
 describe("resolving a name", () => {
@@ -57,6 +62,27 @@ describe("one GET", () => {
     expect(result).toMatchObject({ outcome: "answered", status: 302, server: "nginx", tls: null, error: null });
     expect(result.ms).toBeGreaterThanOrEqual(0);
     expect(seenHost).toBe("news.example.com");
+  });
+
+  it("connects to the address the name was judged by, without looking the name up again", async () => {
+    let seenHost = null;
+    const port = await listen(http.createServer((request, response) => { seenHost = request.headers.host; response.writeHead(204); response.end(); }));
+    // The name resolves nowhere (.invalid never does): only the address handed over can answer for it.
+    const pinned = await probeUrl({ url: `http://pinned.example.invalid:${port}/`, addresses: ["127.0.0.1"], timeoutMs: 2000 });
+    expect(pinned).toMatchObject({ outcome: "answered", status: 204 });
+    expect(seenHost).toBe(`pinned.example.invalid:${port}`);
+    // Nothing that is not an address is connected to, and no address means no connection.
+    expect(await probeUrl({ url: `http://pinned.example.invalid:${port}/`, addresses: ["localhost", 5], timeoutMs: 2000 })).toMatchObject({ outcome: "error", error: "no address to connect to" });
+    expect(await probeUrl({ url: `http://pinned.example.invalid:${port}/`, addresses: [], timeoutMs: 2000 })).toMatchObject({ outcome: "error", error: "no address to connect to" });
+  });
+
+  it("asks for the name's own certificate at the pinned address", async () => {
+    const { cert, key } = selfSignedCertificate({ commonName: "localhost", now: Date.now() });
+    let seenName = null;
+    const port = await listen(https.createServer({ cert, key, SNICallback: (servername, done) => { seenName = servername; done(null, undefined); } }, (_request, response) => { response.writeHead(200); response.end("ok"); }));
+    const result = await probeUrl({ url: `https://pinned.example.invalid:${port}/`, addresses: ["127.0.0.1"], timeoutMs: 3000 });
+    expect(result).toMatchObject({ outcome: "answered", status: 200, tls: { subject: "localhost" } });
+    expect(seenName).toBe("pinned.example.invalid");
   });
 
   it("says when nothing listens, when nothing answers in time, and when the address is not one", async () => {

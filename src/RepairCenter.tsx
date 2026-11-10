@@ -6,7 +6,9 @@ import ControllerDoctor from "./repair/ControllerDoctor";
 import ServerRunbook from "./repair/ServerRunbook";
 import { useOperation } from "./shell/ApproveDialog";
 import { useAutoReconnect } from "./AutoReconnect";
-import { inspectOperation } from "./operations";
+import { inspectOperation, type Job as ActivityJob } from "./operations";
+import { stateWords, stepWords } from "./JobLogView";
+import { jobStatus } from "./jobStatus";
 import { countOf, type ViewName } from "./data";
 import { Button, Field, PageHeader, Panel, RiskTag, SecretInput, StatusChip, Table, TextInput, type RiskTier, type Status, type TableColumn } from "./ui";
 import { mayStart, riskOf } from "./ui/operationRisk";
@@ -576,6 +578,8 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
           says what it is and how to put each thing back (M34.4). */}
       <ServerRunbook />
 
+      {/* The same words as the Activity drawer (M50): "Checked the request · done", "medium risk",
+          "Awaiting approval", where this printed the server's own step names and states. */}
       <Panel title="Activity" label="Activity on this server" count={jobs.length ? { status: jobs.some((job) => job.state === "failed") ? "warning" : "neutral", label: String(jobs.length) } : undefined} meta="every job, with its steps">
         {jobError && <p className="rp-note" data-tone="warning" role="status">{jobError}</p>}
         {jobs.length === 0 ? <p className="rp-quiet">{jobError ? "Activity is unavailable." : "Nothing has run yet."} Every change you approve appears here with its steps.</p> : (
@@ -584,10 +588,10 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
               <details className="rp-job" key={job.id} open={job === jobs[0]} data-status={job.state === "completed" ? "good" : job.state === "failed" ? "danger" : "neutral"}>
                 <summary>
                   <strong>{job.title}</strong>
-                  <span className="rp-job__meta">{job.risk} · {job.steps.length} steps{job.createdAt ? ` · ${new Date(job.createdAt).toLocaleString()}` : ""}</span>
-                  <StatusChip status={job.state === "completed" ? "good" : job.state === "failed" ? "danger" : "neutral"}>{job.state.replaceAll("_", " ")}</StatusChip>
+                  <span className="rp-job__meta">{/^(low|medium|high)$/.test(job.risk) ? `${job.risk} risk · ` : ""}{countOf(job.steps.length, "step")}{job.createdAt ? ` · ${new Date(job.createdAt).toLocaleString()}` : ""}</span>
+                  <StatusChip status={job.state === "completed" ? "good" : job.state === "failed" ? "danger" : "neutral"}>{jobStatus(job as unknown as ActivityJob).label}</StatusChip>
                 </summary>
-                {job.steps.length > 0 && <ol className="rp-job__steps">{job.steps.map((step, index) => <li key={`${step.createdAt}-${index}`}><span>{step.state}</span><strong>{step.name}</strong><p>{step.detail}</p></li>)}</ol>}
+                {job.steps.length > 0 && <ol className="rp-job__steps">{job.steps.map((step, index) => <li key={`${step.createdAt}-${index}`}><span>{stateWords(step.state)}</span><strong>{stepWords(step.name)}</strong><p>{step.detail}</p></li>)}</ol>}
                 {job.error && <p className="rp-finding__note rp-finding__note--failed">{job.error}</p>}
                 {job.recovery?.manual && <p className="rp-finding__manual"><strong>Recovery:</strong> {job.recovery.manual}</p>}
               </details>

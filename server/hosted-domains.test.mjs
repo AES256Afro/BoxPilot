@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHealthAlerts } from "./health-alerts.mjs";
-import { backupStateOf, createHostedDomainsService, discoverDomains, foldSample, judgeDomain, normalizeSettings, publicHostnameOf, sampleLimit, tunnelFromLog, uptimeOf, validateManualEntry } from "./hosted-domains.mjs";
+import { backupStateOf, createHostedDomainsService, discoverDomains, foldSample, freshMinIntervalMs, judgeDomain, normalizeSettings, publicAddressOf, publicHostnameOf, sampleLimit, tunnelFromLog, unreadProblem, uptimeOf, validateManualEntry } from "./hosted-domains.mjs";
 
 const tunnelId = "6f0c2e9a-4b1d-4c7e-9a3f-2d5b8e1c0a47";
 const tunnelRecord = { connected: true, tunnel: { id: tunnelId, name: "boxpilot-homebox" }, routes: [{ hostname: "share.example.com", appId: "pingvin-share", portId: "web", hostPort: 3022, service: "http://127.0.0.1:3022" }] };
@@ -57,6 +57,30 @@ describe("discovering the names this server serves", () => {
     expect(publicHostnameOf("localhost homebox.lan cloud.example.com")).toBe("cloud.example.com");
     for (const value of ["http://localhost:8120", "http://192.168.1.10:9925", "homebox.tail0a1b.ts.net", "https://[::1]/", "", null, 42, "not a name!"]) expect(publicHostnameOf(value), String(value)).toBeNull();
   });
+
+  it("keeps the scheme and port an app's public address is published on, and nothing after them", () => {
+    expect(publicAddressOf("https://books.example.com:8443/shelf?x=1")).toEqual({ hostname: "books.example.com", url: "https://books.example.com:8443" });
+    expect(publicAddressOf("http://Plain.Example.com/")).toEqual({ hostname: "plain.example.com", url: "http://plain.example.com" });
+    expect(publicAddressOf("https://user:secret@wiki.example.com:443/")).toEqual({ hostname: "wiki.example.com", url: "https://wiki.example.com" });
+    expect(publicAddressOf("wiki.example.com:8443/path")).toEqual({ hostname: "wiki.example.com", url: "https://wiki.example.com:8443" });
+    expect(publicAddressOf("ftp://files.example.com/")).toEqual({ hostname: "files.example.com", url: "https://files.example.com" });
+    const found = discoverDomains({ apps: [app("bookstack", 8120, { env: { APP_URL: "https://books.example.com:8443/" } })], manifests });
+    expect(found[0]).toMatchObject({ hostname: "books.example.com", url: "https://books.example.com:8443", service: "http://127.0.0.1:8120" });
+    // A name from any other source is asked where names usually are.
+    expect(discoverDomains({ manual: [{ hostname: "home.example.com" }] })[0].url).toBe("https://home.example.com");
+  });
+
+  it("cuts a service address from a config file back to scheme, host and port", () => {
+    const sources = {
+      cloudflared: [{ ingress: [{ hostname: "admin.example.com", service: "http://user:secret@127.0.0.1:9000/admin/reset?confirm=1#x", wildcard: false }, { hostname: "far.example.com", service: "http://user:secret@192.168.1.10:9000/admin", wildcard: false }] }],
+      proxyHosts: [{ hostnames: ["proxy.example.com"], target: "http://127.0.0.1:9001/admin/reset?" }],
+    };
+    const by = Object.fromEntries(discoverDomains({ tunnel: { routes: [{ hostname: "own.example.com", service: "http://user:secret@127.0.0.1:3022/x?y" }] }, sources }).map((domain) => [domain.hostname, domain]));
+    expect(by["admin.example.com"].service).toBe("http://127.0.0.1:9000");
+    expect(by["far.example.com"].service).toBeNull();
+    expect(by["proxy.example.com"].service).toBe("http://127.0.0.1:9001");
+    expect(by["own.example.com"].service).toBe("http://127.0.0.1:3022");
+  });
 });
 
 describe("the verdict on one name", () => {
@@ -92,6 +116,16 @@ describe("the verdict on one name", () => {
     expect(judgeDomain(domain, { ...fine, dns: { ...cloudflare, addresses: ["192.168.1.10"], viaCloudflare: false, private: true }, outside: { outcome: "skipped", skipped: "resolves to a private address" }, certificate: null }, { now })).toMatchObject({ state: "degraded", headline: "Resolves to a private address" });
     expect(judgeDomain(domain, { ...fine, tunnel: { installed: true, running: false } }, { now })).toMatchObject({ state: "degraded", headline: "The tunnel app is not running" });
     expect(judgeDomain(domain, { ...fine, app: { installed: true, running: false } }, { now }).advice).toContain("whatever Cloudflare cached");
+  });
+
+  it("does not blame the tunnel, or call a name down, when the name answered through it", () => {
+    const idle = { installed: true, running: true, connections: 0 };
+    const wrongPort = judgeDomain(domain, { ...fine, outside: { ...fine.outside, status: 404 }, tunnel: idle }, { now });
+    expect(wrongPort).toMatchObject({ state: "degraded", headline: "Answers HTTP 404", problems: ["answers HTTP 404"] });
+    expect(judgeDomain(domain, { ...fine, outside: { ...fine.outside, status: 418 }, tunnel: idle }, { now }).state).toBe("degraded");
+    // Cloudflare's own "cannot reach the origin", or no answer at all, is still the tunnel's to explain.
+    expect(judgeDomain(domain, { ...fine, outside: { outcome: "answered", status: 530, ms: 90, skipped: null }, tunnel: idle }, { now }).advice).toContain("holds no connection to Cloudflare");
+    expect(judgeDomain({ ...domain, expect: "cloudflare" }, { ...fine, dns: { resolved: false, addresses: [] }, outside: { outcome: "skipped", skipped: "does not resolve" }, certificate: null, tunnel: idle }, { now }).problems).toContain("the tunnel is not connected");
   });
 
   it("counts the certificate's days, warns inside the last fortnight, and calls an expired one down", () => {
@@ -152,7 +186,23 @@ describe("uptime, history and backups", () => {
       "2026-10-24T09:00:05Z INF Registered tunnel connection connIndex=1 connection=ccc location=ams protocol=quic",
     ];
     expect(tunnelFromLog(lines)).toEqual({ connections: 2, since: "2026-10-24T08:00:01Z", lastProblem: 'Connection terminated error="timeout" connIndex=1' });
-    expect(tunnelFromLog([])).toEqual({ connections: 0, since: null, lastProblem: null });
+    expect(tunnelFromLog([])).toEqual({ connections: null, since: null, lastProblem: null });
+  });
+
+  it("does not count connections from a log window that shows none being made", () => {
+    // A tunnel up for a day registered long before the last 300 lines: the count is not known, not zero.
+    const busy = Array.from({ length: 300 }, (_, index) => `2026-10-24T10:${String(index % 60).padStart(2, "0")}:00Z INF GET https://share.example.com/ HTTP/1.1 connIndex=${index % 4}`);
+    expect(tunnelFromLog(busy)).toEqual({ connections: null, since: null, lastProblem: null });
+    // One connection dropping in the window says nothing about the other three.
+    expect(tunnelFromLog([...busy, "2026-10-24T11:00:00Z INF Unregistered tunnel connection connIndex=2"]).connections).toBeNull();
+    // cloudflared starting in the window and registering nothing since is a real zero; a restart forgets what was registered before it.
+    expect(tunnelFromLog(["2026-10-24T08:00:00Z INF Starting tunnel tunnelID=6f0c2e9a", "2026-10-24T08:00:05Z ERR Unauthorized: Invalid tunnel secret"])).toEqual({ connections: 0, since: null, lastProblem: "Unauthorized: Invalid tunnel secret" });
+    expect(tunnelFromLog(["2026-10-24T08:00:01Z INF Registered tunnel connection connIndex=0 connection=aaa", "2026-10-24T09:00:00Z INF Starting tunnel tunnelID=6f0c2e9a"]).connections).toBe(0);
+  });
+
+  it("does not take a backup date it cannot read for a recent backup", () => {
+    const protection = { available: true, apps: [{ id: "pingvin-share", protectable: true, backups: 3, newestAt: "the other day" }] };
+    expect(backupStateOf("pingvin-share", protection, [], { now: now.getTime() })).toEqual({ state: "unknown", newestAt: null, scheduled: false, backups: 3 });
   });
 });
 
@@ -309,6 +359,137 @@ describe("the hosted-domains service", () => {
     await service.tick();
     advance(60_000);
     expect(await service.tick()).toBeNull();
+  });
+
+  it("keeps a source's names, their history and their alerts when that source cannot be read, and says so", async () => {
+    const answers = { ...liveAnswers, "hosted-domains.sources": { cloudflared: [{ ingress: [{ hostname: "news.example.com", service: "http://localhost:4321", wildcard: false }] }], proxyHosts: [] } };
+    const { service, send, ledger, advance, settings } = fixture({ answers, probeFor: ({ url }) => (url === "https://news.example.com/" ? { outcome: "timeout", status: null, ms: 10_000, tls: null, error: "no answer within 10s" } : { outcome: "answered", status: 200, ms: 50, tls: null }) });
+    await service.check();
+    advance(15 * 60_000);
+    const before = await service.check();
+    expect(before.domains.map((domain) => domain.hostname)).toEqual(["share.example.com", "news.example.com", "wiki.example.com"]);
+    expect(send).toHaveBeenCalledOnce(); // news is down, twice running
+    const kept = before.domains.find((domain) => domain.hostname === "news.example.com");
+    // The helper's read of the config files times out: the name has not gone anywhere.
+    answers["hosted-domains.sources"] = new Error("the helper did not answer in time");
+    advance(15 * 60_000);
+    const during = await service.check();
+    expect(during.problem).toBe(unreadProblem);
+    expect(during.domains.map((domain) => domain.hostname).sort()).toEqual(["news.example.com", "share.example.com", "wiki.example.com"]);
+    expect(during.domains.find((domain) => domain.hostname === "news.example.com")).toEqual(kept); // the last check's verdict, as it was
+    expect(during.domains.find((domain) => domain.hostname === "share.example.com").checkedAt).toBe(during.checkedAt); // the names that could be read were checked
+    expect(settings.get("hostedDomainsHistory")["news.example.com"]).toHaveLength(2);
+    expect(ledger()["hosted.down:news.example.com"]).toMatchObject({ notified: true });
+    expect((await service.status()).problem).toBe(unreadProblem);
+    // The helper is back and the name is still down: it is one outage, pushed once.
+    answers["hosted-domains.sources"] = { cloudflared: [{ ingress: [{ hostname: "news.example.com", service: "http://localhost:4321", wildcard: false }] }], proxyHosts: [] };
+    advance(15 * 60_000);
+    const after = await service.check();
+    expect(after.problem).toBeNull();
+    expect(settings.get("hostedDomainsHistory")["news.example.com"]).toHaveLength(3);
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("stands on the whole last round when the apps cannot be read", async () => {
+    const answers = { ...liveAnswers };
+    const { service, send, ledger, advance, probes } = fixture({ answers, probeFor: ({ url }) => (url === "https://share.example.com/" ? { outcome: "timeout", status: null, ms: 10_000, tls: null, error: "no answer within 10s" } : { outcome: "answered", status: 200, ms: 50, tls: null }) });
+    await service.check();
+    advance(15 * 60_000);
+    const before = await service.check();
+    expect(send).toHaveBeenCalledOnce();
+    answers["app.inspect"] = new Error("docker did not answer");
+    advance(15 * 60_000);
+    probes.probe.mockClear();
+    const during = await service.check();
+    expect(during).toMatchObject({ problem: unreadProblem, domains: before.domains, tunnel: before.tunnel });
+    expect(probes.probe).not.toHaveBeenCalled();
+    expect(ledger()["hosted.down:share.example.com"]).toMatchObject({ notified: true });
+    answers["app.inspect"] = liveAnswers["app.inspect"];
+    advance(15 * 60_000);
+    expect((await service.check()).problem).toBeNull();
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("does not write back a name taken off the list while a round was running, and runs another round for a change made under one", async () => {
+    let gate = null;
+    const { service, ledger, advance, settings, probes } = fixture({ answers: liveAnswers, probeFor: async ({ url }) => { if (gate) await gate.promise; return url.includes("status.example.com") ? { outcome: "timeout", status: null, ms: 10_000, tls: null, error: "no answer" } : { outcome: "answered", status: 200, ms: 50, tls: null }; } });
+    service.addManual({ hostname: "status.example.com" }, { updatedBy: "op-1" });
+    await service.check();
+    advance(15 * 60_000);
+    await service.check();
+    expect(ledger()["hosted.down:status.example.com"]).toBeDefined();
+    // A round starts and reads the list; while its probes are out, the name is removed and another added.
+    advance(15 * 60_000);
+    gate = Promise.withResolvers();
+    probes.probe.mockClear();
+    const round = service.tick();
+    await vi.waitFor(() => expect(probes.probe).toHaveBeenCalled());
+    await service.removeManual("status.example.com", { updatedBy: "op-1" });
+    service.addManual({ hostname: "later.example.com" }, { updatedBy: "op-1" });
+    gate.resolve();
+    gate = null;
+    const snapshot = await round;
+    expect(snapshot.domains.map((domain) => domain.hostname)).toEqual(["share.example.com", "wiki.example.com"]);
+    expect(settings.get("hostedDomainsLast").domains.map((domain) => domain.hostname)).toEqual(["share.example.com", "wiki.example.com"]);
+    expect(settings.get("hostedDomainsHistory")["status.example.com"]).toBeUndefined();
+    expect(ledger()["hosted.down:status.example.com"]).toBeUndefined();
+    // The round that just ended read the list before it changed, so the next tick does not wait out the cadence.
+    advance(60_000);
+    const next = await service.tick();
+    expect(next.domains.map((domain) => domain.hostname)).toEqual(["share.example.com", "wiki.example.com", "later.example.com"]);
+    advance(60_000);
+    expect(await service.tick()).toBeNull();
+  });
+
+  it("asks a name where its app says it is published, and the app only at scheme, host and port", async () => {
+    const answers = {
+      ...liveAnswers,
+      "app.inspect": { applications: [app("bookstack", 8120, { env: { APP_URL: "https://books.example.com:8443/" } }), app("mealie", 9925, { env: { BASE_URL: "http://meals.example.com" } })] },
+      "cloudflare.tunnel.inspect": null,
+      "hosted-domains.sources": { cloudflared: [], proxyHosts: [{ hostnames: ["proxy.example.com"], target: "http://127.0.0.1:9000/admin/reset?" }] },
+    };
+    const { service, probes } = fixture({ answers });
+    const snapshot = await service.check();
+    expect(snapshot.domains.map((domain) => [domain.hostname, domain.url, domain.state])).toEqual([["proxy.example.com", "https://proxy.example.com", "up"], ["books.example.com", "https://books.example.com:8443", "up"], ["meals.example.com", "http://meals.example.com", "up"]]);
+    const asked = probes.probe.mock.calls.map(([probe]) => probe.url);
+    expect(asked).toEqual(expect.arrayContaining(["https://books.example.com:8443/", "http://meals.example.com/", "http://127.0.0.1:9000"]));
+    expect(asked.some((url) => url.includes("admin") || url === "https://books.example.com/")).toBe(false);
+    // The connection is held to the addresses the name was judged by.
+    expect(probes.probe.mock.calls.find(([probe]) => probe.url === "https://books.example.com:8443/")[0].addresses).toEqual(cloudflare.addresses);
+  });
+
+  it("runs a round asked for from the page no sooner than half a minute after the last, and answers with the kept one until then", async () => {
+    const { service, helper, advance } = fixture({ answers: liveAnswers });
+    const rounds = () => helper.requests.filter((request) => request.operation === "app.inspect").length;
+    expect((await service.status({ fresh: true })).domains).toHaveLength(2);
+    expect(rounds()).toBe(1);
+    for (let again = 0; again < 5; again += 1) expect((await service.status({ fresh: true })).domains).toHaveLength(2);
+    expect(rounds()).toBe(1);
+    advance(freshMinIntervalMs - 1);
+    await service.status({ fresh: true });
+    expect(rounds()).toBe(1);
+    advance(1);
+    await service.status({ fresh: true });
+    expect(rounds()).toBe(2);
+    // A name just added is checked without the wait.
+    service.addManual({ hostname: "status.example.com" }, { updatedBy: "op-1" });
+    expect((await service.status({ fresh: true })).domains).toHaveLength(3);
+    expect(rounds()).toBe(3);
+  });
+
+  it("says in the log, once, why the background round did not finish", async () => {
+    const warn = vi.fn();
+    let message = "database locked";
+    const failing = createHostedDomainsService({ store: { getSetting: () => { throw new Error(message); }, setSetting: () => {}, recordAudit: () => {} }, probes: { resolve: async () => cloudflare, probe: async () => ({ outcome: "answered", status: 200, ms: 1 }) }, now: () => now, warn });
+    expect(await failing.tick()).toBeNull();
+    expect(await failing.tick()).toBeNull();
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0][0]).toContain("database locked");
+    message = "disk full";
+    await failing.tick();
+    expect(warn).toHaveBeenCalledTimes(2);
+    for (let index = 0; index < 60; index += 1) { message = `failure ${index}`; await failing.tick(); }
+    expect(warn.mock.calls.length).toBeLessThanOrEqual(20);
   });
 
   it("stands on the last round when the names cannot be read, and says so", async () => {
