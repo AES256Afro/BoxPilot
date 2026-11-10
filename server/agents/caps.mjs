@@ -12,7 +12,9 @@
  * The Unsloth spike of 2026-09 (not kept in the repo) found that the model's threads should
  * match the whole processors in the cap (more threads than that spend the quota and sit throttled).
  * The 4B needs about 2.6 GB of memory plus its 3.6 GB of files as page cache, and a reload that
- * forgets its context asks for 8 GB more - which the memory cap stops. On the server this was
+ * forgets its context asks for 8 GB more - which the memory cap stops. The cap was 8 GB until
+ * 2026-11-09 (ADR-019), when the owner added two 9B-class builds whose files alone are 6.3 to
+ * 6.9 GB: 12 GB holds any model in the library with its files. On the server this was
  * written for (8 cores / 16 threads, about 29 GB) that is a quarter of the processor in the
  * background and half at most while a person waits, only while a run is going, and only when
  * nothing else wants it.
@@ -25,10 +27,10 @@ export const runnerCaps = Object.freeze({
   cpuWeight: "idle",
   nice: 19,
   ioSchedulingClass: "idle",
-  // The runner (about 70 MB), Unsloth's backend (0.4 GB), the 4B model (2.6 GB) and its files as
-  // page cache (3.6 GB). No MemoryHigh: throttling the page cache below the cap would make every
-  // token read the disk.
-  memoryMaxBytes: 8 * 1024 ** 3,
+  // The runner (about 70 MB), Unsloth's backend (0.4 GB), the largest library model (3.8 GB) and
+  // its files as page cache (up to 6.9 GB). No MemoryHigh: throttling the page cache below the cap
+  // would make every token read the disk.
+  memoryMaxBytes: 12 * 1024 ** 3,
   memorySwapMaxBytes: 0,
   tasksMax: 256,
   // The model server's threads in the background: one for each whole processor in the quota.

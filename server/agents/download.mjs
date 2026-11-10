@@ -5,7 +5,7 @@
  * root process writing into it could be steered by a link planted there; its own user cannot be
  * steered anywhere it could not already write.
  *
- * Only Unsloth's Qwen GGUF repositories, only from huggingface.co and its download hosts, every
+ * Only the repositories the library allows (models.mjs), only from huggingface.co and its download hosts, every
  * byte checked against the SHA-256 Hugging Face publishes, free space checked first; a file that
  * does not match is not kept. The layout is the one `unsloth run` reads offline:
  * hub/models--<org>--<name>/{blobs/<sha256>, snapshots/<commit>/<file> -> ../../blobs/<sha256>, refs/main}.

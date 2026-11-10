@@ -2001,7 +2001,7 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
   Registered operations: `agents.runtime.install` (medium, owner; the installer's SHA-256 and the
   release it installed are kept, and the Agents section says when that is not 2026.9.12, the one
   measured), `agents.runtime.enable` (medium, owner), `agents.runtime.disable` (low),
-  `agents.model.download` (medium, owner: Unsloth's Qwen GGUFs only, every byte checked against
+  `agents.model.download` (medium, owner: Unsloth's Qwen GGUFs and, since ADR-019, HauhauCS's Gemma 4 E4B and Qwen 3.5 9B builds, every byte checked against
   Hugging Face's SHA-256, space checked first; the preview gives size, time and memory),
   `agents.model.switch` (medium, owner), `agents.model.remove` (medium, owner; never the model in use)
   and the read `agents.runtime.inspect`. The model library (`models.mjs`) holds Qwen 3.5 4B (the
@@ -2159,7 +2159,7 @@ the content). The engine is `feat/m37-agents-engine`; the section is `feat/m37-a
 - **The caps** (`server/agents/caps.mjs`, held to the unit by `caps.test.mjs`): `CPUQuota=400%` (four
   processors since M37.8, the owner's choice: a quarter of a sixteen-thread server at most, only while a
   run goes; the model runs a thread for each, as the spike found best; it was one processor), `CPUWeight=idle`, `Nice=19`, `IOSchedulingClass=idle`,
-  `MemoryMax=8G` (the 4B's 2.6 GB plus its 3.6 GB of mapped files, with room; no swap),
+  `MemoryMax=8G` (the 4B's 2.6 GB plus its 3.6 GB of mapped files, with room; no swap; 12G since ADR-019 for the 9B-class builds),
   `TasksMax=256`, loopback-only
   networking (`IPAddressDeny=any`), its own user, no capabilities. The unit is installed with the
   others by the upgrade script and stays disabled until the owner turns Agents on; an upgrade

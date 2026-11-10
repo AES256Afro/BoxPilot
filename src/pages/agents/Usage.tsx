@@ -278,7 +278,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
         </Notice>
       )}
 
-      <Panel className="agents-models" title="Models" count={runtime.library.length} meta="Unsloth's 4-bit Qwen 3.5 builds that read text and images">
+      <Panel className="agents-models" title="Models" count={runtime.library.length} meta="4-bit builds that read text and images: Unsloth's Qwen 3.5, and HauhauCS's refusal-removed Gemma 4 and Qwen 3.5">
         <Table caption="Models agents can use" columns={modelColumns} rows={runtime.library} rowKey={(model) => model.id} rowStatus={(model) => (model.current ? "good" : undefined)} />
       </Panel>
 

@@ -5,7 +5,7 @@
 # cgroup, from the kernel's counters:
 #
 #   1. The unit carries the caps as shipped (CPUQuota=400%: four processors, CPUWeight=idle, Nice=19,
-#      IOSchedulingClass=idle, MemoryMax=8G, loopback only), its key comes from LoadCredential, and it
+#      IOSchedulingClass=idle, MemoryMax=12G, loopback only), its key comes from LoadCredential, and it
 #      runs as its own user.
 #   2. The quota is enforced. GitHub's runners have four processors, so the shipped 400% can never be
 #      reached there; the test lowers the running unit's quota to 200% (systemctl set-property
@@ -109,7 +109,7 @@ check "CPUQuota is 400% ($(show CPUQuotaPerSecUSec) a second)" [ "$(show CPUQuot
 check "CPUWeight is idle ($(show CPUWeight))" weight_idle
 check "Nice is 19" [ "$(show Nice)" = "19" ]
 check "IOSchedulingClass is idle ($(show IOSchedulingClass))" io_idle
-check "MemoryMax is 8G ($(show MemoryMax))" [ "$(show MemoryMax)" = "$((8 * 1024 * 1024 * 1024))" ]
+check "MemoryMax is 12G ($(show MemoryMax))" [ "$(show MemoryMax)" = "$((12 * 1024 * 1024 * 1024))" ]
 check "the cgroup's cpu.max is 400000 per 100000" [ "$(cut -d' ' -f1-2 "${CGROUP}/cpu.max")" = "400000 100000" ]
 check "only loopback is allowed ($(show IPAddressDeny))" [ -n "$(show IPAddressDeny)" ]
 check "it runs as boxpilot-agents" [ "$(show User)" = "boxpilot-agents" ]
@@ -184,7 +184,7 @@ note "busy while someone waits: ${RAISED}% (300%, and the model wants three proc
 check "it uses the raise (${RAISED}% >= 150%)" awk -v v="$RAISED" 'BEGIN { exit !(v >= 150) }'
 check "and stays inside it (${RAISED}% <= 305%)" awk -v v="$RAISED" 'BEGIN { exit !(v <= 305) }'
 check "idle priority holds while raised (Nice $(show Nice), $(show IOSchedulingClass))" sh -c "[ \"\$(systemctl show ${UNIT} -p Nice --value)\" = 19 ]"
-check "the memory cap holds while raised ($(show MemoryMax))" [ "$(show MemoryMax)" = "$((8 * 1024 * 1024 * 1024))" ]
+check "the memory cap holds while raised ($(show MemoryMax))" [ "$(show MemoryMax)" = "$((12 * 1024 * 1024 * 1024))" ]
 # Nobody takes it back (the web service is gone): the timer does, within its minute.
 check "the timer puts the background quota back by itself" wait_for 80 at_background
 check "and its transient units are collected" sh -c '! systemctl is-active --quiet boxpilot-agents-cpu-reset.timer'

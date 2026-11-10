@@ -22,7 +22,7 @@
  *     so reading is no slower).
  *   - --cache-ram 1024: llama-server keeps earlier prompts in memory to reuse them (8 GiB unless
  *     told), and each of this hybrid model's holds its checkpoints too; a gigabyte keeps the last
- *     few inside the 8 GB memory cap.
+ *     few inside the memory cap.
  *   - UNSLOTH_MODEL_IDLE_TTL=900: Unsloth frees the model itself after 15 quiet minutes (about 2 GB)
  *     and reloads it in about 4 s on the next request; this runner stops the whole server, its Python
  *     backend too, after the owner's longer idle time (an hour by default).

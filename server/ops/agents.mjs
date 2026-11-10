@@ -38,7 +38,7 @@ export function agentsOperations() {
     }),
     defineOperation({
       id: "agents.runtime.enable", title: "Start the agents runner", risk: "medium", minimumRole: "owner", timeoutMs: minutes(3),
-      description: "Starts the agents runner and keeps it starting with this server. It is capped: four processors in the background, up to eight while you wait, the lowest priority, 8 GB of memory, and reachable from this server only. A model is loaded only when an agent runs, and unloaded after an hour with nothing to do.",
+      description: "Starts the agents runner and keeps it starting with this server. It is capped: four processors in the background, up to eight while you wait, the lowest priority, 12 GB of memory, and reachable from this server only. A model is loaded only when an agent runs, and unloaded after an hour with nothing to do.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("agents.enable", {}, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({

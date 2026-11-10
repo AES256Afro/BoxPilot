@@ -32,9 +32,10 @@ export const cacheDirectory = (stateDir, repo) => path.join(stateDir, "hf", "hub
  * @param {{ repo?: string, file?: string, projector?: string | null }} parameters
  */
 export function readModelParameters({ repo, file, projector = null }) {
-  // Unsloth's Qwen GGUFs, and the one embedder memory search uses: nothing else is downloaded.
+  // Unsloth's Qwen GGUFs, the two HauhauCS repositories the owner chose (ADR-019), and the one
+  // embedder memory search uses: nothing else is downloaded.
   const embedder = repo === embedderModel.repo && file === embedderModel.file;
-  if (!repoPattern.test(repo ?? "") && !embedder) throw new Error("Only Unsloth's Qwen GGUF repositories are downloaded");
+  if (!repoPattern.test(repo ?? "") && !embedder) throw new Error("Only Unsloth's Qwen GGUF repositories and the owner's two HauhauCS builds are downloaded");
   if (!ggufPattern.test(file ?? "") || !quantOf(file)) throw new Error("The model file must be a quantised .gguf");
   if (projector !== null && projector !== undefined && !ggufPattern.test(projector)) throw new Error("The vision projector must be a .gguf");
   return { repo, file, projector: projector ?? null, quant: quantOf(file) };

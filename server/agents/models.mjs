@@ -1,7 +1,8 @@
 /**
- * The model library (M37): the small Qwen models the agents runner can serve through Unsloth, what
- * each needs, and a daily look for a newer one. Local models only; the owner chose Unsloth's GGUF
- * builds of the newest small Qwen that reads text and images.
+ * The model library (M37): the small models the agents runner can serve through Unsloth, what each
+ * needs, and a daily look for a newer one. Local models only; the owner chose Unsloth's GGUF builds
+ * of the newest small Qwen that reads text and images, and (2026-11-09, ADR-019) HauhauCS's
+ * refusal-removed builds of Gemma 4 E4B and Qwen 3.5 9B, with the memory cap raised to fit them.
  *
  * Sizes here are what the previews say before a download starts; the download itself takes the
  * exact sizes and checksums from Hugging Face and verifies every byte (download.mjs). Memory, and
@@ -10,7 +11,9 @@
  * a 400% quota on a four-processor GitHub runner (.github/workflows/agents-bench.yml), where the
  * runner's caps now put it. `measuredAt` says which. The home server is faster than either, and
  * the Usage tab shows its own measured speed once a run has gone. Tool calling 5 of 5 and chart
- * reading right for all three sizes.
+ * reading right for all three Qwen sizes. The two HauhauCS builds are not measured yet: their
+ * speeds are estimates from the Qwen figures (the E4B's from the 4B's, the 9B's from Unsloth's 9B
+ * at four threads), and `measuredAt` says so until the bench or a real run replaces them.
  *
  * memoryBytes is what the runner's memory cap is charged for a model: its memory after a few
  * requests plus its files, which are mapped and count as the cgroup's page cache once read.
@@ -71,14 +74,54 @@ export const modelLibrary = Object.freeze([
     projector: "mmproj-F16.gguf",
     approxBytes: 5_900_000_000,
     approxProjectorBytes: 920_000_000,
-    memoryBytes: 10_700_000_000, // 3.8 GB + 6.9 GB of files: more than the 8 GB cap
+    memoryBytes: 10_700_000_000, // 3.8 GB + 6.9 GB of files: inside the 12 GB cap since ADR-019, over the 8 GB it had
     contextTokens: 8_192,
     tokensPerSecond: 2.3,
     measuredAt: "one processor (the spike)",
     vision: true,
     tools: true,
     recommended: false,
-    note: "Slow (about 2 words a second and four minutes to read a long prompt, measured on one processor), and with its 6.9 GB of files it needs more than the 8 GB memory cap: every word would read the disk. Not recommended.",
+    note: "Slow (about 2 words a second and four minutes to read a long prompt, measured on one processor), and its 6.9 GB of files take most of the memory cap. Not recommended.",
+  },
+  {
+    id: "gemma4-e4b-uncensored",
+    title: "Gemma 4 E4B, refusals removed (HauhauCS, 4-bit)",
+    family: "gemma4",
+    parameters: 4,
+    repo: "HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive",
+    quant: "Q4_K_M",
+    file: "Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+    projector: "mmproj-Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-f16.gguf",
+    approxBytes: 5_335_000_000,
+    approxProjectorBytes: 990_000_000,
+    memoryBytes: 9_300_000_000, // about 3.0 GB + 6.3 GB of files: an estimate until a run measures it
+    contextTokens: 8_192,
+    tokensPerSecond: 7,
+    measuredAt: "not measured: an estimate from the Qwen 4B at four threads",
+    vision: true,
+    tools: true,
+    recommended: false,
+    note: "Google's Gemma 4 E4B with its refusals removed by HauhauCS (the Aggressive build), 4-bit with an importance matrix. About the Qwen 4B's size of work per word, so a similar speed is expected, with larger files. Reads images through its projector. Not measured here yet.",
+  },
+  {
+    id: "qwen3.5-9b-uncensored",
+    title: "Qwen 3.5 9B, refusals removed (HauhauCS, 4-bit)",
+    family: "qwen3.5",
+    parameters: 9,
+    repo: "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
+    quant: "Q4_K_M",
+    file: "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+    projector: "mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
+    approxBytes: 5_627_000_000,
+    approxProjectorBytes: 922_000_000,
+    memoryBytes: 10_400_000_000, // about 3.8 GB + 6.6 GB of files: an estimate from Unsloth's 9B
+    contextTokens: 8_192,
+    tokensPerSecond: 4.5,
+    measuredAt: "not measured: an estimate from Unsloth's 9B at four threads",
+    vision: true,
+    tools: true,
+    recommended: false,
+    note: "Qwen 3.5 9B with its refusals removed by HauhauCS (the Aggressive build), 4-bit. The same model as Unsloth's 9B underneath, so expect about half the 4B's speed and a long prompt read in minutes. Reads images through its projector. Not measured here yet.",
   },
 ]);
 
@@ -91,8 +134,11 @@ export const defaultModelId = modelLibrary.find((model) => model.recommended).id
  */
 export const embedderModel = Object.freeze({ repo: "unsloth/bge-small-en-v1.5-GGUF", file: "bge-small-en-v1.5-f16.gguf", approxBytes: 67_582_560, dimensions: 384 });
 
-/** Only Unsloth's own Qwen GGUF repositories: the owner chose them, and nothing else is downloaded. */
-export const repoPattern = /^unsloth\/Qwen\d+(?:\.\d+)?-\d+(?:\.\d+)?B(?:-Instruct)?-GGUF$/;
+/**
+ * Unsloth's own Qwen GGUF repositories, and the two HauhauCS repositories the owner chose
+ * (ADR-019), named whole: nothing else is downloaded.
+ */
+export const repoPattern = /^(?:unsloth\/Qwen\d+(?:\.\d+)?-\d+(?:\.\d+)?B(?:-Instruct)?-GGUF|HauhauCS\/(?:Gemma-4-E4B|Qwen3\.5-9B)-Uncensored-HauhauCS-Aggressive)$/;
 export const ggufPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.gguf$/;
 
 /** The quantisation Unsloth's `--model repo:quant` names, from the file: "Qwen3.5-4B-UD-Q4_K_XL.gguf" is UD-Q4_K_XL. */

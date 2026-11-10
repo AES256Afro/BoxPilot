@@ -1430,3 +1430,51 @@ taken, and the catalog says so in Backrest's own description.
 Accept 1–5, or accept it only for apps whose data passes a size threshold (the eighteen small apps
 gain nothing and would carry the key risk for no reason), or keep tarballs and answer only the
 off-box growth with a lifecycle rule at the destination.
+
+## ADR-019: the model library takes two refusal-removed builds, and the runner's memory cap is 12 GB
+
+**Date:** 2026-11-09 · **Status:** Accepted · **Refines:** ADR-005's "the newest small Qwen from Unsloth" and the 8 GB cap in `server/agents/caps.mjs`.
+
+### Context
+
+The owner asked for Gemma 4 for the agents, then settled on two builds by HauhauCS on Hugging
+Face: `Gemma-4-E4B-Uncensored-HauhauCS-Aggressive` and `Qwen3.5-9B-Uncensored-HauhauCS-Aggressive`,
+both GGUF with a vision projector, both the author's "Aggressive" refusal-removal of the stock
+instruction-tuned weights. A 12B was considered and set aside as too heavy for a CPU-only server.
+
+Two things stood in the way. The download operation's parameter spec only accepted Unsloth's own
+Qwen repositories (`repoPattern`, ADR-005), and the 8 GB memory cap, chosen for the 4B's 2.6 GB of
+memory plus 3.6 GB of files, had no room for a 9B-class model whose files alone are 6.3 to 6.9 GB:
+a page cache squeezed below the files makes every word read the disk, which is why the library
+marked Unsloth's 9B "not recommended".
+
+The refusal removal was raised as a risk and the owner chose to proceed. Agents read tool output,
+chat and documents that can carry instructions meant for the model, and a model tuned never to
+refuse is more likely to follow them. The taint, guard and red-team tests do not depend on the
+model refusing, since every action goes through a card a person approves (ADR-005), but a model
+that complies with an injected instruction will propose worse cards more often.
+
+### Decision
+
+1. **The allowlist names the two repositories whole.** `repoPattern` matches Unsloth's Qwen GGUF
+   repositories as before, plus exactly those two HauhauCS repositories: not the author, not the
+   Balanced variants, not the E2B or the 12B. Another build is another line here, approved the
+   same way. Every byte is still checked against Hugging Face's published SHA-256.
+2. **Two library entries**, `gemma4-e4b-uncensored` and `qwen3.5-9b-uncensored`, Q4_K_M with the
+   f16 / BF16 projector. Neither is recommended and neither is measured: their speeds are estimates
+   from the Qwen figures, their `measuredAt` says so, and the bench or a real run replaces them.
+   Qwen 3.5 4B stays the default.
+3. **The memory cap is 12 GB** (`MemoryMax=12G`, `runnerCaps.memoryMaxBytes`), enough for the
+   largest library model and its files as page cache. The four processors, idle priority and
+   loopback-only network stay. On the owner's 29 GB server this is under half the memory, only
+   while a run is going. Unsloth's 9B now fits the cap too and loses its "over the cap" mark, but
+   stays not recommended for its speed.
+
+### Consequences
+
+- The nightly "newer Qwen" card (`findNewerQwen`) only knows Unsloth's repositories, so an agent on a
+  HauhauCS build gets no card for a newer HauhauCS build; the owner follows those by hand.
+- The refusal-removed builds are the owner's to evaluate against the stock ones on the golden
+  questions (M37's evaluation) before any agent is moved to them.
+- An upgrade applies the new cap when the running unit is restarted (`boxpilot-upgrade.sh`
+  try-restarts it); until then the old 8 GB holds and a 9B-class model would thrash.
