@@ -270,7 +270,6 @@
     "src/repair/useRepairFixes.tsx: recordAttempt": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "src/shell/ActivityDrawer.tsx: matchesSearch": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "src/shell/commandIndex.ts: pageCommands": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
-    "src/shell/refresh.ts: refreshEvent": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "src/useTheme.ts: APPEARANCES": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "src/useTheme.ts: RETIRED_PALETTE_KEY": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "src/useTheme.ts: THEME_KEY": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it."
