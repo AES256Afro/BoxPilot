@@ -208,7 +208,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
   Grafana and the graphs are drawn. cAdvisor (per-container metrics) ships too (v1.57.0),
   running unprivileged with read-only host mounts and /dev/kmsg, verified live scraping UP on
   the server's cgroup v2. Remaining: the libvirt exporter and a per-container dashboard.
-- ◐ **M8.4** Failed-job push notifications: `server/notifications.mjs` subscribes to the job-event stream and sends one push per failed job to ntfy, Gotify, or a webhook (both servers are catalog apps, so alerts can stay on-host); Settings panel with password-gated target + test button; deliveries and failures audited. Remaining triggers: updates available, backup stale, disk >90%, SMART, UPS. Host-health alerting stays with the ops CLI per HANDOFF.md. ✅ (v2) **Health alerts** (`server/health-alerts.mjs`): a 15-minute watcher over the sanitized inventory pushes once when a condition appears and once when it clears. Root/mounted disk ≥ 85–90 % full, SMART problems, UPS on battery/low, failed services, reboot required, unhealthy containers; state in the `healthAlertsState` setting so restarts do not re-send.
+- ◐ **M8.4** Failed-job push notifications: `server/notifications.mjs` subscribes to the job-event stream and sends one push per failed job to ntfy, Gotify, or a webhook (both servers are catalog apps, so alerts can stay on-host); Settings panel with password-gated target + test button; deliveries and failures audited. Remaining triggers: updates available, backup stale, disk >90%, SMART, UPS. Host-health alerting stays with the ops CLI per `docs/HANDOFF-OPS-CLI.md`. ✅ (v2) **Health alerts** (`server/health-alerts.mjs`): a 15-minute watcher over the sanitized inventory pushes once when a condition appears and once when it clears. Root/mounted disk ≥ 85–90 % full, SMART problems, UPS on battery/low, failed services, reboot required, unhealthy containers; state in the `healthAlertsState` setting so restarts do not re-send.
 - ✅ **M8.5** Log viewer: registry ops `logs.sources` (journal groups, every systemd unit, every container) and `logs.read` (tail any of them with a time window and text filter, redacted). The Logs page offers group tabs, a unit finder, a container picker, follow mode, and download; the support bundle reads through the same op. The fixed-four-sources route and `system.logs.inspect` legacy op are deleted.
 
 ### Phase 9, Network platform (2 weeks)
@@ -1308,7 +1308,7 @@ Suggested order: release the reviewed fixes; M32.4 and M29.2; M27.5 plus M32.1-2
 Decided 2026-09-28 (ADR-004): the owner chose the Launcher and the Command Center from the ten
 directions in `docs/design-directions/04-eight-directions.html`. One design system, two views of
 the same data; light and dark, following the device with an override. The plan and the earlier
-study are in `HANDOFF-UI-REDESIGN.md` (B1-B7); this milestone takes B1-B4 and leaves the rest to
+study are in `docs/HANDOFF-UI-REDESIGN.md` (B1-B7); this milestone takes B1-B4 and leaves the rest to
 the milestones they overlap.
 
 - ✅ **M33.1 Design system** (B1, unreleased). `src/styles.css` holds one set of colour tokens
@@ -3600,6 +3600,342 @@ network; and the Today page draws whatever the server sends, knowing no app by n
   digest; a question about CVEs, KEV, security news or a standard points at it. Tests replay
   responses recorded from BaselineWatch 0.10.0 (`test/fixtures/baselinewatch`): the reader, the
   registry and addresses, the tool, the route and the card.
+
+## M52: The audit loop
+
+Asked for 2026-11-04: rolling code, bug and security sweeps, each retiring itself from the loop
+after three consecutive sweeps that find nothing, then readability, usability, visual,
+quality-of-life, platform-feature and optimization sweeps on the same rule. The ledger — which
+sweep each category is on, and what each one looked at and cleared — is
+`docs/reviews/2026-11-04-audit-loop.md`, so a later session picks the loop up without re-reading
+the repo. Sweep 1 of the three opening categories found four code items, three bugs and no security
+gap; the security sweep's checklists are written down in the ledger rather than repeated here.
+
+- ✅ **M52.1 The scan behind Repair gets a test, and its clock back.**
+  `server/remediations-scan.mjs` is the join between every helper read and every detector, reached
+  by both `GET /remediations` and the agents' `repair.findings`, and the only module of its size in
+  `server/` with nothing testing it — while `remediations.mjs`, the detectors it feeds, has 960
+  lines. The asymmetry has already cost one defect: the function takes an injected `now` and then
+  sets `facts.now = Date.now()`, so the backup-staleness window the detectors compute is measured
+  off the wall clock while the answer's `checkedAt` comes from the injected clock. `facts.now =
+  now()`, and a test with a fixed clock and recorded helper answers that holds the shape: which
+  reads an operator's scan makes and a viewer's does not, what `unavailableChecks` says when each
+  read fails, and that the tiers on each fix come from the registry.
+- ✅ **M52.2 Nightly clean-up attribution by run time, not by clock arithmetic.** Whether a
+  `docker.prune` job was the schedule's is decided by matching the job's local hour to the
+  schedule's and its minute to within five minutes after it. A schedule at :58 whose job started at
+  :01 fails the hour comparison, so an app the clean-up removed is told nobody's story instead of
+  "removed by the nightly clean-up"; and the branch covers weekly schedules without comparing the
+  weekday, so a hand-run prune at the same clock time on another day is attributed to the weekly
+  schedule. Compare against the schedule's own computed run time (`computeNextRun`) instead; both go.
+- ✅ **M52.3 The dead operations route, and what it was leaking.**
+  `GET /api/v1/operations` is reachable only through `listOperations()` in `src/operations.ts`,
+  which nothing calls. It is also the one place `registry.describe()` goes over the wire, and
+  `describe()` does not filter `internal` operations, so it hands every role the ids, titles, risk
+  tiers and parameter names of plumbing every other path refuses to run for them. Both go; if the
+  route is ever wanted back, `describe()` filters `internal` first.
+- ✅ **M52.4 Twenty-five exports nothing reads, twelve of them dead test hatches.** An `*Internals`
+  object says "a test depends on these private helpers"; in twelve modules
+  (`state`, `inventory`, `maintenance`, `ups`, `tasks/ups`, `support-bundle`, `storage-evidence`,
+  `recovery-kit`, `prerequisite-helper`, `controller-retention-helper`, `vm-helper`, `vm-media`,
+  `vm-protection-helper`, `vm-retention-helper`, `action-center`, `scripts/boxpilot-storage-scan`)
+  no test does. Those, and thirteen ordinary dead values, go.
+- ✅ **M52.5 One check that fails on an export nothing outside the file reads.** 277 exports in
+  `server/`, `src/`, `scripts/` and `packages/` are used only inside their own file. The fix worth
+  having is not the 277 edits: it is the invariant, written down once, in `npm run check` — the
+  shape of `escalation-inventory.test.mjs`, which already fails on any new operator-approvable
+  operation until someone has said why it is safe. That test is the pattern to copy, with a
+  reviewed-exceptions list for the names that are exported deliberately.
+- ✅ **M52.6 One "actually running" predicate.**
+  `Boolean(app.container?.running) && app.container?.status !== "paused"` is written out at
+  `server/app-glances.mjs`, `server/remediations-scan.mjs` (twice), `server/hosted-domains.mjs`
+  (twice) and `server/ops/cloudflare.mjs`. They agree today; the day "restarting" should also not
+  count as running, five of the six get missed. One exported helper, six call sites.
+- ✅ **M52.7 The root handoff files, in `docs/`.** Three handoff notes sat at the repo root, where
+  a newcomer meets them before `CLAUDE.md` points them at the roadmap:
+  `HANDOFF.md` → `docs/HANDOFF-OPS-CLI.md`, `HANDOFF-KEEL.md` and `HANDOFF-UI-REDESIGN.md` →
+  `docs/`, with the citations in ADR-004 and M8.4 updated. The UI-redesign note was going to be
+  deleted as superseded; it is not. ADR-004 and M33 both still cite it as the record of the eight
+  design directions, and M33 took B1-B4 and left B5-B7 there deliberately, so deleting it would
+  have thrown away the part that has not been decided. It moves instead. The move also fixes a
+  quiet mismatch: `internalDocuments` in `server/agents/tools.mjs` already matches
+  `docs/HANDOFF*.md`, so while these three were at the root the agents read them as documents for
+  the owner rather than for the people building BoxPilot.
+- ✅ **M52.8 Coverage, not an empty-sweep count, retires a usability sweep.** Three consecutive
+  sweeps with nothing is a real stopping rule for code, bug and security, where a codebase can
+  genuinely be clean. Usability, visual and quality of life never run out: M50.1 found thirty items
+  on its own, and three empty sweeps there would say the sweeper stopped looking, not that there was
+  nothing left. Of the three candidate rules, a fixed number of passes and the owner's verdict after
+  a week both depend on somebody remembering how many passes have happened, which does not survive
+  a session boundary. So: `docs/reviews/sweep-coverage.json`, a row per page and per shell surface
+  per category, with the date, the sweep number and the count of findings. A category retires when
+  every surface has been reviewed in this loop and the last pass over all of them found nothing; a
+  review goes stale after eight weeks and then counts as unreviewed. A ledger of dates rots the
+  moment a page is added, so `npm run check:sweeps` checks the rows against `navItems` in
+  `src/data.ts` — the list the screenshot and sweep scripts already read — and fails on a page with
+  no row or a row with no page. Time passing is not a failure: a stale review is reported, because a
+  check that goes red on its own while nobody has touched the code teaches people to ignore it.
+  Every row starts unreviewed, which is the honest state: the usability, visual and
+  quality-of-life sweeps have not run in this loop yet.
+
+## M53: The audit loop's second sweep
+
+Sweep 2 of code, bug and security, run 2026-11-04 over ground sweep 1 did not touch; the findings
+and what each sweep cleared are in `docs/reviews/2026-11-04-audit-loop.md`. Two bugs, two code
+items, one fail-open default. None of them is a live fault: the value of the sweep is that three of
+the five are the same shape as something already fixed or already written down, which says the rule
+exists and nothing enforces it.
+
+- ✅ **M53.1 The auth service uses the clock it is given.** `createAuthService` accepts
+  `now` and honours it in one place, session renewal. The elevation window
+  (`new Date(Date.now() + elevationTtlMs)` — the deadline behind every high-risk approval and every
+  secret read), the ended-for-address memory, a trusted device's `createdAt` and the time written
+  into the new-sign-in push all read the wall clock instead. Same fault as M52.1, in the module
+  where it matters most: of the six test files that build an auth service, only
+  `session-renewal.test.mjs` passes a clock, and it tests the one path that honours it. Thread `now`
+  through all five, then test what could not be tested before: that elevation expires, that a
+  session ended for an address stops saying so after `sessionTtlMs`.
+- ✅ **M53.2 Bound the hosted-domains file read inside each file, not just by file count.**
+  `readHostedSources` caps proxy-host files at 200 and puts no cap on what one file may contain.
+  Measured: 50,000 `ingress` rules make 4.1 MB of JSON, 200,000 `server_name` entries in one file
+  make 4.3 MB. The 32 MiB helper reply cap means this is not an out-of-memory, it is the Hosted
+  domains page losing every file-derived name to "Helper response exceeds the 33554432-byte limit"
+  — a bound reported in bytes to someone who wanted to know where their domains point. Cap the
+  names per file and the rules per file, and say the list was cut.
+
+  **Superseded on main, and the merge took main's version.** While this branch was open, main
+  hardened the same read much further: these files are an app's data, a container writes them and
+  root reads them, so only a regular file is opened, never through a link, never one that could
+  block or has no end; and the budget is global (`sourceLimits`: 256 KiB a file, 500 proxy files,
+  5,000 directory entries looked through, 32 names from one file, 200 names in all) rather than
+  per-file. It also validates the upstream host, which this did not. Every bound this item added,
+  main bounds tighter.
+
+  One thing of this item did not survive the merge, and is not lost by accident: it told the owner
+  when a list had been cut, through the snapshot's `problem` line. Main now uses `problem` for
+  which sources could not be read, which is a different and larger fact, and chose not to report
+  truncation. Whether the page should say both — and how one line carries them — is a decision
+  about what the page says, not something a merge should settle, so it is left open here.
+- ✅ **M53.3 One retention path, not two copies that drift.**
+  `controller-retention-helper.mjs` and `vm-retention-helper.mjs` share 136 of 164 lines after
+  renaming; `controller-retention.mjs` and `vm-retention.mjs` 98 of 164;
+  `vm-recovery-helper.mjs` and `vm-restore-drill-helper.mjs` share their input validators. This is
+  root-running code that decides which backups may be deleted, and it has already drifted: both
+  validate restic's snapshot evidence on line 84, and only the controller side rejects a
+  `snapshot.time` that is a string but not a date. Nothing breaks downstream today, which is the
+  point — the divergence is invisible until it is not. Share the input validators and the evidence
+  checks; keep apart only what is really different (the tag, the repository path, the cache root).
+- ✅ **M53.4 A guard that refuses rather than waves through.**
+  `server/routes/virtualization.mjs` defaults `auth?.requireCsrf` to a middleware that calls
+  `next()`. `index.mjs` passes `auth`, so nothing is open; but the default on a missing dependency
+  is "no CSRF check", on the two routes that accept a multi-gigabyte upload and a creation preview,
+  and no other router here defaults a guard this way. Require `auth`, or throw when it is absent.
+- ✅ **M53.5 The narrow clock check pays, as an ESLint rule.**
+  `eslint-rules/use-the-injected-clock.mjs`, in `npm run lint` over `server/`, `scripts/` and
+  `packages/`: inside a function that has `now` in scope as a parameter, a `Date.now()` or
+  `new Date()` is reported unless it is elapsed-time arithmetic (either side of `+` or `-`), a
+  stopwatch mark (a variable whose every reference is such arithmetic, checked through the
+  variable's own references), a fallback for a clock that was not passed (`?? Date.now()`), or the
+  clock's own parameter default. Three reports on the tree: the Storage forecast route, which
+  shadowed the router's injected `now` with `const now = Date.now()` and so dated a forecast from a
+  different clock than everything else in the file — fixed, along with a second consumer on the next
+  line that had been reading the shadow — and two legitimate reads (an id in `agent-admin.mjs`, a
+  running step's deadline comparison in `flows.mjs`) which carry
+  `// eslint-disable-next-line boxpilot/use-the-injected-clock` and a reason.
+
+  Written down for sweep 3, because two approaches were tried and failed first. The TypeScript
+  compiler API is not available: `typescript` 7 ships only `version` to ESM, so an AST walk through
+  it is out, and `acorn`/`espree` are eslint's transitive dependencies rather than ours. ESLint
+  itself is the right host — declared, already parsing these files, with scope analysis and
+  `eslint-disable` as the exception mechanism, which beats the separate allowlist file M52.5 needed.
+  The rule's own first two versions reported 151 parameter defaults, because
+  `now = () => Date.now()` puts the read in a concise arrow body: the check for "is this a parameter
+  default" has to look at every enclosing function's parameter ranges, not the innermost function's.
+  It is not run over `src/`, which `npm run lint` does not cover.
+
+## M54: The checks are checked
+
+Asked for after PR #640's CI caught `check:exports` passing on everything: two of the three checks
+added in M52 and M53 shipped in a state where they could not fail. The export check's allowlist was
+inside its own corpus, so every entry looked read; rewritten to walk the filesystem, it was then
+fooled by a gitignored demo bundle that names every identifier in the app, and reported "275 of 275
+reviewed" while seeing nothing. The clock rule's first two versions reported 151 parameter defaults.
+Both were found, one of them by CI on a pull request rather than by anyone here, and both were found
+by hand rather than by anything that would catch the next one.
+
+A guard that fails this way does not just stop working: its green output reads as evidence, so it is
+worse than having no guard at all. A positive run proves nothing about it. So every check this repo
+runs on itself now ships with the negative case, the same way the code it guards does.
+
+- ✅ **M54.1 A harness for running a check against a tree built for the occasion.**
+  `test/check-harness.mjs`: `runCheck(script, { tracked, untracked })` gives a check a temporary git
+  repository holding exactly the files a case needs — `tracked` staged so `git ls-files` sees them,
+  `untracked` written and not, which is how a build artifact reaches a working copy — and returns
+  what it printed and the code it exited with. No global git config is read, so a developer's
+  `commit.gpgsign` cannot change what a test sees.
+- ✅ **M54.2 Self-tests for all four checks of ours.**
+  `check:exports` (10 cases), `check:sweeps` (11), `check:syntax` and `check:shell` (8, which had
+  none and predate the convention), and the clock rule (25, through ESLint's `RuleTester`). Each
+  carries the bugs that shipped as cases: the allowlist in its own corpus, the untracked bundle that
+  named every export, the parameter-default shapes that produced 151 false positives. For the two
+  coverage checks the cases that must *not* fail are as important: time passing is reported and never
+  red, and a sweep that found things is the sweep working.
+- ✅ **M54.3 The convention, enforced.** `test/checks-have-self-tests.test.mjs` reads the
+  `check:*` scripts out of `package.json` and the rules out of `eslint-rules/`, and fails on any that
+  has no `<name>.test.mjs` — with a message naming the file to write and the harness to write it
+  with. A check that is somebody else's to prove (`tsc`, eslint's own rules, the churn probe that
+  asserts directly and is not in `npm run check`) goes in a reviewed list in that file with the
+  reason. It also checks that each self-test actually asserts a failure, so a file of happy paths
+  does not satisfy the rule, and that `npm run lint` covers `eslint-rules/` — which it did not.
+  Probed in both directions: a new `check:*` without a test fails, and so does a new rule.
+- ✅ **M54.4 The invariant tests cannot pass over nothing.** The same fault one level up: a test
+  whose whole claim is "every X satisfies Y" proves nothing when X is empty, and a broken import or
+  a filter that stops matching makes it green. Four were in that state, including
+  `escalation-inventory.test.mjs`, the test the rest of this security story leans on. Each now
+  asserts the size of its subject before the invariant: 82 operator-approvable free-form operations,
+  163 job operations that must leave room for the helper's wait, 120+ catalog manifests that must not
+  escape a fixed value, and more stylesheets than looks. Demonstrated by collapsing the escalation
+  inventory's filter to match nothing: both original assertions still passed, and only the new floor
+  failed.
+
+  Not done, and deliberately: a scan found about 200 more loops over a computed collection with no
+  size assertion. Almost all are intermediate loops inside tests that assert plenty else, where an
+  empty collection is not the whole claim. The four above are the ones whose entire value is the
+  breadth of what they cover. Chasing the other 200 would be churn.
+
+- ✅ **M54.5 No test file silently never runs.** The purest form of the fault: a test vitest does
+  not collect cannot fail, costs nothing, and appears in no count — there is no red to notice.
+  `eslint-rules/use-the-injected-clock.test.mjs` was written into a directory no `include` pattern
+  covered, and ran only because its author happened to check the config. `test/every-test-runs.test.mjs`
+  reads the patterns out of `vite.config.ts` (rather than restating them) and the file list out of
+  git, and fails on a tracked test file no pattern matches. Its own glob translation is tested too,
+  since the guard is only as good as that. Probed with a test file in `tools/`: the guard names it,
+  and `vitest list` confirms the file — which contained `expect(1).toBe(2)` — was collected zero
+  times.
+- ✅ **M54.6 No check is defined and then left unrun.** A `check:*` script in `package.json` that
+  nothing invokes is as inert as one that cannot fail. Every check must either be in the
+  `npm run check` gate or be recorded against the workflow that runs it, and that record is
+  verified by reading the workflow rather than trusting the comment: `check:retention` is run by
+  `.github/workflows/ci.yml` as its own step. The gate itself is held too — CI must run
+  `npm run check` whole, because if it ran the steps individually a check added to the gate would
+  still not run there.
+
+## M55: The audit loop's third sweep
+
+Sweep 3 of code, bug and security, run 2026-11-04 over ground the first two did not touch: how
+BoxPilot verifies its own updates, what the support bundle hands out, the parsers that read root
+command output, and the duplication M53.3 named but left. Four findings, and the ledger
+(`docs/reviews/2026-11-04-audit-loop.md`) records what each sweep cleared.
+
+None of the three categories has gone a sweep without finding something, so none retires yet.
+
+- ✅ **M55.1 Raise the unsigned-update posture, as Repair raises every other posture.** Signed
+  releases are opt-in, and `release-signer.mjs` states the consequence itself: without a key,
+  "whoever controls the GitHub account controls every server". The verification, when a key is set,
+  is the most careful code in the repo — `git verify-tag` against an allowed-signers file with
+  `gpg.openpgp.program` and `gpg.x509.program` pointed at `/bin/false`, so another signature block
+  cannot route around the SSH check, and the tag checked to point at the expected commit. Nothing is
+  wrong there. What is wrong is that "not required" is only ever shown, on System → BoxPilot update,
+  and never raised: no finding, no alert, no card. `nothingCanReachYou` is the same shape — a
+  posture, not a failure — and it is a warning with a fix attached. A detector in
+  `remediations.mjs`, the signer state passed into the scan's facts as an operator read (ADR-003,
+  since `system.update.status` is operator-gated), and a fix that opens the key field.
+- ✅ **M55.2 Bound the walk past LVM's internal nodes.**
+  `server/storage-inventory.mjs:63` climbs from a device to its first real parent, skipping `-real`
+  and `-cow`, with no visited set: a row whose `pkname` is its own `kname` loops for ever. It is
+  synchronous and in the web process, so it is the event loop and every request with it, not a slow
+  page. Confirmed by probe. The input is always live `lsblk --json` and never a file, a stored
+  snapshot or a request, and the kernel does not report a device as its own parent, so this is
+  latent rather than live — worth the two lines because the failure is total. While there: two rows
+  that claim each other as parent were dropped from the tree rather than looped, silently, and are
+  now listed.
+
+  Keeping them cost a second fix. Walking a row the tree had never reached followed the cycle the
+  drop had been hiding, and the recursion ran until the stack gave out — a stack overflow where
+  there had been a quiet omission. `walk` carries its own visited set now. The third of the four
+  new tests is the one that caught it.
+- ✅ **M55.3 Fold the VM restore validators into `restic-retention.mjs`.**
+  `vm-recovery-helper.mjs` and `vm-restore-drill-helper.mjs` validate the same restic evidence the
+  same way in 34 shared lines — repository, snapshot and manifest-checksum ids against `shaPattern`,
+  a positive safe-integer size, a destination revision. That is the family the module created in
+  M53.3 exists for, and it already holds `shaPattern`.
+- ✅ **M55.4 Share the retention result-verification predicate, and nothing else there.** The two
+  service layers match on 98 of 164 lines, but only 56 are substantive and most of those are domain
+  wording that should stay apart: different policies, different candidate records, different claims
+  about what is kept unchanged. This is not the drift M53.3 found. The exception is the compound
+  condition that decides whether a forget did exactly what was approved — where sweep 2 already
+  caught the two sides computing `complete` differently, and where a one-sided change is expensive.
+  Share that; leave the words.
+
+## M56: The audit loop's fourth sweep
+
+Two findings, against four or five in each of the first three sweeps, and the security sweep came up
+empty for the first time — one of the three it needs to leave the loop. Ground: concurrency, the
+escaping that carries an owner's settings into Docker, credentials at rest, and how much of the
+operation registry any test has ever named. The ledger
+(`docs/reviews/2026-11-04-audit-loop.md`) holds what was cleared, which is most of it.
+
+- ✅ **M56.1 Checked on the box: it breaks the whole file. Fixed by quoting differently.**
+  `envFileLine` escapes `'` as `\'` and says `\'` is the only escape the parser recognises inside
+  single quotes, verified against `docker compose config`. On that model a value ending in `\`
+  escapes its own closing quote, the value never terminates, and the next line of the file is inside
+  it — reachable, because env values are checked for NULs, line breaks and length but not for a
+  backslash, and the existing test round-trips a dollar sign and a quote but nothing ending in one.
+  Verified against docker compose 2.40.3 on the box, and it is worse than the finding said. The file
+  is not misparsed, it is **rejected**: "unterminated quoted value", so compose refuses to read any
+  of it. Every setting in that app's `.env` is lost and the app cannot deploy at all, with an error
+  naming a "variable name" that is a fragment of the owner's password. Reachable by an owner typing
+  a password that ends in `\`.
+
+  The measured semantics, each case run in isolation on the box:
+
+  | written | compose 2.40.3 |
+  | --- | --- |
+  | `V='abc\'` | **file rejected**, unterminated quoted value |
+  | `V='abc\\'` | `abc\\` — two backslashes, so `\\` is not an escape in single quotes |
+  | `V='a\'b'` | `a'b` — `\'` is an escape, as the comment said |
+  | `V="abc\\"` | `abc\` — `\\` **is** an escape in double quotes |
+  | `V="a\$SECRET b"` | `a$SECRET b` literal — `\$` stops interpolation |
+  | `V="a${SECRET} b"` | `atopsecret b` — double quotes do interpolate, which is what `\$` is for |
+
+  So single quotes cannot represent a value whose trailing run of backslashes is odd, while double
+  quotes with `\\`, `\"` and `\$` escaped represent every value. `envFileLine` writes that form now,
+  and `parseEnvFile` in `app-helper.mjs` — which reads a secret back so a reconfigure does not ask
+  the owner to retype it — reads all three forms: the new one, the single-quoted one, and the
+  unquoted one from before either. Verified end to end on the box afterwards: a password ending in
+  one backslash, in three backslashes, and one holding `\ " $ '` all round-trip exactly, a
+  neighbouring `ADMIN=leaked` is not substituted into them, and the line after is untouched.
+
+  Nine tests asserted the single-quoted form and were updated. One of them turned out to be the
+  legacy path proving itself: an app restored from a machine snapshot whose archived `.env` was
+  single-quoted is read and rewritten in the new form with its token intact.
+- ✅ **M56.2 Ten operations no test had ever named, and a guard so there is never an eleventh.** Of 265: `backup.remote.setup`,
+  `tailscale.serve.socket`, `dns.names.clear` and `vpn.profile.clear` change the host;
+  `app.updates.inspect`, `app.stats.inspect`, `storage.fs-snapshots.inspect`,
+  `backup.remote.inspect`, `samba.diagnose` and `vpn.profile.inspect` read. Being named in a test is
+  a floor rather than coverage, but an operation no test mentions is certainly untested, and with
+  96% of the registry named these ten were an oversight rather than a norm.
+
+  All ten are tested now, and the tests are about behaviour where there is behaviour to test rather
+  than assertions that the entries exist. The off-box mirror's read gets a temporary secrets
+  directory and reports a key, its fingerprint and the count of pinned host keys — and still answers
+  when ssh-keygen fails or is missing, instead of failing the read. `app.stats.inspect` is held to
+  asking for the installed ids rather than the full inspection, which is what the comment above it
+  says it was changed to do, and to saying "unavailable" rather than "no apps are using anything"
+  when Docker will not answer. The Serve move is held to checking BoxPilot's socket *before*
+  reconfiguring Tailscale, since pointing Serve at a socket nothing is listening on would take the
+  tailnet address down. Removing the local names is held to passing the job's progress handler
+  through, so the job log says what happened.
+
+  Three ops modules had no test file at all (`host-backup`, `vpn`, `local-dns`) and now have one.
+
+  And the measurement is an invariant:
+  `server/ops/every-operation-is-named-by-a-test.test.mjs` fails on an operation no test names, with
+  the count of the registry asserted first so it cannot pass over an empty one (M54.4). Probed by
+  adding an operation and watching it fail. Its corpus is the filesystem, not `git ls-files` — the
+  opposite of `check:exports`, for a reason written in the file: that check asks "does anything
+  mention this name", where an uncommitted artifact lies, while this one asks "does a test cover
+  this", and a test file on disk runs whether it is staged or not.
 
 ## App catalogue candidates
 

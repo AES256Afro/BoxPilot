@@ -25,12 +25,25 @@ export function composeLiteral(value) {
 }
 
 /**
- * One line of a .env file. Compose expands `${NAME}` in an unquoted value — so a password holding
- * a dollar sign would silently become some other setting's value — but treats a single-quoted value
- * as literal, with \' the one escape it recognises inside. (Verified against docker compose config.)
+ * One line of a .env file. Compose expands `${NAME}` in an unquoted value — so a password holding a
+ * dollar sign would silently become some other setting's value — so the value is quoted.
+ *
+ * Double-quoted, not single. Verified against docker compose 2.40.3 on the box (M56.1):
+ *
+ *   single quotes: `\'` is an escape for a quote, and `\\` is NOT an escape — two backslashes stay
+ *     two. So a value ending in one backslash writes `'abc\'`, where that backslash escapes the
+ *     closing quote, the value runs on into the following lines, and compose refuses the whole file:
+ *     "unterminated quoted value". Every setting in it is lost, not just that one, and the app
+ *     cannot deploy at all. There is no way to write such a value between single quotes.
+ *   double quotes: `\\`, `\"` and `\$` are all escapes, so escaping those three characters makes
+ *     every value representable, backslashes and dollars included. `${NAME}` does expand inside
+ *     double quotes, which is exactly what `\$` is for.
+ *
+ * `parseEnvFile` in app-helper.mjs reads this back to keep a secret the owner has already set
+ * through a reconfigure, and reads the single-quoted form too, for files written before this.
  */
 export function envFileLine(name, value) {
-  return `${name}='${String(value).replace(/'/g, () => "\\'")}'`;
+  return `${name}="${String(value).replace(/[\\"$]/g, (character) => `\\${character}`)}"`;
 }
 
 /**
