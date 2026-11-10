@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
+import { openView } from "../../activityEvents";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, EmptyState, Field, KeyValue, Notice, Panel, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, mayStart, riskOf, type TableColumn } from "../../ui";
@@ -172,9 +173,10 @@ export function Knowledge({ csrfToken, role, now, onStart, refreshKey = 0 }: Kno
               <Field label="SearXNG's address" hint="With json listed under search.formats in its settings.yml"><TextInput mono value={connectors.webEndpoint} placeholder="http://192.168.1.20:8089" onValueChange={(value) => setConnectors({ ...connectors, webEndpoint: value })} /></Field>
             </div>
             <div className="agents-connector">
-              <Switch label="Notion (read only)" description="The pages you share with an integration. Save its token as a named credential in Settings; it is read only by the task that syncs." checked={connectors.notionEnabled} onChange={(checked) => setConnectors({ ...connectors, notionEnabled: checked })} />
+              <Switch label="Notion (read only)" description="The pages you share with an integration. Its token is kept as a named credential, read only by the task that syncs." checked={connectors.notionEnabled} onChange={(checked) => setConnectors({ ...connectors, notionEnabled: checked })} />
               <div className="agents-form__row">
                 <Field label="Credential's name"><TextInput mono value={connectors.notionCredential} placeholder="notion-token" onValueChange={(value) => setConnectors({ ...connectors, notionCredential: value })} /></Field>
+                {owner && <Button variant="ghost" onClick={() => openView("settings", { tab: "credentials" })}>Open Credentials</Button>}
                 {state.connectors?.notion.enabled && mayStart(role, "agents.connector.sync") && <Button risk={riskOf("agents.connector.sync")} onClick={() => sync("notion")}>Sync Notion</Button>}
               </div>
             </div>

@@ -118,8 +118,9 @@ export function capsWords(caps: { cpuQuotaPercent?: number | null; waitingQuotaP
 /** "8 GB", "650 MB": sizes as the owner reads them, in powers of 1000 like a disk's label. */
 export function bytes(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  if (value >= 1e9) return `${(value / 1e9).toFixed(value >= 10e9 ? 0 : 1)} GB`;
-  if (value >= 1e6) return `${Math.round(value / 1e6)} MB`;
+  // Each step is taken where the smaller unit would round up into it ("1000 MB", "1000 kB").
+  if (value >= 999.5e6) return `${(Math.max(value, 1e9) / 1e9).toFixed(value >= 9.95e9 ? 0 : 1)} GB`;
+  if (value >= 999.5e3) return `${Math.max(1, Math.round(value / 1e6))} MB`;
   return `${Math.max(0, Math.round(value / 1e3))} kB`;
 }
 
@@ -156,7 +157,8 @@ export function duration(value: number | null | undefined): string {
   if (total < 60) return `${total} s`;
   if (total < 3600) {
     const minutes = Math.floor(total / 60);
-    return total % 60 && total < 600 ? `${minutes} min ${total % 60} s` : `${Math.round(total / 60)} min`;
+    if (total % 60 && total < 600) return `${minutes} min ${total % 60} s`;
+    return Math.round(total / 60) === 60 ? "1 h" : `${Math.round(total / 60)} min`;
   }
   const hours = Math.floor(total / 3600);
   const minutes = Math.round((total % 3600) / 60);

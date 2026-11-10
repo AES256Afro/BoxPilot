@@ -11,5 +11,7 @@ export function formatBytes(value: number | null | undefined, empty = "—"): st
   let size = value;
   let index = 0;
   while (size >= 1024 && index < units.length - 1) { size /= 1024; index += 1; }
+  // The unit is chosen after rounding: 1,048,575 bytes is "1.0 MiB", where it read "1024.0 KiB".
+  if (index > 0 && index < units.length - 1 && size >= 1023.95) { size = 1; index += 1; }
   return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }

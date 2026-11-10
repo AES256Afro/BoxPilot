@@ -58,7 +58,7 @@ export function VmMedia({ csrfToken, role, start, refreshKey }: { csrfToken: str
     <>
       {readError && <Notice tone="danger" live title="The media library could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{readError}</Notice>}
       <Panel title="Library" count={inventory ? images.length : undefined} meta={inventory?.library?.path ? <code>{inventory.library.path}</code> : undefined}
-        actions={<Button variant="ghost" onClick={() => void refresh()}>Read again</Button>}>
+        actions={<Button variant="ghost" onClick={() => void refresh()}>Check again</Button>}>
         <Table<LibraryImage>
           caption="ISO images in the managed library"
           columns={[

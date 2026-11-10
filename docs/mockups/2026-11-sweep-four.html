@@ -1,0 +1,250 @@
+<title>BoxPilot Four Mockups</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=IBM+Plex+Sans+Condensed:wght@500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: a quiet reading column of captions, each followed by one full-width artboard drawn in the product's own glass. */
+:root {
+  --bg: #eef1f2; --fg: #16232e; --muted: #5a6b78; --line: rgba(22,35,46,.14); --card: #ffffff; --accent: #0f7f9c; --tag: #e2e8ea;
+  --sans: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --label: "IBM Plex Sans Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* The product's glass, the same in both page themes: the artboards show the shipped dark look. */
+  --w1: #193240; --w2: #161e2c; --ink: #ffffff; --ink2: rgba(255,255,255,.66); --ink3: rgba(255,255,255,.42);
+  --glass: rgba(255,255,255,.075); --glass2: rgba(255,255,255,.13); --hair: rgba(255,255,255,.13);
+  --cyan: #7fd6ea; --amber: #f6b93b; --amber-bg: rgba(246,185,59,.16); --good: #4fd98a; --bad: #ff8a80; --bad-bg: rgba(255,138,128,.14); --pill-ink: #16232e;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0d141a; --fg: #eef2f6; --muted: #93a1af; --line: rgba(255,255,255,.14); --card: #131c24; --accent: #7fd6ea; --tag: #1c2732; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #0d141a; --fg: #eef2f6; --muted: #93a1af; --line: rgba(255,255,255,.14); --card: #131c24; --accent: #7fd6ea; --tag: #1c2732; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--sans); padding-block: 40px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+.page { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px }
+header h1 { font-size: clamp(28px, 5vw, 44px); font-weight: 800; letter-spacing: -.02em; line-height: 1.05; margin: 0 0 12px; text-wrap: balance }
+header p { max-width: 62ch; color: var(--muted); margin: 0 }
+.eyebrow { font: 600 12px var(--label); letter-spacing: .12em; text-transform: uppercase; color: var(--accent) }
+section { display: flex; flex-direction: column; gap: 16px }
+.cap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 32px; align-items: start }
+.cap h2 { font-size: 24px; font-weight: 700; letter-spacing: -.01em; margin: 4px 0 0; text-wrap: balance }
+.cap p { margin: 0; color: var(--muted); max-width: 60ch }
+.cap .why { font-size: 13.5px }
+.cap .why b { color: var(--fg); font-weight: 600 }
+@media (max-width: 720px) { .cap { grid-template-columns: minmax(0, 1fr) } }
+
+/* ── Artboards ── */
+.board { position: relative; border-radius: 22px; padding: clamp(14px, 2.4vw, 26px); color: var(--ink); font-family: var(--sans); overflow: hidden;
+  background: radial-gradient(60% 70% at 100% 0%, rgba(214,150,96,.34), transparent 70%), radial-gradient(50% 60% at 0% 100%, rgba(60,150,170,.28), transparent 70%), linear-gradient(160deg, var(--w1), var(--w2)) }
+.g { background: var(--glass); border: 1px solid var(--hair); border-radius: 18px; box-shadow: inset 0 1px 0 rgba(255,255,255,.08) }
+.lab { font: 600 11px var(--label); letter-spacing: .14em; text-transform: uppercase; color: var(--ink2) }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums }
+.pill { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 7px 14px; font: 600 13px var(--sans); background: #fff; color: var(--pill-ink); white-space: nowrap; cursor: default }
+.pill.ghost { background: var(--glass2); color: var(--ink); border: 1px solid var(--hair) }
+.pill.sm { padding: 4px 10px; font-size: 12px }
+.chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 2px 7px; font: 600 10.5px var(--label); letter-spacing: .1em; text-transform: uppercase }
+.chip.a { background: var(--amber-bg); color: var(--amber) } .chip.r { background: var(--bad-bg); color: var(--bad) } .chip.g2 { background: rgba(79,217,138,.14); color: var(--good) }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none } .dot.a { background: var(--amber) } .dot.r { background: var(--bad) } .dot.n { background: var(--ink3) }
+.bh { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px }
+.bh h3 { font-size: clamp(22px, 3.4vw, 32px); font-weight: 800; letter-spacing: -.02em; margin: 0 }
+.bh span { color: var(--ink2); font-size: 13px }
+
+/* 1 Today */
+.since { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px }
+.since .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px }
+.ch { padding: 12px 14px; border-radius: 14px; background: rgba(0,0,0,.18); border: 1px solid var(--hair); display: flex; flex-direction: column; gap: 4px; min-width: 0 }
+.ch b { font-size: 22px; font-weight: 800; letter-spacing: -.01em } .ch small { color: var(--ink2); font-size: 12.5px; line-height: 1.35 }
+.ch a { color: var(--cyan); font-size: 12.5px; font-weight: 600; text-decoration: none; margin-top: 2px }
+.two { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 14px; margin-top: 14px }
+@media (max-width: 760px) { .two { grid-template-columns: minmax(0, 1fr) } }
+.pan { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0 }
+.need { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; padding-top: 12px; border-top: 1px solid var(--hair) }
+.need:first-of-type { border-top: 0; padding-top: 0 }
+.need h4 { margin: 0; font-size: 15px; font-weight: 700 } .need p { margin: 0; grid-column: 2; color: var(--ink2); font-size: 13px; line-height: 1.4 }
+.need .acts { grid-column: 2; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px }
+.night { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 12px; font-size: 13px; align-items: baseline }
+.night .t { color: var(--ink3) } .night .d { color: var(--ink2); text-align: right }
+.night .w { overflow-wrap: anywhere }
+
+/* 2 Logs */
+.tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px }
+.seg { display: inline-flex; padding: 3px; border-radius: 999px; background: rgba(0,0,0,.24); border: 1px solid var(--hair) }
+.seg span { padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--ink2) } .seg .on { background: #fff; color: var(--pill-ink) }
+.find { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; background: rgba(0,0,0,.28); border: 1px solid var(--cyan); min-width: 0 }
+.find i { font-style: normal; color: var(--ink3) } .find b { font: 500 13px var(--mono) } .find em { margin-left: auto; font-style: normal; color: var(--ink2); font-size: 12px; white-space: nowrap }
+.tog { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600 }
+.tog u { width: 30px; height: 18px; border-radius: 999px; background: var(--cyan); position: relative; text-decoration: none } .tog u::after { content: ""; position: absolute; right: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff }
+.log { background: rgba(4,10,16,.55); border: 1px solid var(--hair); border-radius: 14px; padding: 12px 0; overflow-x: auto }
+.log div { display: grid; grid-template-columns: 74px 54px minmax(420px, 1fr); gap: 0 12px; padding: 3px 16px; font: 400 12.5px/1.5 var(--mono); white-space: nowrap }
+.log .t { color: var(--ink3) } .log .e { color: var(--bad) } .log .wn { color: var(--amber) } .log mark { background: rgba(127,214,234,.28); color: #fff; border-radius: 3px; padding: 0 2px }
+.log .gap { color: var(--ink3); display: block; padding: 3px 16px 3px 102px; font-size: 11.5px }
+.log .hit { background: rgba(255,138,128,.08) }
+.foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; color: var(--ink2); font-size: 12.5px }
+
+/* 3 Sheet */
+.sheetwrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px); gap: 16px; align-items: stretch }
+@media (max-width: 820px) { .sheetwrap { grid-template-columns: minmax(0, 1fr) } .ghostpage { display: none } }
+.ghostpage { opacity: .35; padding: 18px; display: flex; flex-direction: column; gap: 12px } .ghostpage i { display: block; height: 14px; border-radius: 6px; background: var(--glass2) }
+.sheet { background: rgba(22,32,44,.82); border: 1px solid var(--hair); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 24px 60px rgba(0,0,0,.4) }
+.sheet h3 { margin: 0; font-size: 20px; font-weight: 800 } .sheet > p { margin: -10px 0 0; color: var(--ink2); font-size: 13px }
+.fld { display: flex; flex-direction: column; gap: 8px } .fld > label { font-size: 13px; font-weight: 700 }
+.opt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--hair); background: rgba(0,0,0,.16); align-items: center }
+.opt.on { border-color: var(--cyan); background: rgba(127,214,234,.1) }
+.opt .r { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--ink3); grid-row: span 2 } .opt.on .r { border-color: var(--cyan); background: radial-gradient(circle, var(--cyan) 45%, transparent 50%) }
+.opt b { font-size: 13.5px } .opt small { grid-column: 2; color: var(--ink2); font-size: 12.5px; line-height: 1.35 } .opt code { font: 400 11px var(--mono); color: var(--ink3) }
+.sel { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--hair); background: rgba(0,0,0,.24); font-size: 13.5px } .sel span { color: var(--ink3); font: 400 11.5px var(--mono) }
+.hint { color: var(--ink2); font-size: 12.5px; margin: 0 }
+.sfoot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid var(--hair) }
+.kept { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: rgba(79,217,138,.1); border: 1px solid rgba(79,217,138,.3); font-size: 12.5px; color: var(--ink) }
+
+/* 4 Phone */
+.phones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 320px)); gap: 28px; justify-content: center; align-items: start }
+.phone { border-radius: 34px; border: 1px solid var(--hair); background: rgba(8,14,20,.5); padding: 16px 14px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0 }
+.phone .bar { display: flex; justify-content: space-between; align-items: center } .phone .bar b { font-size: 19px; font-weight: 800 }
+.phone .sub { color: var(--ink2); font-size: 12.5px; margin: -6px 0 2px }
+.n { padding: 11px 12px; border-radius: 14px; background: var(--glass); border: 1px solid var(--hair); display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; line-height: 1.35; min-width: 0 }
+.n b { font-size: 13px } .n span { color: var(--ink2) } .n.old { opacity: .78 }
+.grp { padding: 12px; border-radius: 14px; background: var(--glass); border: 1px solid var(--hair); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center }
+.grp.hot { border-color: rgba(246,185,59,.5); background: rgba(246,185,59,.09) }
+.grp b { font-size: 14px } .grp small { grid-column: 1; color: var(--ink2); font-size: 12.5px; line-height: 1.35 } .grp .c { grid-row: span 2; font: 700 12px var(--mono); color: var(--ink2); padding: 3px 8px; border-radius: 999px; background: rgba(0,0,0,.25) }
+.grp .acts { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap }
+.tagline { text-align: center; font: 600 11px var(--label); letter-spacing: .14em; text-transform: uppercase; color: var(--ink2); margin-bottom: 8px }
+.legend { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 20px }
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">BoxPilot · sweep of 10 November 2026</div>
+  <h1>Four mockups from what the sweep found</h1>
+  <p>Each one answers a finding from today's usability pass, drawn in the shipped Home + Ops look so it can be judged against the real pages. The server is called homebox and the names are examples.</p>
+</header>
+
+<section id="since">
+  <div class="cap">
+    <div><div class="eyebrow">One · Today</div><h2>Since you last looked</h2></div>
+    <p class="why"><b>Why:</b> Today already keeps its last reading on the device. Comparing it with the live one turns a page of states into a short list of what moved, each part opening its own page. The power-cut row gains the two buttons its advice only described.</p>
+  </div>
+  <div class="board">
+    <div class="bh"><h3>Today</h3><span>Tuesday 10 November · read 20 seconds ago</span></div>
+    <div class="g since">
+      <div class="lab">Since you last looked · yesterday at 22:10</div>
+      <div class="row">
+        <div class="ch"><b>2</b><small>apps updated themselves, each backed up first: Immich, Vaultwarden</small><a>See what changed</a></div>
+        <div class="ch"><b>19 of 19</b><small>backups ran overnight and were copied off this server</small><a>Open Backups</a></div>
+        <div class="ch"><b style="color:var(--amber)">4 min</b><small>news.example.com did not answer at 02:14, then came back</small><a>Open Domains</a></div>
+        <div class="ch"><b>7</b><small>Ubuntu updates are waiting; none needs a restart</small><a>Review and install</a></div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="g pan">
+        <div class="lab">Needs you · 2</div>
+        <div class="need"><span class="chip a">Power</span><h4>The server lost power on Thursday at 03:12</h4>
+          <p>It was off for 41 minutes and name lookups stopped for every device, because Pi-hole runs here.</p>
+          <div class="acts"><span class="pill sm">Power settings</span><span class="pill sm ghost">Second DNS steps</span><span class="pill sm ghost">Got it</span></div></div>
+        <div class="need"><span class="chip a">Drive</span><h4>The media drive did not reconnect</h4>
+          <p>Unplugged 5 days ago. Jellyfin and two shares are waiting for it.</p>
+          <div class="acts"><span class="pill sm">Reconnect it</span><span class="pill sm ghost">Open Storage</span></div></div>
+      </div>
+      <div class="g pan">
+        <div class="lab">Overnight · 23 jobs, none failed</div>
+        <div class="night mono">
+          <span class="t">03:35</span><span class="w">Backed up Uptime Kuma</span><span class="d">5 s</span>
+          <span class="t">03:47</span><span class="w">Backed up Vaultwarden</span><span class="d">1 s</span>
+          <span class="t">04:02</span><span class="w">Updated Immich to 2.4.1</span><span class="d">48 s</span>
+          <span class="t">04:15</span><span class="w">Copied backups to the backup drive</span><span class="d">1 m 23 s</span>
+          <span class="t">04:40</span><span class="w">Copied backups off this server</span><span class="d">6 m 02 s</span>
+        </div>
+        <div><span class="pill sm ghost">All 23 in Activity</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="logs">
+  <div class="cap">
+    <div><div class="eyebrow">Two · App sheet, Logs</div><h2>Find in the logs</h2></div>
+    <p class="why"><b>Why:</b> every log view shows a fixed last 200 lines with only Read again. Reading logs is what people do when something is broken, and today it means copying the block into an editor to search. A filter, an errors switch and more lines cover it; "Container" becomes "Logs from" with the app's own names.</p>
+  </div>
+  <div class="board">
+    <div class="bh"><h3>Immich · Logs</h3><span>last 1,000 lines · read just now</span></div>
+    <div class="tools">
+      <span class="lab">Logs from</span>
+      <span class="seg"><span class="on">Immich</span><span>its database</span><span>its photo search</span></span>
+      <span class="find"><i>⌕</i><b>timeout</b><em>6 of 1,000 lines</em></span>
+      <span class="tog"><u></u>Errors and warnings only</span>
+    </div>
+    <div class="log">
+      <div><span class="t">02:13:58</span><span class="wn">WARN</span><span>Thumbnail queue is slow: job 8841 waited 31 s, <mark>timeout</mark> is 60 s</span></div>
+      <span class="gap">· 212 lines between ·</span>
+      <div class="hit"><span class="t">02:14:07</span><span class="e">ERROR</span><span>Database query <mark>timeout</mark> after 30000 ms (connection pool 10 of 10 in use)</span></div>
+      <div class="hit"><span class="t">02:14:07</span><span class="e">ERROR</span><span>GET /api/timeline/buckets 500: upstream <mark>timeout</mark></span></div>
+      <div><span class="t">02:14:39</span><span class="wn">WARN</span><span>Retrying 14 jobs after <mark>timeout</mark>; backing off 8 s</span></div>
+      <span class="gap">· 3 lines between ·</span>
+      <div><span class="t">02:18:11</span><span class="wn">WARN</span><span>Photo search answered slowly (4.2 s); request <mark>timeout</mark> raised to 20 s for this run</span></div>
+      <div class="hit"><span class="t">02:18:44</span><span class="e">ERROR</span><span>Machine learning <mark>timeout</mark>: model clip-ViT-B-32 still loading</span></div>
+    </div>
+    <div class="foot"><span>Matching lines only. Clear the box to see everything again.</span><span style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill sm ghost">Show lines around a match</span><span class="pill sm ghost">Copy these 6</span><span class="pill sm">Check again</span></span></div>
+  </div>
+</section>
+
+<section id="options">
+  <div class="cap">
+    <div><div class="eyebrow">Three · App sheet, Settings</div><h2>Choices that say what they do</h2></div>
+    <p class="why"><b>Why:</b> a manifest's options are drawn as their raw values, so Pi-hole's listening mode offers "all, local, single, bind" under a 130-word hint, and its upstream DNS offers two IP addresses. A manifest option gains a label and a line of its own. The sheet also comes back as you left it when an approval is cancelled, which three sheets do by hand and two forget.</p>
+  </div>
+  <div class="board">
+    <div class="sheetwrap">
+      <div class="g ghostpage"><i style="width:40%"></i><i style="width:85%"></i><i style="width:70%"></i><i style="width:78%"></i><i style="width:30%;margin-top:18px"></i><i style="width:88%"></i><i style="width:64%"></i></div>
+      <div class="sheet">
+        <h3>Pi-hole settings</h3>
+        <div class="kept"><span class="dot" style="margin-top:5px"></span><span>You closed the approval without running it. Everything you chose is still here.</span></div>
+        <div class="fld"><label>Who Pi-hole answers</label>
+          <div class="opt"><span class="r"></span><b>Everyone who asks</b><code>all</code><small>Any device that can reach this server, tailnet and VPN included.</small></div>
+          <div class="opt on"><span class="r"></span><b>Only this network</b><code>local</code><small>Devices on the same network as the server. Right for most homes.</small></div>
+          <div class="opt"><span class="r"></span><b>The main connection only</b><code>single</code><small>One network card; port 53 is held on every address.</small></div>
+          <div class="opt"><span class="r"></span><b>The main connection, leaving the rest free</b><code>bind</code><small>For a server that also runs virtual machines with their own DNS.</small></div>
+        </div>
+        <div class="fld"><label>Where Pi-hole asks for answers</label>
+          <div class="sel"><b>Quad9, with its backup</b><span>9.9.9.9 · 149.112.112.112 ▾</span></div>
+          <p class="hint">Blocks known malicious names and keeps no log of who asked.</p>
+        </div>
+        <div class="sfoot"><span class="hint">Restarts Pi-hole. Name lookups pause for about 5 seconds.</span><span style="display:flex;gap:8px"><span class="pill ghost">Close</span><span class="pill">Save and restart</span></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="bell">
+  <div class="cap">
+    <div><div class="eyebrow">Four · The bell, on a phone</div><h2>Ninety-seven becomes five</h2></div>
+    <p class="why"><b>Why:</b> the bell on the live server shows 97 unread, almost all of it routine backups and agent notes, with the two things that need a person somewhere in the scroll. Grouped by what each is about, the list leads with what needs you and lets the rest be read in one tap.</p>
+  </div>
+  <div class="board">
+    <div class="phones">
+      <div>
+        <div class="tagline">Now</div>
+        <div class="phone">
+          <div class="bar"><b>Notifications</b><span class="chip a">97 unread</span></div>
+          <div class="n"><b>Backed up Uptime Kuma</b><span>03:35 · done in 5 s</span></div>
+          <div class="n"><b>Backed up Vaultwarden</b><span>03:47 · done in 1 s</span></div>
+          <div class="n"><b>Server Keeper wrote its morning digest</b><span>06:00</span></div>
+          <div class="n"><b>Backed up Immich</b><span>03:52 · done in 2 m 10 s</span></div>
+          <div class="n old"><b>The media drive did not reconnect</b><span>5 days ago</span></div>
+          <div class="n old"><b>Backed up Paperless</b><span>03:55 · done in 14 s</span></div>
+          <div class="n old"><span>… 91 more</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="tagline">Proposed</div>
+        <div class="phone">
+          <div class="bar"><b>Notifications</b><span class="pill sm ghost">Mark all read</span></div>
+          <p class="sub">2 need you · 95 are for your information</p>
+          <div class="grp hot"><b>The media drive did not reconnect</b><span class="c">1</span><small>Unplugged 5 days ago. Jellyfin is waiting for it.</small><div class="acts"><span class="pill sm">Reconnect it</span></div></div>
+          <div class="grp hot"><b>The server lost power on Thursday</b><span class="c">1</span><small>Off for 41 minutes; name lookups stopped.</small><div class="acts"><span class="pill sm">Power settings</span><span class="pill sm ghost">Got it</span></div></div>
+          <div class="grp"><b>Backups</b><span class="c">38</span><small>Every one ran. Last night: 19 of 19, copied off this server.</small></div>
+          <div class="grp"><b>Agents</b><span class="c">44</span><small>Server Keeper's digests and 3 cards waiting for a yes or no.</small></div>
+          <div class="grp"><b>Updates and domains</b><span class="c">13</span><small>2 apps updated; news.example.com was down 4 minutes.</small></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<p class="legend">White pills are the action a page recommends; glass pills are the alternatives. Amber marks something for a person to do, red a failure, and the cyan is whatever accent is chosen in Appearance. Nothing here is built yet except where the write-up says so.</p>
+</div>

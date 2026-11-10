@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { duration, toolTitle } from "./format";
+import { bytes, duration, toolTitle } from "./format";
 
 /*
  * The words the Agents section uses for a budget and a tool (M48.7): "1800 s" and "apps.usage" said
@@ -17,7 +17,9 @@ describe("a budget's seconds in words", () => {
     expect(duration(5400)).toBe("1 h 30 min");
     expect(duration(10_800)).toBe("3 h");
     expect(duration(86_400)).toBe("24 h");
-    expect(duration(3599)).toBe("60 min");
+    expect(duration(3599)).toBe("1 h");   // rounded first, then the unit: it read "60 min"
+    expect(bytes(999_999_999)).toBe("1.0 GB");
+    expect(bytes(999_600)).toBe("1 MB");
     expect(duration(7170)).toBe("2 h");
   });
 
