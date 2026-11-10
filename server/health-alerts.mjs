@@ -134,11 +134,11 @@ export function evaluateHealth(inventory) {
   const alerts = [];
   const root = inventory?.storage?.root;
   if (root && Number.isFinite(root.usedPercent) && root.usedPercent >= 90) {
-    alerts.push({ key: "storage.root.full", priority: root.usedPercent >= 95 ? "high" : "default", title: `Root disk is ${root.usedPercent}% full`, message: "Free space on / is running out. Remove old app backups or snapshots on the Storage page, or use the rest of the disk." });
+    alerts.push({ key: "storage.root.full", priority: root.usedPercent >= 95 ? "high" : "default", title: `Root disk is ${root.usedPercent}% full`, message: "Free space on / is running out. Free space under System, Housekeeping, or grow the disk under Storage." });
   }
   for (const mount of inventory?.storage?.filesystems?.mounts ?? []) {
     if (mount.target === "/" || !["warning", "critical"].includes(mount.capacityState)) continue;
-    alerts.push({ key: `storage.mount.full:${mount.target}`, priority: mount.capacityState === "critical" ? "high" : "default", title: `${mount.target} is ${mount.usedPercent}% full`, message: `The filesystem mounted at ${mount.target} is nearly full.` });
+    alerts.push({ key: `storage.mount.full:${mount.target}`, priority: mount.capacityState === "critical" ? "high" : "default", title: `${mount.target} is ${mount.usedPercent}% full`, message: `The filesystem mounted at ${mount.target} is nearly full. Storage, Mounts shows what fills it.` });
   }
   // A mount whose device has gone. A drive that drops off the bus for a moment comes back under a
   // different kernel name and the old mount stays, pointing at nothing: findmnt still lists it, df

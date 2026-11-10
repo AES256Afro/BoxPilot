@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { onRefresh } from "../../shell/refresh";
 import { JobLogView } from "../../JobLogView";
 import { countOf } from "../../data";
 import { mountpointFor } from "../../mountpoints";
@@ -6,6 +7,7 @@ import { inspectOperation } from "../../operations";
 import { Button, CodeBlock, EmptyState, KeyValue, Notice, PageHeader, Panel, Sheet, StatusChip, Tabs, Tag, type KeyValueItem, type Status } from "../../ui";
 import type { RiskTier } from "../../ui/types";
 import { FlowBuilder } from "./FlowBuilder";
+import { CadenceFields, cadenceOf, startingCadence, type CadenceDraft } from "./CadenceFields";
 import SchedulesPanel, { lastRunOf, useSchedules } from "./SchedulesPanel";
 import { cadenceLabel, flowFailed, flowTierWords, humanize, settingText, type Flow, type OwnerStepToKeep, type PaletteStep, type ShelfItem } from "./flows";
 import "./automations.css";
@@ -48,6 +50,8 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
   const [about, setAbout] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const [runOf, setRunOf] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState<{ flowId: string; draft: CadenceDraft } | null>(null);
+  const scheduleFormId = useId();
   const [timezone, setTimezone] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const schedules = useSchedules();
@@ -69,6 +73,9 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
+  const { refresh: refreshSchedules } = schedules;
+  useEffect(() => onRefresh(() => { void refresh(); void refreshSchedules(); }), [refresh, refreshSchedules]);
 
   // The server's time zone, which schedules' times are in. Nice to have: a failure hides it.
   useEffect(() => {
@@ -118,7 +125,7 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
     try {
       await post("/api/v1/flows", { name: item.name, steps: item.steps });
       // A ready-made flow has no schedule: added, it runs only when someone runs it.
-      setNotice(`${item.name} is on your list of automations. It does not run until you run it or give it a schedule; it is yours to edit.`);
+      setNotice(`${item.name} is on your list of automations. It does not run until you run it or give it a schedule.`);
       await refresh();
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not add the automation"); }
   };
@@ -208,6 +215,19 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
     const known = item.steps.map((step) => palette.find((entry) => entry.operationId === step.operationId)?.risk).filter((risk): risk is string => Boolean(risk));
     return known.length ? tiers[Math.max(...known.map(rank))] : undefined;
   };
+  // A flow's schedule, asked for with the fields Schedules has: any cadence the server takes, not
+  // only "every Sunday at 03:00". Opens at the flow's own cadence when it has one.
+  const openSchedule = (flow: Flow) => {
+    const two = (value: number) => String(value).padStart(2, "0");
+    setScheduling({ flowId: flow.id, draft: flow.frequency ? { frequency: flow.frequency, weekday: flow.weekday ?? 0, time: `${two(flow.hour ?? 0)}:${two(flow.minute ?? 0)}` } : { ...startingCadence, frequency: "weekly" } });
+  };
+  const schedulingFlow = scheduling ? list.find((flow) => flow.id === scheduling.flowId) ?? null : null;
+  const saveSchedule = () => {
+    if (!scheduling || !schedulingFlow) return;
+    const cadence = cadenceOf(scheduling.draft);
+    setScheduling(null);
+    void change(schedulingFlow, { cadence }, "Could not change the schedule");
+  };
   const runFlowOf = runOf ? list.find((flow) => flow.id === runOf) ?? null : null;
 
   const flowFacts = (flow: Flow): KeyValueItem[] => {
@@ -262,7 +282,7 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
                     {mayRun && <Button variant="primary" busy={flow.running} onClick={() => runFlow(flow)}>{flow.running ? "Running…" : "Run now"}</Button>}
                     {!flow.lastRunElsewhere && (flow.running || flow.lastJobIds.length > 0) && <Button onClick={() => setRunOf(flow.id)}>{flow.running ? "Watch this run" : "What the last run did"}</Button>}
                     {mayManage && flow.triggerDrive && <Button disabled={flow.running} onClick={() => void change(flow, { enabled: !flow.enabled }, "Could not change the schedule")}>{flow.enabled ? "Pause reconnecting" : "Resume reconnecting"}</Button>}
-                    {mayManage && !flow.frequency && !flow.triggerDrive && <Button disabled={flow.running} onClick={() => void change(flow, { cadence: { frequency: "weekly", minute: 0, hour: 3, weekday: 0 } }, "Could not change the schedule")}>Run it every Sunday at 03:00</Button>}
+                    {mayManage && !flow.triggerDrive && <Button disabled={flow.running} aria-label={`${flow.frequency ? "Change the schedule" : "Schedule"}: ${flow.name}`} onClick={() => openSchedule(flow)}>{flow.frequency ? "Change the schedule…" : "Schedule…"}</Button>}
                     {mayManage && flow.frequency && <Button disabled={flow.running} onClick={() => void change(flow, { enabled: !flow.enabled }, "Could not change the schedule")}>{flow.enabled ? "Pause the schedule" : "Resume the schedule"}</Button>}
                     {mayManage && flow.frequency && <Button variant="ghost" disabled={flow.running} onClick={() => void change(flow, { cadence: null }, "Could not change the schedule")}>Stop scheduling it</Button>}
                     {mayManage && <Button variant="ghost" onClick={() => (flow.webhookEnabled ? setConfirming({ flowId: flow.id, action: "regenerate" }) : void mintWebhook(flow))}>{flow.webhookEnabled ? "Regenerate the webhook" : "Create a webhook"}</Button>}
@@ -355,7 +375,7 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
         actions={<Button variant="ghost" onClick={() => { void refresh(); void schedules.refresh(); }}>Check again</Button>}
         about={<>
           <p>Chains of the operations you already trust, run in order as ordinary jobs under your account, with every step recorded. A step that fails stops the run; what already ran stands.</p>
-          <p>Ready to use holds flows that already know what a home server gets wrong: add one and it is yours to edit. Schedules run a single operation hourly, daily or weekly, each run a job in Activity.</p>
+          <p>Ready to use holds flows that already know what a home server gets wrong: add one and it is on your list, to run or to schedule. Schedules run a single operation hourly, daily or weekly, each run a job in Activity.</p>
         </>}
       />
 
@@ -376,6 +396,15 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
         {(current) => (current === "flows" ? flowPanel : current === "schedules" ? <SchedulesPanel csrfToken={csrfToken} role={role} serverTimezone={timezone} source={schedules} /> : shelfPanel)}
       </Tabs>
 
+      {scheduling && schedulingFlow && (
+        <Sheet kicker="Schedule" title={schedulingFlow.name} size="sm" onClose={() => setScheduling(null)}
+          footer={<><Button onClick={() => setScheduling(null)}>Cancel</Button><Button variant="primary" type="submit" form={scheduleFormId}>Save the schedule</Button></>}>
+          <form id={scheduleFormId} className="automations-form" onSubmit={(event) => { event.preventDefault(); saveSchedule(); }}>
+            <CadenceFields value={scheduling.draft} onChange={(draft) => setScheduling({ ...scheduling, draft })} serverTimezone={timezone} />
+            <p className="automations-quiet">Runs as you, the same as pressing Run now. A run that fails is sent to your notification target; one that works says nothing.</p>
+          </form>
+        </Sheet>
+      )}
       {building && <FlowBuilder palette={palette} flows={list} onClose={() => setBuilding(false)} onSave={saveDraft} />}
 
       {runFlowOf && (

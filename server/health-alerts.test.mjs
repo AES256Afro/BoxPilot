@@ -92,6 +92,9 @@ describe("health alerts", () => {
     expect(alerts.map((alert) => [alert.key, alert.priority])).toEqual([
       ["storage.root.full", "high"], ["storage.mount.full:/mnt/media", "default"], ["storage.smart:/dev/sda", "high"], ["power.ups", "high"], ["system.services", "default"], ["system.reboot", "default"], ["docker.unhealthy:bp-immich", "default"],
     ]);
+    // A full disk names the pages that free or show the space: app backups are not on the Storage page.
+    expect(alerts[0].message).toBe("Free space on / is running out. Free space under System, Housekeeping, or grow the disk under Storage.");
+    expect(alerts[1].message).toBe("The filesystem mounted at /mnt/media is nearly full. Storage, Mounts shows what fills it.");
     expect(alerts[2].message).toContain("12 media errors");
     expect(alerts[3].message).toContain("about 2 min left");
     expect(evaluateHealth({})).toEqual([]);

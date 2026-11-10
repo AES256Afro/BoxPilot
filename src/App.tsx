@@ -1,7 +1,7 @@
 import PageErrorBoundary from "./shell/PageErrorBoundary";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { viewLabel, type ViewName } from "./data";
-import { openViewEvent } from "./activityEvents";
+import { openViewEvent, type OpenViewOptions } from "./activityEvents";
 import { viewCopy } from "./pageCopy";
 import SignInPage, { SignInLoading, SignInUnavailable } from "./pages/signin/SignInPage";
 import ActivityDrawer from "./shell/ActivityDrawer";
@@ -116,7 +116,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   // The page showing now, for setView to tell a change of page from a change within one.
   const shown = useRef(view);
   shown.current = view;
-  const setView = useCallback((asked: ViewName, options: { app?: string; tab?: string } = {}) => {
+  const setView = useCallback((asked: ViewName, options: OpenViewOptions = {}) => {
     // A link to a page that is gone (an older server's "Open Overview") lands on Home.
     const next: ViewName = Object.hasOwn(viewCopy, asked) ? asked : "home";
     const changedPage = next !== shown.current;
@@ -132,6 +132,9 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     for (const name of [...url.searchParams.keys()]) if (!keptParams.has(name)) url.searchParams.delete(name);
     if (next !== "home") url.searchParams.set("view", next);
     if (options.app) url.searchParams.set("app", options.app);
+    // The app's sheet at one of its tabs, and what that tab starts with (Apps reads both as it opens).
+    if (options.app && options.sheet) url.searchParams.set("sheet", options.sheet);
+    if (options.app && options.sheet && options.publish) url.searchParams.set("publish", options.publish);
     // A tabbed page opens at this tab. Setup keeps its two halves under ?mode=.
     if (options.tab) url.searchParams.set(next === "setup" ? "mode" : "tab", options.tab);
     // A change of page is a step the browser's Back button undoes; a tab, an app or a sheet on the
@@ -163,7 +166,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   // watched condition belongs to, as a tile on Home would.
   useEffect(() => {
     const onOpen = (event: Event) => {
-      const detail = (event as CustomEvent<{ view?: string; options?: { app?: string; tab?: string } }>).detail;
+      const detail = (event as CustomEvent<{ view?: string; options?: OpenViewOptions }>).detail;
       if (detail && typeof detail.view === "string") setView(detail.view as ViewName, detail.options ?? {});
     };
     window.addEventListener(openViewEvent, onOpen);

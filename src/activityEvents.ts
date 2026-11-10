@@ -15,8 +15,17 @@ export function openActivity(jobId?: string): void {
  */
 export const openViewEvent = "boxpilot:open-view";
 
-export function openView(view: string, options: { app?: string; tab?: string } = {}): void {
-  window.dispatchEvent(new CustomEvent<{ view: string; options: { app?: string; tab?: string } }>(openViewEvent, { detail: { view, options } }));
+export interface OpenViewOptions {
+  app?: string;
+  tab?: string;
+  /** With `app`: the tab its sheet opens at (Apps reads ?sheet=), "backups" from the Backups page. */
+  sheet?: string;
+  /** With `app` and `sheet: "tunnel"`: the app to publish, chosen already in the tunnel's form. */
+  publish?: string;
+}
+
+export function openView(view: string, options: OpenViewOptions = {}): void {
+  window.dispatchEvent(new CustomEvent<{ view: string; options: OpenViewOptions }>(openViewEvent, { detail: { view, options } }));
 }
 
 /** Opening the notification centre from anywhere (M36): Home's "could not tell you" item shows what. */

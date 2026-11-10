@@ -4,7 +4,7 @@ import path from "node:path";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createStateStore } from "../state.mjs";
-import { createAuthService, hashPassword } from "../security.mjs";
+import { createAuthService, hashPassword, verifyPassword } from "../security.mjs";
 import { createPeopleRouter } from "./people.mjs";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
@@ -26,16 +26,18 @@ afterEach(async () => {
   }
 });
 
-async function boot() {
+/** @param {{ now?: () => number }} [options] `now` is the store's clock and the sign-in service's, for the elevated window. */
+async function boot({ now = null } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-people-"));
-  const state = createStateStore({ stateDirectory: directory });
+  const state = createStateStore({ stateDirectory: directory, ...(now ? { now: () => new Date(now()) } : {}) });
   state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "alex", passwordHash: await hashPassword(ownerPassword) });
-  const auth = createAuthService(state);
+  const auth = createAuthService(state, now ? { now } : {});
   const app = express();
   app.use(express.json({ limit: "256kb", strict: true }));
   app.post("/auth/login", auth.login);
   app.use(auth.requireSession);
   app.get("/whoami", (request, response) => response.json({ role: request.boxpilotSession.owner.role }));
+  app.post("/auth/elevate", auth.requireCsrf, auth.elevate);
   app.use("/people", auth.requireRole("owner"));
   app.use(createPeopleRouter({ state, auth }));
   const server = app.listen(0, "127.0.0.1");
@@ -149,5 +151,93 @@ describe("changing roles and disabling accounts", () => {
     const { call, owner, add } = await boot();
     const { body: { account } } = await add("sam", "owner");
     expect(await call("PUT", `/people/${account.id}`, { as: owner, body: { password: ownerPassword, role: "operator" } })).toMatchObject({ status: 200, body: { account: { role: "operator" } } });
+  });
+});
+
+describe("inside the window a password already opened", () => {
+  const start = Date.parse("2026-03-01T10:00:00Z");
+
+  it("takes a change without the password again, on that session only, and only until the window ends", async () => {
+    let at = start;
+    const { state, call, signIn, owner, add } = await boot({ now: () => at });
+    const { body: { account } } = await add("olly", "operator");
+    const elsewhere = await signIn("alex", ownerPassword);
+    // Nothing unlocked: no password is no change.
+    expect(await call("PUT", `/people/${account.id}`, { as: owner, body: { role: "viewer" } })).toMatchObject({ status: 401, body: { code: "reauthentication_required" } });
+    expect((await call("POST", "/auth/elevate", { as: owner, body: { password: ownerPassword } })).status).toBe(200);
+    expect(await call("PUT", `/people/${account.id}`, { as: owner, body: { role: "viewer" } })).toMatchObject({ status: 200, body: { account: { role: "viewer" } } });
+    expect((await call("POST", "/people", { as: owner, body: { username: "vic", newPassword: "vic password 1", role: "viewer" } })).status).toBe(201);
+    // The same account's other session unlocked nothing.
+    expect((await call("PUT", `/people/${account.id}`, { as: elsewhere, body: { role: "operator" } })).status).toBe(401);
+    // A password that is sent is still checked, window or not.
+    expect((await call("PUT", `/people/${account.id}`, { as: owner, body: { password: "wrong password", role: "operator" } })).status).toBe(401);
+    at += 10 * 60_000 + 1;
+    expect((await call("PUT", `/people/${account.id}`, { as: owner, body: { role: "operator" } })).status).toBe(401);
+    expect(state.findOwnerById(account.id).role).toBe("viewer");
+  });
+
+  it("asks for the password all the same when every approval does", async () => {
+    const { state, call, owner, add } = await boot({ now: () => start });
+    const { body: { account } } = await add("olly", "operator");
+    await call("POST", "/auth/elevate", { as: owner, body: { password: ownerPassword } });
+    state.setSetting("approvalMode", "always-password");
+    expect((await call("DELETE", `/people/${account.id}`, { as: owner, body: {} })).status).toBe(401);
+    expect((await call("DELETE", `/people/${account.id}`, { as: owner, body: { password: ownerPassword } })).status).toBe(200);
+  });
+
+  it("does not count a change sent without a password as a wrong one", async () => {
+    const { state, call, owner, add } = await boot({ now: () => start });
+    const { body: { account } } = await add("olly", "operator");
+    for (let attempt = 0; attempt < 8; attempt += 1) expect((await call("DELETE", `/people/${account.id}`, { as: owner, body: {} })).status).toBe(401);
+    expect(state.listAudit(50).filter((event) => event.type === "auth.failed")).toEqual([]);
+    expect((await call("DELETE", `/people/${account.id}`, { as: owner, body: { password: ownerPassword } })).status).toBe(200);
+  });
+});
+
+describe("setting a member's password", () => {
+  it("gives them a new one, ends their sessions and says who did it", async () => {
+    const { state, call, signIn, owner, add } = await boot();
+    const { body: { account } } = await add("olly", "operator");
+    const olly = await signIn("olly", "olly password");
+    expect(await call("POST", `/people/${account.id}/password`, { as: owner, body: { password: ownerPassword, newPassword: "a fresh password" } }))
+      .toEqual({ status: 200, body: { account: { id: account.id, username: "olly", role: "operator" }, sessionsEnded: 1 } });
+    expect((await call("GET", "/whoami", { as: olly })).status).toBe(401);
+    expect((await signIn("olly", "olly password")).cookie).toBeNull();
+    expect((await call("GET", "/whoami", { as: await signIn("olly", "a fresh password") })).body).toEqual({ role: "operator" });
+    expect(state.listAudit(20).find((event) => event.type === "people.password.set")).toMatchObject({ actorId: state.listOwners()[0].id, subjectId: account.id, details: { username: "olly" } });
+    // The owner's own session is untouched.
+    expect((await call("GET", "/whoami", { as: owner })).status).toBe(200);
+  });
+
+  it("needs the owner, the CSRF token, and the password or the unlocked window", async () => {
+    const { state, call, signIn, owner, add } = await boot();
+    const { body: { account } } = await add("olly", "operator");
+    const { body: { account: vic } } = await add("vic", "viewer");
+    const before = state.findOwnerById(vic.id).passwordHash;
+    const body = { password: ownerPassword, newPassword: "a fresh password" };
+    expect((await call("POST", `/people/${vic.id}/password`, { as: owner, csrf: false, body })).status).toBe(403);
+    expect((await call("POST", `/people/${vic.id}/password`, { as: owner, body: { newPassword: body.newPassword } })).status).toBe(401);
+    expect((await call("POST", `/people/${vic.id}/password`, { as: owner, body: { ...body, password: "wrong password" } })).status).toBe(401);
+    // Not an operator, with their own password or anyone's, for themselves or another.
+    const olly = await signIn("olly", "olly password");
+    for (const id of [vic.id, account.id]) expect((await call("POST", `/people/${id}/password`, { as: olly, body: { password: "olly password", newPassword: body.newPassword } })).status).toBe(403);
+    expect((await call("POST", `/people/${vic.id}/password`, { body })).status).toBe(401);
+    expect(state.findOwnerById(vic.id).passwordHash).toBe(before);
+    await call("POST", "/auth/elevate", { as: owner, body: { password: ownerPassword } });
+    expect((await call("POST", `/people/${vic.id}/password`, { as: owner, body: { newPassword: body.newPassword } })).status).toBe(200);
+  });
+
+  it("refuses the owner's own account, a short or over-long password, a disabled account and one that is not there", async () => {
+    const { state, call, owner, add } = await boot();
+    const self = state.listOwners()[0].id;
+    const { body: { account } } = await add("olly", "operator");
+    expect(await call("POST", `/people/${self}/password`, { as: owner, body: { password: ownerPassword, newPassword: "a fresh password" } })).toMatchObject({ status: 400, body: { code: "people_rejected" } });
+    for (const newPassword of ["short", "x".repeat(257), 123456789012, null, ["a fresh password"], { length: 20 }]) {
+      expect(await call("POST", `/people/${account.id}/password`, { as: owner, body: { password: ownerPassword, newPassword } })).toMatchObject({ status: 400, body: { code: "invalid_password" } });
+    }
+    expect((await call("POST", "/people/nobody/password", { as: owner, body: { password: ownerPassword, newPassword: "a fresh password" } })).status).toBe(404);
+    await call("DELETE", `/people/${account.id}`, { as: owner, body: { password: ownerPassword } });
+    expect((await call("POST", `/people/${account.id}/password`, { as: owner, body: { password: ownerPassword, newPassword: "a fresh password" } })).status).toBe(400);
+    expect(await verifyPassword(ownerPassword, state.findOwnerById(self).passwordHash)).toBe(true);
   });
 });

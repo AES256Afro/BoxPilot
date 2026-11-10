@@ -43,6 +43,19 @@ describe("Hosted domains page", () => {
     expect(screen.getByRole("button", { name: "About Hosted domains" }).getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("opens the app behind a name, and takes the owner to connect Cloudflare where it is not", async () => {
+    mockFetch({ "/api/v1/hosted-domains": { ...hostedStatus, tunnel: { ...hostedStatus.tunnel, cloudflare: { connected: false, tunnelName: null } } } });
+    const opened = vi.fn();
+    const onOpen = (event: Event) => opened((event as CustomEvent).detail);
+    window.addEventListener(openViewEvent, onOpen);
+    render(<HostedPage csrfToken="csrf" now={now} role="owner" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Pingvin Share in Apps" }));
+    expect(opened).toHaveBeenLastCalledWith({ view: "catalog", options: { app: "pingvin-share" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect in Cloudflare Tunnel" }));
+    expect(opened).toHaveBeenLastCalledWith({ view: "catalog", options: { app: "cloudflared", sheet: "tunnel" } });
+    window.removeEventListener(openViewEvent, onOpen);
+  });
+
   it("says all is well, and says when there is nothing to watch yet", async () => {
     mockFetch({ "/api/v1/hosted-domains": { ...hostedStatus, domains: [share] } });
     render(<HostedPage csrfToken="csrf" now={now} />);

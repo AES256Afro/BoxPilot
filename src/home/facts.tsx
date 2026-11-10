@@ -634,7 +634,8 @@ export function FactsProvider({ children }: { children: ReactNode }) {
       onStatus: (status) => { if (status === "unavailable") setFacts((current) => (current.jobs.value ? current : { ...current, jobs: { state: "failed", value: null, error: "Job history could not be read" } })); },
     });
     // The bar's Refresh (M25) reads every source again in place rather than loading the page again.
-    const stopRefresh = onRefresh(() => refresh());
+    // A job ending (refresh.ts) reads the quick sources only: the slow ones keep their five minutes.
+    const stopRefresh = onRefresh((why) => refresh(why === "job" ? quickKeys : undefined));
     return () => { window.clearInterval(quick); window.clearTimeout(slowStart); if (slow !== null) window.clearInterval(slow); stopJobs(); stopRefresh(); };
   }, [active, refresh, set]);
 

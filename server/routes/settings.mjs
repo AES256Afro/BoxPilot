@@ -1,6 +1,7 @@
 /**
  * Settings routes: notification target and the approval-mode toggle. Both changes
- * require the owner password. Mounted at /api/v1 behind the session.
+ * require the owner password, or the short window a password already opened on this session
+ * (auth.checkPasswordOrElevation). Mounted at /api/v1 behind the session.
  */
 import { Router } from "express";
 import { createRateLimit, rateLimited } from "../rate-limit.mjs";
@@ -21,7 +22,7 @@ export function createSettingsRouter({ state, notifications, notificationHistory
 
   async function ownerWithPassword(request, response, message) {
     const owner = state.findOwnerById(request.boxpilotSession.owner.id);
-    const verdict = await auth.checkPassword(request, owner, request.body?.password);
+    const verdict = await auth.checkPasswordOrElevation(request, owner, request.body?.password);
     if (verdict.blocked) { auth.rejectThrottled(response, verdict); return null; }
     if (!verdict.ok) {
       response.status(401).json({ error: message, code: "reauthentication_required" });

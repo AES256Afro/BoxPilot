@@ -10,6 +10,24 @@ Authorization fields have application limits: state 2,048 characters, nonce 512,
 
 Password throttles retain at most 5,000 entries per configured throttle. Active blocks are never evicted to admit new callers. If every slot is blocked, an unknown caller waits until the first slot is reclaimable. This bounds memory under saturation but can temporarily delay a legitimate new password login during an attack. The throttle does not govern existing authenticated sessions. Expired retained counters are cleaned on subsequent activity; they have a fixed maximum count while idle.
 
+## A forgotten password
+
+Three ways back in, in the order to try them:
+
+1. **A recovery code.** On the sign-in page, choose to use a recovery code and enter one you saved when you made them (Settings, Account & sign-in). Each code works once.
+2. **A passkey.** If you added one, sign in with it from the sign-in page.
+3. **The server's own console.** When you have neither, or you are in but still need a new password (changing it in Settings asks for the old one), set a new one on the server itself, as root:
+
+   ```
+   sudo /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs reset-password <user name>
+   ```
+
+   It asks for the new password twice without showing it. The password must be 12 to 256 characters. For a script, add `--password-stdin` and send the password on standard input; without that flag the command refuses to run away from a terminal.
+
+The command works for any account, the owner's or a member's. It ends every session of that account, forgets the browsers it had marked as trusted, clears the wrong guesses counted against it so the new password works at once, and writes `auth.password.reset-from-console` to the audit log. It prints one line saying what it did. A name that is not an account gets "No such account." and nothing else. It must be run as root and it opens the database as the database's own user, so no file changes owner. Passkeys and recovery codes are left as they were; remove or remake them in Settings if you no longer trust them.
+
+For a member who forgot theirs, the owner does not need the console: the owner can set a new password for them from People, which ends that member's sessions.
+
 ## Application configuration
 
 An app's Config dialog shows declared public environment values and masks private or undeclared `.env` entries. Password fields are always private, including a manifest that mistakenly specifies `secret: false`. The complete Compose file may contain credentials placed there by a manual edit. Read Compose file uses the audited `app.compose.inspect` operation, requires the owner and accepts an existing elevated session. Otherwise the dialog asks for the owner password. Editing remains available after reading the file.

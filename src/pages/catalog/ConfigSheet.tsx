@@ -1,14 +1,21 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { describePortConflict, type PortConflict } from "../../portConflict";
+import { describePortConflict, freePortAfter, type PortConflict } from "../../portConflict";
+import { inspectOperation } from "../../operations";
 import { Button, Checkbox, Field, Notice, SecretInput, Select, Sheet, Tag, TextInput, riskOf } from "../../ui";
-import { compactValues, initialValues, installTier, runRead } from "./appState";
+import { compactValues, initialValues, installTier, runRead, withHostTimezone } from "./appState";
 import type { LiveState, Manifest, Values } from "./types";
 
 /*
  * Installing an app, or changing its settings (M33.11): a form in a sheet, a section for each kind
  * of setting the manifest asks for. The server prechecks it (ports in use, required settings)
- * before the operation is staged, and the approval dialog runs it as before.
+ * before the operation is staged, and the approval dialog runs it as before. The ports are checked
+ * once as the form opens too, so a taken one is said on its own box, with the next free one a press
+ * away, before anything else is filled in.
  */
+
+interface Precheck { ok?: boolean; errors?: string[]; conflicts?: PortConflict[]; error?: string; listeners?: unknown }
+/** A taken port, on the box that asked for it. */
+interface FieldConflict { conflict: PortConflict; free: number | null }
 
 export interface ConfigSheetProps {
   manifest: Manifest;
@@ -57,6 +64,44 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
   const [cleared, setCleared] = useState<string[]>([]);
   const [checking, setChecking] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
+  const [taken, setTaken] = useState<Record<string, FieldConflict>>({});
+
+  const precheck = async (send: Values, signal?: AbortSignal): Promise<{ response: Response; body: Precheck }> => {
+    const response = await fetch(`/api/v1/catalog/${encodeURIComponent(manifest.id)}/precheck`, { method: "POST", signal, headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ values: send }) });
+    return { response, body: (await response.json().catch(() => ({}))) as Precheck };
+  };
+  /** Each conflict goes to the box it is about (by the port's id, else by its number); the rest are returned. */
+  const placeConflicts = (body: Precheck, ports: Record<string, number>): PortConflict[] => {
+    const placed: Record<string, FieldConflict> = {};
+    const loose: PortConflict[] = [];
+    for (const conflict of Array.isArray(body.conflicts) ? body.conflicts : []) {
+      const field = manifest.ports.find((port) => !port.fixed && port.id === conflict.id) ?? manifest.ports.find((port) => !port.fixed && conflict.id === undefined && ports[port.id] === conflict.port && port.protocol === conflict.protocol);
+      if (!field || placed[field.id]) { loose.push(conflict); continue; }
+      placed[field.id] = { conflict, free: freePortAfter(conflict, { inUse: body.listeners, alsoTaken: Object.entries(ports).filter(([id]) => id !== field.id).map(([, port]) => port) }) };
+    }
+    setTaken(placed);
+    return loose;
+  };
+
+  // Once, as the form opens, with what it opens with. Advice: a refusal (a required setting still
+  // empty) or a failure says nothing here; Continue checks again.
+  useEffect(() => {
+    const controller = new AbortController();
+    const opened = seed ?? initialValues(manifest, live);
+    precheck(compactValues(manifest, opened), controller.signal).then(({ response, body }) => { if (response.ok && !controller.signal.aborted) placeConflicts(body, opened.ports); }).catch(() => {});
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manifest.id, csrfToken]);
+
+  // The server's own time zone, for a time zone box still at the catalog's Etc/UTC on a first install.
+  const asksTimezone = mode === "install" && !seed && manifest.env.some((entry) => entry.type === "timezone" && entry.default === "Etc/UTC" && !entry.fixed);
+  useEffect(() => {
+    if (!asksTimezone) return undefined;
+    let active = true;
+    inspectOperation<{ timezone?: string | null }>("system.settings.inspect").then(({ result }) => { if (active) setValues((current) => withHostTimezone(manifest, current, result?.timezone)); }).catch(() => {});
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asksTimezone, manifest.id]);
   // The drives and network shares already mounted on this server, offered for a folder field, so
   // attaching one to an app is a pick, not a typed path; and it needs no credentials, because the
   // drive or share was connected once under Storage.
@@ -114,11 +159,13 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
     const precheckValues = compactValues(manifest, values);
     setChecking(true); setProblems([]);
     try {
-      const response = await fetch(`/api/v1/catalog/${encodeURIComponent(manifest.id)}/precheck`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ values: precheckValues }) });
-      const body = (await response.json().catch(() => ({}))) as { ok: boolean; errors: string[]; conflicts: PortConflict[]; error?: string };
+      const { response, body } = await precheck(precheckValues);
       if (!response.ok && !body.errors?.length) throw new Error(body.error ?? "Precheck failed");
-      const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => describePortConflict(conflict, appNameFor))];
-      if (found.length) { setProblems(found); return; }
+      const conflicts = Array.isArray(body.conflicts) ? body.conflicts : [];
+      // A taken port is said on its own box; what belongs to no box (a fixed port, a setting) leads the form.
+      const loose = placeConflicts(body, values.ports);
+      const found = [...(body.errors ?? []), ...loose.map((conflict) => describePortConflict(conflict, appNameFor))];
+      if (found.length || conflicts.length) { setProblems(found); return; }
       onSubmit(compact, values);
     } catch {
       // The precheck is advice: if it cannot run, continue and let the install report the real error.
@@ -130,6 +177,8 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
 
   const setPort = (id: string, value: string) => {
     setPortText((current) => ({ ...current, [id]: value }));
+    // What was said about the old number is not about the new one.
+    setTaken((current) => { if (!current[id]) return current; const { [id]: _gone, ...rest } = current; return rest; });
     const port = portNumber(value);
     if (port !== null) setValues((current) => ({ ...current, ports: { ...current.ports, [id]: port } }));
   };
@@ -194,7 +243,12 @@ export function ConfigSheet({ manifest, live, mode, csrfToken, onSubmit, onCance
         {editablePorts.length > 0 && (
           <Section title="Ports">
             {editablePorts.map((port) => (
-              <Field key={port.id} label={`${port.label} port`} error={badPorts.includes(port) ? "A number from 1 to 65535." : undefined} hint={`${port.containerFollowsHost ? "The app listens here" : `Container ${port.container}/${port.protocol}`} · ${port.exposure === "loopback" ? "this server only" : mode === "install" && manifest.defaultExposure === "tailnet" && port.protocol === "tcp" ? "your tailnet, over HTTPS" : "your network"}`}>
+              <Field key={port.id} label={`${port.label} port`} error={badPorts.includes(port) ? "A number from 1 to 65535." : taken[port.id] ? (
+                <span className="catalog-form__taken" role="status">
+                  {describePortConflict(taken[port.id].conflict, appNameFor)}
+                  {taken[port.id].free !== null && <Button type="button" onClick={() => setPort(port.id, String(taken[port.id].free))}>Use {taken[port.id].free}</Button>}
+                </span>
+              ) : undefined} hint={`${port.containerFollowsHost ? "The app listens here" : `Container ${port.container}/${port.protocol}`} · ${port.exposure === "loopback" ? "this server only" : mode === "install" && manifest.defaultExposure === "tailnet" && port.protocol === "tcp" ? "your tailnet, over HTTPS" : "your network"}`}>
                 <TextInput type="number" mono min={1} max={65535} value={portText[port.id] ?? String(values.ports[port.id] ?? port.host)} onValueChange={(value) => setPort(port.id, value)} />
               </Field>
             ))}

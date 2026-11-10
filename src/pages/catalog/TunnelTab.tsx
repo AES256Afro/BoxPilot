@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { inspectOperation } from "../../operations";
 import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, SecretInput, Select, Table, TextInput, mayStart, riskOf, type KeyValueItem, type Status, type TableColumn } from "../../ui";
 import { isPaused, isRunning } from "./appState";
@@ -144,6 +144,17 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
     setPortId(firstPort(next));
     setHttps(false);
   };
+
+  // Opened from another app's Reach tab ("Publish through Cloudflare…", ?publish=<app>): that app is
+  // chosen already, unless a form that was being filled in came back instead.
+  const askedFor = useRef(new URLSearchParams(window.location.search).get("publish"));
+  useEffect(() => {
+    const id = askedFor.current;
+    if (!id || appId || !choices.some((candidate) => candidate.entry.manifest.id === id)) return;
+    askedFor.current = null;
+    pickApp(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [choices, appId]);
 
   if (error) return <div className="catalog-tab"><Notice tone="danger" live title="The tunnel could not be read" action={<Button onClick={() => void read()}>Try again</Button>}>{error}</Notice></div>;
   if (!state) return <div className="catalog-tab"><p className="catalog-quiet">Reading…</p></div>;

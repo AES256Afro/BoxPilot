@@ -8,7 +8,7 @@ import { productVersion } from "../version.mjs";
 import { runtimeDiagnostics } from "../runtime-diagnostics.mjs";
 import { registry, riskTiers } from "../ops/index.mjs";
 import { approvalModes, elevationTtlMs } from "../ops/risk.mjs";
-import { findPortConflicts, listListeners } from "../ports.mjs";
+import { findPortConflicts, freePortNear, listListeners } from "../ports.mjs";
 import { keepsBackupData, resolveValues } from "../catalog/schema.mjs";
 import { optionalPortsIn } from "../catalog/compose.mjs";
 import { createAppGlances } from "../app-glances.mjs";
@@ -188,7 +188,16 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       const ownPorts = portsHeldByApp(manifest, own);
       conflicts = findPortConflicts(requested, listeners ?? [], docker?.containers ?? null).filter((conflict) => !ownPorts.has(`${conflict.port}/${conflict.protocol}`));
     } catch { /* conflicts are advisory */ }
-    return response.json({ ok: conflicts.length === 0, errors: [], conflicts: conflicts.map((conflict) => ({ ...conflict, label: requested.find((port) => port.id === conflict.id)?.label ?? conflict.id })) });
+    // A port to offer instead: the next one above the one asked for that no program listens on and
+    // no other port of this install wants (nor an earlier suggestion took), 1024 or higher. None on
+    // the host's own network, where the app binds the ports it was built with.
+    const taken = new Set(requested.map((port) => `${port.host}/${port.protocol}`));
+    const suggest = (conflict) => {
+      const suggested = hostNetwork || !Number.isInteger(conflict.port) ? null : freePortNear(Math.max(conflict.port, 1023), { protocol: conflict.protocol, listeners: listeners ?? [], taken });
+      if (suggested !== null) taken.add(`${suggested}/${conflict.protocol}`);
+      return suggested;
+    };
+    return response.json({ ok: conflicts.length === 0, errors: [], conflicts: conflicts.map((conflict) => ({ ...conflict, label: requested.find((port) => port.id === conflict.id)?.label ?? conflict.id, suggested: suggest(conflict) })) });
   });
 
   // Fetch a GitHub user's public SSH keys (server-side because github.com has no CORS for browsers).

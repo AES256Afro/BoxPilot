@@ -348,6 +348,35 @@ describe("App catalog: installing", () => {
     expect(screen.getByRole("tab", { name: /Installed|On this server/ }).getAttribute("aria-selected")).toBe("true");
   });
 
+  it("leaves a running install alone when its dialog is closed with Keep working: the form does not come back over it", async () => {
+    let finish: ((response: Response) => void) | null = null;
+    let installed = false;
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url, init) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) return stagedJob("app.install");
+      if (url.endsWith("/jobs/job-app.install/approve")) return json({ job: { id: "job-app.install", state: "applying" }, elevatedUntil: null }, 202);
+      // The dialog's own wait for the end carries a signal; it is held until the test lets the install finish.
+      if (url.endsWith("/jobs/job-app.install") && init?.signal) return new Promise<Response>((resolve) => { finish = resolve; });
+      if (url.endsWith("/jobs/job-app.install")) return json({ job: { id: "job-app.install", type: "op:app.install", title: "Install Jellyfin", state: "applying", risk: "medium", error: null, result: null, steps: [], approvals: [] } });
+      if (url === "/api/v1/catalog" && installed) return json(catalogOf([{ manifest, live: running("jellyfin") }]));
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await waitFor(() => expect(finish).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: "Keep working" })[0]);
+    await waitFor(() => expect(screen.queryByText("Approval")).toBeNull());
+    // Not the install form again, as a cancelled approval would bring back.
+    expect(screen.queryByRole("dialog", { name: "Jellyfin" })).toBeNull();
+    // When it ends, the page hears and reads the catalog again: the app is installed.
+    installed = true;
+    finish!(json({ job: { id: "job-app.install", type: "op:app.install", title: "Install Jellyfin", state: "completed", risk: "medium", error: null, result: {}, steps: [], approvals: [] } }));
+    fireEvent.click(await screen.findByRole("tab", { name: /Installed|On this server/ }));
+    expect(await screen.findByRole("button", { name: "Jellyfin, Running" })).toBeTruthy();
+  });
+
   it("goes back to the app's sheet when an action started there is approved or cancelled", async () => {
     serve(catalogOf([{ manifest, live: running("jellyfin") }]), (url) => (url.includes("/jobs") ? stagedJob("app.action") : undefined));
     render(<CatalogPage csrfToken="csrf-token" />);
@@ -370,6 +399,44 @@ describe("App catalog: installing", () => {
     fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
     expect(await within(sheet).findByText(/port 8096\/tcp is already in use on this server by emby/)).toBeTruthy();
     expect(staged).not.toHaveBeenCalled();
+  });
+
+  it("says a taken port on its own box as the form opens, and fills the next free one on a press", async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url, init) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) {
+        const body = JSON.parse(String(init?.body)) as { values: { ports?: Record<string, number> } };
+        sent.push(body.values);
+        return (body.values.ports?.web ?? 8096) === 8096
+          ? json({ ok: false, errors: [], conflicts: [{ id: "web", label: "Web UI", port: 8096, protocol: "tcp", listeners: ["0.0.0.0:8096"], suggested: 8098, containers: [{ name: "emby", app: "emby", composeProject: null }] }] })
+          : json({ ok: true, errors: [], conflicts: [] });
+      }
+      if (url.endsWith("/jobs")) return stagedJob("app.install");
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Jellyfin");
+    // Nothing pressed yet: the form asked as it opened.
+    const box = await within(sheet).findByLabelText("Web UI port") as HTMLInputElement;
+    await waitFor(() => expect(box.getAttribute("aria-invalid")).toBe("true"));
+    expect(within(sheet).getByText(/port 8096\/tcp is already in use on this server by emby/)).toBeTruthy();
+    expect(within(sheet).queryByText("Not installed yet")).toBeNull();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Use 8098" }));
+    expect(box.value).toBe("8098");
+    expect(within(sheet).queryByText(/already in use/)).toBeNull();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    await waitFor(() => expect(sent.at(-1)).toMatchObject({ ports: { web: 8098 } }));
+  });
+
+  it("starts a time zone setting at the server's own zone, not the catalog's UTC", async () => {
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url) => {
+      if (url.endsWith("/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.includes("system.settings.inspect")) return json({ operation: "system.settings.inspect", result: { timezone: "Europe/Lisbon" } });
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Jellyfin");
+    await waitFor(() => expect((within(sheet).getByLabelText("Time zone") as HTMLInputElement).value).toBe("Europe/Lisbon"));
   });
 
   it("contains the form's focus and returns to Install when Escape closes it", async () => {
@@ -946,6 +1013,31 @@ describe("App catalog: backups", () => {
     fireEvent.click(within(sheet).getByRole("button", { name: "Restore config/system.xml" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: "20260816T030000Z.tar.gz", path: "config/system.xml" } });
+  });
+
+  it("lists a backup's folders too, restores one whole, and says which folders these backups never hold", async () => {
+    const staged: string[] = [];
+    withBackups([backup], (url, init) => {
+      if (url.endsWith("/operations/app.backup.files/run")) return json({ operation: "app.backup.files", result: { id: "jellyfin", backup: backup.artifact, files: [{ path: ".", sizeBytes: 0, type: "directory" }, { path: "config", sizeBytes: 0, type: "directory" }, { path: "config/metadata", sizeBytes: 0, type: "directory" }, { path: "config/system.xml", sizeBytes: 2048, type: "file" }], truncated: false } });
+      if (url.endsWith("/operations/app.backup.restore-path/jobs")) { staged.push(init?.body as string); return stagedJob("app.backup.restore-path"); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Backups" }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: /^Browse / }));
+    expect(await within(sheet).findByText("config/metadata/")).toBeTruthy();
+    // The backup's own root is not a row: restoring "." is a whole restore, which has its own button.
+    expect(within(sheet).queryByRole("button", { name: "Restore the folder ." })).toBeNull();
+    // Looking for a film: the media library is not in an app's backup, and the tab says so.
+    fireEvent.change(within(sheet).getByRole("searchbox", { name: "Filter files" }), { target: { value: "film.mkv" } });
+    expect(within(sheet).getByText("No file matches. Jellyfin's Media library (/srv/media) is not in these backups: they hold its settings and database only.")).toBeTruthy();
+    fireEvent.change(within(sheet).getByRole("searchbox", { name: "Filter files" }), { target: { value: "" } });
+    const folder = within(sheet).getByRole("button", { name: "Restore the folder config/metadata" });
+    expect(folder.textContent).toContain("Restore this folder");
+    fireEvent.click(folder);
+    expect(await screen.findByText(/and everything in it/)).toBeTruthy();
+    expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: backup.artifact, path: "config/metadata" } });
   });
 
   // R5B3-6: only the first 5000 names reached the dialog, and its filter searched only those: a file

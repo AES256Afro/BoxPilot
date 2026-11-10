@@ -199,7 +199,7 @@ export async function appendFstabEntry({ run, files, log }, name, entry) {
  * not mounted at all until someone mounts it.
  */
 export const driveDeviceTimeout = "30s";
-export const dockerOrderOption = "x-systemd.before=docker.service";
+const dockerOrderOption = "x-systemd.before=docker.service";
 
 /** The fstab options with the Docker ordering added where missing. A device timeout already there is the owner's and is kept. */
 export function withDockerOrder(options) {

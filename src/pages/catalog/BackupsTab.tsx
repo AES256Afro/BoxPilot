@@ -37,6 +37,10 @@ function needsServer(text: string, browsing: Browsing): boolean {
   return browsing.truncated || !wanted.includes(browsing.filter);
 }
 
+/** A path the restore takes: relative, inside the backup, and not the backup's own root. */
+const restorablePath = (path: string) => Boolean(path) && !path.startsWith("/") && !path.split("/").some((part) => part === "" || part === "." || part === "..");
+const wordList = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+
 export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) {
   const { manifest, live } = entry;
   const { csrfToken, act, role, rehearsal, scheduling, scheduleError, schedules } = ctx;
@@ -128,7 +132,13 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
   // Newest first; one without a date (an older record) goes last.
   const archives = useMemo(() => [...(backups ?? [])].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")), [backups]);
 
-  const shownFiles = useMemo(() => (browsing?.files ?? []).filter((file) => file.type !== "directory" && (!filter || file.path.toLowerCase().includes(filter.toLowerCase()))).slice(0, 200), [browsing, filter]);
+  // Folders are listed too: the operation restores a file or a folder, and a whole folder (one
+  // album, one notebook) is what people come back for as often as one file.
+  const shownFiles = useMemo(() => (browsing?.files ?? []).filter((file) => restorablePath(file.path) && (!filter || file.path.toLowerCase().includes(filter.toLowerCase()))).slice(0, 200), [browsing, filter]);
+  // What these backups never hold: the folders the catalog leaves out of them (a media library, a
+  // download folder). Said where someone looks for a file from one and finds nothing.
+  const leftOut = manifest.volumes.filter((volume) => !volume.backup).map((volume) => ({ label: volume.label, path: live?.state?.values?.volumes?.[volume.id] || volume.hostPath || volume.container }));
+  const leftOutWords = leftOut.length > 0 ? `${name}'s ${wordList(leftOut.map((volume) => `${volume.label} (${volume.path})`))} ${leftOut.length === 1 ? "is" : "are"} not in these backups: they hold its settings and database only.` : null;
   const skippedVolumes = [...new Set((backups ?? []).flatMap((backup) => backup.skippedVolumes ?? []))];
   const skippedHostPaths = [...new Set((backups ?? []).flatMap((backup) => backup.skippedHostPaths))];
   const schedule = rehearsal[manifest.id];
@@ -171,13 +181,13 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
           <ul className="catalog-rows">
             {shownFiles.map((file) => (
               <li key={file.path} className="catalog-row">
-                <span className="catalog-row__main"><code>{file.path}</code><span className="catalog-row__dim">{formatBytes(file.sizeBytes)}</span></span>
+                <span className="catalog-row__main"><code>{file.path}{file.type === "directory" ? "/" : ""}</code><span className="catalog-row__dim">{file.type === "directory" ? "folder" : formatBytes(file.sizeBytes)}</span></span>
                 {may("app.backup.restore-path") && (
-                  <Button risk={riskOf("app.backup.restore-path")} aria-label={`Restore ${file.path}`} onClick={() => act({ operationId: "app.backup.restore-path", title: `Restore ${file.path} into ${name}`, parameters: { id: manifest.id, backup: browsing.backup, path: file.path }, preview: <span>Takes a checkpoint of {name}'s current data, stops it briefly, restores only <code>{file.path}</code> from this backup over the current one, and starts it again. Everything else is untouched.</span> })}>Restore this file</Button>
+                  <Button risk={riskOf("app.backup.restore-path")} aria-label={`Restore ${file.type === "directory" ? "the folder " : ""}${file.path}`} onClick={() => act({ operationId: "app.backup.restore-path", title: `Restore ${file.path} into ${name}`, parameters: { id: manifest.id, backup: browsing.backup, path: file.path }, preview: <span>Takes a checkpoint of {name}'s current data, stops it briefly, restores only <code>{file.path}</code>{file.type === "directory" ? " and everything in it" : ""} from this backup over the current one, and starts it again. Everything else is untouched.</span> })}>{file.type === "directory" ? "Restore this folder" : "Restore this file"}</Button>
                 )}
               </li>
             ))}
-            {shownFiles.length === 0 && <li className="catalog-quiet">No file matches.</li>}
+            {shownFiles.length === 0 && <li className="catalog-quiet">No file matches.{leftOutWords ? ` ${leftOutWords}` : ""}</li>}
           </ul>
           {browsing.truncated && (
             <p className="catalog-quiet">
@@ -212,7 +222,9 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
               </ul>
             )}
       </Panel>
-      {skippedVolumes.length > 0 && <p className="catalog-quiet">Not included in these archives: {skippedVolumes.join(", ")}.</p>}
+      {leftOutWords
+        ? <p className="catalog-quiet">{leftOutWords}</p>
+        : skippedVolumes.length > 0 && <p className="catalog-quiet">Not included in these archives: {skippedVolumes.join(", ")}.</p>}
       {skippedHostPaths.length > 0 && <p className="catalog-quiet">Volumes at operator-managed host paths are not included: {skippedHostPaths.join(", ")}</p>}
     </div>
   );

@@ -109,16 +109,25 @@ export function createPeopleStore({ database, now, timestamp, tokenBytes, record
     }, ownerId);
   }
 
-  function setOwnerPassword(id, passwordHash, { keepSessionTokenHash = null } = {}) {
+  /**
+   * Set an account's password and end its sessions (all but `keepSessionTokenHash`, the one that
+   * changed it). `actorId` and `auditType` say who set it when that was not the account itself: the
+   * owner for a member (people.password.set), nobody for the server's console.
+   * @param {string} id
+   * @param {string} passwordHash
+   * @param {{ keepSessionTokenHash?: string | null, actorId?: string | null, auditType?: string }} [options]
+   */
+  function setOwnerPassword(id, passwordHash, { keepSessionTokenHash = null, actorId = id, auditType = "people.password-changed" } = {}) {
     const account = findOwnerById(id);
     if (!account) throw new Error("Account not found");
     database.prepare("UPDATE owners SET password_hash = ? WHERE id = ?").run(passwordHash, id);
-    if (keepSessionTokenHash) database.prepare("DELETE FROM sessions WHERE owner_id = ? AND token_hash != ?").run(id, keepSessionTokenHash);
-    else database.prepare("DELETE FROM sessions WHERE owner_id = ?").run(id);
+    const ended = keepSessionTokenHash
+      ? database.prepare("DELETE FROM sessions WHERE owner_id = ? AND token_hash != ?").run(id, keepSessionTokenHash)
+      : database.prepare("DELETE FROM sessions WHERE owner_id = ?").run(id);
     // A new password must also end password-free sign-in from a browser that was trusted before it.
     forgetTrustedDevices(id);
-    recordAudit("people.password-changed", { actorId: id, subjectId: id, details: { username: account.username } });
-    return { id, username: account.username };
+    recordAudit(auditType, { actorId, subjectId: id, details: { username: account.username } });
+    return { id, username: account.username, role: account.role, sessionsEnded: Number(ended.changes) };
   }
 
   /** Accounts are disabled, not deleted: their jobs and audit rows keep pointing at them. */

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { onRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import SnapshotFirstButton from "../../SnapshotFirstButton";
 import { countOf } from "../../data";
@@ -78,6 +79,8 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
+  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
 
   const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
   const may = (operationId: string) => mayStart(role, operationId);

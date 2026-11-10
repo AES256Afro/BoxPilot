@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { onRefresh } from "../../shell/refresh";
 import { useOperation, type PendingOperation } from "../../shell/ApproveDialog";
 import { appUrl } from "../../appLinks";
 import { countOf } from "../../data";
@@ -130,6 +131,8 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     inspectOperation<{ available: boolean; stats: Record<string, AppStats> }>("app.stats.inspect").then(({ result }) => setStats(result.available ? result.stats : null)).catch(() => setStats(null));
   }, [loadTunnels, loadSchedules]);
   useEffect(() => { void refresh(); }, [refresh]);
+  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
+  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
 
   useEffect(() => {
     inspectOperation<{ available: boolean; projects: ForeignStack[] }>("compose.projects.inspect")
@@ -143,6 +146,9 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   // Catalog tab, which lists only what is not installed: the app they had just installed vanished.
   const returnTo = useRef<{ id: string; tab?: SheetTab } | null>(null);
   const ended = useRef<Job | null>(null);
+  // Whether the server accepted the approval: a dialog closed after that with no ending ("Keep
+  // working" on a long install, or a run it lost track of) left a job running, not a cancelled one.
+  const approved = useRef(false);
   // What the form an action came from held, put back when its approval is cancelled or its job does
   // not complete, as Users does: the form closed before the approval opened, and everything typed
   // into it (the install form, the settings, an edited Compose file) was gone.
@@ -156,7 +162,9 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     returnTo.current = sheet ?? (config ? config.back ?? { id: config.entry.manifest.id } : null);
     ended.current = null;
     keptForm.current = keep ?? null;
-    closeSheet(); setConfig(null); start(operation);
+    approved.current = false;
+    const told = operation.onApproved;
+    closeSheet(); setConfig(null); start({ ...operation, onApproved: (job) => { approved.current = true; told?.(job); } });
   }, [closeSheet, config, sheet, start]);
   const takeComposeDraft = useCallback((appId: string) => {
     const kept = keptCompose.current?.id === appId ? keptCompose.current.draft : null;
@@ -178,6 +186,9 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     const job = ended.current;
     const form = keptForm.current;
     returnTo.current = null; ended.current = null; keptForm.current = null;
+    // Still running: nothing is put back. The form it came from is not offered again over a job that
+    // is doing what it asked, and the app's tile says how it went when the job ends.
+    if (!job && approved.current) return;
     const completed = job?.state === "completed";
     if (!completed && form?.config) { setConfig(form.config); return; }
     if (!back) return;

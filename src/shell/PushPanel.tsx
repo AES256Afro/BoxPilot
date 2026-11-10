@@ -112,6 +112,7 @@ export function PushPanel({ csrfToken, role, now = Date.now }: { csrfToken: stri
           </fieldset>
           <Switch label="Quiet hours" description={`Nothing is pushed then; what still waits is said once, after. This server's clock${settings.timeZone ? ` (${settings.timeZone})` : ""}.`}
             checked={draft.quietHours.enabled} onChange={(enabled) => setDraft({ ...draft, quietHours: { ...draft.quietHours, enabled } })} />
+          <p className="push-quiet">Alerts have their own quiet hours, in Settings, Notifications.</p>
           {draft.quietHours.enabled && (
             <div className="push-hours">
               <Field label="From"><TextInput type="time" value={draft.quietHours.start} onValueChange={(start) => setDraft({ ...draft, quietHours: { ...draft.quietHours, start } })} /></Field>

@@ -66,6 +66,7 @@ describe("approvals on your phone", () => {
     expect(within(panel).getByRole("list", { name: "Your devices with pushes on" }).textContent).toContain("iPhone");
     expect(within(panel).getByText(/Tapping it opens BoxPilot at the approval/)).toBeTruthy();
     fireEvent.click(within(panel).getByRole("checkbox", { name: "Low risk" }));
+    expect(within(panel).getByText("Alerts have their own quiet hours, in Settings, Notifications.")).toBeTruthy();
     fireEvent.click(within(panel).getByRole("switch", { name: /Quiet hours/ }));
     fireEvent.click(within(panel).getByRole("button", { name: "Save" }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/v1/settings/push", expect.objectContaining({ method: "PUT" })));

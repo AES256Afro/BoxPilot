@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { onRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { bootWords } from "../../home/hostFacts";
@@ -68,6 +69,8 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
+  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
 
   const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
   const canAct = mayStart(role, "service.action");

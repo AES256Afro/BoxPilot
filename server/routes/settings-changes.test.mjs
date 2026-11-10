@@ -37,6 +37,8 @@ async function serve({ sendFails = false } = {}) {
     requireRole: (...roles) => (request, response, next) => (roles.includes(request.boxpilotSession.owner.role) ? next() : response.status(403).json({ code: "forbidden" })),
     requireCsrf: (request, response, next) => (request.get("x-boxpilot-csrf") === "csrf" ? next() : response.status(403).json({ code: "csrf_required" })),
     checkPassword: async (_request, account, password) => ({ ok: Boolean(account) && password === "right password", blocked: password === "throttled" }),
+    // The real rule is security.mjs's (tested in routes/people.test.mjs); here the window is the x-test-elevated header.
+    checkPasswordOrElevation: async (request, account, password) => (password ? auth.checkPassword(request, account, password) : { ok: Boolean(account) && request.get("x-test-elevated") === "yes", blocked: false }),
     rejectThrottled: (response) => response.status(429).json({ code: "too_many_attempts" }),
   };
   const app = express();
@@ -47,8 +49,8 @@ async function serve({ sendFails = false } = {}) {
   await new Promise((resolve) => server.once("listening", resolve));
   servers.push(server);
   const base = `http://127.0.0.1:${server.address().port}`;
-  const call = async (method, url, { as = "alex", body, csrf = true } = {}) => {
-    const response = await fetch(`${base}${url}`, { method, headers: { "Content-Type": "application/json", "x-test-session": as, ...(csrf ? { "x-boxpilot-csrf": "csrf" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const call = async (method, url, { as = "alex", body, csrf = true, elevated = false } = {}) => {
+    const response = await fetch(`${base}${url}`, { method, headers: { "Content-Type": "application/json", "x-test-session": as, ...(csrf ? { "x-boxpilot-csrf": "csrf" } : {}), ...(elevated ? { "x-test-elevated": "yes" } : {}) }, body: body ? JSON.stringify(body) : undefined });
     const text = await response.text();
     return { status: response.status, body: text ? JSON.parse(text) : null };
   };
@@ -125,6 +127,19 @@ describe("the approval mode", () => {
     expect(await call("PUT", "/settings/approval-mode", { body: { password: "right password", approvalMode: mode } })).toMatchObject({ status: 200, body: { approvalMode: mode } });
     expect(settings.get("approvalMode")).toBe(mode);
     expect(audit).toEqual([["settings.approval-mode.changed", "alex", { approvalMode: mode }]]);
+  });
+
+  it("takes all three changes without the password inside the window one already opened, and from the owner only", async () => {
+    const { call, settings, target } = await serve();
+    expect((await call("PUT", "/settings/backup-destination", { body: { destination: null } })).status).toBe(401);
+    expect((await call("PUT", "/settings/backup-destination", { as: "olly", elevated: true, body: { destination: null } })).status).toBe(403);
+    expect((await call("PUT", "/settings/backup-destination", { elevated: true, body: { password: "wrong password", destination: null } })).status).toBe(401);
+    expect(settings.get("backupDestination")).not.toBeNull();
+    expect((await call("PUT", "/settings/backup-destination", { elevated: true, body: { destination: null } })).status).toBe(200);
+    expect((await call("PUT", "/settings/notifications", { elevated: true, body: { target: { kind: "webhook", url: "https://hooks.example/abc" } } })).status).toBe(200);
+    expect(target()).toMatchObject({ kind: "webhook" });
+    expect((await call("PUT", "/settings/approval-mode", { elevated: true, body: { approvalMode: "always-password" } })).status).toBe(200);
+    expect(settings.get("approvalMode")).toBe("always-password");
   });
 
   it("keeps the shared VPN profile from anyone but the owner", async () => {

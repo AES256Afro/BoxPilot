@@ -17,7 +17,7 @@ const tierOf = (risk: string): RiskTier => (risk === "low" || risk === "medium" 
  * second copy beside the first), or one whose error names a fix somewhere else (it would fail the
  * same way). A run that ran out of time and can have more is offered that in its log instead.
  */
-export function mayTryAgain(job: Job, now: number = Date.now()): boolean {
+function mayTryAgain(job: Job, now: number = Date.now()): boolean {
   if (job.state !== "failed" || !job.type.startsWith("op:") || dismissedFailure(job) || ranAgain(job)) return false;
   if (jobTimeout(job)?.moreTimeMs) return false;
   if (JSON.stringify(job.parameters ?? {}).includes("[secret]")) return false;

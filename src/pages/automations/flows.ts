@@ -44,6 +44,14 @@ export const settingText = (value: unknown): string => (typeof value === "string
 /** A field's name as words: "credentialName" is "Credential name". */
 export const humanize = (name: string) => name.replace(/([A-Z])/g, " $1").replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase()).trim().replace(/\s(\w)/g, (_, c: string) => ` ${c.toLowerCase()}`);
 
+/** The part of the server an operation belongs to, from its id's first word, as the step picker groups them. */
+const areaWords: Record<string, string> = {
+  app: "Apps", apt: "Updates", packages: "Updates", backup: "Backups", controller: "Backups", host: "Backups", docker: "Docker", compose: "Docker", container: "Docker",
+  storage: "Storage", samba: "Storage", nfs: "Storage", firewall: "Firewall", service: "Services", system: "System", vm: "Virtual machines",
+  network: "Network", tailscale: "Network", cloudflare: "Network", users: "Users and SSH", notify: "Notifications",
+};
+export const areaOf = (operationId: string): string => { const first = operationId.split(".")[0] ?? ""; return areaWords[first] ?? humanize(first || "other"); };
+
 /** A last run that ended badly. One completed (even with skipped steps) or still running has not. */
 export function flowFailed(flow: Pick<Flow, "lastResult">): boolean {
   const result = flow.lastResult;

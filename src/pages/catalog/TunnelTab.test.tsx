@@ -62,6 +62,60 @@ async function openTunnelTab(role = "owner") {
   return sheet;
 }
 
+describe("publishing an app to the internet, from the app itself", () => {
+  const events = () => {
+    const opened = vi.fn();
+    const listener = (event: Event) => opened((event as CustomEvent).detail);
+    window.addEventListener("boxpilot:open-view", listener);
+    return { opened, stop: () => window.removeEventListener("boxpilot:open-view", listener) };
+  };
+  const openReach = async (name: string, role = "owner") => {
+    render(<CatalogPage csrfToken="csrf" role={role} />);
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^${name}, `) }));
+    const sheet = await screen.findByRole("dialog", { name });
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Reach" }));
+    return sheet;
+  };
+
+  it("says an app is not published, and opens the tunnel's form with it chosen", async () => {
+    serve();
+    const { opened, stop } = events();
+    const sheet = await openReach("Forgejo");
+    expect(within(sheet).getByText("On the internet")).toBeTruthy();
+    expect(await within(sheet).findByText("Not published")).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Publish through Cloudflare…" }));
+    expect(opened).toHaveBeenCalledWith({ view: "catalog", options: { app: "cloudflared", sheet: "tunnel", publish: "forgejo" } });
+    stop();
+  });
+
+  it("names where a published app answers, and sends the owner to install the tunnel when it is not there", async () => {
+    serve();
+    const sheet = await openReach("Pingvin Share");
+    expect((await within(sheet).findByRole("link", { name: "files.example.com" })).getAttribute("href")).toBe("https://files.example.com");
+    cleanup();
+    serve({ installed: false });
+    const { opened, stop } = events();
+    const second = await openReach("Pingvin Share");
+    fireEvent.click(within(second).getByRole("button", { name: "Install Cloudflare Tunnel first" }));
+    expect(opened).toHaveBeenCalledWith({ view: "catalog", options: { app: "cloudflared" } });
+    stop();
+  });
+
+  it("is the owner's, as the Tunnel tab is", async () => {
+    serve();
+    const sheet = await openReach("Forgejo", "operator");
+    expect(within(sheet).queryByText("On the internet")).toBeNull();
+  });
+
+  it("opens the Tunnel tab with the asked-for app already chosen", async () => {
+    serve();
+    window.history.replaceState(null, "", "/?view=catalog&app=cloudflared&sheet=tunnel&publish=forgejo");
+    render(<CatalogPage csrfToken="csrf" role="owner" focusApp="cloudflared" />);
+    const sheet = await screen.findByRole("dialog", { name: "Cloudflare Tunnel" });
+    await waitFor(() => expect((within(sheet).getByLabelText("App") as HTMLSelectElement).value).toBe("forgejo"));
+  });
+});
+
 describe("the Cloudflare Tunnel app's Tunnel tab", () => {
   it("is the owner's alone", async () => {
     serve();

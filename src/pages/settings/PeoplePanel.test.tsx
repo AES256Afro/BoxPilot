@@ -13,11 +13,14 @@ describe("people settings", () => {
       const url = input.toString();
       if (url.endsWith("/api/v1/people") && init?.method === "POST") { posted = init.body as string; people.push({ id: "o2", username: "sam", role: "operator", createdAt: "2026-08-21T00:00:00Z" }); return json({ account: people[1] }, 201); }
       if (url.endsWith("/api/v1/people")) return json({ people, roles: ["owner", "operator", "viewer"] });
+      if (url.endsWith("/api/v1/network/reachability")) return json({ ways: [{ id: "tailnet", label: "From anywhere on your tailnet", url: "https://homebox.tail1234.ts.net", scope: "tailnet", encrypted: true, trusted: true }, { id: "odd", label: "Not an address", url: "javascript:alert(1)" }] });
       return json({ error: `unexpected ${url}` }, 500);
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<PeopleSettings csrfToken="csrf" />);
     expect(await screen.findByText("admin")).toBeTruthy();
+    // What an operator is, in things a person does, not in tiers.
+    expect(screen.getByText("Runs backups, updates, installs and single firewall rules; cannot turn the firewall off, erase or restore, or change settings and people.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("New user name"), { target: { value: "sam" } });
     fireEvent.change(screen.getByLabelText("New account password"), { target: { value: "sams long password" } });
     fireEvent.change(screen.getByLabelText("Your owner password"), { target: { value: "correct horse battery" } });
@@ -27,6 +30,10 @@ describe("people settings", () => {
     // Said beside the form that added them, since the table above may be out of view.
     const form = screen.getByRole("form", { name: "Add a person" });
     await waitFor(() => expect(form.textContent).toContain("sam can sign in now, as an operator, with the password you set."));
+    // And where: the addresses BoxPilot answers on, each with Copy; nothing that is not an address.
+    expect(await screen.findByText("https://homebox.tail1234.ts.net")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Copy/ })).toBeTruthy();
+    expect(form.textContent).not.toContain("javascript:");
   });
 
   it("says a refused addition beside the Add form, and puts focus back when a confirmation is cancelled", async () => {

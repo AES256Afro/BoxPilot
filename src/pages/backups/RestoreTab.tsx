@@ -210,6 +210,10 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
         count={canRead && sources ? options.length : undefined}
         meta={canRead ? <>apps come back with their settings and secrets, then their data as the snapshot found it</> : undefined}
         actions={canRead ? <Button variant="ghost" busy={reading} onClick={() => void refresh()}>Check again</Button> : undefined}
+        footer={<span className="backups-foot backups-foot--row">
+          <span className="backups-foot__text">One app, or one file from it: open the app's Backups.</span>
+          <span className="backups-links"><Button variant="ghost" className="backups-inline" onClick={() => openView("backups", { tab: "apps" })}>Apps' data</Button></span>
+        </span>}
       >
         {!canRead ? (
           <EmptyState title="Restoring needs an operator or the owner">A snapshot lists every app's settings and secrets, so reading one is kept to those who can restore it.</EmptyState>

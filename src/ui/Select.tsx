@@ -7,6 +7,8 @@ export interface SelectOption {
   value: string;
   label: string;
   disabled?: boolean;
+  /** A heading the choice sits under ("Apps", "Storage"): choices that share one are listed together, in the order the first of each appears. */
+  group?: string;
 }
 
 export interface SelectProps extends Omit<ComponentProps<"select">, "children"> {
@@ -36,7 +38,12 @@ export function Select({ options, placeholder, onValueChange, onChange, mono = f
         onChange={(event: ChangeEvent<HTMLSelectElement>) => { onChange?.(event); onValueChange?.(event.target.value); }}
       >
         {placeholder !== undefined && <option value="">{placeholder}</option>}
-        {options.map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
+        {options.some((option) => option.group)
+          ? [...new Set(options.map((option) => option.group ?? ""))].map((group) => {
+            const members = options.filter((option) => (option.group ?? "") === group).map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>);
+            return group ? <optgroup key={group} label={group}>{members}</optgroup> : members;
+          })
+          : options.map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
       </select>
       <ChevronIcon className="ui-select__chevron" />
     </span>

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { navItems, viewLabel } from "./data";
@@ -212,6 +212,20 @@ describe("BoxPilot console", () => {
     expect(window.location.search).toBe("");
     fireEvent.click(within(dock()).getByRole("button", { name: "Backups" }));
     expect(window.location.search).toBe("?view=backups");
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("opens an app's sheet at the tab asked for from another page, and drops that tab on the next change of page", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    window.history.replaceState(null, "", "/?view=backups");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Backups" })).toBeTruthy();
+    // What Backups' "Restore…" and an app's "Publish through Cloudflare…" ask for (activityEvents.openView).
+    act(() => { window.dispatchEvent(new CustomEvent("boxpilot:open-view", { detail: { view: "catalog", options: { app: "cloudflared", sheet: "tunnel", publish: "forgejo" } } })); });
+    await screen.findByRole("heading", { level: 1, name: "Apps" });
+    expect(window.location.search).toBe("?view=catalog&app=cloudflared&sheet=tunnel&publish=forgejo");
+    act(() => { window.dispatchEvent(new CustomEvent("boxpilot:open-view", { detail: { view: "backups", options: { tab: "offbox" } } })); });
+    expect(window.location.search).toBe("?view=backups&tab=offbox");
     window.history.replaceState(null, "", "/");
   });
 

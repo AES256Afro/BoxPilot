@@ -752,7 +752,7 @@ api.get("/settings/watch", (_request, response) => json(response, { targetConfig
 // The notification centre (M36): what the server said lately and whether the phone got it.
 api.get("/notifications", (_request, response) => json(response, { seenAt: ago(30), unseen: 2, targetConfigured: true, entries: [
   { id: "n1", kind: "notice", key: "release.available", family: "release.available", title: `BoxPilot v${productVersion} is out`, message: "Update from the System page: it copies the database first, and puts the old version back by itself if the new one does not start.", at: ago(20), delivered: true, reason: null, deliveredAt: ago(20), resolvedAt: null, live: false },
-  { id: "n2", kind: "alert", key: "storage.mount.full:/mnt/media", family: "storage.mount.full", title: "/mnt/media is 91% full", message: "The filesystem mounted at /mnt/media is nearly full.", at: ago(26), delivered: true, reason: null, deliveredAt: ago(26), resolvedAt: ago(22), live: false },
+  { id: "n2", kind: "alert", key: "storage.mount.full:/mnt/media", family: "storage.mount.full", title: "/mnt/media is 91% full", message: "The filesystem mounted at /mnt/media is nearly full. Storage, Mounts shows what fills it.", at: ago(26), delivered: true, reason: null, deliveredAt: ago(26), resolvedAt: ago(22), live: false },
   { id: "n3", kind: "job", key: "job.failed:d3", family: "job.failed", title: "Mirror local backups to the cloud destination failed", message: "rclone: the bucket answered 503; the next scheduled run tries again.", at: ago(50), delivered: true, reason: null, deliveredAt: ago(50), resolvedAt: null, live: false },
   { id: "n4", kind: "notice", key: "drive.reconnected:media", family: "drive.reconnected", title: "The media drive was reconnected automatically", message: "It dropped off USB at 03:12 and was checked and mounted again at 03:14.", at: ago(96), delivered: true, reason: null, deliveredAt: ago(96), resolvedAt: null, live: false },
   { id: "n5", kind: "approval", key: "approval.waiting:0f8b3c1e-1111-4222-8333-444455556666", family: "approval.waiting", title: "Update an app (Immich): approve?", message: "Medium risk. Tap to review it in BoxPilot; nothing runs until you approve it there.", at: ago(120), delivered: true, reason: null, deliveredAt: ago(120), resolvedAt: null, live: false },
@@ -961,9 +961,7 @@ api.get("/integrations/github", (_request, response) => json(response, {
   }],
   boundary: { repositoryAllowlist: ["AES256Afro/BoxPilot"], tokenConfigured: false, credentialsAccepted: false, repositoryWrites: false, cloneOrDownload: false, webhookConfigured: false, workflowDispatch: false, installationSupported: false, localDigestVerification: false },
   limitations: [
-    "GitHub commit verification and asset digests are API-reported metadata; BoxPilot does not independently verify signatures or downloaded bytes.",
-    "A release asset is not installable until a future adapter downloads it to a confined staging path and verifies its exact digest locally.",
-    "No GitHub token, repository write, clone, download, webhook, workflow dispatch, or adapter installation exists in this release.",
+    "These figures are what GitHub reports. Updates are checked on this server when you install them (System, BoxPilot update).",
   ],
 }));
 // Times the server went down without shutting down (2026-09-29). None in the lived-in world; the
@@ -1198,7 +1196,7 @@ const freshWords = {
       snapshots: [{ artifact: "machine-snapshot-20260820T020000Z-9f3c1a77.tar.gz", sizeBytes: 184320, createdAt: ago(30), checksumSha256: "b".repeat(64), apps: 11 }] },
   ] },
   "app.models.inspect": { available: false, reason: "No model runner is installed.", models: [] },
-  "dns.names.inspect": { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from the App catalog.", platform: null, records: [], apps: [] },
+  "dns.names.inspect": { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from Apps.", platform: null, records: [], apps: [] },
   "router.inspect": { configured: false, reachable: false, host: null, username: null, model: null, firmware: null, reason: "No router is connected yet." },
   "router.leases": { host: null, leases: [] },
   // Off until the owner turns it on (M39.3).
@@ -1281,10 +1279,10 @@ const troubleJobs = [
     steps: [{ name: "recovery", state: "required", detail: "The operation was interrupted by a BoxPilot restart", createdAt: ago(2) }, { name: "rerun", state: "started", detail: "Running again as job r2", createdAt: ago(2) }] },
   // Last night's Immich backup, the one the failing schedule ran (M33.2: a failed backup on Home).
   { id: "t2", type: "op:app.backup", title: "Back up application data", state: "failed", risk: "medium", result: null, createdAt: ago(16), updatedAt: ago(15.9), approvals: [],
-    parameters: { id: "immich", keep: 5 }, error: "tar failed: No space left on device", steps: [{ name: "archive", state: "failed", detail: "tar failed: No space left on device", createdAt: ago(15.9) }] },
+    parameters: { id: "immich", keep: 5 }, error: "The backup could not be written: tar: Cannot write: No space left on device. No backup was kept.", steps: [{ name: "archive", state: "failed", detail: "The backup could not be written: tar: Cannot write: No space left on device. No backup was kept.", createdAt: ago(15.9) }] },
   // Staged by the operator account and waiting for the owner, which Repair's approval desk holds.
   { id: "t3", type: "op:storage.remount", title: "Reconnect a drive", state: "awaiting_approval", risk: "medium", error: null, result: null, createdAt: ago(0.3), approvals: [],
-    parameters: { name: "media" }, steps: [{ name: "preflight", state: "completed", detail: "Reconnect a drive: parameters validated against the operation registry", createdAt: ago(0.3) }] },
+    parameters: { name: "media" }, steps: [{ name: "preflight", state: "completed", detail: "Checked what was asked for.", createdAt: ago(0.3) }] },
   // The reconnect refused as busy (M35): Repair shows it on its finding, not as a failure of its own.
   refusedRemount,
 ];
@@ -1304,7 +1302,7 @@ const troubleRest = {
     ? { ...job, state: "failed", error: "rsync: connection unexpectedly closed by nas.local" }
     : index === 1 ? backupNotice(job) : job))] }),
   "/schedules": (body) => ({ schedules: body.schedules.map((schedule) => (schedule.id === "s1"
-    ? { ...schedule, lastResult: "failed: tar failed: No space left on device", lastOutcome: "failed", lastReason: "tar failed: No space left on device" }
+    ? { ...schedule, lastResult: "failed: The backup could not be written: tar: Cannot write: No space left on device. No backup was kept.", lastOutcome: "failed", lastReason: "The backup could not be written: tar: Cannot write: No space left on device. No backup was kept." }
     : schedule.id === "s3" ? { ...schedule, lastResult: "blocked-by-approval-mode", lastOutcome: "did-not-run", lastReason: "Approvals are set to always ask" } : schedule)) }),
   "/drives/auto-reconnect": (body) => ({ ...body, drives: Object.fromEntries(Object.entries(body.drives).map(([name, drive]) => [name,
     { ...drive, held: true, heldSince: ago(3), heldBecause: "the last automatic reconnect did not work", attempts: 2, lastAttemptAt: ago(3), lastOutcome: "failed" }])) }),
@@ -1330,7 +1328,7 @@ const troubleRest = {
   "/notifications": (body) => ({ ...body, unseen: 4, entries: [
     { id: "t0", kind: "alert", key: `power.lost:${powerCut.id.slice(0, 12)}`, family: "power.lost", title: `${host.hostname} lost power (or froze) at ${new Date(powerCut.stoppedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} and was off for 3 h 36 min.`, message: `Pi-hole was down with it, so devices using it had no DNS. In ${host.hostname}'s BIOS, set "Restore on AC power loss" to Power On, so it starts again by itself when the power comes back.`, at: powerCut.detectedAt, delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: true },
     { id: "t1", kind: "alert", key: "flow.failed:f1", family: "flow.failed", title: "Automation stopped: Update night", message: "Step 3 (Install package updates) failed: apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend", at: ago(30), delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: true },
-    { id: "t2", kind: "job", key: "job.failed:t2", family: "job.failed", title: "Back up application data failed", message: "tar failed: No space left on device", at: ago(15.9), delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: false },
+    { id: "t2", kind: "job", key: "job.failed:t2", family: "job.failed", title: "Back up application data failed", message: "The backup could not be written: tar: Cannot write: No space left on device. No backup was kept.", at: ago(15.9), delivered: false, reason: "failed", deliveredAt: null, resolvedAt: null, live: false },
     ...body.entries,
   ].sort((left, right) => right.at.localeCompare(left.at)) }),
   "/settings/watch": (body) => {
@@ -1420,7 +1418,7 @@ api.get("/operations/action-center", (_request, response) => json(response, {
     { id: "recovery.applications.backup", severity: "warning", category: "Apps with no backup", title: "Restore each app's data",
       summary: "Back up the two without one, then rehearse weekly.",
       evidence: ["5 of 7 installed apps have a backup; 2 have never been backed up."],
-      recommendation: { view: "catalog", title: "Open Catalog", steps: ["Open the App catalog. Each card says whether that app has ever been backed up.", "Back it up from the card, then use Rehearse weekly so a broken backup does not stay unnoticed.", "Mirror the backups off this server from the Backups page."] },
+      recommendation: { view: "catalog", title: "Open Apps", steps: ["Open Apps. Each app says whether it has ever been backed up.", "Back it up from there, then use Rehearse weekly so a broken backup does not stay unnoticed.", "Mirror the backups off this server from the Backups page."] },
       boundary: { mutationPerformed: false, automaticFixAvailable: false, commandsIncluded: false, secretsIncluded: false, logsIncluded: false } },
   ],
   boundary: { mutationPerformed: false, automaticRepair: false, persistence: false, browserNotifications: false, externalDelivery: false, credentialsIncluded: false, arbitraryLogsIncluded: false },

@@ -92,6 +92,8 @@
 .catalog-form__hint code { font-size: 12px; overflow-wrap: anywhere; }
 .catalog-form__blocker { margin-right: auto; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.35; }
 .catalog-form__problems { display: grid; gap: 4px; margin: 0; padding-left: 18px; }
+/* A taken port, on its own box: the sentence, then the next free port as a button. */
+.catalog-form__taken { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
 .catalog-form .ui-check__description a { color: var(--accent); }
 
 /* The Cloudflare Tunnel app's Tunnel tab (M42): connecting Cloudflare, and publishing an app. */

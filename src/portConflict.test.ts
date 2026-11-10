@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describePortConflict } from "./portConflict";
+import { describePortConflict, freePortAfter } from "./portConflict";
 
 const base = { label: "API", port: 11434, protocol: "tcp", listeners: ["127.0.0.1:11434"] };
 
@@ -28,5 +28,22 @@ describe("describePortConflict", () => {
 
   it("keeps the resolved advice for port 53", () => {
     expect(describePortConflict({ label: "DNS", port: 53, protocol: "udp", listeners: ["127.0.0.53:53"] })).toContain("DNSStubListener=no");
+  });
+});
+
+describe("freePortAfter", () => {
+  it("takes the server's suggestion when it sent one", () => {
+    expect(freePortAfter({ ...base, suggested: 11436 })).toBe(11436);
+  });
+
+  it("works one out from the listeners when they came with the answer, skipping the form's other boxes", () => {
+    expect(freePortAfter(base, { inUse: [{ port: 11435, protocol: "tcp" }, 11436], alsoTaken: [11437] })).toBe(11438);
+  });
+
+  it("offers nothing when it knows neither: a guess that is also taken is worse", () => {
+    expect(freePortAfter(base)).toBeNull();
+    expect(freePortAfter({ ...base, suggested: 0 })).toBeNull();
+    expect(freePortAfter({ ...base, suggested: 11434 })).toBeNull();
+    expect(freePortAfter({ ...base, suggested: 11435 }, { alsoTaken: [11435] })).toBeNull();
   });
 });

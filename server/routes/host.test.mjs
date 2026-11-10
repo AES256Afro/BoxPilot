@@ -293,6 +293,52 @@ describe("the install and settings precheck", () => {
   });
 });
 
+describe("a port to use instead, with each conflict the precheck reports", () => {
+  const program = (port, protocol = "tcp") => ({ protocol, address: "0.0.0.0", port, scope: "wildcard" });
+  const serveWith = async (listeners) => {
+    const [{ default: express }, { createHostRouter }, { createCatalogService }] = await Promise.all([import("express"), import("./host.mjs"), import("../catalog/index.mjs")]);
+    const app = express();
+    app.use(express.json());
+    app.use("/api/v1", createHostRouter({
+      state: { getSetting: (_key, fallback) => fallback }, helper: { request: async (operation) => (operation === "app.inspect" ? { applications: [] } : { containers: [] }) },
+      catalogService: createCatalogService(), inventory: { inspect: async () => ({}) },
+      network: {}, controllerProtection: {}, controllerRetention: {}, githubProvenance: {}, releaseUpdates: {},
+      setup: {}, supportBundle: {}, audit: {}, auth: { requireCsrf: (_q, _s, next) => next(), requireRole: () => (_q, _s, next) => next() },
+      readListeners: async () => listeners,
+    }));
+    const server = app.listen(0);
+    await new Promise((resolve) => server.once("listening", resolve));
+    const precheck = async (id, values) => (await (await fetch(`http://127.0.0.1:${server.address().port}/api/v1/catalog/${id}/precheck`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values }) })).json()).conflicts.map((conflict) => [`${conflict.port}/${conflict.protocol}`, conflict.suggested]);
+    return { precheck, close: () => { server.closeAllConnections?.(); server.close(); } };
+  };
+
+  it("is the next one above that nothing listens on, never below 1024, and none on the host's own network", async () => {
+    // 8084 is Pi-hole's admin page; 8085 and 8086 are taken too. 53 is below 1024, and 1024 is in use.
+    const { precheck, close } = await serveWith([program(53), program(53, "udp"), program(1024), program(8084), program(8085), program(8086)]);
+    try {
+      expect(await precheck("pi-hole", { networkMode: "bridge" })).toEqual([["53/tcp", 1025], ["53/udp", 1024], ["8084/tcp", 8087]]);
+      expect(await precheck("pi-hole", { networkMode: "host" })).toEqual([["53/tcp", null], ["53/udp", null]]);
+    } finally { close(); }
+  });
+
+  it("is not a port another part of the same install asks for, nor one already offered, and is null when none is near", async () => {
+    // Both of Pi-hole's DNS ports moved to 5300 and its page to 5301: the page's port is spoken for,
+    // so the first free one is 5302, for TCP and, separately, for UDP.
+    const first = await serveWith([program(5300), program(5300, "udp")]);
+    try {
+      expect(await first.precheck("pi-hole", { networkMode: "bridge", ports: { "dns-tcp": 5300, "dns-udp": 5300, web: 5301 } })).toEqual([["5300/tcp", 5302], ["5300/udp", 5301]]);
+    } finally { first.close(); }
+    const full = await serveWith(Array.from({ length: 201 }, (_unused, index) => program(8084 + index)));
+    try {
+      expect(await full.precheck("pi-hole", { networkMode: "bridge" })).toEqual([["8084/tcp", null]]);
+    } finally { full.close(); }
+    const top = await serveWith([program(65535)]);
+    try {
+      expect(await top.precheck("pi-hole", { networkMode: "bridge", ports: { web: 65535 } })).toEqual([["65535/tcp", null]]);
+    } finally { top.close(); }
+  });
+});
+
 describe("the ports an app on the host network already holds", () => {
   it("are the ones it binds there, as the app's own record lists them", () => {
     const own = { installed: true, state: { values: { ports: {} } }, published: [{ id: "web", host: 80, protocol: "tcp", bind: "*", hostNetwork: true }] };

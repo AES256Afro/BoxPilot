@@ -1,7 +1,7 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button, Field, Notice, Select, Sheet, Tag, TextInput } from "../../ui";
 import type { RiskTier } from "../../ui/types";
-import { humanize, type Flow, type PaletteStep } from "./flows";
+import { areaOf, humanize, type Flow, type PaletteStep } from "./flows";
 
 /*
  * Building an automation (M13.2), in a sheet over the page: a name, what it may run after, and its
@@ -28,6 +28,23 @@ export function FlowBuilder({ palette, flows, onClose, onSave }: FlowBuilderProp
   const [steps, setSteps] = useState<DraftStep[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The installed apps, for a step on one of them: a pick by name, not an id to type from memory.
+  // null while unread or when the list cannot be read, and the box takes the id as before.
+  const [apps, setApps] = useState<Array<{ id: string; name: string }> | null>(null);
+  const wantsApps = steps.some((step) => step.operationId.startsWith("app."));
+  useEffect(() => {
+    if (!wantsApps || apps) return undefined;
+    let active = true;
+    fetch("/api/v1/catalog?view=summary")
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("catalog unavailable"))))
+      .then((data: { applications?: Array<{ manifest: { id: string; name: string }; live: { installed: boolean } | null }> }) => {
+        if (active && Array.isArray(data.applications)) setApps(data.applications.filter((entry) => entry.live?.installed).map((entry) => ({ id: entry.manifest.id, name: entry.manifest.name })).sort((left, right) => left.name.localeCompare(right.name)));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [wantsApps, apps]);
+  // Grouped by the part of the server each belongs to, so sixty operations are not one flat list.
+  const pickable = [...palette].sort((left, right) => areaOf(left.operationId).localeCompare(areaOf(right.operationId)) || left.title.localeCompare(right.title));
   const titleFor = (operationId: string) => palette.find((step) => step.operationId === operationId)?.title ?? operationId;
   const change = (index: number, update: (step: DraftStep) => DraftStep) => setSteps((current) => current.map((entry, at) => (at === index ? update(entry) : entry)));
 
@@ -76,8 +93,9 @@ export function FlowBuilder({ palette, flows, onClose, onSave }: FlowBuilderProp
         )}
         <Field label="Add a step" hint="Each step runs as its own recorded job, in order. A step that fails stops the run unless it says to keep going.">
           <Select value="" placeholder="Pick an operation…" onValueChange={(chosen) => { if (chosen) setSteps((current) => [...current, { operationId: chosen, onFailure: "stop", retry: 0, parameters: {} }]); }}
-            options={palette.map((step) => ({ value: step.operationId, label: `${step.title} (${step.risk})` }))} />
+            options={pickable.map((step) => ({ value: step.operationId, label: `${step.title} (${step.risk})`, group: areaOf(step.operationId) }))} />
         </Field>
+        <p className="automations-quiet">A run that fails is sent to your notification target; one that works says nothing.</p>
         {steps.length > 0 && (
           <ol className="automations-steps">
             {steps.map((step, index) => {
@@ -102,10 +120,16 @@ export function FlowBuilder({ palette, flows, onClose, onSave }: FlowBuilderProp
                         // A field with a fixed set of choices (a declared enum, or yes and no for a
                         // boolean) is one select; everything else is a text or number box.
                         const choices = field.enum ?? (field.type === "boolean" ? ["true", "false"] : null);
-                        const label = `${humanize(field.name)} for step ${index + 1}`;
+                        // An app operation's `id` is an installed app: chosen by its name.
+                        const appField = field.name === "id" && step.operationId.startsWith("app.") && !choices;
+                        const words = appField ? "App" : humanize(field.name);
+                        const label = `${words} for step ${index + 1}`;
+                        const chosen = step.parameters[field.name] ?? "";
                         return (
-                          <Field key={field.name} label={humanize(field.name)} required={!field.optional}>
-                            {choices
+                          <Field key={field.name} label={words} required={!field.optional}>
+                            {appField && apps && apps.length > 0
+                              ? <Select aria-label={label} value={chosen} placeholder="Choose an app…" onValueChange={(value) => setParam(field.name, value)} options={[...apps.map((app) => ({ value: app.id, label: app.name })), ...(chosen && !apps.some((app) => app.id === chosen) ? [{ value: chosen, label: chosen }] : [])]} />
+                              : choices
                               ? <Select aria-label={label} value={step.parameters[field.name] ?? ""} placeholder="choose…" onValueChange={(value) => setParam(field.name, value)} options={choices.map((option) => ({ value: option, label: field.type === "boolean" ? (option === "true" ? "Yes" : "No") : option }))} />
                               : <TextInput aria-label={label} type={field.type === "number" ? "number" : "text"} mono value={step.parameters[field.name] ?? ""} onValueChange={(value) => setParam(field.name, value)} />}
                           </Field>

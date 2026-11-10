@@ -113,6 +113,54 @@ describe("Automations page", () => {
     expect(posted).toEqual({ name: "Tidy up Docker", steps: [{ operationId: "host.snapshot.create", parameters: {} }] });
   });
 
+  it("schedules a flow at any cadence, with the fields Schedules has, and opens a scheduled one at its own", async () => {
+    const sent: unknown[] = [];
+    serve({ flows: [baseFlow, { ...baseFlow, id: "flow-2", name: "Hourly ping", frequency: "hourly", minute: 20, hour: null, weekday: null }] }, (url, init) => {
+      if (url.startsWith("/api/v1/flows/flow-") && init?.method === "PUT") { sent.push(JSON.parse(String(init.body))); return json({ flow: {} }); }
+      return undefined;
+    });
+    render(<AutomationsPage csrfToken="csrf" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Schedule: Nightly" }));
+    const sheet = screen.getByRole("dialog", { name: "Nightly" });
+    fireEvent.change(within(sheet).getByLabelText("How often"), { target: { value: "daily" } });
+    expect(within(sheet).queryByLabelText("Weekday")).toBeNull();
+    fireEvent.change(within(sheet).getByLabelText("Time of day"), { target: { value: "22:30" } });
+    expect(within(sheet).getByText("In the server's time zone, Etc/UTC.")).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Save the schedule" }));
+    await vi.waitFor(() => expect(sent).toEqual([{ cadence: { frequency: "daily", minute: 30, hour: 22, weekday: null } }]));
+    // One already on a schedule opens at that schedule, to change it.
+    fireEvent.click(screen.getByRole("button", { name: "Change the schedule: Hourly ping" }));
+    const second = screen.getByRole("dialog", { name: "Hourly ping" });
+    expect((within(second).getByLabelText("How often") as HTMLSelectElement).value).toBe("hourly");
+    expect((within(second).getByLabelText("Minute of the hour") as HTMLInputElement).value).toBe("20");
+  });
+
+  it("picks a step's app by name, lists the operations by area, and says what a failed run does", async () => {
+    let created: unknown = null;
+    const appPalette = [...palette, { operationId: "app.backup", title: "Back up application data", risk: "medium", description: "", fields: [{ name: "id", type: "string", optional: false, enum: null, default: null }] }];
+    serve({}, (url, init) => {
+      if (url === "/api/v1/flows" && init?.method === "POST") { created = JSON.parse(String(init.body)); return json({ flow: {} }); }
+      if (url === "/api/v1/flows") return json({ flows: [], palette: appPalette, shelf: [] });
+      if (url.startsWith("/api/v1/catalog")) return json({ applications: [{ manifest: { id: "immich", name: "Immich" }, live: { installed: true } }, { manifest: { id: "jellyfin", name: "Jellyfin" }, live: { installed: false } }] });
+      return undefined;
+    });
+    render(<AutomationsPage csrfToken="csrf" />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Build your own" }))[0]);
+    const sheet = await screen.findByRole("dialog");
+    expect(within(sheet).getByText("A run that fails is sent to your notification target; one that works says nothing.")).toBeTruthy();
+    const picker = within(sheet).getByLabelText("Add a step") as HTMLSelectElement;
+    expect([...picker.querySelectorAll("optgroup")].map((group) => group.label)).toEqual(["Apps", "Backups", "Http", "Updates"]);
+    fireEvent.change(within(sheet).getByLabelText("Automation name"), { target: { value: "Photos" } });
+    fireEvent.change(picker, { target: { value: "app.backup" } });
+    // The installed apps, by name; one that is not installed is not offered.
+    const app = await within(sheet).findByRole("combobox", { name: "App for step 1" }) as HTMLSelectElement;
+    expect([...app.options].map((option) => option.textContent)).toEqual(["Choose an app…", "Immich"]);
+    fireEvent.change(app, { target: { value: "immich" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => { if (!created) throw new Error("not yet"); });
+    expect(created).toEqual({ name: "Photos", steps: [{ operationId: "app.backup", parameters: { id: "immich" } }] });
+  });
+
   it("builds a parameterized step, coercing and omitting fields, and sending retry", async () => {
     let created: unknown = null;
     serve({}, (url, init) => {
@@ -184,7 +232,8 @@ describe("Automations page", () => {
     // Shown in the automation's own card, beside the button that made it, not at the top of the page.
     expect(url.closest(".automations-flow")?.querySelector(".automations-flow__name")?.textContent).toBe("Nightly");
     // Another action does not wipe it.
-    fireEvent.click(screen.getByRole("button", { name: "Run it every Sunday at 03:00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Schedule: Nightly" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Nightly" })).getByRole("button", { name: "Save the schedule" }));
     await vi.waitFor(() => expect(calls).toContain("PUT /api/v1/flows/flow-1"));
     expect(screen.getByLabelText("Webhook URL")).toBeTruthy();
     fireEvent.click(within(screen.getByText("New webhook for Nightly").closest(".ui-notice")!).getByRole("button", { name: "Dismiss" }));

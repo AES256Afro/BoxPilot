@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { onRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { Button, KeyValue, Notice, PageHeader, Tabs, useUrlParam, type Status } from "../../ui";
@@ -110,6 +111,8 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
     }
   }, [readAround]);
   useEffect(() => { void refresh(); }, [refresh]);
+  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
+  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
 
   const { start, dialog } = useOperation(csrfToken, () => { setRefreshKey((key) => key + 1); void readAround(); void refresh(); void readResilience(true); });
 

@@ -4,7 +4,7 @@ import path from "node:path";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createStateStore } from "./state.mjs";
-import { createAuthService, hashPassword, verifyPassword } from "./security.mjs";
+import { createAuthService, hashPassword, resetPasswordFromConsole, verifyPassword } from "./security.mjs";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
 vi.setConfig({ testTimeout: 60_000 });
@@ -186,5 +186,57 @@ describe("signing out and unlocking high-risk approvals", () => {
     expect(await verifyPassword("owner password 1", good)).toBe(true);
     for (const encoded of ["", "md5$abc", "scrypt$16384$8$1$$", `bcrypt${good.slice(6)}`, null]) expect(await verifyPassword("owner password 1", encoded)).toBe(false);
     expect(await verifyPassword(undefined, good)).toBe(false);
+  });
+});
+
+describe("a forgotten password, reset from the server's console", () => {
+  const alex = { username: "alex", password: "the old password" };
+  const at = () => new Date("2026-03-01T10:00:00Z");
+
+  it("sets the new one for the owner, ends every session, and says in the audit log that no account did it", async () => {
+    const { state, call, signIn } = await boot({ owner: alex });
+    const before = await signIn(alex.username, alex.password);
+    await signIn(alex.username, alex.password);
+    expect(await resetPasswordFromConsole({ store: state, username: "alex", password: "a brand new password", now: at })).toEqual({ ok: true, username: "alex", role: "owner", sessionsEnded: 2 });
+    expect((await call("GET", "/owner-only", { cookie: before.cookie })).status).toBe(401);
+    expect((await signIn(alex.username, alex.password)).status).toBe(401);
+    expect((await signIn(alex.username, "a brand new password")).status).toBe(200);
+    const owner = state.findOwnerByUsername("alex");
+    expect(state.listAudit(20).find((event) => event.type === "auth.password.reset-from-console")).toMatchObject({ actorId: null, subjectId: owner.id, details: { username: "alex" } });
+    expect(state.listAudit(20).some((event) => event.type === "people.password-changed")).toBe(false);
+  });
+
+  it("works for any other account, and leaves everyone else as they were", async () => {
+    const { state, signIn } = await boot({ owner: alex });
+    const owner = state.findOwnerByUsername("alex");
+    state.createOwnerAccount({ username: "vic", passwordHash: await hashPassword("vic's old password"), role: "viewer", createdBy: owner.id });
+    expect(await resetPasswordFromConsole({ store: state, username: "vic", password: "vic's new password", now: at })).toMatchObject({ ok: true, username: "vic", role: "viewer", sessionsEnded: 0 });
+    expect((await signIn("vic", "vic's new password")).status).toBe(200);
+    expect(state.findOwnerByUsername("alex").passwordHash).toBe(owner.passwordHash);
+    expect((await signIn(alex.username, alex.password)).status).toBe(200);
+  });
+
+  it("changes nothing for a name that is not an account or a password outside the rules, and names no one", async () => {
+    const { state } = await boot({ owner: alex });
+    const before = state.findOwnerByUsername("alex").passwordHash;
+    for (const username of ["nobody", "ALEX", "alex ", "", "alex' OR '1'='1", "%", null, undefined, 7, ["alex"], { toString: () => "alex" }, "a".repeat(100_000)]) {
+      expect(await resetPasswordFromConsole({ store: state, username, password: "a brand new password", now: at })).toEqual({ ok: false, error: "No such account." });
+    }
+    for (const password of ["short", "", "x".repeat(257), null, undefined, 123456789012, ["a brand new password"], { length: 20 }]) {
+      expect(await resetPasswordFromConsole({ store: state, username: "alex", password, now: at })).toEqual({ ok: false, error: "The new password must be 12 to 256 characters." });
+    }
+    expect(state.findOwnerByUsername("alex").passwordHash).toBe(before);
+    expect(state.listAudit(20).some((event) => event.type === "auth.password.reset-from-console")).toBe(false);
+  });
+
+  it("clears the wrong guesses counted against the account, so the new password signs in at once", async () => {
+    const { state, signIn } = await boot({ owner: alex });
+    for (let attempt = 0; attempt < 5; attempt += 1) expect((await signIn(alex.username, "not the password")).status).toBe(401);
+    expect((await signIn(alex.username, alex.password)).status).toBe(429);
+    await resetPasswordFromConsole({ store: state, username: "alex", password: "a brand new password", now: at });
+    expect((await signIn(alex.username, "a brand new password")).status).toBe(200);
+    // Once per reset: wrong guesses after it count as they always did.
+    for (let attempt = 0; attempt < 5; attempt += 1) expect((await signIn(alex.username, "not the password")).status).toBe(401);
+    expect((await signIn(alex.username, "a brand new password")).status).toBe(429);
   });
 });

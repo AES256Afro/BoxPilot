@@ -128,3 +128,10 @@
   .settings-appearance__row { grid-template-columns: minmax(0, 1fr); }
   .settings-appearance__row > :last-child { grid-row: auto; grid-column: 1; margin-top: 6px; }
 }
+
+/* After adding a person: the addresses to hand over, each with Copy. */
+.settings-handover { display: grid; gap: 6px; min-width: 0; }
+.settings-handover__list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.settings-handover__list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.settings-handover__list code { overflow-wrap: anywhere; }
+.settings-handover__label { color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; }
