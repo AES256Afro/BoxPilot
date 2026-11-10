@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { openView } from "../../activityEvents";
 import { readJson } from "../../http";
 import { relativeTime } from "../../home/format";
-import { Button, EmptyState, Field, KeyValue, Notice, PageHeader, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, type KeyValueItem, type Status, type TableColumn } from "../../ui";
+import { Button, EmptyState, Field, KeyValue, Notice, PageHeader, Panel, RelativeTime, Select, Sheet, StatusChip, Table, Tag, TextInput, type KeyValueItem, type Status, type TableColumn } from "../../ui";
 import { isHostedStatus, type DomainBackup, type DomainCertificate, type DomainDns, type DomainProbe, type DomainSource, type DomainState, type HostedDomain, type HostedStatus, type TunnelFacts } from "./types";
 import "./hosted.css";
 
@@ -67,9 +68,27 @@ function backupWords(backup: DomainBackup | null, clock: number): Figure {
 function tunnelWords(tunnel: TunnelFacts | null, clock: number): Figure {
   if (!tunnel?.installed) return { value: "Not installed", hint: "the Cloudflare Tunnel app", status: "neutral" };
   if (!tunnel.running) return { value: "Stopped", hint: tunnel.status ?? "not running", status: "danger" };
+  // null is "could not be counted" (a viewer, or cloudflared's metrics unread): running, never "Not connected".
   if (tunnel.connections === 0) return { value: "Not connected", hint: tunnel.lastProblem ?? "no connection to Cloudflare", status: "danger" };
   const since = relativeTime(tunnel.since, clock);
   return { value: tunnel.connections === null ? "Running" : "Connected", hint: [tunnel.connections !== null ? `${tunnel.connections} ${tunnel.connections === 1 ? "connection" : "connections"}` : null, since && since.endsWith(" ago") ? `for ${since.slice(0, -4)}` : null].filter(Boolean).join(" · ") || "the Cloudflare Tunnel app", status: "good" };
+}
+
+/**
+ * The name out of what was typed or pasted: `https://News.Example.com/path` is `news.example.com`.
+ * The server takes a bare lower-case name with no port, so the scheme, the sign-in part, the port and
+ * the path go as they arrive. A dot at the end stays while typing ("news." is on its way to
+ * "news.example.com") and goes when the name is sent, or at once from a pasted address.
+ */
+export function hostnameFrom(typed: string, done = false): string {
+  let name = typed.trim().toLowerCase();
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\//.exec(name);
+  if (scheme) name = name.slice(scheme[0].length);
+  const cut = name.search(/[/?#\s]/);
+  const pasted = Boolean(scheme) || cut >= 0;
+  if (cut >= 0) name = name.slice(0, cut);
+  name = name.slice(name.lastIndexOf("@") + 1).replace(/:\d*$/, "");
+  return done || pasted ? name.replace(/\.+$/, "") : name;
 }
 
 const percent = (value: number | null) => (value === null ? "—" : `${value}%`);
@@ -100,6 +119,8 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  // Stopping asks first: it went on one tap, and the server drops the name's week of uptime and its alerts with it.
+  const [stopping, setStopping] = useState<string | null>(null);
   const [savingInterval, setSavingInterval] = useState(false);
   const canChange = role === "owner" || role === "operator";
 
@@ -141,6 +162,7 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
       setNotice({ tone: "danger", text: caught instanceof Error ? caught.message : `${hostname} could not be removed` });
     } finally {
       setRemoving(null);
+      setStopping(null);
     }
   };
 
@@ -164,6 +186,8 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
   const unchecked = domains.filter((domain) => domain.state === "unknown").length;
   const tunnel = tunnelWords(status?.tunnel ?? null, clock);
   const checked = relativeTime(status?.checkedAt, clock);
+  // One button, "Check again": a fresh round of checks for those who may ask for one, the last round read again for a viewer.
+  const checkAgain = () => void read(canChange);
 
   const verdict: { status: Status; label: string } = error && !status ? { status: "unknown", label: "Not read" }
     : !status ? { status: "unknown", label: "Reading…" }
@@ -202,7 +226,7 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "hosted-actions-cell", cell: (domain) => (
         <span className="hosted-actions">
           <Button variant="ghost" onClick={() => setOpen(domain.hostname)} aria-label={`Details of ${domain.hostname}`}>Details</Button>
-          {canChange && domain.manual && <Button variant="ghost" onClick={() => void remove(domain.hostname)} busy={removing === domain.hostname} aria-label={`Stop watching ${domain.hostname}`}>Remove</Button>}
+          {canChange && domain.manual && <Button variant="ghost" onClick={() => setStopping(domain.hostname)} busy={removing === domain.hostname} aria-label={`Stop watching ${domain.hostname}`}>Stop watching</Button>}
         </span>
       ),
     },
@@ -211,8 +235,8 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
   const strip: KeyValueItem[] = status ? [
     { id: "tunnel", label: "Tunnel", value: tunnel.value, status: tunnel.status, hint: tunnel.hint ?? undefined },
     { id: "cloudflare", label: "Cloudflare", value: status.tunnel?.cloudflare?.connected ? status.tunnel.cloudflare.tunnelName ?? "Connected" : "Not connected", mono: Boolean(status.tunnel?.cloudflare?.connected), status: status.tunnel?.cloudflare?.connected ? "good" : "neutral", hint: status.tunnel?.cloudflare?.connected ? "the tunnel BoxPilot manages" : "connect from the Cloudflare Tunnel app" },
-    { id: "checks", label: "Checks", value: `every ${status.intervalMinutes} min`, mono: true, hint: status.checking ? "checking now" : status.nextCheckAt ? `next ${relativeTime(status.nextCheckAt, clock) ?? "soon"}` : checked ? `last ${checked}` : "not yet" },
-    { id: "alerts", label: "Alerts", value: status.alertsTarget ? "On" : "No target", status: status.alertsTarget ? "good" : "warning", hint: status.alertsTarget ? "a name down, or a certificate inside 14 days" : "set one under Settings, Alerts" },
+    { id: "checks", label: "Checks", value: `every ${status.intervalMinutes} min`, mono: true, hint: status.checking ? "checking now" : status.nextCheckAt ? <>next <RelativeTime at={status.nextCheckAt} now={clock} fallback="soon" /></> : checked ? <>last <RelativeTime at={status.checkedAt} now={clock} /></> : "not yet" },
+    { id: "alerts", label: "Alerts", value: status.alertsTarget ? "On" : "No target", status: status.alertsTarget ? "good" : "warning", hint: status.alertsTarget ? "a name down, or a certificate inside 14 days" : role === "owner" ? <Button variant="ghost" onClick={() => openView("settings", { tab: "notifications" })}>Open Notifications</Button> : "the owner sets one in Settings, under Notifications" },
   ] : [];
 
   const opened = open ? domains.find((domain) => domain.hostname === open) ?? null : null;
@@ -223,12 +247,11 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
         title="Hosted domains"
         status={verdict}
         meta={status ? <>
-          <b>{domains.length}</b> {domains.length === 1 ? "domain" : "domains"} · tunnel {tunnel.value.toLowerCase()} · checked {checked ?? "never"} · every <b>{status.intervalMinutes}</b> min
+          <b>{domains.length}</b> {domains.length === 1 ? "domain" : "domains"} · tunnel {tunnel.value.toLowerCase()} · checked <RelativeTime at={status.checkedAt} now={clock} fallback="never" /> · every <b>{status.intervalMinutes}</b> min
         </> : undefined}
         actions={<>
-          {canChange && <Button variant="ghost" onClick={() => void read(true)} busy={checking}>Check now</Button>}
           {canChange && <Button onClick={() => setAdding(true)}>Add a domain…</Button>}
-          <Button variant="ghost" onClick={() => void read()} busy={loading && Boolean(status)}>Read again</Button>
+          <Button variant="ghost" onClick={checkAgain} busy={checking || (loading && Boolean(status))}>Check again</Button>
         </>}
         about={<>
           <p>Every public name this server answers for, and whether it does.</p>
@@ -268,9 +291,16 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
         />
       </Panel>
 
-      {opened && (
-        <Sheet kicker="Domain" title={opened.hostname} side="right" onClose={() => setOpen(null)} footer={canChange && opened.manual ? <Button variant="ghost" onClick={() => void remove(opened.hostname)} busy={removing === opened.hostname}>Stop watching</Button> : undefined}>
+      {opened && !stopping && (
+        <Sheet kicker="Domain" title={opened.hostname} side="right" onClose={() => setOpen(null)} footer={canChange && opened.manual ? <Button variant="ghost" onClick={() => setStopping(opened.hostname)} busy={removing === opened.hostname}>Stop watching</Button> : undefined}>
           <DomainDetails domain={opened} clock={clock} />
+        </Sheet>
+      )}
+
+      {stopping && (
+        <Sheet side="center" size="sm" kicker="Hosted domains" title={`Stop watching ${stopping}?`} onClose={() => { if (!removing) setStopping(null); }}
+          footer={<><Button variant="ghost" disabled={Boolean(removing)} onClick={() => setStopping(null)}>Keep it</Button><Button variant="primary" busy={removing === stopping} onClick={() => { if (!removing) void remove(stopping); }}>Stop watching</Button></>}>
+          <p>Its checks, its alerts and its week of uptime history go. The site itself is not touched.</p>
         </Sheet>
       )}
 
@@ -292,14 +322,15 @@ function DomainDetails({ domain, clock }: { domain: HostedDomain; clock: number 
     { id: "state", label: "Status", value: words.label, status: words.status },
     { id: "url", label: "Address", value: <a className="hosted-link" href={domain.url} target="_blank" rel="noreferrer">{domain.url}</a>, mono: true },
     { id: "app", label: "App", value: domain.appName ?? domain.label ?? "Not known", hint: domain.app ? (domain.app.installed ? (domain.app.running ? "running" : "stopped") : "not installed") : domain.service ? undefined : "nothing on this server is tied to it" },
-    { id: "service", label: "Answered here at", value: domain.service ?? "—", mono: true, hint: domain.service ? "where the tunnel sends visitors" : "not known" },
+    // Left out of what a viewer is sent: no row, rather than "not known" about something that is known.
+    ...(domain.service === undefined ? [] : [{ id: "service", label: "Answered here at", value: domain.service ?? "—", mono: true, hint: domain.service ? "where the tunnel sends visitors" : "not known" }]),
     { id: "dns", label: "DNS", value: dns.value, status: dns.status, hint: domain.dns?.addresses.length ? domain.dns.addresses.join(", ") : dns.hint ?? undefined },
     { id: "certificate", label: "Certificate", value: certificate.value, status: certificate.status, hint: [ends ? `until ${ends}` : null, domain.certificate?.issuer ?? null, domain.certificate && !domain.certificate.authorized ? "not trusted" : null].filter(Boolean).join(" · ") || certificate.hint || undefined },
     { id: "outside", label: "From the internet", value: outside.value, status: outside.status, hint: outside.hint ?? undefined },
     { id: "inside", label: "On this server", value: inside.value, status: inside.status, hint: inside.hint ?? undefined },
     { id: "uptime", label: "Up over 24 h / 7 d", value: `${percent(domain.uptime.day)} / ${percent(domain.uptime.week)}`, mono: true, hint: `${domain.uptime.checks} ${domain.uptime.checks === 1 ? "check" : "checks"} kept` },
     { id: "backup", label: "Backup", value: backup.value, status: backup.status, hint: backup.hint ?? undefined },
-    { id: "checked", label: "Last checked", value: relativeTime(domain.checkedAt, clock) ?? "never", hint: domain.checkedAt ? new Date(domain.checkedAt).toLocaleString() : undefined },
+    { id: "checked", label: "Last checked", value: <RelativeTime at={domain.checkedAt} now={clock} fallback="never" />, hint: domain.checkedAt ? new Date(domain.checkedAt).toLocaleString() : undefined },
   ];
   return (
     <div className="hosted-sheet">
@@ -320,23 +351,26 @@ function AddDomainSheet({ onClose, send, onAdded }: { onClose: () => void; send:
   const [label, setLabel] = useState("");
   const [expectedAddress, setExpectedAddress] = useState("");
   const [apps, setApps] = useState<Array<{ id: string; name: string }>>([]);
+  // A failed read of the installed apps left the select holding "None" alone, as if nothing were installed.
+  const [appsUnread, setAppsUnread] = useState(false);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   useEffect(() => {
     let gone = false;
     void fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Array<{ manifest: { id: string; name: string }; live?: { installed?: boolean } }> } | null) => {
-      if (gone || !body?.applications) return;
+      if (gone) return;
+      if (!body || !Array.isArray(body.applications)) { setAppsUnread(true); return; }
       setApps(body.applications.filter((entry) => entry.live?.installed).map((entry) => ({ id: entry.manifest.id, name: entry.manifest.name })).sort((a, b) => a.name.localeCompare(b.name)));
-    }).catch(() => undefined);
+    }).catch(() => { if (!gone) setAppsUnread(true); });
     return () => { gone = true; };
   }, []);
-  const ready = hostname.trim().length > 0 && !saving;
+  const ready = hostnameFrom(hostname, true).length > 0 && !saving;
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     if (!ready) return;
     setSaving(true);
     try {
-      const added = await send<{ added: string }>("POST", "/api/v1/hosted-domains/manual", { hostname: hostname.trim(), service: service.trim() || null, appId: appId || null, label: label.trim() || null, expectedAddress: expectedAddress.trim() || null });
+      const added = await send<{ added: string }>("POST", "/api/v1/hosted-domains/manual", { hostname: hostnameFrom(hostname, true), service: service.trim() || null, appId: appId || null, label: label.trim() || null, expectedAddress: expectedAddress.trim() || null });
       onAdded(added.added);
     } catch (caught) {
       setProblem(caught instanceof Error ? caught.message : "The name could not be added");
@@ -351,13 +385,13 @@ function AddDomainSheet({ onClose, send, onAdded }: { onClose: () => void; send:
     </>}>
       <form className="hosted-form" onSubmit={(event) => void submit(event)}>
         {problem && <Notice tone="danger" live title="Not added">{problem}</Notice>}
-        <Field label="Name" hint="The public name, as people type it: news.example.com." required>
-          <TextInput mono autoFocus placeholder="news.example.com" value={hostname} onValueChange={setHostname} autoComplete="off" spellCheck={false} />
+        <Field label="Name" hint="The public name, as people type it: news.example.com. A pasted address is cut down to its name." required>
+          <TextInput mono autoFocus placeholder="news.example.com" value={hostname} onValueChange={(value) => setHostname(hostnameFrom(value))} autoComplete="off" autoCapitalize="off" spellCheck={false} />
         </Field>
         <Field label="Answered on this server at" hint="Where the tunnel or proxy sends visitors here, so BoxPilot can ask the app directly too: http://127.0.0.1:4321." optional>
           <TextInput mono placeholder="http://127.0.0.1:4321" value={service} onValueChange={setService} autoComplete="off" spellCheck={false} />
         </Field>
-        <Field label="App" hint="The installed app behind it, for its backups and whether it is running." optional>
+        <Field label="App" hint={appsUnread ? "The installed apps could not be listed." : "The installed app behind it, for its backups and whether it is running."} optional>
           <Select options={apps.map((app) => ({ value: app.id, label: app.name }))} placeholder="None" value={appId} onValueChange={setAppId} />
         </Field>
         <Field label="Label" hint="A few words, when there is no app to name it by." optional>

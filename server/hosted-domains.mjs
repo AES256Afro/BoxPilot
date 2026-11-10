@@ -33,6 +33,12 @@ export const alertFamilies = Object.freeze({ down: "hosted.down", certificate: "
 export const sampleLimit = 2200;
 export const sampleMaxAgeMs = 7 * 24 * 3600_000;
 export const manualLimit = 64;
+/** A round asked for from the page ("Check now") runs no sooner than this after the last one; inside it the kept round answers. */
+export const freshMinIntervalMs = 30_000;
+/** What the page says when a source of names did not answer and its names stand on the last round. */
+export const unreadProblem = "Some of this server's names could not be read this time; what is shown for them is from the last check.";
+/** How many different failures of the background round are written to the log, once each. */
+const warningLimit = 20;
 /** The catalog's Cloudflare Tunnel app, which holds the tunnel up (cloudflare-tunnel.mjs says so too). */
 const tunnelAppId = "cloudflared";
 /** Where a manually added name is answered on this server: this server's own loopback, as the tunnel reaches apps. */
@@ -53,30 +59,49 @@ export function isPublicName(hostname) {
 }
 
 /**
- * The public name in an app's setting: a URL (`https://notes.example.com/`), a bare name, or a
- * list of either (Nextcloud's trusted domains), of which the first public one is taken.
+ * The public address in an app's setting: a URL (`https://notes.example.com/`), a bare name, or a
+ * list of either (Nextcloud's trusted domains), of which the first public one is taken. `url` is
+ * where visitors are sent, scheme and port as the setting says them and nothing after: a name
+ * published on `https://books.example.com:8443`, or over plain http, is asked there and not on 443.
+ * @returns {{ hostname: string, url: string } | null}
  */
-export function publicHostnameOf(value) {
+export function publicAddressOf(value) {
   if (typeof value !== "string") return null;
   for (const token of value.split(/[\s,]+/).map((part) => part.trim()).filter(Boolean)) {
-    let candidate = token;
-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(token)) {
-      try { candidate = new URL(token).hostname; } catch { continue; }
-    } else {
-      candidate = token.split("/")[0].split(":")[0];
-    }
-    if (isPublicName(candidate)) return lower(candidate);
+    let parsed;
+    try { parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(token) ? token : `https://${token}`); } catch { continue; }
+    if (!isPublicName(parsed.hostname)) continue;
+    const hostname = lower(parsed.hostname);
+    // Any other scheme names the host and nothing BoxPilot can ask, so the usual address stands.
+    return { hostname, url: ["http:", "https:"].includes(parsed.protocol) ? `${parsed.protocol}//${hostname}${parsed.port ? `:${parsed.port}` : ""}` : `https://${hostname}` };
   }
   return null;
 }
 
-/** The port a loopback service address names, or null. */
-function portOf(service) {
+/** The public name in an app's setting, without where it is published. */
+export function publicHostnameOf(value) {
+  return publicAddressOf(value)?.hostname ?? null;
+}
+
+/**
+ * A service address cut back to scheme, host and port. A config file is something an app can write,
+ * so a path, a query or a name and password in one is never asked for and never shown.
+ */
+export function serviceOrigin(service) {
+  if (typeof service !== "string") return null;
+  try {
+    const url = new URL(service);
+    return url.host ? `${url.protocol}//${url.host}` : null;
+  } catch { return null; }
+}
+
+/** The port a service address names and whether it is this server's own loopback, with the address rebuilt from those alone; or null. */
+function targetOf(service) {
   try {
     const url = new URL(service);
     if (!["http:", "https:"].includes(url.protocol)) return null;
     const port = url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80;
-    return { port, loopback: ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) };
+    return { port, loopback: ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname), origin: `${url.protocol}//${url.host}` };
   } catch { return null; }
 }
 
@@ -161,7 +186,7 @@ export function discoverDomains({ tunnel = null, apps = [], manifests = [], sour
   const hasTunnel = Boolean(tunnel?.tunnel?.id) || Boolean(tunnelApp?.installed) || (sources?.cloudflared ?? []).length > 0;
   /** @type {Map<string, any>} */
   const found = new Map();
-  const add = (hostname, source, { appId = null, service = null, expect = null, expectedAddress = null, label = null, wildcard = false } = {}) => {
+  const add = (hostname, source, { appId = null, service = null, expect = null, expectedAddress = null, label = null, wildcard = false, url = null } = {}) => {
     const name = lower(hostname);
     if (!name) return;
     const current = found.get(name);
@@ -172,31 +197,32 @@ export function discoverDomains({ tunnel = null, apps = [], manifests = [], sour
       current.expect ??= expect;
       current.expectedAddress ??= expectedAddress;
       current.label ??= label;
+      current.url ??= url;
       return;
     }
-    found.set(name, { hostname: name, sources: [source], appId, service, expect, expectedAddress, label, wildcard });
+    found.set(name, { hostname: name, sources: [source], appId, service, expect, expectedAddress, label, wildcard, url });
   };
 
   for (const route of Array.isArray(tunnel?.routes) ? tunnel.routes : []) {
     if (!isObject(route) || typeof route.hostname !== "string" || !hostnamePattern.test(lower(route.hostname))) continue;
-    const service = typeof route.service === "string" ? route.service : Number.isInteger(route.hostPort) ? `http://127.0.0.1:${route.hostPort}` : null;
+    const service = typeof route.service === "string" ? serviceOrigin(route.service) : Number.isInteger(route.hostPort) ? `http://127.0.0.1:${route.hostPort}` : null;
     add(route.hostname, "tunnel", { appId: typeof route.appId === "string" ? route.appId : null, service, expect: "cloudflare" });
   }
   for (const config of sources?.cloudflared ?? []) {
     for (const rule of Array.isArray(config?.ingress) ? config.ingress : []) {
       if (!isObject(rule) || typeof rule.hostname !== "string") continue;
-      const target = portOf(rule.service);
+      const target = targetOf(rule.service);
       const app = target?.loopback ? appByPort(apps, target.port) : null;
-      add(rule.hostname, "cloudflared-config", { appId: app?.id ?? null, service: target?.loopback ? rule.service : null, expect: "cloudflare", wildcard: Boolean(rule.wildcard) });
+      add(rule.hostname, "cloudflared-config", { appId: app?.id ?? null, service: target?.loopback ? target.origin : null, expect: "cloudflare", wildcard: Boolean(rule.wildcard) });
     }
   }
   for (const site of sources?.proxyHosts ?? []) {
     if (!isObject(site)) continue;
-    const target = typeof site.target === "string" ? portOf(site.target) : null;
+    const target = typeof site.target === "string" ? targetOf(site.target) : null;
     const app = target?.loopback ? appByPort(apps, target.port) : null;
     for (const hostname of Array.isArray(site.hostnames) ? site.hostnames : []) {
       if (typeof hostname !== "string") continue;
-      add(hostname, "proxy", { appId: app?.id ?? null, service: target?.loopback ? site.target : null, expect: hasTunnel ? "cloudflare" : "any", wildcard: String(hostname).startsWith("*.") });
+      add(hostname, "proxy", { appId: app?.id ?? null, service: target?.loopback ? target.origin : null, expect: hasTunnel ? "cloudflare" : "any", wildcard: String(hostname).startsWith("*.") });
     }
   }
   for (const manifest of manifests) {
@@ -204,10 +230,10 @@ export function discoverDomains({ tunnel = null, apps = [], manifests = [], sour
     if (typeof env !== "string") continue;
     const app = byId.get(manifest.id);
     if (!app?.installed) continue;
-    const hostname = publicHostnameOf(app.state?.values?.env?.[env]);
-    if (!hostname) continue;
+    const address = publicAddressOf(app.state?.values?.env?.[env]);
+    if (!address) continue;
     const port = webPortOf(app);
-    add(hostname, "catalog", { appId: manifest.id, service: port ? `http://127.0.0.1:${port}` : null, expect: hasTunnel ? "cloudflare" : "any" });
+    add(address.hostname, "catalog", { appId: manifest.id, service: port ? `http://127.0.0.1:${port}` : null, expect: hasTunnel ? "cloudflare" : "any", url: address.url });
   }
   for (const entry of manual) {
     if (!isObject(entry) || typeof entry.hostname !== "string") continue;
@@ -221,6 +247,7 @@ export function discoverDomains({ tunnel = null, apps = [], manifests = [], sour
     return {
       ...domain,
       expect: domain.expect ?? "any",
+      url: domain.url ?? `https://${domain.hostname}`,
       appName: domain.appId ? names.get(domain.appId) ?? app?.name ?? domain.appId : null,
       app: app ? { installed: Boolean(app.installed), running: app.installed ? Boolean(app.container?.running) && app.container?.status !== "paused" : null } : domain.appId ? { installed: false, running: null } : null,
       manual: domain.sources.includes("manual"),
@@ -232,21 +259,27 @@ export function discoverDomains({ tunnel = null, apps = [], manifests = [], sour
  * What the Cloudflare Tunnel app's log says about its connections: cloudflared registers one
  * connection per Cloudflare location ("Registered tunnel connection connIndex=0 ...") and says when
  * one goes ("Unregistered tunnel connection connIndex=0"). The live ones, and since when.
+ *
+ * The log is a window (its last few hundred lines), and a tunnel that has been up for a day
+ * registered long before it: a window that shows neither a registration nor cloudflared starting
+ * says nothing about the connections, so the count is null (not known), never a made-up zero.
  */
 export function tunnelFromLog(lines = []) {
   /** @type {Map<string, string | null>} */
   const live = new Map();
   let lastProblem = null;
+  let counted = false;
   for (const raw of Array.isArray(lines) ? lines : []) {
     const line = String(raw ?? "");
     const stamp = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/.exec(line)?.[1] ?? null;
     const index = /connIndex=(\d+)/.exec(line)?.[1] ?? null;
-    if (/Registered tunnel connection/.test(line) && index !== null) live.set(index, stamp);
-    else if (/Unregistered tunnel connection/.test(line) && index !== null) live.delete(index);
+    if (/Unregistered tunnel connection/.test(line) && index !== null) live.delete(index);
+    else if (/Registered tunnel connection/.test(line) && index !== null) { live.set(index, stamp); counted = true; }
+    else if (/\bStarting tunnel\b/.test(line)) { live.clear(); counted = true; }
     else if (/\b(ERR|WRN)\b/.test(line)) lastProblem = line.replace(/^\S+\s+(ERR|WRN)\s+/, "").slice(0, 200);
   }
   const stamps = [...live.values()].filter(Boolean).sort();
-  return { connections: live.size, since: stamps[0] ?? null, lastProblem };
+  return { connections: counted ? live.size : null, since: stamps[0] ?? null, lastProblem };
 }
 
 /** Whether a public name ever counted as reachable from the internet, over the last day and week. */
@@ -280,6 +313,8 @@ export function backupStateOf(appId, protection, schedules = [], { now = Date.no
   const newestAt = typeof app.newestAt === "string" ? app.newestAt : null;
   if (!app.backups || !newestAt) return { state: "never", newestAt: null, scheduled, backups: 0 };
   const ageDays = (now - Date.parse(newestAt)) / 86_400_000;
+  // A date that cannot be read is not a recent backup: its age is not known, and that is what is said.
+  if (!Number.isFinite(ageDays)) return { state: "unknown", newestAt: null, scheduled, backups: app.backups };
   return { state: ageDays > staleAfterDays ? "stale" : "ok", newestAt, scheduled, backups: app.backups };
 }
 
@@ -322,6 +357,8 @@ export function judgeDomain(domain, checks = {}, { now = new Date() } = {}) {
   const answered = probed && outside.outcome === "answered";
   const status = answered ? outside.status ?? 0 : null;
   const healthy = answered && (status < 400 || status === 401 || status === 403);
+  // Any answer that is not Cloudflare's own "cannot reach the origin" came down the tunnel from this server.
+  const throughTunnel = answered && !(status >= 520 && status <= 530);
   if (probed && !answered) {
     problems.push({ severity: "down", text: outside.outcome === "timeout" ? "no answer from the internet" : "unreachable from the internet", advice: `Asked from this server by its public name, ${name} ${outside.outcome === "timeout" ? "did not answer in time" : `could not be reached (${outside.error ?? "connection failed"})`}. ${viaTunnel ? tunnelAdvice : "Check the server it points at and the port forwarding or proxy in front of it."}` });
   } else if (answered && status >= 520 && status <= 530) {
@@ -336,7 +373,7 @@ export function judgeDomain(domain, checks = {}, { now = new Date() } = {}) {
 
   if (viaTunnel && tunnel?.installed && !tunnel.running) {
     problems.push({ severity: healthy ? "degraded" : "down", text: "the tunnel app is not running", advice: healthy ? `${name} still answers (Cloudflare serves a cached copy), but the Cloudflare Tunnel app is not running here, so anything not cached fails. Start it from its Overview tab in the App catalog.` : tunnelAdvice });
-  } else if (viaTunnel && tunnel?.installed && tunnel.running && tunnel.connections === 0 && !healthy && !problems.some((problem) => problem.advice === tunnelAdvice)) {
+  } else if (viaTunnel && tunnel?.installed && tunnel.running && tunnel.connections === 0 && !throughTunnel && !problems.some((problem) => problem.advice === tunnelAdvice)) {
     problems.push({ severity: "down", text: "the tunnel is not connected", advice: tunnelAdvice });
   }
 
@@ -387,34 +424,52 @@ async function eachLimited(items, width, work) {
  * test, or the demo, has neither); `probes` are the network's hands, replaced by a test.
  *
  * @param {{ store: any, helper?: any, catalog?: any, alerts?: any, notifications?: any, probes?: { resolve: Function, probe: Function }, now?: () => Date,
- *   initialDelayMs?: number, tickMs?: number, probeTimeoutMs?: number, concurrency?: number, hostname?: () => string,
+ *   initialDelayMs?: number, tickMs?: number, probeTimeoutMs?: number, concurrency?: number, hostname?: () => string, freshMinMs?: number, warn?: (message: string) => void,
  *   setTimeout?: typeof globalThis.setTimeout, setInterval?: typeof globalThis.setInterval, clearTimeout?: typeof globalThis.clearTimeout, clearInterval?: typeof globalThis.clearInterval }} options
  */
-export function createHostedDomainsService({ store, helper = null, catalog = null, alerts = null, notifications = null, probes = defaultProbes, now = () => new Date(), initialDelayMs = 90_000, tickMs = 60_000, probeTimeoutMs = 10_000, concurrency = 6, hostname = () => os.hostname(), setTimeout: delay = globalThis.setTimeout, setInterval: schedule = globalThis.setInterval, clearTimeout: cancel = globalThis.clearTimeout, clearInterval: unschedule = globalThis.clearInterval }) {
+export function createHostedDomainsService({ store, helper = null, catalog = null, alerts = null, notifications = null, probes = defaultProbes, now = () => new Date(), initialDelayMs = 90_000, tickMs = 60_000, probeTimeoutMs = 10_000, concurrency = 6, hostname = () => os.hostname(), freshMinMs = freshMinIntervalMs, warn = (message) => console.warn(message), setTimeout: delay = globalThis.setTimeout, setInterval: schedule = globalThis.setInterval, clearTimeout: cancel = globalThis.clearTimeout, clearInterval: unschedule = globalThis.clearInterval }) {
   /** @type {Promise<any> | null} */
   let inflight = null;
   /** @type {Map<string, number>} how many checks running a name has been down, for the flap guard. */
   const downStreak = new Map();
   let dueAt = null;
   let lastRunAt = null;
+  /** When the last round ended, for the pause between rounds asked for from the page. */
+  let lastEndedAt = null;
+  /** Set when the names changed (one added, one removed, a publish): a round already under way read them before that, so another is due as soon as it ends. */
+  let dirty = false;
+  /** @type {Set<string>} the background round's failures already written to the log. */
+  const warned = new Set();
 
   const settings = () => normalizeSettings(store.getSetting(settingKey, null));
   const writeSettings = (value, updatedBy) => store.setSetting(settingKey, value, { updatedBy });
   const readHistory = () => { const raw = store.getSetting(historyKey, {}); return isObject(raw) ? raw : {}; };
   const lastSnapshot = () => { const raw = store.getSetting(snapshotKey, null); return isObject(raw) ? raw : null; };
-  const ask = (operation, parameters = {}, timeoutMs = 30_000) => (helper ? Promise.resolve(helper.request(operation, parameters, { timeoutMs })).catch(() => null) : Promise.resolve(null));
+  const ask = (operation, parameters = {}, timeoutMs = 30_000) => (helper ? Promise.resolve().then(() => helper.request(operation, parameters, { timeoutMs })).catch(() => null) : Promise.resolve(null));
+  /** A read whose failure is told apart from an empty answer: no helper at all is an answer (nothing to read), a helper that refused or timed out is not. */
+  const read = (work) => Promise.resolve().then(work).then((value) => ({ value, failed: false }), () => ({ value: null, failed: true }));
+  const askFor = (operation, parameters = {}, timeoutMs = 30_000) => (helper ? read(() => helper.request(operation, parameters, { timeoutMs })) : Promise.resolve({ value: null, failed: false }));
 
-  /** Everything the checks start from, read in one go. A source that fails is simply absent. */
+  /**
+   * Everything the checks start from, read in one go. A source that fails is absent, and `unread`
+   * says so: the sources whose names could not be read this time (as discoverDomains labels them),
+   * or `everything` when the apps themselves could not be, since every name's verdict leans on them.
+   * A name that is absent because its source did not answer has not gone anywhere.
+   */
   async function gather() {
-    const [tunnel, live, sources, protection, catalogRead] = await Promise.all([
-      ask("cloudflare.tunnel.inspect"),
-      ask("app.inspect", {}, 60_000),
-      ask("hosted-domains.sources"),
+    const [tunnelRead, liveRead, sourcesRead, protection, catalogRead] = await Promise.all([
+      askFor("cloudflare.tunnel.inspect"),
+      askFor("app.inspect", {}, 60_000),
+      askFor("hosted-domains.sources"),
       ask("app.backup.protection", {}, 60_000),
-      catalog ? Promise.resolve(catalog.all()).catch(() => ({ manifests: [] })) : Promise.resolve({ manifests: [] }),
+      catalog ? read(() => catalog.all()) : Promise.resolve({ value: { manifests: [] }, failed: false }),
     ]);
+    const tunnel = tunnelRead.value;
+    const live = liveRead.value;
+    const sources = sourcesRead.value;
+    const unread = { everything: liveRead.failed, sources: new Set([...(tunnelRead.failed ? ["tunnel"] : []), ...(sourcesRead.failed ? ["cloudflared-config", "proxy"] : []), ...(catalogRead.failed || liveRead.failed ? ["catalog"] : [])]) };
     const apps = Array.isArray(live?.applications) ? live.applications : [];
-    const manifests = Array.isArray(catalogRead?.manifests) ? catalogRead.manifests : [];
+    const manifests = Array.isArray(catalogRead.value?.manifests) ? catalogRead.value.manifests : [];
     const tunnelApp = apps.find((app) => app?.id === tunnelAppId) ?? null;
     const tunnelRunning = Boolean(tunnelApp?.installed) && Boolean(tunnelApp?.container?.running) && tunnelApp?.container?.status !== "paused";
     const log = tunnelRunning ? await ask("app.logs", { id: tunnelAppId, lines: 300 }, 60_000) : null;
@@ -430,17 +485,19 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
     };
     const { manual } = settings();
     const domains = discoverDomains({ tunnel, apps, manifests, sources, manual });
-    return { domains, tunnel: tunnelFacts, protection, schedules: typeof store.listSchedules === "function" ? store.listSchedules() : [] };
+    return { domains, tunnel: tunnelFacts, protection, schedules: typeof store.listSchedules === "function" ? store.listSchedules() : [], unread };
   }
 
   /** One name's checks, each with its own deadline, and its verdict. */
   async function checkOne(domain, facts, at) {
-    const url = `https://${domain.hostname}/`;
+    const address = domain.url ?? `https://${domain.hostname}`;
+    // Where the app answers on this server, rebuilt from scheme, host and port: nothing else in a service address is ever asked for.
+    const here = domain.service ? targetOf(domain.service) : null;
     const dns = domain.wildcard ? null : await Promise.resolve(probes.resolve(domain.hostname, { timeoutMs: Math.min(probeTimeoutMs, 5000) })).catch((error) => ({ resolved: false, addresses: [], viaCloudflare: false, private: false, error: error?.message ?? "lookup failed" }));
     const skipped = domain.wildcard ? "wildcard" : !dns?.resolved ? "does not resolve" : dns.private ? "resolves to a private address" : null;
     const [outsideRaw, insideRaw] = await Promise.all([
-      skipped ? Promise.resolve(null) : Promise.resolve(probes.probe({ url, timeoutMs: probeTimeoutMs })).catch((error) => ({ outcome: "error", status: null, ms: null, server: null, tls: null, error: error?.message ?? "probe failed" })),
-      domain.service && portOf(domain.service)?.loopback ? Promise.resolve(probes.probe({ url: domain.service, hostHeader: domain.hostname, timeoutMs: probeTimeoutMs })).catch((error) => ({ outcome: "error", status: null, ms: null, server: null, tls: null, error: error?.message ?? "probe failed" })) : Promise.resolve(null),
+      skipped ? Promise.resolve(null) : Promise.resolve(probes.probe({ url: `${address}/`, addresses: dns.addresses, timeoutMs: probeTimeoutMs })).catch((error) => ({ outcome: "error", status: null, ms: null, server: null, tls: null, error: error?.message ?? "probe failed" })),
+      here?.loopback ? Promise.resolve(probes.probe({ url: here.origin, hostHeader: domain.hostname, timeoutMs: probeTimeoutMs })).catch((error) => ({ outcome: "error", status: null, ms: null, server: null, tls: null, error: error?.message ?? "probe failed" })) : Promise.resolve(null),
     ]);
     const outside = skipped ? { outcome: "skipped", status: null, ms: null, server: null, error: null, skipped } : outsideRaw ? { outcome: outsideRaw.outcome, status: outsideRaw.status ?? null, ms: outsideRaw.ms ?? null, server: outsideRaw.server ?? null, error: outsideRaw.error ?? null, skipped: null } : null;
     const tls = outsideRaw?.tls ?? null;
@@ -448,7 +505,7 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
     const inside = insideRaw ? { outcome: insideRaw.outcome, status: insideRaw.status ?? null, ms: insideRaw.ms ?? null, error: insideRaw.error ?? null } : null;
     const verdict = judgeDomain(domain, { dns, certificate, outside, inside, tunnel: domain.expect === "cloudflare" ? facts.tunnel : null, app: domain.app }, { now: at });
     return {
-      hostname: domain.hostname, url: `https://${domain.hostname}`, sources: domain.sources, appId: domain.appId, appName: domain.appName, service: domain.service, label: domain.label, manual: domain.manual, wildcard: Boolean(domain.wildcard), expect: domain.expect, expectedAddress: domain.expectedAddress ?? null,
+      hostname: domain.hostname, url: address, sources: domain.sources, appId: domain.appId, appName: domain.appName, service: domain.service, label: domain.label, manual: domain.manual, wildcard: Boolean(domain.wildcard), expect: domain.expect, expectedAddress: domain.expectedAddress ?? null,
       ...verdict,
       dns: dns ? { resolved: dns.resolved, addresses: dns.addresses.slice(0, 8), viaCloudflare: dns.viaCloudflare, private: dns.private, error: dns.error ?? null } : null,
       certificate, outside, inside,
@@ -477,6 +534,7 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
   /** One round: read the names, check each, keep the samples, raise or clear, save the snapshot. */
   async function run() {
     const at = now();
+    dirty = false;
     const { intervalMinutes } = settings();
     let facts;
     try {
@@ -486,46 +544,72 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
       store.setSetting(snapshotKey, snapshot, { updatedBy: null });
       return snapshot;
     }
-    const results = await eachLimited(facts.domains, concurrency, (domain) => checkOne(domain, facts, at));
+    // A source that did not answer has not lost its names: they stand on what the last round said,
+    // with their history and their alerts as they were, until the source can be read again.
+    const previous = lastSnapshot();
+    const unreadAny = facts.unread.everything || facts.unread.sources.size > 0;
+    const stood = (Array.isArray(previous?.domains) ? previous.domains : []).filter((domain) => isObject(domain) && typeof domain.hostname === "string" && (facts.unread.everything || (Array.isArray(domain.sources) && domain.sources.some((source) => facts.unread.sources.has(source)))));
+    const standing = new Set(stood.map((domain) => domain.hostname));
+    // With the apps unread, a name tied to one cannot be judged (its app would look uninstalled), so only the rest are checked.
+    const checked = await eachLimited(facts.domains.filter((domain) => !standing.has(domain.hostname) && !(facts.unread.everything && domain.appId)), concurrency, (domain) => checkOne(domain, facts, at));
+    // The round took a while, and the owner's list may have changed under it: a name taken off it
+    // since is not written back, and never announced.
+    const watched = () => { const names = new Set(settings().manual.map((entry) => entry.hostname)); return (result) => !(result.manual && result.sources?.length === 1) || names.has(result.hostname); };
+    const results = checked.filter(watched());
     const history = readHistory();
     const nextHistory = {};
     for (const result of results) {
       nextHistory[result.hostname] = result.wildcard ? history[result.hostname] ?? [] : foldSample(history[result.hostname], [at.getTime(), result.state === "down" ? 0 : 1, result.outside?.ms ?? null], at.getTime());
       result.uptime = uptimeOf(nextHistory[result.hostname], at.getTime());
     }
+    for (const domain of stood.filter(watched())) nextHistory[domain.hostname] = history[domain.hostname] ?? [];
     store.setSetting(historyKey, nextHistory, { updatedBy: null });
     // Names that are gone take their alerts with them, quietly: nothing was fixed, it was removed.
-    const present = new Set(results.map((result) => result.hostname));
     for (const hostname of Object.keys(history)) {
-      if (present.has(hostname) || !alerts) continue;
+      if (hostname in nextHistory || !alerts) continue;
       downStreak.delete(hostname);
       await Promise.resolve(alerts.clear(`${alertFamilies.down}:${hostname}`, { quietly: true })).catch(() => {});
       await Promise.resolve(alerts.clear(`${alertFamilies.certificate}:${hostname}`, { quietly: true })).catch(() => {});
     }
-    for (const result of results) await announce(result, intervalMinutes);
+    for (const result of results) if (watched()(result)) await announce(result, intervalMinutes);
+    const still = watched();
+    for (const result of results.filter((entry) => !still(entry))) {
+      downStreak.delete(result.hostname);
+      if (!alerts) continue;
+      await Promise.resolve(alerts.clear(`${alertFamilies.down}:${result.hostname}`, { quietly: true })).catch(() => {});
+      await Promise.resolve(alerts.clear(`${alertFamilies.certificate}:${result.hostname}`, { quietly: true })).catch(() => {});
+    }
     lastRunAt = at.getTime();
-    dueAt = lastRunAt + intervalMinutes * 60_000;
-    const snapshot = { domains: results, tunnel: facts.tunnel, checkedAt: at.toISOString(), problem: null };
+    // Names changed while this round ran: it read them before that, so the next tick runs another.
+    dueAt = dirty ? now().getTime() : lastRunAt + intervalMinutes * 60_000;
+    // What was written while this round ran is kept: the list is read again, last, with nothing awaited after it.
+    const last = watched();
+    const domains = [...results, ...stood].filter(last);
+    const tunnel = facts.unread.everything && isObject(previous?.tunnel) ? previous.tunnel : facts.unread.sources.has("tunnel") ? { ...facts.tunnel, cloudflare: previous?.tunnel?.cloudflare ?? null } : facts.tunnel;
+    const snapshot = { domains, tunnel, checkedAt: at.toISOString(), problem: unreadAny ? unreadProblem : null };
     store.setSetting(snapshotKey, snapshot, { updatedBy: null });
-    store.recordAudit?.("hosted.checked", { actorId: null, subjectId: hostname(), details: { domains: results.length, down: results.filter((result) => result.state === "down").map((result) => result.hostname), at: at.toISOString() } });
+    store.recordAudit?.("hosted.checked", { actorId: null, subjectId: hostname(), details: { domains: domains.length, down: domains.filter((result) => result.state === "down").map((result) => result.hostname), at: at.toISOString(), ...(unreadAny ? { unread: facts.unread.everything ? ["apps"] : [...facts.unread.sources] } : {}) } });
     return snapshot;
   }
 
   /** One round at a time, however many ask for one. */
   function check() {
-    if (!inflight) inflight = run().finally(() => { inflight = null; });
+    if (!inflight) inflight = run().finally(() => { inflight = null; lastEndedAt = now().getTime(); });
     return inflight;
   }
 
   /** What the page shows: the last round's verdicts and the facts around them; `fresh` runs a round first. */
   async function status({ fresh = false } = {}) {
-    if (fresh) await check();
+    // A round is a burst of requests to every name: one asked for from the page waits its turn, and
+    // inside the pause the kept round is the answer. A change to the names is checked regardless.
+    if (fresh && (inflight || dirty || lastEndedAt === null || now().getTime() - lastEndedAt >= freshMinMs)) await check();
     let snapshot = lastSnapshot();
     if (!snapshot && !fresh) { void check().catch(() => {}); snapshot = null; }
     const { intervalMinutes, manual } = settings();
     const checkedAt = snapshot?.checkedAt ?? null;
     return {
-      domains: Array.isArray(snapshot?.domains) ? snapshot.domains : [],
+      // A round kept from before services were cut back to scheme, host and port is cut back as it is read.
+      domains: Array.isArray(snapshot?.domains) ? snapshot.domains.map((domain) => (isObject(domain) && domain.service ? { ...domain, service: serviceOrigin(domain.service) } : domain)) : [],
       tunnel: snapshot?.tunnel ?? null,
       checkedAt,
       checking: inflight !== null,
@@ -554,6 +638,7 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
     const manual = [...current.manual.filter((existing) => existing.hostname !== entry.hostname), { ...entry, addedAt: now().toISOString(), addedBy: updatedBy }];
     writeSettings({ ...current, manual }, updatedBy);
     dueAt = now().getTime(); // checked at the next tick, so the new name shows within the minute
+    dirty = true;
     store.recordAudit?.("hosted.manual.added", { actorId: updatedBy, subjectId: entry.hostname, details: { service: entry.service, appId: entry.appId } });
     return { added: entry.hostname, manual };
   }
@@ -575,24 +660,33 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
     }
     store.recordAudit?.("hosted.manual.removed", { actorId: updatedBy, subjectId: name, details: {} });
     dueAt = now().getTime();
+    dirty = true;
     return { removed: name, manual: current.manual.filter((existing) => existing.hostname !== name) };
   }
 
   /** Something changed what is published (a publish, an unpublish): check again at the next tick. */
-  function forget() { dueAt = now().getTime(); }
+  function forget() { dueAt = now().getTime(); dirty = true; }
+
+  /** A failed background round is said in the log, once for each different failure, and a bounded number of them. */
+  function warnOnce(error) {
+    const message = String(error?.message ?? error).slice(0, 300);
+    if (warned.has(message) || warned.size >= warningLimit) return;
+    warned.add(message);
+    try { warn(`Hosted domains: the check did not finish: ${message}`); } catch { /* a log that cannot be written stops nothing */ }
+  }
 
   /** Due when never run, when the cadence has passed, or when something asked for a look. */
   function tick() {
     const at = now().getTime();
     if (dueAt === null) dueAt = at;
     if (at < dueAt || inflight) return Promise.resolve(null);
-    return check().catch(() => null);
+    return check().catch((error) => { warnOnce(error); return null; });
   }
 
   function start() {
-    const first = delay(() => { tick().catch(() => {}); }, initialDelayMs);
+    const first = delay(() => { tick().catch(warnOnce); }, initialDelayMs);
     first.unref?.();
-    const timer = schedule(() => { tick().catch(() => {}); }, tickMs);
+    const timer = schedule(() => { tick().catch(warnOnce); }, tickMs);
     timer.unref?.();
     return () => { cancel(first); unschedule(timer); };
   }
