@@ -51,3 +51,7 @@
   /* The restore sheet's rows stacked: the box needs no "Restore:" before it. */
   .backups-sheet td.backups-pick[data-label]::before { content: none; }
 }
+
+/* A chip with the sentence its tooltip held, as a second line a finger can read; a checksum with its Copy. */
+.backups-cell { display: grid; gap: 2px; justify-items: start; min-width: 0; padding-block: 4px; white-space: normal; }
+.backups-sha { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }

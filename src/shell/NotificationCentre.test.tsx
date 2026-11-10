@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { openActivityEvent, openNotifications } from "../activityEvents";
-import { NotificationCentre, destinationOf, deliveryOf, type NotificationEntry, type NotificationList } from "./NotificationCentre";
+import { NotificationCentre, destinationOf, deliveryOf, foldEntries, needsALook, type NotificationEntry, type NotificationList } from "./NotificationCentre";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -20,12 +20,12 @@ const list: NotificationList = {
   ],
 };
 
-function mount() {
+function mount(served: NotificationList = list) {
   const posted: string[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = input.toString();
     if (url === "/api/v1/notifications/seen" && init?.method === "POST") { posted.push(url); return json({ seenAt: "2026-09-29T09:00:00.000Z" }); }
-    if (url === "/api/v1/notifications") return json(list);
+    if (url === "/api/v1/notifications") return json(served);
     return json({ error: `unexpected ${url}` }, 500);
   }));
   const onNavigate = vi.fn();
@@ -42,9 +42,39 @@ describe("the notification centre (M36)", () => {
     expect(await within(panel).findByText("Root disk is 91% full")).toBeTruthy();
     expect(within(panel).getByText("Still going")).toBeTruthy();
     expect(within(panel).getByText("Sending failed")).toBeTruthy();
-    expect(within(panel).getByText("Not sent: no target set")).toBeTruthy();
     expect(within(panel).getAllByText("New")).toHaveLength(2);
+    // It opens on what needs a look: the release note that was only never sent is under Everything.
+    expect(within(panel).getByRole("radio", { name: /Needs a look/ }).getAttribute("aria-checked")).toBe("true");
+    expect(within(panel).queryByText("Not sent: no target set")).toBeNull();
+    fireEvent.click(within(panel).getByRole("radio", { name: /Everything/ }));
+    expect(within(panel).getByText("Not sent: no target set")).toBeTruthy();
     expect(within(panel).getByText(/No notification target is set/)).toBeTruthy();
+  });
+
+  it("opens on Everything when nothing needs a look, and folds the same thing said several times into one row", async () => {
+    const backup = (id: string, at: string) => entry({ id, kind: "notice", key: `backup.done:${id}`, family: "backup.done", title: "Backed up Vaultwarden", message: null, at, live: false });
+    const routine: NotificationList = {
+      seenAt: "2026-09-29T00:00:00.000Z", unseen: 1, targetConfigured: true,
+      entries: [backup("b6", "2026-09-29T03:47:00.000Z"), backup("b5", "2026-09-28T03:47:00.000Z"), backup("b4", "2026-09-27T03:47:00.000Z"), entry({ id: "r", kind: "notice", key: "release.available", family: "release.available", title: "BoxPilot v1.139.0 is out", at: "2026-09-26T08:00:00.000Z", live: false }), backup("b3", "2026-09-25T03:47:00.000Z")],
+    };
+    expect(routine.entries.filter(needsALook)).toEqual([]);
+    expect(foldEntries(routine.entries).map((run) => run.map((each) => each.id))).toEqual([["b6", "b5", "b4"], ["r"], ["b3"]]);
+    mount(routine);
+    fireEvent.click(await screen.findByRole("button", { name: "Notifications, 1 new" }));
+    const panel = screen.getByRole("dialog", { name: "Notifications" });
+    await within(panel).findByText("BoxPilot v1.139.0 is out");
+    expect(within(panel).getByRole("radio", { name: /Everything/ }).getAttribute("aria-checked")).toBe("true");
+    const rows = within(panel).getByRole("list", { name: "What BoxPilot told you" });
+    expect(within(rows).getAllByText("Backed up Vaultwarden")).toHaveLength(2);
+    expect(rows.textContent).toContain("3 times, latest");
+    expect(within(rows).getByText("1 new")).toBeTruthy();
+    fireEvent.click(within(rows).getByRole("button", { name: "Show all 3" }));
+    expect(within(within(rows).getByRole("list", { name: "Backed up Vaultwarden, each time" })).getAllByRole("listitem")).toHaveLength(3);
+    // Nothing needs a look: said, with the way back.
+    fireEvent.click(within(panel).getByRole("radio", { name: /Needs a look/ }));
+    expect(within(panel).getByText("Nothing needs a look")).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("button", { name: "Show everything" }));
+    expect(within(panel).getByText("BoxPilot v1.139.0 is out")).toBeTruthy();
   });
 
   it("marks everything seen, and nothing else", async () => {

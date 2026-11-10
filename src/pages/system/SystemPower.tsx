@@ -68,7 +68,28 @@ export function SystemPower({ role, start, ups, upsError, onLookAgain, overview,
       <EventsPanel overview={overview} />
       <WatchdogPanel role={role} operator={operator} start={start} hardware={hardware} error={hardwareError} loading={hardwareLoading} onRead={onReadHardware} />
       <PowerOnPanel role={role} operator={operator} start={start} overview={overview} hardware={hardware} loading={hardwareLoading} />
+      <RestartPanel role={role} start={start} />
     </>
+  );
+}
+
+/**
+ * Restarting the server on purpose. Updates offers it only when an update needs one; this is where a
+ * person looks for it. The same operation, through the same approval, with the same words.
+ */
+function RestartPanel({ role, start }: Pick<SystemPowerProps, "role" | "start">) {
+  if (!mayStart(role, "system.reboot")) return null;
+  const restart = () => start({
+    operationId: "system.reboot",
+    title: "Restart the server",
+    parameters: {},
+    preview: <span>First stops the apps using BoxPilot's drives and unmounts the drives, saying in the log which let go cleanly, then restarts 5 seconds later. Running VMs and containers stop and the apps start again by themselves; reconnect when this server is back.</span>,
+  });
+  return (
+    <Panel padded title="Restart" label="Restart the server"
+      actions={<Button risk={riskOf("system.reboot")} onClick={restart}>Restart the server…</Button>}>
+      <p className="system-note">Every app, VM and share stops while the server restarts, and BoxPilot stops answering for a minute or two. The apps come back by themselves; a VM comes back if it is set to start with the server.</p>
+    </Panel>
   );
 }
 
@@ -116,11 +137,11 @@ function UpsPanel({ role, start, ups, upsError, onLookAgain, overview }: Pick<Sy
   ];
 
   return (
-    <Panel padded title="UPS" count={status} actions={<Button variant="ghost" onClick={onLookAgain}>Look again</Button>}>
+    <Panel padded title="UPS" count={status} actions={<Button variant="ghost" onClick={onLookAgain}>Check again</Button>}>
       <div className="system-ups">
         {upsError && <Notice tone="danger" live title="Could not look for a UPS">{upsError}</Notice>}
         <KeyValue items={steps.map((step) => ({ id: step.id, label: step.label, value: step.value, status: step.done ? "good" : step.id === "watch" && reading?.configured ? "warning" : "neutral" }))} />
-        {ups && !device && !watching && <EmptyState title="No UPS found on USB">Connect the data cable that came with the UPS, not just the power cord, wait a few seconds and look again. Network-managed UPSes (SNMP cards) are not detected automatically.</EmptyState>}
+        {ups && !device && !watching && <EmptyState title="No UPS found on USB">Connect the data cable that came with the UPS, not just the power cord, wait a few seconds and press Check again. Network-managed UPSes (SNMP cards) are not detected automatically.</EmptyState>}
         {reading?.configured && (
           <KeyValue layout="columns" items={[
             { id: "power", label: "Power", status: upsStateWords(reading.state).status, value: upsStateWords(reading.state).label },
@@ -251,6 +272,9 @@ function WakeRow({ port, role, start }: { port: WakePort; role: string; start: S
         { id: "mac", label: "Hardware address", mono: true, value: port.mac ? <span className="system-mac">{port.mac}<CopyButton value={port.mac} label="Copy" name={`${port.name}'s hardware address`} /></span> : "—" },
         { id: "wol", label: "Wake-on-LAN", status: port.magicOn ? "good" : "neutral", value: !port.supportsMagic ? "This port cannot" : port.magicOn ? "On" : "Off", hint: port.magicOn && !port.keptByBoxPilot ? "on now, not kept after a restart" : port.keptByBoxPilot ? "kept after a restart" : undefined },
       ]} />
+      {port.mac && port.supportsMagic && (
+        <p className="system-note system-mac">To switch it on from another computer on your network: <code>wakeonlan {port.mac}</code><CopyButton value={`wakeonlan ${port.mac}`} label="Copy command" name={`to wake ${port.name}`} /></p>
+      )}
       {port.supportsMagic && mayStart(role, "power.wake-on-lan.set") && (
         <Switch label={`Wake-on-LAN for ${port.name}`} description={port.magicOn ? "A magic packet to this address switches the server on." : "Let the router or another device switch the server on."} checked={port.magicOn && port.keptByBoxPilot} risk={riskOf("power.wake-on-lan.set")} onChange={set} />
       )}

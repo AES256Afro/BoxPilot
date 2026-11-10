@@ -6,7 +6,7 @@ const log = [
   "2026-09-29T18:44:40Z on-mains charge=96 runtime=1180",
   "not a line",
   "2026-09-29T19:02:00Z made-up-event",
-  "2026-09-29T19:05:00Z low-battery charge=9 runtime=110 secret=12 ups=bigbox",
+  "2026-09-29T19:05:00Z low-battery charge=9 runtime=110 secret=12 ups=homebox",
   "2026-09-29T19:05:06Z shutdown",
   "2026-09-29T19:05:31Z apps-stopped containers=7 drives=2 busy=0",
   "2026-09-29T19:05:33Z power-off",
@@ -22,8 +22,8 @@ describe("the power-event log", () => {
   });
 
   it("drops a line with a field that is not a number, whatever else it says", () => {
-    // `ups=bigbox` is not numeric, so the whole low-battery line is refused rather than half-read.
-    expect(parsePowerEvents("2026-09-29T19:05:00Z low-battery charge=9 ups=bigbox").length).toBe(0);
+    // `ups=homebox` is not numeric, so the whole low-battery line is refused rather than half-read.
+    expect(parsePowerEvents("2026-09-29T19:05:00Z low-battery charge=9 ups=homebox").length).toBe(0);
     expect(parsePowerEvents("2026-09-29T19:05:00Z low-battery charge=9 secret=12")).toEqual([{ at: "2026-09-29T19:05:00.000Z", event: "low-battery", charge: 9 }]);
   });
 

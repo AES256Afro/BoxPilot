@@ -10,7 +10,7 @@ describe("Network page", () => {
     mockFetch();
     render(<NetworkPage csrfToken="csrf" now={now} />);
     expect(await screen.findByText("LAN and tailnet")).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 1, name: "Network and DNS" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Network" })).toBeTruthy();
     const strip = document.querySelector(".network-strip") as HTMLElement;
     expect(within(strip).getByText("192.168.1.1")).toBeTruthy();
     expect(within(strip).getByText("192.168.1.10")).toBeTruthy();
@@ -18,7 +18,7 @@ describe("Network page", () => {
     expect(within(strip).getByText("Connected")).toBeTruthy();
     await waitFor(() => expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("5 of 5 read · 1 on the LAN · 2 of 3 on the tailnet"));
     // What the page is for waits behind the info toggle.
-    expect(screen.getByRole("button", { name: "About Network and DNS" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByRole("button", { name: "About Network" }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("says when there is no way out, and when some of the network could not be read", async () => {
@@ -31,6 +31,22 @@ describe("Network page", () => {
     expect((await screen.findByText("1 not read")).closest(".ui-chip")?.getAttribute("data-status")).toBe("warning");
   });
 
+  it("copies a nearby device's addresses, and says what a list that could not be read means, with Check again", async () => {
+    mockFetch();
+    render(<NetworkPage csrfToken="csrf" now={now} />);
+    expect(await screen.findByRole("button", { name: "Copy 192.168.1.50" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy aa:bb:cc:dd:ee:ff" })).toBeTruthy();
+    cleanup();
+    const fetchMock = mockFetch({ "/api/v1/network/topology": { ...topology, devices: [], collectors: { ...topology.collectors, neighbors: false } } });
+    render(<NetworkPage csrfToken="csrf" now={now} />);
+    const empty = (await screen.findByText("The devices nearby could not be listed")).closest(".ui-empty") as HTMLElement;
+    expect(empty.textContent).toContain("so none can be shown or woken from here");
+    const reads = () => (fetchMock as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(([url]) => String(url) === "/api/v1/network/topology").length;
+    const before = reads();
+    fireEvent.click(within(empty).getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
   it("lists the ways to reach BoxPilot, and how to trust its certificate, in a sheet", async () => {
     mockFetch();
     render(<NetworkPage csrfToken="csrf" now={now} />);
@@ -39,6 +55,7 @@ describe("Network page", () => {
     expect(within(reach).getByText("install certificate")).toBeTruthy();
     expect(within(reach).getByRole("button", { name: "Copy https://homebox.lan:8443" })).toBeTruthy();
     expect(reach.textContent).toContain("tailscale serve --bg http://127.0.0.1:8787");
+    expect(within(reach).getByRole("button", { name: "Copy the tailscale serve command" })).toBeTruthy();
     fireEvent.click(within(reach).getByRole("button", { name: "Trust the certificate…" }));
     const sheet = await screen.findByRole("dialog", { name: "Trust BoxPilot's certificate" });
     expect(within(sheet).getByText("Firefox")).toBeTruthy();

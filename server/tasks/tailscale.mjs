@@ -47,7 +47,7 @@ async function lanSubnets(run) {
 const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-3).join(" ");
 
 export async function tailscaleSet({ exitNode = false, subnetRouter = false, routes = [] } = {}, { run = fixedRun, log = null, files = { writeFile } } = {}) {
-  if (typeof exitNode !== "boolean" || typeof subnetRouter !== "boolean") throw new Error("exitNode and subnetRouter must be true or false");
+  if (typeof exitNode !== "boolean" || typeof subnetRouter !== "boolean") throw new Error("Choose on or off for the exit node and for sharing your network.");
   const problem = validateRoutes(routes);
   if (problem) throw new Error(`Invalid routes: ${problem}`);
   let advertised = subnetRouter ? (routes.length ? routes : await lanSubnets(run)) : [];

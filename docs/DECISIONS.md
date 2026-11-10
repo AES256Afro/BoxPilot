@@ -317,7 +317,7 @@ So there are two shells now, not a Classic one beside them:
 
 ## ADR-005: agents run in a capped service of their own, read through the web service, and only propose
 
-**Date:** 2026-09-29 · **Status:** Accepted (M37, unreleased) · **Refines:** ADR-001's "no new named systemd unit" for one long-running service, and M34's local-model rule.
+**Date:** 2026-09-29 · **Status:** Accepted (M37, shipped) · **Amended by:** ADR-013 · **Refines:** ADR-001's "no new named systemd unit" for one long-running service, and M34's local-model rule.
 
 ### Context
 
@@ -431,7 +431,7 @@ untrusted text and decides what to do next.
 
 ## ADR-006: agents' prompts are built for the model server's cache, and a call's time is measured
 
-**Date:** 2026-09-29 · **Status:** Accepted (M37, unreleased) · **Refines:** ADR-005's caps and its runner.
+**Date:** 2026-09-29 · **Status:** Accepted (M37, shipped) · **Refines:** ADR-005's caps and its runner.
 
 ### Context
 
@@ -478,7 +478,7 @@ prompt; the run ended degraded after 416 s, and its fallback searched BoxPilot's
 
 ## ADR-007: Zulip is the agents' team chat, reached through Tailscale, set up by its own owner
 
-**Date:** 2026-09-29 · **Status:** Accepted (M38, unreleased) · **Builds on:** ADR-001 (the catalog), ADR-005 (agents propose, never act).
+**Date:** 2026-09-29 · **Status:** Accepted (M38, shipped) · **Builds on:** ADR-001 (the catalog), ADR-005 (agents propose, never act).
 
 ### Context
 
@@ -560,7 +560,7 @@ code-wrapping as findings, and a card is a link to BoxPilot, where it is decided
 
 ## ADR-008: the router is the house's DNS and asks this server first; a heartbeat elsewhere says when it is down
 
-**Date:** 2026-09-29 · **Status:** Accepted (M39.2, M39.3, unreleased) · **Builds on:** ADR-001 (the
+**Date:** 2026-09-29 · **Status:** Accepted (M39.2, M39.3, shipped) · **Builds on:** ADR-001 (the
 router stays the owner's: BoxPilot reads and verifies, it does not sign in to change it).
 
 ### Context
@@ -697,7 +697,7 @@ tick, ten seconds at most, never retried in a loop.
 
 ## ADR-009: agents get more processors while a person waits, set per run by the root helper
 
-**Date:** 2026-09-29 · **Status:** Accepted (M40.4, unreleased) · **Refines:** ADR-005's caps and
+**Date:** 2026-09-29 · **Status:** Accepted (M40.4, shipped) · **Refines:** ADR-005's caps and
 ADR-006's four processors.
 
 ### Context
@@ -835,7 +835,7 @@ Home is its own chunk.
 
 ## ADR-011: apps reach the internet through a Cloudflare tunnel BoxPilot manages with an API token
 
-**Date:** 2026-10-03 · **Status:** Accepted (M42, unreleased) · **Builds on:** ADR-001 (one
+**Date:** 2026-10-03 · **Status:** Accepted (M42, shipped) · **Builds on:** ADR-001 (one
 registry, risk tiers), ADR-003 (owner reads), M13.7's credential store.
 
 ### Context
@@ -921,7 +921,7 @@ its run token, set its routes (`ingress`), and add the DNS name. The helper has 
 
 ## ADR-012: agents share their findings, by a permission each, and re-read live facts before any card
 
-**Date:** 2026-10-04 · **Status:** Accepted (M44, unreleased) · **Builds on:** ADR-005 (agents read
+**Date:** 2026-10-04 · **Status:** Accepted (M44, shipped) · **Builds on:** ADR-005 (agents read
 through the web service and only propose), ADR-006 (prompts built for the cache), ADR-009 (four
 processors in the background).
 
@@ -1004,7 +1004,7 @@ is one switch or a permission.
 
 ## ADR-013: agents may use Claude through a gateway, and may act under grants inside the approval tiers
 
-**Date:** 2026-10-08 · **Status:** Accepted (M45, in progress) · **Changes:** ADR-005 §9 ("local
+**Date:** 2026-10-08 · **Status:** Accepted (M45, shipped) · **Changes:** ADR-005 §9 ("local
 only") and ADR-005's "agents propose, never act". **Builds on:** ADR-001 (risk tiers), ADR-002
 (delegated consent for unattended jobs), ADR-003 (operator-gated reads), ADR-012 (live facts read
 again before any card). **Design:** `docs/HARNESS.md`.
@@ -1089,7 +1089,7 @@ grants, jobs and plans, and the evaluation against BoxPilot's world.
 
 ## ADR-014: agents learn from what the owner approves by geometry, not by volume
 
-**Date:** 2026-10-09 · **Status:** Accepted (M46, in progress) · **Builds on:** ADR-012 (findings and
+**Date:** 2026-10-09 · **Status:** Accepted (M46, shipped) · **Builds on:** ADR-012 (findings and
 live facts), ADR-013 (the harness, the router, grants). **Design:** `docs/HARNESS.md` → Examples.
 
 ### Context
@@ -1231,7 +1231,10 @@ the root-side operations found medium operations that reach what a high one guar
 
 ## ADR-016: catalog images are pinned by digest, and rollback goes back to the digest that ran
 
-**Date:** 2026-10-18 · **Status:** Proposed (needs the owner's decision)
+**Date:** 2026-10-18 · **Status:** Accepted (implemented: every manifest pins a digest)
+
+*Note, 2026-11-10: all 175 manifests now carry `@sha256`, rollback goes back to the recorded digest,
+and `scripts/catalog-check-images.mjs` compares the pinned digests. The text below is as proposed.*
 
 ### Context
 

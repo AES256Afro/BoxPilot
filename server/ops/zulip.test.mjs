@@ -121,6 +121,41 @@ describe("connecting the agents to Zulip (M38)", () => {
     expect(noKey.saved.size).toBe(0);
   });
 
+  it("refuses a bot or a channel somebody else made first, and saves no key", async () => {
+    // Any member of the organization can make a bot at the agents' address or a channel called
+    // agent-logs before Connect runs: reused, its maker kept the bot's key or a seat in the channel.
+    const refusals = [
+      [{ error: "bot-not-yours", realm: "Our house", bot: made.bot }, /A bot with the address \S+ already exists in Zulip and does not belong to the organization's owner\. Remove it in Zulip/],
+      [{ error: "channel-shared", realm: "Our house", channel: "agent-logs", others: 1 }, /The channel #agent-logs already exists in Zulip, the organization's owner did not make it, and someone else is in it\./],
+      [{ error: "channel-shared", realm: "Our house", channel: "agent-files", others: 3 }, /#agent-files .* other people are in it\. Remove them from it or rename it in Zulip, then connect again\./],
+      [{ error: "key-not-renewed", realm: "Our house", bot: made.bot }, /no way to give the bot a new key/],
+      // A refusal this release does not know is still a refusal, key or no key beside it.
+      [{ ...made, error: "something-new" }, /refused for a reason BoxPilot does not recognise/],
+    ];
+    for (const [result, sentence] of refusals) {
+      const context = setup({ script: printed(result) });
+      await expect(operations["agents.zulip.connect"].run({}, context)).rejects.toThrow(sentence);
+      expect(context.saved.size).toBe(0);
+      expect(context.runUnit.runTask).not.toHaveBeenCalled();
+    }
+    // What the script reports is quoted as a name, never as markup.
+    const odd = setup({ script: printed({ error: "channel-shared", channel: "agent-logs](http://x) **", others: 2 }) });
+    await expect(operations["agents.zulip.connect"].run({}, odd)).rejects.toThrow("#agent-logshttpx  already exists");
+  });
+
+  it("gives a reused bot a new key on every connect, and makes the refusals before it changes anything", async () => {
+    // Python cannot run against a Zulip here: the script's own text is what is pinned.
+    const script = await readFile(connectScriptPath, "utf8");
+    expect(script).toContain("if bot.bot_owner_id != owner.id:");
+    expect(script).toContain("api_key = do_regenerate_api_key(bot, owner)");
+    expect(script).toContain("apiKey=api_key,");
+    expect(script).not.toContain("apiKey=bot.api_key");
+    const first = (text) => { const at = script.indexOf(text); expect(at).toBeGreaterThan(-1); return at; };
+    for (const refusal of ['error="bot-not-yours"', 'error="channel-shared"', 'error="key-not-renewed"']) {
+      for (const change of ["bot = do_create_user(", "do_reactivate_user(bot", "do_regenerate_api_key(bot, owner)", "create_stream_if_needed(\n", "bulk_add_subscriptions(realm"]) expect(first(refusal)).toBeLessThan(first(change));
+    }
+  });
+
   it("disconnects by removing the key, and nothing in Zulip", async () => {
     const context = setup();
     context.saved.set("zulip-agents-bot", key);

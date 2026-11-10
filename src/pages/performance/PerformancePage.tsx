@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { openView } from "../../activityEvents";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { formatBytes } from "../../formatBytes";
 import { readJson } from "../../http";
 import { loadStatus } from "../../home/format";
 import { inspectOperation } from "../../operations";
-import { AppIcon, Button, KeyValue, MetricStrip, MetricTile, Notice, PageHeader, Panel, StatusChip, Table, Tag, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
+import { AppIcon, Button, EmptyState, KeyValue, MetricStrip, MetricTile, Notice, PageHeader, Panel, StatusChip, Table, Tag, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import "./performance.css";
 
 /*
@@ -96,13 +97,28 @@ export default function PerformancePage({ csrfToken, role = "owner", pollMs = 30
   const canAct = mayStart(role, "app.action");
   const act = (id: string, action: string, title: string, preview: string) => start({ operationId: "app.action", title, parameters: { id, action }, preview: <span>{preview}</span> });
 
-  // Heaviest first, but the AI services, the biggest draw on a box that has them, are pinned to the
-  // top so they are always in view even when idle.
+  // Heaviest first, with the AI services, the biggest draw on a box that has them, pinned to the top
+  // so they are always in view even when idle. The order is held from the first read: sorted again
+  // on every poll, Pause, Restart and Stop moved while being aimed at. It changes only when asked -
+  // "Sort by load now", or a column header - and the figures a header sorts by are held the same way.
   const isAI = useCallback((id: string) => meta[id]?.category === "AI", [meta]);
-  const apps = useMemo(() => [...(perf?.apps ?? [])].sort((a, b) => {
-    if (isAI(a.id) !== isAI(b.id)) return isAI(a.id) ? -1 : 1;
-    return b.cpuPercent - a.cpuPercent;
-  }), [perf, isAI]);
+  const [held, setHeld] = useState<{ order: string[]; figures: Record<string, { cpu: number; memory: number }> } | null>(null);
+  const holdFrom = (rows: AppRow[]) => ({
+    order: [...rows].sort((a, b) => b.cpuPercent - a.cpuPercent).map((app) => app.id),
+    figures: Object.fromEntries(rows.map((app) => [app.id, { cpu: app.cpuPercent, memory: app.memBytes }])),
+  });
+  // The first read sets the order, in the same render that draws it.
+  if (perf && !held) setHeld(holdFrom(perf.apps));
+  const latest = useRef<Perf | null>(null);
+  latest.current = perf;
+  const hold = useCallback(() => { if (latest.current) setHeld(holdFrom(latest.current.apps)); }, []);
+  const apps = useMemo(() => {
+    const rows = perf?.apps ?? [];
+    const order = held?.order ?? [];
+    const place = new Map(order.map((id, index) => [id, index]));
+    // An app installed since keeps to the end until the next sort.
+    return rows.map((app, index) => ({ app, at: place.get(app.id) ?? order.length + index })).sort((a, b) => (isAI(a.app.id) !== isAI(b.app.id) ? (isAI(a.app.id) ? -1 : 1) : a.at - b.at)).map((entry) => entry.app);
+  }, [perf, held, isAI]);
   const nameOf = (id: string) => meta[id]?.name ?? id;
 
   // ── The verdict: the busiest measure, named. ──
@@ -134,8 +150,8 @@ export default function PerformancePage({ csrfToken, role = "owner", pollMs = 30
       ),
     },
     { id: "state", header: "State", sortValue: (app) => stateLabel[app.state] ?? app.state, cell: (app) => <StatusChip status={stateStatus(app)}>{stateLabel[app.state] ?? app.state}</StatusChip> },
-    { id: "cpu", header: "CPU", numeric: true, sortValue: (app) => (app.running ? app.cpuPercent : null), cell: (app) => (app.running ? <><span className="performance-bar" aria-hidden="true"><i style={{ width: `${Math.min(100, app.cpuPercent)}%` }} /></span>{`${app.cpuPercent.toFixed(1)}%`}</> : "—") },
-    { id: "memory", header: "Memory", numeric: true, sortValue: (app) => (app.running ? app.memBytes : null), cell: (app) => (app.running ? formatBytes(app.memBytes) : "—") },
+    { id: "cpu", header: "CPU", numeric: true, sortValue: (app) => (app.running ? held?.figures[app.id]?.cpu ?? app.cpuPercent : null), cell: (app) => (app.running ? <><span className="performance-bar" aria-hidden="true"><i style={{ width: `${Math.min(100, app.cpuPercent)}%` }} /></span>{`${app.cpuPercent.toFixed(1)}%`}</> : "—") },
+    { id: "memory", header: "Memory", numeric: true, sortValue: (app) => (app.running ? held?.figures[app.id]?.memory ?? app.memBytes : null), cell: (app) => (app.running ? formatBytes(app.memBytes) : "—") },
     ...(canAct ? [{
       id: "controls", header: <span className="ui-visually-hidden">Controls</span>, label: "Controls", className: "performance-actions-cell", cell: (app: AppRow) => {
         const name = nameOf(app.id);
@@ -172,7 +188,7 @@ export default function PerformancePage({ csrfToken, role = "owner", pollMs = 30
     <div className="performance-page">
       {dialog}
       <PageHeader
-        title="Performance"
+        title="Metrics"
         status={verdict}
         meta={perf ? <>up <b>{uptimeText(perf.uptimeSeconds)}</b> · <b>{perf.cpu.cores}</b> threads · load <b>{perf.cpu.load1.toFixed(2)}</b> · <b>{running}</b> of {countOf(apps.length, "app")} running · read every {Math.round(pollMs / 1000)} s</> : undefined}
         about={<>
@@ -199,16 +215,20 @@ export default function PerformancePage({ csrfToken, role = "owner", pollMs = 30
         )}
       </MetricStrip>
 
-      <Panel className="performance-apps" title="What's running" count={perf ? apps.length : undefined} meta={perf ? <><b>{running}</b> running · heaviest first{Object.values(meta).some((entry) => entry.category === "AI") ? " · AI pinned" : ""}</> : undefined}>
+      <Panel className="performance-apps" title="What's running" count={perf ? apps.length : undefined} meta={perf ? <><b>{running}</b> running · the order holds until you sort{Object.values(meta).some((entry) => entry.category === "AI") ? " · AI pinned" : ""}</> : undefined}
+        actions={perf && apps.length > 1 ? <Button variant="ghost" onClick={hold}>Sort by load now</Button> : undefined}>
         {perf && !perf.statsAvailable && <Notice tone="info" className="performance-note" title="Live CPU and memory per app are not answering">They come from Docker's stats stream, which is not answering right now. The states and controls still work.</Notice>}
+        {/* A press on a column header sorts by the figures as they are at that moment, and holds them. */}
+        <div className="performance-hold" onClickCapture={(event) => { if ((event.target as HTMLElement).closest("thead button")) hold(); }}>
         <Table
           caption="Each app's live CPU and memory"
           columns={columns}
           rows={apps}
           rowKey={(app) => app.id}
           rowStatus={(app) => (app.state === "restarting" ? "danger" : app.state === "paused" ? "warning" : undefined)}
-          empty={!perf ? (error ? "The apps could not be read." : "Reading…") : "No apps are installed yet. Add some from the App catalog."}
+          empty={!perf ? (error ? "The apps could not be read." : "Reading…") : <EmptyState title="No apps are installed yet" action={<Button onClick={() => openView("catalog")}>Open Apps</Button>}>Each app's processor and memory use shows here once one is installed.</EmptyState>}
         />
+        </div>
       </Panel>
 
       {perf && perf.disks.length > 0 && (

@@ -1,4 +1,4 @@
-import { useId, useState, type ChangeEvent, type ComponentProps } from "react";
+import { useId, useState, type ChangeEvent, type ComponentProps, type KeyboardEvent } from "react";
 import { useFieldControl } from "./Field";
 import { cx } from "./types";
 
@@ -55,18 +55,37 @@ export interface SecretInputProps extends Omit<TextInputProps, "type" | "mono"> 
  * spell-checked or offered to autofill, in mono so a pasted key can be checked character by
  * character. The reveal button says what pressing it does next.
  */
-export function SecretInput({ revealLabel, className, autoComplete = "off", ...rest }: SecretInputProps) {
+export function SecretInput({ revealLabel, className, autoComplete = "off", onKeyDown, onKeyUp, onBlur, "aria-describedby": describedBy, ...rest }: SecretInputProps) {
   const [shown, setShown] = useState(false);
+  // Caps Lock, as the last key pressed in the field reported it: a masked field hides the one sign
+  // of it, and a password typed in capitals is refused with no reason the owner can see.
+  const [caps, setCaps] = useState(false);
   const ownId = useId();
   // The field's id when there is one, so the button can say which input it reveals.
   const id = useFieldControl(rest).id ?? `secret${ownId}`;
+  const capsId = `${id}-caps`;
   const show = revealLabel ?? "Show";
+  const readCaps = (event: KeyboardEvent<HTMLInputElement>) => setCaps(typeof event.getModifierState === "function" && event.getModifierState("CapsLock"));
   return (
-    <span className={cx("ui-secret", className)}>
-      <TextInput {...rest} id={id} type={shown ? "text" : "password"} mono autoComplete={autoComplete} spellCheck={false} autoCapitalize="off" autoCorrect="off" />
+    <span className={cx("ui-secret", caps && "ui-secret--caps", className)}>
+      <TextInput
+        {...rest}
+        id={id}
+        type={shown ? "text" : "password"}
+        mono
+        autoComplete={autoComplete}
+        spellCheck={false}
+        autoCapitalize="off"
+        autoCorrect="off"
+        aria-describedby={cx(describedBy, caps && capsId) || undefined}
+        onKeyDown={(event) => { readCaps(event); onKeyDown?.(event); }}
+        onKeyUp={(event) => { readCaps(event); onKeyUp?.(event); }}
+        onBlur={(event) => { setCaps(false); onBlur?.(event); }}
+      />
       <button type="button" className="ui-secret__toggle" aria-controls={id} onClick={() => setShown((value) => !value)} disabled={rest.disabled}>
         {shown ? "Hide" : show}
       </button>
+      {caps && <span id={capsId} className="ui-secret__caps" role="status">Caps Lock is on</span>}
     </span>
   );
 }

@@ -145,7 +145,7 @@ export default function MountsTab({ report, loading, forecasts, usage, lastMeasu
           rows={report?.mounts ?? []}
           rowKey={(mount) => mount.target}
           rowStatus={(mount) => ((percentUsed(mount.usedBytes, mount.sizeBytes) ?? 0) >= 90 ? "danger" : undefined)}
-          empty={!report ? (loading ? "Reading the mounts…" : "The mounts could not be read.") : <EmptyState title="Nothing mounted" />}
+          empty={!report ? (loading ? "Reading the mounts…" : "The mounts could not be read.") : <EmptyState title="Nothing mounted">Plug a drive in and mount it from the Drives tab, or connect a network share from Shares.</EmptyState>}
         />
       </Panel>
     </>

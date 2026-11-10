@@ -509,12 +509,12 @@ export function createJobService(store, helper, {
         // M45.5: an agent staged it, in its maker's name; the record names the agent and its run.
         ...(agentOrigin(origin) ? { agent: agentOrigin(origin) } : {}),
         reason: operation.description || `${operation.title} is ${operation.risk} risk.`,
-        manual: "If verification fails, review the job log and the helper journal, then rerun or undo the operation.",
+        manual: "If it fails, open the job's log in Activity to see why, then run it again.",
       },
       createdBy: ownerId,
       initialSteps: [
-        { name: "preflight", state: "completed", detail: `${operation.title}: parameters validated against the operation registry` },
-        { name: "checkpoint", state: "completed", detail: `${tier} risk ·${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
+        { name: "preflight", state: "completed", detail: "Checked what was asked for." },
+        { name: "checkpoint", state: "completed", detail: `${tier[0].toUpperCase()}${tier.slice(1)} risk. Runs with admin rights.` },
         ...(typeof rerunOf === "string" && rerunOf ? [{ name: "rerun", state: "completed", detail: `Ran again after BoxPilot restarted. The first run, job ${rerunOf}, ${rerunNeverStarted ? "never started" : "was cut off"}.` }] : []),
         ...(typeof retryOf === "string" && retryOf ? [{ name: "retry", state: "completed", detail: `Trying again with more time. The last run, job ${retryOf}, ran out of time.` }] : []),
         ...(agentOrigin(origin) ? [{ name: "agent", state: "completed", detail: `${agentOrigin(origin).agentName} asked for this in its run ${agentOrigin(origin).runId}` }] : []),

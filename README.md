@@ -32,7 +32,7 @@ On a fresh Ubuntu Server (22.04 or newer):
 curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.238.0
 ```
 
-The installer sets up Node 24, builds BoxPilot in `/opt/boxpilot`, starts its services, and prints the address to open with a one-time setup code. Create your account, say what the server is for (home server, media server, smart home, ad blocking, virtual machines, development, monitoring, or just the basics), and follow the checklist on Ops.
+The installer sets up Node 24, builds BoxPilot in `/opt/boxpilot`, starts its services, and prints the address to open with a one-time setup code. Create your account, say what the server is for (home server, ad blocking, virtual machines, development, media server, media automation, smart home, monitoring, or just the essentials), and follow the checklist on Ops.
 
 When a new release is out, BoxPilot says so. Installing it takes one click and your password. It copies the database first, and puts the old version back by itself if the new one does not come up healthy.
 
@@ -103,7 +103,7 @@ Add BoxPilot to your phone's home screen and it opens like an app. Turn on notif
 </details>
 <!-- /every-look -->
 
-An agent is a small language model running on this server, with a job to do: keep an eye on the server, survey it once a week and say where to focus, look after the apps, watch the drives fill, plan updates, check that ad blocking is working, audit the backups, answer questions, or show new people around. Each starts from a template you can change. Agents only read. When one thinks something should change, it writes a card, and the change runs as a normal job only after you approve it. They run at the lowest priority with hard limits (four processors in the background, up to eight while you wait for an answer, 8 GB of memory, no network beyond this machine). They can be paused, paused until tomorrow, or all stopped at once. A nightly check scores their answers against questions you set. With the Zulip app installed, you can message an agent or @mention it in a chat room.
+An agent is a small language model running on this server, with a job to do: keep an eye on the server, survey it once a week and say where to focus, look after the apps, watch the drives fill, plan updates, check that ad blocking is working, audit the backups, answer questions, or show new people around. Each starts from a template you can change. Agents only read. When one thinks something should change, it writes a card, and the change runs as a normal job only after you approve it. They run at the lowest priority with hard limits (four processors in the background, up to eight while you wait for an answer, 8 GB of memory, no network beyond this machine). The model is the one on this server unless the owner connects Claude (Agents → Connect Claude): then you choose, agent by agent, whether Claude may be used and what may leave this server, under a monthly cap you set. They can be paused, paused until tomorrow, or all stopped at once. A nightly check scores their answers against questions you set. With the Zulip app installed, you can message an agent or @mention it in a chat room.
 
 ### Ops
 

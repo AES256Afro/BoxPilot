@@ -1,8 +1,8 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import LogsPage from "./LogsPage";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); window.history.replaceState(null, "", "/"); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 describe("Logs page", () => {
@@ -41,21 +41,21 @@ describe("Logs page", () => {
     }));
     render(<LogsPage csrfToken="csrf-token" />);
     await screen.findByText("line from boxpilot");
-    const open = screen.getByRole("button", { name: "Open unit" }) as HTMLButtonElement;
+    const open = screen.getByRole("button", { name: "Open service" }) as HTMLButtonElement;
     expect(open.disabled).toBe(true);
     await vi.waitFor(() => expect(document.querySelectorAll("#logs-units option")).toHaveLength(1));
-    fireEvent.change(screen.getByRole("combobox", { name: "Find a unit" }), { target: { value: "docker.service" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Find a service" }), { target: { value: "docker.service" } });
     fireEvent.click(open);
     expect(await screen.findByText("line from docker.service")).toBeTruthy();
     expect(reads.at(-1)).toMatchObject({ kind: "unit", target: "docker.service" });
     // Part of a name opens the unit it matches, and the button says which, as Enter would;
     // a name nothing matches says so rather than leaving the button greyed out.
-    const find = screen.getByRole("combobox", { name: "Find a unit" });
+    const find = screen.getByRole("combobox", { name: "Find a service" });
     fireEvent.change(find, { target: { value: "dock" } });
     expect(screen.getByRole("button", { name: "Open docker.service" })).toBeTruthy();
     fireEvent.change(find, { target: { value: "nginx" } });
-    expect((screen.getByRole("button", { name: "Open unit" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("No unit has “nginx” in its name.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Open service" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("No service has “nginx” in its name.")).toBeTruthy();
   });
 
   it("follows a container from its newest line's UTC time, keeping the zone", async () => {
@@ -125,5 +125,51 @@ describe("Logs page", () => {
     expect(screen.queryByRole("button", { name: "Download support bundle" })).toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the source and the window in the address, and opens on them after a reload", async () => {
+    const reads: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/logs.sources/inspect")) return json({ operation: "logs.sources", result: { groups: [{ id: "boxpilot", label: "BoxPilot" }], units: [], containers: [{ name: "bp-jellyfin", state: "running", image: "jellyfin" }], dockerAvailable: true } });
+      const parameters = JSON.parse(init?.body as string).parameters as Record<string, unknown>;
+      reads.push(parameters);
+      return json({ operation: "logs.read", result: { lines: [`line from ${String(parameters.target)}`] } });
+    }));
+    window.history.replaceState(null, "", "/?view=logs");
+    const first = render(<LogsPage csrfToken="csrf-token" />);
+    fireEvent.change(await screen.findByLabelText("Container"), { target: { value: "bp-jellyfin" } });
+    fireEvent.change(screen.getByLabelText("Since"), { target: { value: "1h" } });
+    await vi.waitFor(() => expect(reads.at(-1)).toMatchObject({ kind: "container", target: "bp-jellyfin", since: "1h" }));
+    expect(window.location.search).toBe("?view=logs&kind=container&target=bp-jellyfin&since=1h");
+    // The reload: a new page on the same address reads the same source first.
+    first.unmount();
+    reads.length = 0;
+    render(<LogsPage csrfToken="csrf-token" />);
+    await screen.findByText("line from bp-jellyfin");
+    expect(reads[0]).toMatchObject({ kind: "container", target: "bp-jellyfin", since: "1h" });
+    // An address someone made up reads the default, never a name that is not one.
+    cleanup();
+    reads.length = 0;
+    window.history.replaceState(null, "", "/?view=logs&kind=nonsense&target=a%20b%3Bc&since=forever");
+    render(<LogsPage csrfToken="csrf-token" />);
+    await screen.findByText("line from boxpilot");
+    expect(reads[0]).toEqual({ kind: "group", target: "boxpilot", lines: 300 });
+  });
+
+  it("says when a filter matches nothing, and clears it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/logs.sources/inspect")) return json({ operation: "logs.sources", result: { groups: [{ id: "boxpilot", label: "BoxPilot" }], units: [], containers: [], dockerAvailable: false } });
+      const parameters = JSON.parse(init?.body as string).parameters as Record<string, unknown>;
+      return json({ operation: "logs.read", result: { lines: parameters.filter ? [] : ["line from boxpilot"] } });
+    }));
+    render(<LogsPage csrfToken="csrf-token" />);
+    await screen.findByText("line from boxpilot");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter" }), { target: { value: "zebra" } });
+    const none = (await screen.findByText("No lines match “zebra”", {}, { timeout: 3000 })).closest(".ui-empty") as HTMLElement;
+    fireEvent.click(within(none).getByRole("button", { name: "Clear filter" }));
+    expect(await screen.findByText("line from boxpilot")).toBeTruthy();
+    expect((screen.getByRole("searchbox", { name: "Filter" }) as HTMLInputElement).value).toBe("");
   });
 });

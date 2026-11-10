@@ -379,3 +379,8 @@
     :root[data-look="transit"] .shell-dock .ui-dock__separator { background: rgba(255, 255, 255, 0.25); }
   }
 }
+
+/* A finger, not a pointer: what this look draws smaller than the kit's 44 px grows back on a touch screen. */
+@media (pointer: coarse) {
+  :root[data-look="transit"] :is(.ui-button, .ui-tabs__tab) { min-height: 44px; }
+}

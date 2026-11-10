@@ -17,6 +17,14 @@ describe("service operations", () => {
     ]);
   });
 
+  // One rule for every log BoxPilot quotes (redactLine): a journal line with a Bearer token or a
+  // Cookie header reads the same here as in the log reader.
+  it("takes an Authorization header's token and a Cookie header out of a service's journal", async () => {
+    const run = vi.fn(async () => ({ ok: true, stdout: "2026-08-19 GET /api Authorization: Bearer b3ar3rT0k3n\n2026-08-19 GET / Cookie: theme=dark; sid=c00k13\n2026-08-19 headers={\"authorization\":\"Basic dXNlcjpwYXNz\"} done", stderr: "" }));
+    const { lines } = await registry.execute("service.journal", { unit: "docker.service" }, { run });
+    expect(lines).toEqual(["2026-08-19 GET /api Authorization=[REDACTED]", "2026-08-19 GET / Cookie=[REDACTED]", "2026-08-19 headers={\"authorization=[REDACTED]\"} done"]);
+  });
+
   it("lists, reads journals, and controls units; refuses to stop protected units", async () => {
     const run = vi.fn(async (binary, args) => {
       if (args[0] === "list-units") return { ok: true, stdout: JSON.stringify([{ unit: "docker.service", description: "Docker", load: "loaded", active: "active", sub: "running" }]), stderr: "" };

@@ -3,7 +3,7 @@ id: filebrowser
 name: File Browser
 category: Files
 icon: "🗂️"
-description: Browse, upload, and share the files on this server (including mounted network shares) from any browser. Bound to this server only; publish it on your tailnet with "Serve on tailnet (HTTPS)" so it is reachable from anywhere but never from the LAN.
+description: Browse, upload, and share the files on this server (including mounted network shares) from any browser. Bound to this server only; publish it with "Publish on the tailnet" on its Reach tab so it is reachable from anywhere but never from the LAN.
 website: https://filebrowser.org
 # High (ADR-015): the folder it browses is /mnt, writable, which holds BoxPilot's own backups (every app's
 # secrets and the database) at /mnt/boxpilot/backup.
@@ -32,4 +32,4 @@ volumes:
 health:
   kind: running
   stableSeconds: 10
-notes: "First sign-in: user admin. The initial password is printed in the container log on first start (open Logs above and look for 'randomly generated password'); change it under Settings. The web port listens on this server only; click 'Serve on tailnet (HTTPS)' to reach it from your other devices over Tailscale."
+notes: "First sign-in: user admin. The initial password is printed in the container log on first start (open Logs above and look for 'randomly generated password'); change it under Settings. The web port listens on this server only; choose 'Publish on the tailnet' on the Reach tab to reach it from your other devices over Tailscale."

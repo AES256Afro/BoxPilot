@@ -14,7 +14,7 @@ export function controllerOperations() {
     }),
     defineOperation({
       id: "controller.backup.create", title: "Back up the BoxPilot database", risk: "low", timeoutMs: 10 * 60_000,
-      description: "Snapshots the live database with VACUUM INTO (no downtime), test-restores the copy, and records the result.",
+      description: "Copies BoxPilot's database while it runs, then opens the copy to prove it reads.",
       run: async (_parameters, { controllerBackups, progress }) => {
         const result = await controllerBackups.createBackup({ backupId: randomUUID() });
         for (const warning of result.warnings ?? []) progress?.(warning, "stderr");
@@ -23,13 +23,13 @@ export function controllerOperations() {
     }),
     defineOperation({
       id: "controller.backup.protect", title: "Keep an encrypted copy of a database backup", risk: "medium", timeoutMs: 12 * 60 * 60_000,
-      description: "Copies one verified local backup into the separate encrypted restic repository, reads the whole repository back, and restore-drills the exact snapshot with no network. Nothing is pruned or overwritten.",
+      description: "Copies one checked backup into the separate encrypted backup store, reads the whole store back, and test-restores that exact copy with no network. No older copy is removed or overwritten.",
       parameters: { exact: false, fields: { backupId: { type: "string", pattern: /^[a-f0-9-]{36}$/ } } },
       run: (parameters, { controllerProtection }) => controllerProtection.protect(parameters),
     }),
     defineOperation({
       id: "controller.backup.retention.apply", title: "Let go of old database backups", risk: "medium", timeoutMs: 12 * 60 * 60_000,
-      description: "Forgets only the pinned eligible old snapshots, verifies the repository afterwards, and never prunes, so reclaimed space is not claimed.",
+      description: "Removes the old encrypted copies the preview listed and checks the rest still read. Those copies cannot be brought back; disk space is not freed yet.",
       parameters: { exact: false, fields: { retentionId: { type: "string", optional: true } } },
       run: ({ candidates: _candidates, expectedBeforeCount: _expectedBeforeCount, ...parameters }, { controllerRetention }) => controllerRetention.apply(parameters),
     }),

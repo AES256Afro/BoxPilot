@@ -733,6 +733,21 @@ describe("power", () => {
     const wake = within(panel).getByRole("switch", { name: /Wake-on-LAN for enp5s0/ });
     fireEvent.click(wake);
     expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "power.wake-on-lan.set", parameters: { interface: "enp5s0", enabled: true } }));
+    // The command another computer runs, with a Copy that takes all of it.
+    expect(within(panel).getByText("wakeonlan 02:00:00:00:00:01")).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: "Copy command to wake enp5s0" })).toBeTruthy();
+  });
+
+  it("restarts the server from the Power tab, through the approval, saying what stops and what comes back", () => {
+    const start = vi.fn<(operation: PendingOperation) => void>();
+    render(<SystemPower {...props({ start, overview })} />);
+    const panel = screen.getByRole("region", { name: "Restart the server" });
+    expect(panel.textContent).toContain("The apps come back by themselves");
+    fireEvent.click(within(panel).getByRole("button", { name: /Restart the server…/ }));
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "system.reboot", title: "Restart the server", parameters: {} }));
+    cleanup();
+    render(<SystemPower {...props({ role: "viewer", hardware: null, overview })} />);
+    expect(screen.queryByRole("region", { name: "Restart the server" })).toBeNull();
   });
 
   it("keeps the root reads from a viewer and offers them nothing to start", () => {

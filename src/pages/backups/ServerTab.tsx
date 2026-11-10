@@ -1,6 +1,6 @@
 import { useOperation } from "../../shell/ApproveDialog";
 import { formatBytes } from "../../formatBytes";
-import { Button, EmptyState, Notice, Panel, StatusChip, Table, mayStart, riskOf, type TableColumn } from "../../ui";
+import { Button, CopyButton, EmptyState, Notice, Panel, StatusChip, Table, mayStart, riskOf, type TableColumn } from "../../ui";
 import { when, withData, type BackupRecord, type MachineSnapshot, type MachineSnapshotState, type ProtectionState, type RetentionStatus } from "./types";
 
 /*
@@ -71,11 +71,11 @@ export default function ServerTab({ csrfToken, role, loading, backups, protectio
         const apps = snapshot.contents?.apps?.length ?? 0;
         return whole === null ? <span className="backups-dim">—</span> : whole === apps
           ? <StatusChip status="good">all {whole}</StatusChip>
-          : <StatusChip status="warning" title="The others would come back installed and empty">{whole} of {apps}</StatusChip>;
+          : <span className="backups-cell"><StatusChip status="warning" title="The others would come back installed and empty">{whole} of {apps}</StatusChip><span className="backups-dim">The others would come back installed and empty</span></span>;
       },
     },
     { id: "vms", header: "VMs", numeric: true, cell: (snapshot) => snapshot.contents?.vms?.domains?.length ?? "—" },
-    { id: "sha", header: "SHA-256", hideOnPhone: true, cell: (snapshot) => (snapshot.checksumSha256 ? <code title={snapshot.checksumSha256}>{snapshot.checksumSha256.slice(0, 16)}…</code> : "—") },
+    { id: "sha", header: "SHA-256", hideOnPhone: true, cell: (snapshot) => (snapshot.checksumSha256 ? <span className="backups-sha"><code title={snapshot.checksumSha256}>{snapshot.checksumSha256.slice(0, 16)}…</code><CopyButton value={snapshot.checksumSha256} name={`the whole SHA-256 of the snapshot${snapshot.createdAt ? ` from ${when(snapshot.createdAt)}` : ""}`} /></span> : "—") },
   ];
 
   return (
@@ -85,7 +85,7 @@ export default function ServerTab({ csrfToken, role, loading, backups, protectio
         title="BoxPilot database"
         count={backups ? list.length : undefined}
         meta={backups ? <>latest <b>{list[0] ? when(list[0].createdAt) : "never"}</b> · <b>{live.length}</b> encrypted {live.length === 1 ? "copy" : "copies"}</> : undefined}
-        actions={may("controller.backup.create") ? <Button variant="primary" risk={riskOf("controller.backup.create")} disabled={loading && !backups} onClick={() => start({ operationId: "controller.backup.create", title: "Back up the BoxPilot database", parameters: {}, preview: <span>Snapshots the live database with <code>VACUUM INTO</code> (no downtime) and restore-drills the copy before recording it.</span> })}>Back up now</Button> : undefined}
+        actions={may("controller.backup.create") ? <Button variant="primary" risk={riskOf("controller.backup.create")} disabled={loading && !backups} onClick={() => start({ operationId: "controller.backup.create", title: "Back up the BoxPilot database", parameters: {}, preview: <span>Copies BoxPilot's database while it runs, then opens the copy to prove it reads. Nothing stops.</span> })}>Back up now</Button> : undefined}
         footer={retention?.policy ? (
           <span className="backups-foot backups-foot--row">
             <span>Retention keeps at least <b>{retention.policy.minimumCopies ?? 3}</b> restore-tested encrypted copies · <b>{candidates}</b> eligible to let go</span>

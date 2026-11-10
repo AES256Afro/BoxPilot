@@ -1,7 +1,7 @@
 import { defineOperation } from "./registry.mjs";
 import { releaseSavedJobLog } from "../job-log-cleanup.mjs";
 import { jobIdPattern } from "../job-log.mjs";
-import { redactSecretBlocks } from "../redaction.mjs";
+import { redactLine, redactSecretBlocks } from "../redaction.mjs";
 
 const journalctl = process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl";
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
@@ -25,19 +25,6 @@ export const logGroups = Object.freeze({
   kernel: { label: "Kernel", kernel: true },
   system: { label: "Everything", all: true },
 });
-
-// BoxPilot's session cookie by name too: an app served on BoxPilot's own hostname receives it with
-// every request (cookies are not kept apart by port), and one that logs its headers would hand the
-// owner's session to whoever reads that container's log.
-// A Cookie header names every cookie of every app on the hostname, so it goes to the end of the line;
-// a JSON-style header has a quote between the name and the colon.
-function redact(value) {
-  return String(value ?? "")
-    .replace(/\b(cookie|set-cookie)\b"?\s*[:=].*$/gi, "$1=[REDACTED]")
-    .replace(/\b(authorization)\b"?\s*[:=]\s*"?(?:(?:bearer|basic|token|digest)\s+)?[^\s,;"]+/gi, "$1=[REDACTED]")
-    .replace(/\b(token|password|secret|api[_-]?key)\b"?\s*[:=]\s*"?[^\s,;"]+/gi, "$1=[REDACTED]")
-    .replace(/((?:__Host-)?boxpilot_(?:session|device)[A-Za-z_]*)=[^\s;,"'\\]+/g, "$1=[REDACTED]");
-}
 
 /**
  * A filter picks lines, and a private key is found by its BEGIN and END lines: a filter that matched
@@ -89,8 +76,8 @@ const knownContainers = new Map();
 export function logOperations() {
   return [
     defineOperation({
-      id: "job.output.release", title: "Clear a saved job's live-output cache", risk: "low", minimumRole: "owner", timeoutMs: 15_000,
-      description: "Clears a finished job's runtime log only when its entire contents already match the saved database output. Retains incomplete or changed logs, and a failed job's log while work it started may still be writing to it.",
+      id: "job.output.release", title: "Tidy a finished job's log", risk: "low", minimumRole: "owner", timeoutMs: 15_000,
+      description: "Clears a finished job's live log once every line of it is saved with the job. A log that is incomplete or has changed is kept, and so is a failed job's while work it started may still be writing to it.",
       parameters: { fields: { jobId: { type: "string", pattern: jobIdPattern } } },
       run: (parameters) => releaseSavedJobLog(parameters),
     }),
@@ -131,10 +118,10 @@ export function logOperations() {
             knownContainers.set(target, Date.now());
           }
           result = await run(dockerBinary, ["logs", "--timestamps", "--tail", String(lines), ...(since ? ["--since", since.match(/^\d+[mhd]$/) ? since : zonedToUtc(since) ? `${zonedToUtc(since)}Z` : since.replace(" ", "T")] : []), target], { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
-          if (!result.ok && !result.stdout && !result.stderr) throw new Error("docker logs failed");
+          if (!result.ok && !result.stdout && !result.stderr) throw new Error(`The log of ${target} could not be read. Try again.`);
           // Redacted before the filter: a filter that matched the hidden value would tell, one guessed
           // character at a time, what [REDACTED] stands for.
-          const entries = matchingLines(redactSecretBlocks(`${result.stdout}\n${result.stderr}`).split("\n").filter(Boolean).map(redact), filter);
+          const entries = matchingLines(redactSecretBlocks(`${result.stdout}\n${result.stderr}`).split("\n").filter(Boolean).map(redactLine), filter);
           return { kind, target, lines: entries.slice(-lines), truncated: entries.length > lines };
         }
         const args = ["--no-pager", "-o", "short-iso", "-n", String(filter ? Math.max(lines, filterWindowLines) : lines), ...sinceArgument(since)];
@@ -148,8 +135,8 @@ export function logOperations() {
           args.push("-u", target);
         }
         result = await run(journalctl, args, { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
-        if (!result.ok && !result.stdout) throw new Error(`journalctl failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
-        const entries = matchingLines(redactSecretBlocks(result.stdout).split("\n").filter((line) => line && !line.startsWith("-- ")).map(redact), filter);
+        if (!result.ok && !result.stdout) throw new Error(`The log could not be read: ${result.stderr.split("\n").filter(Boolean).slice(-2).join(" ") || "no reason given"}. Try again.`);
+        const entries = matchingLines(redactSecretBlocks(result.stdout).split("\n").filter((line) => line && !line.startsWith("-- ")).map(redactLine), filter);
         return { kind, target, lines: entries.slice(-lines), truncated: false };
       },
     }),

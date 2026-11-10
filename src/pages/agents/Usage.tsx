@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, Field, KeyValue, MetricStrip, MetricTile, Notice, Panel, Progress, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
@@ -27,6 +27,8 @@ export interface UsageProps {
   onModuleChanged: () => void;
   /** Bumped by the page when a job the tab started has finished, so it reads again. */
   refreshKey: number;
+  /** Told whether the settings form holds changes that are not saved, so the page can ask before another tab drops them. */
+  onDirty?: (dirty: boolean) => void;
 }
 
 const driverWords: Record<RuntimeDriver, string> = { unsloth: "Unsloth", "llama-server": "llama.cpp's llama-server", external: "A model server already on this machine", fake: "The demo's stand-in model" };
@@ -46,11 +48,13 @@ function contextMemory(from: number, to: number): string {
   return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
 }
 
-export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, refreshKey }: UsageProps) {
+export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, refreshKey, onDirty }: UsageProps) {
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [runtime, setRuntime] = useState<RuntimeState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; contextTokens: string; quietStart: string; quietEnd: string; notify: boolean; runsPerDay: string; modelSecondsPerDay: string; embeddings: boolean; waiting: string; background: string; compareNightly: boolean } | null>(null);
+  // The settings as last read or saved, in the form's own shape: what the draft is held against.
+  const [baseline, setBaseline] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | "settings" | "off">(null);
   const [saved, setSaved] = useState<string | null>(null);
   const owner = role === "owner";
@@ -74,12 +78,30 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   }, []);
   useEffect(() => {
     if (!runtime || draft) return;
-    setDraft({
+    const first = {
       driver: runtime.settings.driver, endpoint: runtime.settings.endpoint ?? "", idleStopMinutes: String(runtime.settings.idleStopMinutes ?? 60), contextTokens: String(runtime.settings.contextTokens ?? 8192), quietStart: module.quietHours.start, quietEnd: module.quietHours.end, notify: module.notify,
       runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 10_800), embeddings: module.embeddings !== false, compareNightly: module.evaluation?.compareNightly === true,
       waiting: String(module.cores?.waiting ?? 8), background: String(module.cores?.background ?? 4),
-    });
+    };
+    setDraft(first);
+    setBaseline(JSON.stringify(first));
   }, [runtime, draft, module]);
+
+  // Unsaved settings are guarded as the Build tab's form is: the browser asks before the page
+  // closes or reloads, and the page is told, so another tab of Agents asks too.
+  const dirty = Boolean(owner && draft && baseline !== null && JSON.stringify(draft) !== baseline);
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  const reportDirty = useRef(onDirty);
+  reportDirty.current = onDirty;
+  useEffect(() => {
+    reportDirty.current?.(dirty);
+    return () => { if (dirty) reportDirty.current?.(false); };
+  }, [dirty]);
 
   if (!usage || !runtime) {
     return error
@@ -151,6 +173,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
       budget: { runsPerDay: Number.parseInt(draft.runsPerDay, 10), modelSecondsPerDay: Number.parseInt(draft.modelSecondsPerDay, 10) },
       ...(cores ? { cores: { waiting: Number.parseInt(draft.waiting, 10), background: Number.parseInt(draft.background, 10) } } : {}),
     });
+    setBaseline(JSON.stringify(draft));
     setSaved("Saved. The next run uses these settings.");
     onModuleChanged();
     await read();

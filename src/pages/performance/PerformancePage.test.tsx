@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import PerformancePage from "./PerformancePage";
 
@@ -46,7 +46,7 @@ describe("Performance page", () => {
   it("names the busiest measure first, then the figures, then every app with the AI ones pinned", async () => {
     mount();
     expect(await screen.findByText("Jellyfin")).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 1, name: "Performance" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Metrics" })).toBeTruthy();
     const verdict = document.querySelector(".ui-page-header__verdict");
     expect(verdict?.textContent).toBe("Memory 93%");
     expect(verdict?.getAttribute("data-status")).toBe("warning");
@@ -94,5 +94,35 @@ describe("Performance page", () => {
     const verdict = document.querySelector(".ui-page-header__verdict");
     expect(verdict?.textContent).toContain("Not read");
     expect(verdict?.getAttribute("data-status")).toBe("unknown");
+  });
+
+  it("keeps the rows where they were first read while the figures change, and sorts again only when asked", async () => {
+    const served = { perf };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/system.performance.inspect/inspect")) return json({ result: served.perf });
+      if (url.startsWith("/api/v1/catalog")) return json(catalog);
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<PerformancePage csrfToken="csrf-token" pollMs={20} />);
+    const names = () => within(screen.getByRole("table", { name: "Each app's live CPU and memory" })).getAllByRole("row").slice(1).map((row) => row.querySelector(".performance-app__name")?.textContent);
+    await waitFor(() => expect(names()).toEqual(["Ollama", "Jellyfin", "Sonarr", "Radarr"]));
+    // Radarr starts and becomes the heaviest: its figure shows, and its row stays where it was.
+    served.perf = { ...perf, apps: perf.apps.map((app) => (app.id === "radarr" ? { ...app, state: "running", running: true, cpuPercent: 88.5 } : app)) };
+    expect(await screen.findByText("88.5%")).toBeTruthy();
+    expect(names()).toEqual(["Ollama", "Jellyfin", "Sonarr", "Radarr"]);
+    fireEvent.click(screen.getByRole("button", { name: "Sort by load now" }));
+    await waitFor(() => expect(names()).toEqual(["Ollama", "Radarr", "Jellyfin", "Sonarr"]));
+  });
+
+  it("offers Open Apps where there are no apps to list", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (input.toString().startsWith("/api/v1/catalog") ? json({ applications: [] }) : json({ result: { ...perf, apps: [] } }))));
+    render(<PerformancePage csrfToken="csrf-token" pollMs={60_000} />);
+    const opened: unknown[] = [];
+    const onOpen = (event: Event) => opened.push((event as CustomEvent).detail);
+    window.addEventListener("boxpilot:open-view", onOpen);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Apps" }));
+    window.removeEventListener("boxpilot:open-view", onOpen);
+    expect(opened).toEqual([{ view: "catalog", options: {} }]);
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useDialogFocus } from "../useDialogFocus";
 import { CloseIcon } from "./icons";
@@ -21,18 +21,38 @@ export interface SheetProps {
   side?: "right" | "center";
   /** How wide: sm 26rem, md 36rem (the default), lg 52rem. */
   size?: "sm" | "md" | "lg";
+  /**
+   * For a sheet that is one form: the body and the foot are drawn inside a <form>, so Enter in a
+   * field does what the main button does. Give that button type="submit" (and no onClick); while it
+   * is disabled Enter does nothing, as the browser has it. A sheet that draws its own <form> and
+   * points a button at it with form= leaves this out.
+   */
+  onSubmit?: () => void;
   className?: string;
 }
 
+/** Where typing starts in a sheet: its first field that takes any, never a button. */
+const firstField = ':is(input:not([type="hidden"], [type="button"], [type="submit"], [type="reset"]), textarea, select):not([disabled])';
+
 /**
- * A drawer or a dialog over the page (M33.8). It is modal: focus moves into it, Tab stays inside
+ * A drawer or a dialog over the page (M33.8). It is modal: focus moves into it (to its first field, when it has one), Tab stays inside
  * (useDialogFocus), Escape closes it, and focus returns to what opened it. Render it only while it
  * is open. It is drawn over the whole page, so it takes the console's look from the page's root.
  */
-export function Sheet({ title, kicker, onClose, children, footer, side = "right", size = "md", className }: SheetProps) {
+export function Sheet({ title, kicker, onClose, children, footer, side = "right", size = "md", onSubmit, className }: SheetProps) {
   const ref = useRef<HTMLElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
   useDialogFocus(ref);
+  // Focus goes to the sheet's first field, so typing starts there and the first Tab is not Close.
+  // Once, as it opens: a field that appears or is enabled later does not pull focus from where it is.
+  // A sheet with no field keeps focus on the sheet itself.
+  useEffect(() => {
+    const field = [...(bodyRef.current?.querySelectorAll<HTMLElement>(firstField) ?? [])].find((element) => !element.closest("[hidden], [inert]"));
+    field?.focus();
+  }, []);
+  const submit = useRef(onSubmit);
+  submit.current = onSubmit;
   // The latest onClose, so a parent that passes a new function each render does not re-run this.
   const close = useRef(onClose);
   close.current = onClose;
@@ -75,8 +95,17 @@ export function Sheet({ title, kicker, onClose, children, footer, side = "right"
             <CloseIcon />
           </button>
         </header>
-        <div className="ui-sheet__body">{children}</div>
-        {footer && <footer className="ui-sheet__foot">{footer}</footer>}
+        {onSubmit ? (
+          <form className="ui-sheet__form" onSubmit={(event: FormEvent) => { event.preventDefault(); submit.current?.(); }}>
+            <div ref={bodyRef} className="ui-sheet__body">{children}</div>
+            {footer && <footer className="ui-sheet__foot">{footer}</footer>}
+          </form>
+        ) : (
+          <>
+            <div ref={bodyRef} className="ui-sheet__body">{children}</div>
+            {footer && <footer className="ui-sheet__foot">{footer}</footer>}
+          </>
+        )}
       </section>
     </div>,
     document.body,

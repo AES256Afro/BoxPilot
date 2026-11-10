@@ -71,7 +71,7 @@ describe("App catalog: the page", () => {
     serve(catalogOf([{ manifest, live: absent("jellyfin") }, { manifest: dockge, live: dockgeLive }]));
     render(<CatalogPage csrfToken="csrf-token" />);
     expect(await screen.findByRole("button", { name: "Dockge, Running" })).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 1, name: "App catalog" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Apps" })).toBeTruthy();
     const verdict = document.querySelector(".ui-page-header__verdict");
     expect(verdict?.textContent).toBe("All running");
     expect(verdict?.getAttribute("data-status")).toBe("good");
@@ -380,7 +380,8 @@ describe("App catalog: installing", () => {
     opener.focus();
     fireEvent.click(opener);
     const dialog = await screen.findByRole("dialog");
-    await waitFor(() => expect(document.activeElement).toBe(dialog));
+    // The sheet opens on its first field, so typing can start at once.
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     fireEvent.keyDown(document, { key: "Tab" });
     expect(dialog.contains(document.activeElement)).toBe(true);
     fireEvent.keyDown(dialog, { key: "Escape" });
@@ -652,7 +653,7 @@ describe("App catalog: an installed app's sheet", () => {
     const tunneled = { ...manifest, id: "qbt", name: "qBittorrent", networkVia: "vpn", sidecars: [{ id: "vpn" }] };
     let staged: string | undefined;
     serve(catalogOf([{ manifest: tunneled, live: running("qbt", 8080, { urls: [], sidecars: [{ id: "vpn", running: true, status: "running", restarts: 0 }] }) }]), (url, init) => {
-      if (url === "/api/v1/operations/app.vpn.inspect/run") return json({ operation: "app.vpn.inspect", result: { id: "qbt", tunneled: true, sidecarId: "vpn", running: true, status: "running", exit: { ip: "212.92.104.227", location: "Netherlands, North Brabant, Breda", at: "x" }, forwardedPort: 51413 } });
+      if (url === "/api/v1/operations/app.vpn.inspect/run") return json({ operation: "app.vpn.inspect", result: { id: "qbt", tunneled: true, sidecarId: "vpn", running: true, status: "running", exit: { ip: "203.0.113.27", location: "Netherlands, North Brabant, Breda", at: "x" }, forwardedPort: 51413 } });
       if (url.endsWith("/operations/app.vpn.killswitch.drill/jobs")) { staged = init?.body as string; return stagedJob("app.vpn.killswitch.drill"); }
       return undefined;
     });
@@ -660,13 +661,33 @@ describe("App catalog: an installed app's sheet", () => {
     await screen.findByRole("button", { name: /^qBittorrent, / });
     await waitFor(() => expect(document.querySelector(".ui-page-header__meta")).toBeTruthy());
     const sheet = await openApp("qBittorrent");
-    expect(await within(sheet).findByText("Netherlands, North Brabant, Breda · 212.92.104.227")).toBeTruthy();
+    expect(await within(sheet).findByText("Netherlands, North Brabant, Breda · 203.0.113.27")).toBeTruthy();
     fireEvent.click(within(sheet).getByRole("tab", { name: "VPN" }));
     expect(within(sheet).getByText("51413")).toBeTruthy();
     expect(within(sheet).getByRole("button", { name: "Verify weekly" })).toBeTruthy();
     fireEvent.click(within(sheet).getByRole("button", { name: "Prove the kill switch" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { id: "qbt" } });
+  });
+
+  it("asks every tunneled app where its traffic leaves at once, and one that fails does not hold the others", async () => {
+    const tunneledApp = (id: string, name: string) => ({ manifest: { ...manifest, id, name, networkVia: "vpn", sidecars: [{ id: "vpn" }] }, live: running(id, 8080, { urls: [], sidecars: [{ id: "vpn", running: true, status: "running", restarts: 0 }] }) });
+    const asked: string[] = [];
+    const answers: Array<(response: Response) => void> = [];
+    serve(catalogOf([tunneledApp("qbt", "qBittorrent"), tunneledApp("sab", "SABnzbd"), tunneledApp("prowlarr", "Prowlarr")]), (url, init) => {
+      if (url !== "/api/v1/operations/app.vpn.inspect/run") return undefined;
+      asked.push((JSON.parse(String(init?.body)) as { parameters: { id: string } }).parameters.id);
+      return new Promise<Response>((resolve) => { answers.push(resolve); });
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    await screen.findByRole("button", { name: /^qBittorrent, / });
+    // All three are out before any has answered.
+    await waitFor(() => expect([...asked].sort()).toEqual(["prowlarr", "qbt", "sab"]));
+    expect(answers).toHaveLength(3);
+    answers[asked.indexOf("qbt")](json({ error: "The tunnel's log could not be read" }, 500));
+    answers[asked.indexOf("prowlarr")](json({ operation: "app.vpn.inspect", result: { id: "prowlarr", tunneled: true, running: true, exit: { ip: "203.0.113.9", location: "Sweden, Stockholm", at: "x" }, forwardedPort: null } }));
+    const sheet = await openApp("Prowlarr");
+    expect(await within(sheet).findByText("Sweden, Stockholm · 203.0.113.9")).toBeTruthy();
   });
 
   it("puts the sign-in page, the password and a way to change it in one place", async () => {

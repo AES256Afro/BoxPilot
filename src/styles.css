@@ -1231,6 +1231,8 @@ main:focus {
   flex-direction: column;
   width: min(640px, 100%);
   max-height: min(580px, calc(100vh - 32px));
+  /* dvh shrinks for a phone's keyboard, so the last row (Ask) stays in view; vh above is for a browser without it. */
+  max-height: min(580px, calc(100dvh - 32px));
   overflow: hidden;
   border: 1px solid var(--border-bright);
   border-radius: 14px;
@@ -3375,6 +3377,10 @@ body {
 .ui-secret__toggle { flex: none; min-width: 58px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 0 3px 3px 0; color: var(--accent); background: var(--surface-raised); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .ui-secret__toggle:hover:not(:disabled) { background: var(--surface-hover); }
 .ui-secret__toggle:disabled { cursor: not-allowed; opacity: 0.55; }
+/* "Caps Lock is on", on a line of its own under the field and its button while the key is on. */
+.ui-secret--caps { flex-wrap: wrap; }
+.ui-secret--caps .ui-input { flex-basis: 0; }
+.ui-secret__caps { flex: 0 0 100%; margin-top: 4px; color: var(--status-warning-text); font-size: 12.5px; font-weight: 600; line-height: 1.4; }
 
 /* ── Switch: the thumb's side, the track's fill and the word, never colour alone ── */
 .ui-switch { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
@@ -3525,9 +3531,13 @@ body {
    option, a table), past a phone's screen. */
 .ui-sheet__body { display: grid; flex: 1 1 auto; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; min-height: 0; padding: 14px; overflow-y: auto; }
 .ui-sheet__foot { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); }
+/* A sheet that is one form (Sheet's onSubmit): the form stands where the body and foot stood. */
+.ui-sheet__form { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; margin: 0; }
 @media (max-width: 640px) {
   .ui-sheet-backdrop--right, .ui-sheet-backdrop--center { align-items: flex-end; justify-content: stretch; padding: 0; }
   .ui-sheet--right, .ui-sheet--center, .ui-sheet--sm, .ui-sheet--lg { width: 100%; height: auto; max-height: 92vh; border-width: 1px 0 0; border-radius: 8px 8px 0 0; }
+  /* The part of the screen that can be seen (iOS Safari's bars, a keyboard), so the title and Close stay on it; vh above is for a browser without dvh. */
+  .ui-sheet--right, .ui-sheet--center, .ui-sheet--sm, .ui-sheet--lg { max-height: min(92dvh, 100%); }
 }
 
 /* ── CodeBlock: text shown exactly, with a bar that names it ── */
@@ -3696,6 +3706,14 @@ main { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .ui-button,
   :root[data-shell="console"] .ui-button { min-height: 44px; }
   .ui-info-toggle { width: 44px; height: 44px; }
+  /* A notice's Dismiss, a search box's Clear, a row in the command bar and its Esc. */
+  .ui-notice__dismiss,
+  .ui-search__clear { width: 44px; height: 44px; }
+  /* Clear sits at the box's edge, and the typing stops short of it. */
+  .ui-search__clear { right: 0; }
+  .ui-search .ui-search__input { padding-right: 46px; }
+  .command-option { min-height: 44px; }
+  .command-close { min-width: 44px; min-height: 44px; }
   .ui-control,
   .ui-input,
   .ui-textarea { min-height: 44px; font-size: 16px; }

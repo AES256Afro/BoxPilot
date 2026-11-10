@@ -3,8 +3,9 @@ import { useSyncExternalStore } from "react";
 /**
  * Whether this device can reach BoxPilot right now (M25.1). The browser's own online flag says only
  * that there is a network, and a phone away from home is online but off the tailnet, so BoxPilot's
- * health answer is asked for too: when the page comes back into view, when the network returns, and
- * once a minute while the page is open. The shell's banner says what is stale when either fails.
+ * health answer is asked for too: when the page comes back into view, when the network returns,
+ * once a minute while the page is open, and every five seconds while BoxPilot is not answering. The
+ * shell's banner says what is stale when either fails.
  */
 export interface ConnectionState {
   /** The device has a network at all. */
@@ -46,8 +47,18 @@ export async function checkConnection({ fetcher = (url: string, init?: RequestIn
   return state;
 }
 
+export interface WatchOptions {
+  /** How often to ask while BoxPilot is answering. */
+  intervalMs?: number;
+  /** How often while it is not: a restart or an update is over in seconds, and the banner should go with it. */
+  retryMs?: number;
+  /** The timers, for tests. */
+  setTimer?: (run: () => void, ms: number) => number;
+  clearTimer?: (id: number) => void;
+}
+
 /** Start watching; returns the function that stops. Called once, from main.tsx. */
-export function watchConnection({ intervalMs = 60_000 }: { intervalMs?: number } = {}): () => void {
+export function watchConnection({ intervalMs = 60_000, retryMs = 5_000, setTimer = (run, ms) => window.setTimeout(run, ms), clearTimer = (id) => window.clearTimeout(id) }: WatchOptions = {}): () => void {
   const visible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
   const onOnline = () => { void checkConnection(); };
   const onOffline = () => set({ online: false });
@@ -55,13 +66,38 @@ export function watchConnection({ intervalMs = 60_000 }: { intervalMs?: number }
   window.addEventListener("online", onOnline);
   window.addEventListener("offline", onOffline);
   document.addEventListener("visibilitychange", onVisible);
-  const timer = window.setInterval(() => { if (visible()) void checkConnection(); }, intervalMs);
+  // Once a minute while BoxPilot answers; every few seconds while it does not, so the page is back
+  // moments after a reboot or an update rather than up to a minute later.
+  let timer: number | null = null;
+  let asking = false;
+  const arm = () => {
+    if (timer !== null) clearTimer(timer);
+    timer = setTimer(tick, connected(state) ? intervalMs : Math.min(intervalMs, retryMs));
+  };
+  const tick = () => {
+    timer = null;
+    arm();
+    if (!visible() || asking) return;
+    asking = true;
+    void checkConnection().finally(() => { asking = false; });
+  };
+  // The pace follows the state: lost, the next question is seconds away; back, a minute.
+  let was = connected(state);
+  const unsubscribe = subscribeConnection(() => {
+    const now = connected(state);
+    if (now === was) return;
+    was = now;
+    arm();
+  });
+  arm();
   void checkConnection();
   return () => {
     window.removeEventListener("online", onOnline);
     window.removeEventListener("offline", onOffline);
     document.removeEventListener("visibilitychange", onVisible);
-    window.clearInterval(timer);
+    unsubscribe();
+    if (timer !== null) clearTimer(timer);
+    timer = null;
   };
 }
 

@@ -20,7 +20,7 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
     description: "The morning glance: what waits for your approval, what ran overnight, and whether the backups are off this server and current.",
   },
   setup: {
-    title: "Set up this server",
+    title: "Setup",
     description: "Pick what this server should be. BoxPilot checks what is already in place and installs the rest, in order, through the normal approved jobs.",
   },
   updates: {
@@ -28,12 +28,12 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
     description: "See what Ubuntu wants to update, install it, and add or remove packages.",
   },
   catalog: {
-    title: "App catalog",
+    title: "Apps",
     description: "Install, update, configure, and remove applications with one click.",
   },
   services: {
     title: "Services",
-    description: "See what systemd is running, start or stop it, and read its journal.",
+    description: "The system's services: see what is running, start or stop it, read its log.",
   },
   automations: {
     title: "Automations",
@@ -41,14 +41,14 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
   },
   agents: {
     title: "Agents",
-    description: "Build agents that learn this server, answer questions, watch Pi-hole and the backups, and propose fixes for you to approve. Local models only, capped so they never run hot.",
+    description: "Build agents that learn this server, answer questions, watch Pi-hole and the backups, and propose fixes for you to approve. On this server's own model, or Claude where you allow it.",
   },
   system: {
     title: "System",
-    description: "Hostname, time zone, swap, and maintenance timers for this server.",
+    description: "Hostname, time zone, swap, and what runs on a schedule on this server.",
   },
   performance: {
-    title: "Performance",
+    title: "Metrics",
     description: "How hard this server is working, and what is working it. Pause or stop whatever is costing the most, right where you see the cost.",
   },
   users: {
@@ -64,7 +64,7 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
     description: "Disks, LVM, mounts, network shares, and sharing this server's folders.",
   },
   network: {
-    title: "Network and DNS",
+    title: "Network",
     description: "Gateway, DNS, devices on your LAN, and Tailscale.",
   },
   hosted: {
@@ -72,7 +72,7 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
     description: "Every public name this server answers for: DNS, the tunnel, the certificate, whether it answers from the internet and from inside, and the app's backups.",
   },
   repairs: {
-    title: "Repair Center",
+    title: "Repair",
     description: "What is wrong on this server, and the fix for each one.",
   },
   virtualization: {
@@ -85,11 +85,11 @@ export const viewCopy: Record<ViewName, { title: string; description: string }> 
   },
   github: {
     title: "GitHub",
-    description: "Where this BoxPilot came from: release, commit, and asset digests.",
+    description: "Where this BoxPilot came from: each release and the checksums of its files.",
   },
   logs: {
     title: "Logs",
-    description: "Read and download logs from any unit, container, or journal group.",
+    description: "Read and download logs from any service or app.",
   },
   settings: {
     title: "Settings",
@@ -107,7 +107,7 @@ export const viewFeatures: Record<ViewName, string[]> = {
   updates: ["APT updates, all or selected", "Automatic security updates", "Restart hints", "Common tools with one click", "Snapshot before upgrading", "Install and remove packages"],
   catalog: [`${__BOXPILOT_CATALOG_SIZE__} apps${__BOXPILOT_CATALOG_CATEGORIES__ > 0 ? ` in ${__BOXPILOT_CATALOG_CATEGORIES__} categories` : ""}`, "Install, update, configure, uninstall", "Per-app backups and restores", "Logs and resource use", "HTTPS on your tailnet", "Image tags verified"],
   services: ["systemd units and timers", "Start, stop, restart", "Enable and disable", "Journal", "SSH, Tailscale, and BoxPilot protected"],
-  system: ["Hostname", "Time zone and language", "Swap and swappiness", "fstrim", "Docker housekeeping", "UPS monitoring", "Schedules", "BoxPilot self-update"],
+  system: ["Hostname", "Time zone and language", "Swap and swappiness", "SSD trim", "Docker housekeeping", "UPS monitoring", "Schedules", "BoxPilot update"],
   performance: ["CPU, memory and swap live", "Load average and temperatures", "Disk use per filesystem", "CPU and memory per app", "Pause, resume, stop, restart", "AI services pinned to the top"],
   users: ["Accounts", "sudo membership", "SSH keys from GitHub", "Password-login policy"],
   firewall: ["Profiles", "Service presets", "Suggestions from what is listening", "fail2ban", "SSH, Tailscale, and BoxPilot always reachable"],

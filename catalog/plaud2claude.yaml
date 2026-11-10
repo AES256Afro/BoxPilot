@@ -89,7 +89,7 @@ health:
   kind: healthcheck
   timeoutSeconds: 120
 notes: >-
-  Open the page with the password from this card and choose Start Plaud sign-in. Approve on Plaud's page; your
+  Open the page with the password from this app's sheet and choose Start Plaud sign-in. Approve on Plaud's page; your
   browser then lands on a localhost:8199 address that does not load. Paste that address into the page within two
   minutes. Then, at claude.ai/code/routines, create a scheduled task with the prompt shown under Set up Claude, add an
   API trigger, and put its Fire URL and token in this app's settings. From then on each new recording opens as its

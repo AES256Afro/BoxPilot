@@ -392,6 +392,11 @@ fi
 REPLACED_UNITS=""
 # The fstab copy a backup-destination move saved, so a rollback can put the old mount point back.
 BACKUP_MOUNT_UNDO=""
+# Whether the model gateway (M45.3) is running now, asked before anything is stopped: its unit is
+# part of the helper's and the web service's, so stopping either stops it, and only what was
+# running is started again. It runs only once the owner has connected Claude.
+GATEWAY_WAS_RUNNING=0
+if systemctl is-active --quiet boxpilot-model-gateway.service 2>/dev/null; then GATEWAY_WAS_RUNNING=1; fi
 
 # Put the old BoxPilot back. Safe to fire at any point from the moment the service is stopped: if
 # the swap has not happened yet, the current tree IS the old one and is left where it is; if the
@@ -449,6 +454,10 @@ rollback() {
   systemctl restart boxpilot.service 2>/dev/null || log "boxpilot.service did not restart"
   # The agents runner (M37) only when the owner turned it on: try-restart leaves a stopped unit stopped.
   systemctl try-restart boxpilot-agents.service 2>/dev/null || true
+  # The model gateway as it was: on the old code and under the old unit again, if it was running.
+  if [ "$GATEWAY_WAS_RUNNING" -eq 1 ]; then
+    systemctl restart boxpilot-model-gateway.service 2>/dev/null || log "boxpilot-model-gateway.service did not restart"
+  fi
   # The code is back; the database is whatever the new version left. Usually that is fine - most
   # releases change nothing in it - but if the old version cannot read it, this is the way back.
   if [ -n "$DB_COPY" ]; then
@@ -594,6 +603,14 @@ trap - HUP INT TERM PIPE
 # installed above with the rest and stays disabled until then, and try-restart leaves it so. Its
 # failing to start is not the upgrade's failure: it waits for BoxPilot and says why in its journal.
 systemctl try-restart boxpilot-agents.service 2>/dev/null || log "boxpilot-agents did not restart; journalctl -u boxpilot-agents says why"
+
+# The model gateway (M45.3) too, when it was running: it holds the Claude key, and left alone it
+# went on running the code and the sandbox of whichever release it was started under. A restart
+# rather than try-restart, because stopping the helper above stopped it. Not the upgrade's failure
+# either: the agents say the cloud model is unreachable, and its journal says why.
+if [ "$GATEWAY_WAS_RUNNING" -eq 1 ]; then
+  systemctl restart boxpilot-model-gateway.service 2>/dev/null || log "boxpilot-model-gateway did not restart; journalctl -u boxpilot-model-gateway says why"
+fi
 
 # The old unit files are only stale once the new version is answering.
 for name in $REPLACED_UNITS; do rm -f "/etc/systemd/system/${name}.pre-${STAMP}"; done

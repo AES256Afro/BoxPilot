@@ -41,7 +41,7 @@ describe("GitHub page", () => {
     expect(within(assets).getByText("keel-1.2.6-linux-x64.tar.gz")).toBeTruthy();
     // GitHub's digest is shown as GitHub's, never as checked here.
     expect(within(assets).getByText("No")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Trust limitations" }).textContent).toContain("No install exists.");
+    expect(screen.getByRole("region", { name: "What these figures are" }).textContent).toContain("No install exists.");
     expect(screen.queryByText(/token input/i)).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/integrations/github");
   });

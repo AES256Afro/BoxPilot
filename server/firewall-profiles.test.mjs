@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { adviseFirewall, buildPlan, isProtected, profiles, protectedRules, services } from "./firewall-profiles.mjs";
+import { parseUserRules } from "./ops/firewall.mjs";
 
 describe("firewall profiles", () => {
   it("always protects SSH and Tailscale, and opens the web port only when BoxPilot is served on the LAN", () => {
@@ -157,6 +158,31 @@ describe("a rule left holding a port open for nothing", () => {
     // The same port allowed from anywhere is still flagged, and its removal still offered.
     const anywhere = adviseFirewall({ ...base, report: { ...base.report, rules: [fromOne, { ...fromOne, source: null }] } });
     expect(anywhere.find((entry) => entry.id === "risky-allow-3306-tcp")).toMatchObject({ operationId: "firewall.rule.delete", parameters: { action: "allow", port: 3306, protocol: "tcp" } });
+  });
+
+  it("never offers to remove a rule tied to an interface, an application profile or one address of this server", () => {
+    // The tuples ufw writes for `allow in on eth0 to any port 8084 proto tcp`, `allow 'Nginx HTTP'`
+    // and `allow to 192.168.1.5 port 3306 proto tcp`. `ufw delete allow 8084/tcp` matches none of
+    // them, so each Remove failed for good, and the last was called "open to the whole LAN".
+    const rules = parseUserRules([
+      "### tuple ### allow tcp 8084 0.0.0.0/0 any 0.0.0.0/0 in_eth0",
+      "### tuple ### allow tcp 80 0.0.0.0/0 any 0.0.0.0/0 Nginx%20HTTP - in",
+      "### tuple ### allow tcp 3306 192.168.1.5 any 0.0.0.0/0 in",
+    ].join("\n"), "v4");
+    expect(rules.map((rule) => [rule.port, rule.interface, rule.app, rule.destination, rule.deletable])).toEqual([
+      [8084, "eth0", null, null, false],
+      [80, null, "Nginx%20HTTP", null, false],
+      [3306, null, null, "192.168.1.5", false],
+    ]);
+    const advice = adviseFirewall({ ...base, report: { ...base.report, rules } });
+    expect(advice.filter((entry) => entry.operationId === "firewall.rule.delete")).toEqual([]);
+    expect(advice.some((entry) => entry.id === "risky-allow-3306-tcp")).toBe(false);
+    expect(orphans(advice)).toEqual([]);
+    // The plain rule beside them is still the one the advice is about.
+    const plain = parseUserRules("### tuple ### allow tcp 3306 0.0.0.0/0 any 0.0.0.0/0 in", "v4");
+    expect(plain[0].deletable).toBe(true);
+    expect(adviseFirewall({ ...base, report: { ...base.report, rules: [...rules, ...plain] } }).find((entry) => entry.id === "risky-allow-3306-tcp"))
+      .toMatchObject({ operationId: "firewall.rule.delete", parameters: { action: "allow", port: 3306, protocol: "tcp" } });
   });
 
   it("never offers to remove a rule that keeps you able to log in", () => {

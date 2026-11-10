@@ -3,7 +3,7 @@ import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { parseSmbConf, smbConfPath } from "./samba.mjs";
-import { mountpointFor, reservedMountNames } from "../backup-mount.mjs";
+import { backupMountName, legacyBackupMountpoint, mountpointFor, reservedMountNames } from "../backup-mount.mjs";
 import { mountedFrom } from "./mount-agreement.mjs";
 
 /**
@@ -26,7 +26,7 @@ export const mountNamePattern = /^[a-z0-9][a-z0-9-]{0,31}$/;
  * have removed the swap entry without swapoff. Each of those has its own operation.
  */
 function assertPlainMountName(name) {
-  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
+  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name must be lower-case letters, digits, and hyphens (max 32)");
   if (name.startsWith("share-")) throw new Error(`${name} is a network share, not a drive; reconnect it with share.reconnect ("Reconnect the share" in Repair)`);
   if (name === "swap") throw new Error("swap is the swap file, not a mount; use the swap file operation for it");
 }
@@ -132,11 +132,33 @@ export function parseManagedFstab(content) {
   return managed;
 }
 
+/** The path the swap file's entry names, in the field where a mount names its device. */
+const swapFilePath = "/swap.boxpilot";
+
+/**
+ * Whether `line` is the entry the `# boxpilot:<name>` marker was written over: a drive or share
+ * mounted where that name mounts (a share's marker is `share-<name>`; the backup destination may
+ * still be at its old place), or the swap file.
+ */
+function isEntryOf(name, line) {
+  const text = String(line ?? "").trim();
+  if (!text || text.startsWith("#")) return false;
+  const [source, mountpoint] = text.split(/\s+/);
+  if (name === "swap") return source === swapFilePath;
+  const mountName = name.startsWith("share-") ? name.slice("share-".length) : name;
+  return mountpoint === mountpointFor(mountName) || (mountName === backupMountName && mountpoint === legacyBackupMountpoint);
+}
+
+/**
+ * fstab without the managed entry `name`, or null when there is no such marker. The line under the
+ * marker goes with it only when it is that entry: in an fstab edited by hand the marker can outlive
+ * its line, and the line below it is then another entry's marker or the root filesystem.
+ */
 export function removeManagedEntry(content, name) {
   const lines = String(content ?? "").split("\n");
   const index = lines.findIndex((line) => line.trim() === marker(name));
   if (index === -1) return null;
-  lines.splice(index, 2);
+  lines.splice(index, isEntryOf(name, lines[index + 1]) ? 2 : 1);
   return lines.join("\n");
 }
 
@@ -195,7 +217,7 @@ export const permissionlessFilesystems = Object.freeze(["exfat", "vfat", "ntfs",
 
 /** @param {{ uuid?: string, name?: string, fstype?: string, readOnly?: boolean, appWritable?: boolean, uid?: number, gid?: number }} [parameters] */
 export async function storageMount({ uuid, name, fstype = "auto", readOnly = false, appWritable = false, uid = appUserId, gid = appUserId } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir } } = {}) {
-  if (typeof uuid !== "string" || !uuidPattern.test(uuid)) throw new Error("UUID is invalid");
+  if (typeof uuid !== "string" || !uuidPattern.test(uuid)) throw new Error("The drive's ID (UUID) may only be digits, the letters a to f, and hyphens");
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name must be lower-case letters, digits, and hyphens (max 32)");
   assertPlainMountName(name);   // and not swap or share-*: creating one would plant a marker swapFileSet and shareUnmount act on as their own
   assertNotReservedMountName(name);
@@ -277,7 +299,7 @@ export async function storageUnmount({ name } = {}, { run = fixedRun, log = null
     if (apps.length) throw new Error(`${mountpoint} is in use by ${listOf(apps)}, so it was left mounted and in fstab. Stop ${apps.length === 1 ? "that app" : "those apps"} or take the folder out of ${apps.length === 1 ? "it" : "them"}, then try again.`);
     log?.(`$ umount ${mountpoint}`, "stdout");
     const result = await run(binaries.umount, mountArgs(mountpoint), { timeout: 60_000 });
-    if (!result.ok) throw new Error(`umount failed (is something using it?): ${result.stderr.split("\n").slice(-2).join(" ")}`);
+    if (!result.ok) throw new Error(`${mountpoint} could not be disconnected, so it was left connected and nothing was changed: ${tail(result.stderr) || "no reason given"}. Something is probably still using it: stop the apps and file shares that use it, then try again.`);
   }
   await files.writeFile(fstabPath, without);
   await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 });
@@ -335,7 +357,7 @@ export function fstabNames(content, nodes, real = new Map()) {
  * @param {{ device?: string, label?: string | null, identity?: { serial?: string | null, wwn?: string | null, size?: number | string | null, model?: string | null } | null }} [parameters]
  */
 export async function storageFormat({ device, label = null, identity = null } = {}, { run = fixedRun, log = null, files = { readFile, realpath } } = {}) {
-  if (typeof device !== "string" || !devicePattern.test(device)) throw new Error("Device path is invalid");
+  if (typeof device !== "string" || !devicePattern.test(device)) throw new Error("The disk must be named by its device path, like /dev/sdb");
   if (label !== null && (typeof label !== "string" || !labelPattern.test(label))) throw new Error("Label may use letters, digits, underscore, hyphen (max 16)");
   const nodes = await deviceTree(run, device);
   if (nodes.some((node) => node.ro)) throw new Error(`${device} is read-only`);
@@ -354,10 +376,10 @@ export async function storageFormat({ device, label = null, identity = null } = 
   if (inFstab.length) throw new Error(`${inFstab.join(", ")} is listed in /etc/fstab, so this server mounts it at boot. Nothing was erased; unmount it from Storage first if you mean to erase it.`);
   log?.(`$ wipefs -a ${device}`, "stdout");
   const wipe = await run(binaries.wipefs, ["-a", device], { timeout: 60_000 });
-  if (!wipe.ok) throw new Error(`wipefs failed: ${wipe.stderr.split("\n").slice(-2).join(" ")}`);
+  if (!wipe.ok) throw new Error(`The disk could not be erased: ${tail(wipe.stderr) || "no reason given"}. It may be part-erased; do not use it until formatting succeeds.`);
   log?.(`$ mkfs.ext4 -F ${label ? `-L ${label} ` : ""}${device}`, "stdout");
   const mkfs = await run(binaries.mkfsExt4, ["-F", ...(label ? ["-L", label] : []), device], { timeout: 30 * 60_000, onLine: log ?? undefined });
-  if (!mkfs.ok) throw new Error(`mkfs.ext4 failed: ${mkfs.stderr.split("\n").slice(-2).join(" ")}`);
+  if (!mkfs.ok) throw new Error(`The disk was erased but could not be formatted: ${tail(mkfs.stderr) || "no reason given"}. Do not use it until formatting succeeds.`);
   const blkid = await run(binaries.blkid, ["-o", "value", "-s", "UUID", device], { timeout: 15_000 });
   return { formatted: true, device, fstype: "ext4", label, uuid: blkid.ok ? blkid.stdout.trim() : null };
 }
@@ -370,7 +392,7 @@ async function activeSwap(files) {
 
 /** Create (or remove) a managed swap file at /swap.boxpilot with a nofail fstab entry. */
 export async function swapFileSet({ sizeGiB = null, remove = false } = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
-  const swapPath = "/swap.boxpilot";
+  const swapPath = swapFilePath;
   if (remove) {
     const content = await files.readFile(fstabPath, "utf8");
     const without = removeManagedEntry(content, "swap");

@@ -156,3 +156,6 @@
   .storage-growth .storage-rows__item { grid-template-columns: minmax(0, 1fr) 96px; }
   .storage-growth__figure { grid-column: 1 / -1; white-space: normal; }
 }
+
+/* Why a disk is protected, on its own line under the device. */
+.storage-device__why { flex-basis: 100%; }

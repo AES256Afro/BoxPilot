@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { approveJob, getJob, getJobApproval, oneTimeFields, retryWithMoreTime, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "../operations";
 import { OneTimeResult } from "./OneTimeResult";
@@ -290,12 +290,35 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   // Once it has finished, the way out is the next thing the keyboard reaches.
   useEffect(() => { if (ended) closeRef.current?.focus(); }, [ended]);
 
+  // Once it can be approved, the keyboard is where approving starts: the typed confirmation, else
+  // the password, else the button itself. The dialog opens while the job is still being staged, so
+  // focus was on the dialog and the password three or four Tabs away. After a refused password the
+  // field is back with what was typed selected, so typing again replaces it.
+  const refused = useRef(false);
+  refused.current = phase === "ready" && Boolean(error);
+  useEffect(() => {
+    if (phase !== "ready") return;
+    const dialog = dialogRef.current;
+    const secret = dialog?.querySelector<HTMLInputElement>('.approve-form input[autocomplete="current-password"]');
+    if (refused.current && secret) { secret.focus(); secret.select(); return; }
+    (dialog?.querySelector<HTMLElement>(".approve-form input:not([disabled])") ?? dialog?.querySelector<HTMLElement>(".approve-go:not([disabled])"))?.focus();
+  }, [phase]);
+
   const submit = (event: FormEvent) => { event.preventDefault(); if (canApprove) void approve(); };
+  // With nothing to type (low and medium), Enter anywhere in the dialog is its main button. A
+  // control that has the keyboard keeps its own Enter (Cancel, Close, a disclosure), and a key held
+  // down since before the dialog opened approves nothing.
+  const onDialogKey = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Enter" || event.repeat || event.defaultPrevented || passwordRequired || confirmRequired || !canApprove) return;
+    if (event.target instanceof Element && event.target.closest("button, a, summary, input, textarea, select")) return;
+    event.preventDefault();
+    void approve();
+  };
 
   return createPortal(
     <div className="approve-backdrop" role="presentation">
       {/* A click outside no longer dismisses (M50): it withdrew the staged job and lost the typed confirmation and password. Escape and Close do. */}
-      <section ref={dialogRef} tabIndex={-1} className="approve-dialog look-console" role="dialog" aria-modal="true" aria-labelledby={titleId} data-phase={phase} data-tier={policy ? tier : undefined} onMouseDown={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} tabIndex={-1} className="approve-dialog look-console" role="dialog" aria-modal="true" aria-labelledby={titleId} data-phase={phase} data-tier={policy ? tier : undefined} onMouseDown={(event) => event.stopPropagation()} onKeyDown={onDialogKey}>
         <header className="approve-head">
           <div className="approve-heading">
             <span className="approve-kicker">{kicker}</span>
@@ -405,7 +428,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           ) : (
             <>
               <Button onClick={dismiss} disabled={busy}>Cancel</Button>
-              <Button variant="primary" type="submit" form={formId} className="approve-go" data-tier={policy ? tier : undefined} busy={phase === "approving" || phase === "running"} disabled={!canApprove}>{actionLabel}</Button>
+              <Button variant="primary" type="submit" form={formId} className="approve-go" data-tier={policy ? tier : undefined} busy={phase === "approving" || phase === "running"} disabled={!canApprove} onKeyDown={(event) => { if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault(); }}>{actionLabel}</Button>
             </>
           )}
         </footer>

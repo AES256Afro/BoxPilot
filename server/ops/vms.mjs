@@ -15,6 +15,9 @@ function virsh(run, args, options = {}) {
   return run(virshBinary, ["--connect", connectionUri, ...args], { timeout: 60_000, ...options });
 }
 
+/** What a command said on its way out, for the end of a sentence: its last two lines, no full stop. */
+const why = (result) => String(result.stderr ?? "").split("\n").filter(Boolean).slice(-2).join(" ").replace(/[.\s]+$/, "") || "no reason given";
+
 async function domainState(run, name) {
   const result = await virsh(run, ["domstate", name], { timeout: 15_000 });
   if (!result.ok) throw new Error(`VM ${name} was not found`);
@@ -80,7 +83,7 @@ export function vmOperations() {
     }),
     defineOperation({
       id: "vm.create", title: "Create a VM from a managed ISO", risk: "high", timeoutMs: 30 * 60_000,
-      description: "Creates the exact reviewed domain with virt-install from a managed ISO. Failure removes only the newly created domain and its new storage.",
+      description: "Creates the VM exactly as the plan showed. If it fails, only what this job made is removed.",
       parameters: { exact: false, fields: { name: { type: "string", maxLength: 64 } } },
       run: (parameters, { virtualization }) => virtualization.create(parameters),
     }),
@@ -92,19 +95,19 @@ export function vmOperations() {
     }),
     defineOperation({
       id: "vm.export.protect", title: "Keep an encrypted copy of a VM export", risk: "medium", timeoutMs: 12 * 60 * 60_000,
-      description: "Writes the verified export into the encrypted independent restic repository and reads the whole repository back. Nothing is pruned.",
+      description: "Writes the export into the encrypted backup store and reads the whole store back to check it. No older backup is removed.",
       parameters: { exact: false, fields: { exportId: { type: "string", maxLength: 40 } } },
       run: (parameters, { vmProtection, progress }) => vmProtection.createBackup(parameters, { progress }),
     }),
     defineOperation({
-      id: "vm.backup.retention.apply", title: "Apply VM backup retention", risk: "medium", timeoutMs: 12 * 60 * 60_000,
-      description: "Forgets only the pinned eligible old snapshots and verifies the repository afterwards. Never prunes.",
+      id: "vm.backup.retention.apply", title: "Let go of old VM backups", risk: "medium", timeoutMs: 12 * 60 * 60_000,
+      description: "Removes the old encrypted copies the preview listed and checks the rest still read. Those copies cannot be brought back; disk space is not freed yet.",
       parameters: { exact: false, fields: { retentionId: { type: "string", optional: true } } },
       run: ({ candidates: _candidates, expectedBeforeCount: _expectedBeforeCount, ...parameters }, { vmRetention }) => vmRetention.apply(parameters),
     }),
     defineOperation({
       id: "vm.backup.snapshot.forget", title: "Remove a backup that failed its check", risk: "high", timeoutMs: 2 * 60 * 60_000,
-      description: "Removes one snapshot the encrypted repository holds and BoxPilot has no record of, normally a backup that was written and then failed its verification. Nothing that has a local record can be removed this way, and nothing is pruned.",
+      description: "Removes one backup the encrypted store holds and BoxPilot has no record of, normally one that was written and then failed its check. It cannot be brought back. A backup BoxPilot has a record of cannot be removed this way, and disk space is not freed yet.",
       minimumRole: "owner",
       parameters: { fields: { snapshotId: { type: "string", maxLength: 64, pattern: /^[a-f0-9]{64}$/ }, knownSnapshotIds: { type: "array", optional: true } } },
       confirm: (parameters) => String(parameters.snapshotId).slice(0, 8),
@@ -112,7 +115,7 @@ export function vmOperations() {
     }),
     defineOperation({
       id: "vm.backup.restore-drill", title: "Test-restore a VM backup", risk: "medium", timeoutMs: 12 * 60 * 60_000,
-      description: "Restores the exact snapshot into a no-network transient domain, requires guest-agent health, then cleans up. A pass promotes the backup to protected.",
+      description: "Starts a throwaway copy of the VM from this backup with no network, checks it boots, and removes it. A backup that passes counts as protected.",
       parameters: { exact: false, fields: { backupId: { type: "string", maxLength: 40 } } },
       run: (parameters, { vmRestoreDrill, progress }) => vmRestoreDrill.runDrill(parameters, { progress }),
     }),
@@ -124,7 +127,7 @@ export function vmOperations() {
     }),
     defineOperation({
       id: "vm.foundation.initialize", title: "Set up the default VM network and storage", risk: "medium", timeoutMs: 5 * 60_000,
-      description: "Defines, starts, and autostarts only the canonical default NAT network and default storage pool where missing. Failure rolls back only this job's changes.",
+      description: "Sets up the network and the disk folder new VMs use, if they are missing. If it fails, only what this job made is undone.",
       parameters: { exact: false, fields: { foundationId: { type: "string", optional: true } } },
       run: (parameters, { foundation }) => foundation.initialize(parameters),
     }),
@@ -139,14 +142,14 @@ export function vmOperations() {
           if (state !== "shut off") throw new Error(`VM ${name} is ${state}; only a stopped VM can be started`);
           progress?.(`$ virsh start ${name}`, "stdout");
           const result = await virsh(run, ["start", name], { timeout: 2 * 60_000 });
-          if (!result.ok) throw new Error(`virsh start failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+          if (!result.ok) throw new Error(`${name} could not be started: ${why(result)}. Nothing else was changed.`);
           return { name, action, state: await domainState(run, name) };
         }
         if (action === "shutdown" || action === "reboot") {
           if (state !== "running") throw new Error(`VM ${name} is ${state}; ${action} needs a running VM`);
           progress?.(`$ virsh ${action} ${name}`, "stdout");
           const result = await virsh(run, [action, name], { timeout: 60_000 });
-          if (!result.ok) throw new Error(`virsh ${action} failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+          if (!result.ok) throw new Error(`${name} could not be ${action === "reboot" ? "restarted" : "shut down"}: ${why(result)}. Nothing else was changed.`);
           if (action === "reboot") return { name, action, state: await domainState(run, name) };
           const deadline = Date.now() + 2 * 60_000;
           for (;;) {
@@ -160,16 +163,16 @@ export function vmOperations() {
         const enable = action === "autostart-on";
         progress?.(`$ virsh autostart ${enable ? "" : "--disable "}${name}`, "stdout");
         const result = await virsh(run, ["autostart", ...(enable ? [] : ["--disable"]), name], { timeout: 30_000 });
-        if (!result.ok) throw new Error(`virsh autostart failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+        if (!result.ok) throw new Error(`Starting ${name} with this server could not be turned ${enable ? "on" : "off"}: ${why(result)}. Nothing else was changed.`);
         const info = await virsh(run, ["dominfo", name], { timeout: 15_000 });
         const autostart = /Autostart:\s+enable/.test(info.stdout ?? "");
-        if (autostart !== enable) throw new Error("virsh accepted the change but dominfo does not reflect it");
+        if (autostart !== enable) throw new Error(`Starting ${name} with this server was turned ${enable ? "on" : "off"}, but the VM still reads as it did before. Check again.`);
         return { name, action, autostart };
       },
     }),
     defineOperation({
       id: "vm.force-off", title: "Force off a VM", risk: "medium", timeoutMs: 2 * 60_000,
-      description: "Pulls the virtual power plug with virsh destroy. Unsaved data inside the guest is lost; the VM can be started again afterwards.",
+      description: "Cuts the VM's power at once. Anything unsaved inside it is lost; the VM can be started again afterwards.",
       parameters: { fields: { name: nameField } },
       run: async (parameters, { run, progress }) => {
         const { name } = parameters;
@@ -177,7 +180,7 @@ export function vmOperations() {
         if (state === "shut off") throw new Error(`VM ${name} is already off`);
         progress?.(`$ virsh destroy ${name}`, "stdout");
         const result = await virsh(run, ["destroy", name], { timeout: 60_000 });
-        if (!result.ok) throw new Error(`virsh destroy failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+        if (!result.ok) throw new Error(`${name} could not be forced off: ${why(result)}. It may still be running.`);
         return { name, previousState: state, state: await domainState(run, name) };
       },
     }),
@@ -194,10 +197,10 @@ export function vmOperations() {
         const withNvram = await virsh(run, ["undefine", name, ...flags, "--nvram"], { timeout: 3 * 60_000 });
         if (!withNvram.ok) {
           const withoutNvram = await virsh(run, ["undefine", name, ...flags], { timeout: 3 * 60_000 });
-          if (!withoutNvram.ok) throw new Error(`virsh undefine failed: ${withoutNvram.stderr.split("\n").slice(-2).join(" ")}`);
+          if (!withoutNvram.ok) throw new Error(`${name} could not be deleted: ${why(withoutNvram)}. Check again to see what is left of it.`);
         }
         const gone = await virsh(run, ["domstate", name], { timeout: 15_000 });
-        if (gone.ok) throw new Error(`VM ${name} is still defined after undefine; inspect it with virsh`);
+        if (gone.ok) throw new Error(`${name} is still listed after being deleted. Check again, and delete it once more if it is still there.`);
         return { name, deleted: true, storageDeleted: deleteStorage };
       },
     }),
@@ -232,7 +235,7 @@ export function vmOperations() {
         }
         progress?.(`$ virsh snapshot-create-as ${name} ${snapshotName} --atomic`, "stdout");
         const create = await virsh(run, ["snapshot-create-as", name, snapshotName, "--description", "Created by BoxPilot offline snapshot workflow", "--atomic"], { timeout: 8 * 60_000 });
-        if (!create.ok) throw new Error(`virsh snapshot-create-as failed: ${create.stderr.split("\n").slice(-2).join(" ")}`);
+        if (!create.ok) throw new Error(`The snapshot ${snapshotName} of ${name} could not be taken: ${why(create)}. The VM was not changed.`);
         const info = await virsh(run, ["snapshot-info", name, snapshotName], { timeout: 15_000 });
         const verified = /^Current:\s+yes$/mi.test(info.stdout ?? "") && /^Location:\s+internal$/mi.test(info.stdout ?? "") && /^State:\s+shut\s?off$/mi.test(info.stdout ?? "");
         if (!verified) throw new Error("The snapshot command returned, but offline internal verification failed. Leave the VM stopped and inspect it manually.");
@@ -250,7 +253,7 @@ export function vmOperations() {
         if (!(await snapshotExists(run, name, snapshotName))) throw new Error(`Snapshot ${snapshotName} does not exist on ${name}`);
         progress?.(`$ virsh snapshot-revert ${name} ${snapshotName}`, "stdout");
         const result = await virsh(run, ["snapshot-revert", name, snapshotName], { timeout: 8 * 60_000 });
-        if (!result.ok) throw new Error(`virsh snapshot-revert failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+        if (!result.ok) throw new Error(`${name} could not be put back to the snapshot ${snapshotName}: ${why(result)}. The snapshot is kept; check the VM starts before relying on it.`);
         return { name, snapshotName, reverted: true, state: await domainState(run, name) };
       },
     }),
@@ -264,7 +267,7 @@ export function vmOperations() {
         if (!(await snapshotExists(run, name, snapshotName))) throw new Error(`Snapshot ${snapshotName} does not exist on ${name}`);
         progress?.(`$ virsh snapshot-delete ${name} ${snapshotName}`, "stdout");
         const result = await virsh(run, ["snapshot-delete", name, snapshotName], { timeout: 8 * 60_000 });
-        if (!result.ok) throw new Error(`virsh snapshot-delete failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+        if (!result.ok) throw new Error(`The snapshot ${snapshotName} of ${name} could not be deleted: ${why(result)}. The VM itself was not changed.`);
         return { name, snapshotName, deleted: true };
       },
     }),

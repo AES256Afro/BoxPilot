@@ -9,7 +9,7 @@ if (command !== "create-bootstrap-token") {
   const store = createStateStore();
   try {
     const result = store.createBootstrapToken();
-    console.log("BoxPilot owner bootstrap token (valid for 15 minutes):");
+    console.log("BoxPilot one-time setup code (valid for 15 minutes):");
     console.log(result.token);
     console.log(`Expires: ${result.expiresAt}`);
     console.log("Open BoxPilot and finish owner setup. Do not paste this token into chat or logs.");

@@ -296,6 +296,10 @@ export function createPushApprovals({
     const time = at.getTime();
     const chosen = settings();
     const state = readState();
+    // Most sweeps find nothing waiting and change nothing: the row is written only when what it
+    // holds is different, not 2,880 times a day.
+    const before = JSON.stringify(state);
+    const keep = () => { if (JSON.stringify(state) !== before) store.setSetting(stateKey, state, { updatedBy: null }); };
     const waiting = (store.listAwaitingApproval?.() ?? []).filter((job) => job?.state === "awaiting_approval");
     const waitingIds = new Set(waiting.map((job) => job.id));
     // Forget what no longer waits, and sends older than the hour the limit counts.
@@ -319,10 +323,10 @@ export function createPushApprovals({
       due.push(job);
     }
     const outcome = { due: due.map((job) => job.id), sent: [], held: null };
-    if (!due.length) { store.setSetting(stateKey, state, { updatedBy: null }); return outcome; }
-    if (inQuietHours(chosen.quietHours, at)) { outcome.held = "quiet-hours"; store.setSetting(stateKey, state, { updatedBy: null }); return outcome; }
+    if (!due.length) { keep(); return outcome; }
+    if (inQuietHours(chosen.quietHours, at)) { outcome.held = "quiet-hours"; keep(); return outcome; }
     const last = state.sent.length ? Date.parse(state.sent.at(-1)) : Number.NEGATIVE_INFINITY;
-    if (state.sent.length >= limits.perHour || time - last < limits.minGapMs) { outcome.held = "rate-limit"; store.setSetting(stateKey, state, { updatedBy: null }); return outcome; }
+    if (state.sent.length >= limits.perHour || time - last < limits.minGapMs) { outcome.held = "rate-limit"; keep(); return outcome; }
 
     // Who may approve each job, and so who hears about it.
     const accounts = new Map();

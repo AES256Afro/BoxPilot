@@ -68,6 +68,25 @@ describe("root storage tasks", () => {
     expect(removeManagedEntry(content, "other")).toBeNull();
   });
 
+  it("removes a marker alone when the line under it is not that entry", () => {
+    // An fstab edited by hand: the media line was deleted and its marker left. The line below the
+    // marker is then another entry's marker, or the root filesystem, and it used to go too.
+    const overMarker = `${BASE_FSTAB}# boxpilot:media\n# boxpilot:films\nUUID=y /mnt/films ext4 defaults,nofail 0 2\n`;
+    expect(removeManagedEntry(overMarker, "media")).toBe(`${BASE_FSTAB}# boxpilot:films\nUUID=y /mnt/films ext4 defaults,nofail 0 2\n`);
+    const overRoot = "# /etc/fstab\n# boxpilot:media\nUUID=root-uuid / ext4 defaults 0 1\n";
+    expect(removeManagedEntry(overRoot, "media")).toBe(BASE_FSTAB);
+    const swapOverRoot = "# boxpilot:swap\nUUID=root-uuid / ext4 defaults 0 1\n";
+    expect(removeManagedEntry(swapOverRoot, "swap")).toBe("UUID=root-uuid / ext4 defaults 0 1\n");
+    expect(removeManagedEntry("# boxpilot:media", "media")).toBe("");
+  });
+
+  it("removes the swap file's entry, a share's and the backup destination's with their markers", () => {
+    expect(removeManagedEntry(`${BASE_FSTAB}# boxpilot:swap\n/swap.boxpilot none swap sw,nofail 0 0\n`, "swap")).toBe(BASE_FSTAB);
+    expect(removeManagedEntry(`${BASE_FSTAB}# boxpilot:share-nas\n//nas.lan/My\\040Photos /mnt/nas cifs guest,nofail 0 0\n`, "share-nas")).toBe(BASE_FSTAB);
+    expect(removeManagedEntry(`${BASE_FSTAB}# boxpilot:boxpilot-backup\nUUID=b /mnt/boxpilot/backup ext4 defaults,nofail 0 2\n`, "boxpilot-backup")).toBe(BASE_FSTAB);
+    expect(removeManagedEntry(`${BASE_FSTAB}# boxpilot:share-boxpilot-backup\nnas.lan:/backups /mnt/boxpilot-backup nfs rw,nofail 0 0\n`, "share-boxpilot-backup")).toBe(BASE_FSTAB);
+  });
+
   it("mounts by UUID with a verified nofail fstab entry", async () => {
     const files = fakeFiles();
     const run = fakeRun();
@@ -162,7 +181,7 @@ describe("root storage tasks", () => {
     await expect(storageFormat({ device: "/dev/sdb", label: "data" }, { run: clean })).resolves.toMatchObject({ formatted: true, fstype: "ext4", uuid: "new-uuid-1234" });
     expect(clean).toHaveBeenCalledWith(expect.stringContaining("wipefs"), ["-a", "/dev/sdb"], expect.anything());
     expect(clean).toHaveBeenCalledWith(expect.stringContaining("mkfs.ext4"), ["-F", "-L", "data", "/dev/sdb"], expect.anything());
-    await expect(storageFormat({ device: "/dev/sdb; rm -rf /" }, { run: clean })).rejects.toThrow("Device path");
+    await expect(storageFormat({ device: "/dev/sdb; rm -rf /" }, { run: clean })).rejects.toThrow("The disk must be named by its device path, like /dev/sdb");
   });
 
   it("never formats a disk the server mounts at boot, mounted or not just now", async () => {
@@ -477,7 +496,7 @@ describe("reconnecting a drive through the busy pipeline (M35)", () => {
   it("refuses a mount BoxPilot does not manage, and an invalid name", async () => {
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
     await expect(storageRemount({ name: "not-ours" }, { run, files: { readFile: async () => fstab, readable: async () => false } })).rejects.toThrow("not a BoxPilot-managed mount");
-    await expect(storageRemount({ name: "../etc" }, { run, files: { readFile: async () => fstab, readable: async () => false } })).rejects.toThrow("Name is invalid");
+    await expect(storageRemount({ name: "../etc" }, { run, files: { readFile: async () => fstab, readable: async () => false } })).rejects.toThrow("Name must be lower-case letters, digits, and hyphens (max 32)");
     expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
   });
 });

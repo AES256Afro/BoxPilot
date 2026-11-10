@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Button, Notice } from "../ui";
+import "./offline.css";
 
 /*
  * Said ten minutes before the session ends (M36): a session lasts twelve hours and is not renewed,
  * and the sign-in page that follows took a half-typed form with it. The banner says when, counts
- * down by the minute, and can be put away; it does not come back for the same session.
+ * down by the minute, and can be put away; it does not come back for the same session. It is held
+ * under the bar like the offline banner (offline.css), so someone two screens down a form sees it.
  */
 
 const warnMs = 10 * 60_000;
@@ -38,7 +40,7 @@ export function SessionEndingBanner({ expiresAt, now = Date.now }: { expiresAt: 
   const minutes = minutesLeft(end, at);
   const clock = new Date(end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
-    <Notice tone="warning" live title={`Your session ends at ${clock}, in ${minutes} minute${minutes === 1 ? "" : "s"}`}
+    <Notice tone="warning" live className="offline-session" title={`Your session ends at ${clock}, in ${minutes} minute${minutes === 1 ? "" : "s"}`}
       action={<Button variant="ghost" onClick={() => { setDismissed(end); document.getElementById("content")?.focus(); }}>Got it</Button>}>
       Sessions last twelve hours. Finish or copy anything you are typing: after {clock} BoxPilot asks you to sign in again, and a form left open is not kept.
     </Notice>

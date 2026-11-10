@@ -127,7 +127,7 @@ export function ReachTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) 
         {report && (
           <>
             {report.headline && <Notice tone="danger" live className="catalog-inset" title={report.headline} />}
-            {!report.headline && report.addresses.length === 0 && <EmptyState title="No web addresses to check" />}
+            {!report.headline && report.addresses.length === 0 && <EmptyState title="No web addresses to check">This app has no port or address to open in a browser, so there is nothing to ask. If it should have one, look at its settings and its Compose tab, then check again.</EmptyState>}
             <ul className="catalog-rows">
               {report.addresses.map((address) => (
                 <li key={address.url} className="catalog-row ui-marked" data-status={address.outcome === "answered" ? "good" : address.outcome === "not-probed" ? "neutral" : "danger"}>

@@ -3,7 +3,7 @@ import { openActivity, openNotificationsEvent } from "../activityEvents";
 import { viewLabel, type ViewName } from "../data";
 import { relativeTime } from "../home/format";
 import { readJson } from "../http";
-import { Button, EmptyState, Facts, Notice, Sheet, StatusChip, Tag, type Status } from "../ui";
+import { Button, EmptyState, Facts, Notice, Segmented, Sheet, StatusChip, Tag, type Status } from "../ui";
 import { BellIcon } from "./areaIcons";
 import { PushPanel } from "./PushPanel";
 import "./look.css";
@@ -17,6 +17,11 @@ import "./notifications.css";
  * seen", which moves this account's own marker. The server keeps the record
  * (server/notification-history.mjs) and cuts another account's entries back to their kind. Drawn
  * with the kit's Sheet, in the console's look wherever it opens (M33.13).
+ *
+ * Most of what is said is routine (a backup ran, a release is out), and the owner's server had 97
+ * unread: the list opens on "Needs a look" when anything does - a condition still going, a
+ * notification that failed to send, a failed job - with "Everything" beside it, and entries that
+ * say the same thing one after another fold into one row with a count that opens to each.
  */
 
 export interface NotificationEntry {
@@ -44,7 +49,7 @@ export function destinationOf(entry: NotificationEntry): { kind: "activity"; job
   if (entry.family === "approval.waiting") return subject && entry.key !== entry.family ? { kind: "activity", jobId: subject, label: "Open in Activity" } : { kind: "view", view: "today", label: "Open Today" };
   if (entry.family === "job.interrupted" || entry.family === "record.failed" || entry.family === "joblog.unreadable") return { kind: "activity", jobId: null, label: "Open Activity" };
   if (entry.family.startsWith("storage.") || entry.family.startsWith("smart.")) return { kind: "view", view: "storage", label: "Open Storage" };
-  if (entry.family.startsWith("docker.")) return { kind: "view", view: "catalog", label: "Open the App catalog" };
+  if (entry.family.startsWith("docker.")) return { kind: "view", view: "catalog", label: "Open Apps" };
   if (entry.family === "system.services" || entry.family === "boxpilot.restart") return { kind: "view", view: "services", label: "Open Services" };
   if (entry.family === "system.reboot") return { kind: "view", view: "updates", label: "Open Updates" };
   // The tab the entry is about, not System's overview (M50).
@@ -69,12 +74,36 @@ export function deliveryOf(entry: NotificationEntry): { status: Status; words: s
   return { status: "warning", words: "Sending failed" };
 }
 
+/** Whether an entry wants a person: a condition still going, a notification that failed to send, a job that failed. */
+export function needsALook(entry: NotificationEntry): boolean {
+  if (entry.kind === "alert" && entry.live && !entry.resolvedAt) return true;
+  if (!entry.delivered && entry.reason !== "no-target" && entry.reason !== "held") return true;
+  return entry.family === "job.failed" || entry.family === "job.interrupted";
+}
+
+/** Entries in the order given, those next to each other with the same family and title as one run. */
+export function foldEntries(entries: NotificationEntry[]): NotificationEntry[][] {
+  const runs: NotificationEntry[][] = [];
+  for (const entry of entries) {
+    const last = runs[runs.length - 1];
+    if (last && last[0].family === entry.family && last[0].title === entry.title) last.push(entry);
+    else runs.push([entry]);
+  }
+  return runs;
+}
+
+type Scope = "needs" | "all";
+
 const pollMs = 60_000;
 
 export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { csrfToken: string; role?: string; onNavigate: (view: ViewName, options?: { tab?: string }) => void }) {
   const [list, setList] = useState<NotificationList | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  // Which entries: the person's choice while the sheet is open; until they choose, "Needs a look" when anything does.
+  const [scope, setScope] = useState<Scope | null>(null);
+  // The folded runs a person opened, by their newest entry.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -94,7 +123,7 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
     const timer = window.setInterval(() => { if (document.visibilityState !== "hidden") void load(); }, pollMs);
     return () => window.clearInterval(timer);
   }, [load]);
-  useEffect(() => { if (open) void load(); }, [open, load]);
+  useEffect(() => { if (open) void load(); else { setScope(null); setUnfolded(new Set()); } }, [open, load]);
   useEffect(() => {
     const onOpen = () => setOpen(true);
     window.addEventListener(openNotificationsEvent, onOpen);
@@ -120,6 +149,33 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
   const unseen = list?.unseen ?? 0;
   const now = Date.now();
   const isNew = (entry: NotificationEntry) => !list?.seenAt || entry.at > list.seenAt;
+  const needing = (list?.entries ?? []).filter(needsALook);
+  const shownScope: Scope = scope ?? (needing.length ? "needs" : "all");
+  const runs = foldEntries(shownScope === "needs" ? needing : list?.entries ?? []);
+  const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+
+  const row = (entry: NotificationEntry) => {
+    const delivery = deliveryOf(entry);
+    const destination = destinationOf(entry);
+    const fresh = isNew(entry);
+    return (
+      <li key={entry.id} className="notifications-entry" data-new={fresh || undefined}>
+        <div className="notifications-entry__head">
+          <strong>{entry.title}</strong>
+          {fresh && <Tag tone="accent">New</Tag>}
+        </div>
+        {entry.message && <p className="notifications-entry__message">{entry.message}</p>}
+        <div className="notifications-entry__meta">
+          <time dateTime={entry.at} title={new Date(entry.at).toLocaleString()}>{relativeTime(entry.at, now)}</time>
+          <StatusChip status={delivery.status}>{delivery.words}</StatusChip>
+          {entry.kind === "alert" && (entry.resolvedAt
+            ? <StatusChip status="good">Cleared {relativeTime(entry.resolvedAt, now)}</StatusChip>
+            : entry.live ? <StatusChip status="warning">Still going</StatusChip> : null)}
+          <Button variant="ghost" className="notifications-entry__go" onClick={() => go(entry)}>{destination.label}</Button>
+        </div>
+      </li>
+    );
+  };
 
   return (
     <>
@@ -144,26 +200,35 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
           {!list && !problem && <p className="notifications-quiet">Reading…</p>}
           {list && list.entries.length === 0 && <EmptyState title="Nothing in the last thirty days">Disk space, drive health, failed backups and new releases show up here.</EmptyState>}
           {list && list.entries.length > 0 && (
+            <Segmented<Scope> label="Which notifications" className="notifications-scope" value={shownScope} onChange={setScope}
+              options={[{ value: "needs", label: "Needs a look", count: needing.length }, { value: "all", label: "Everything", count: list.entries.length }]} />
+          )}
+          {list && list.entries.length > 0 && runs.length === 0 && (
+            <EmptyState title="Nothing needs a look" action={<Button onClick={() => setScope("all")}>Show everything</Button>}>
+              No condition is still going, every notification was sent, and no job failed.
+            </EmptyState>
+          )}
+          {list && runs.length > 0 && (
             <ul className="notifications-list" aria-label="What BoxPilot told you">
-              {list.entries.map((entry) => {
-                const delivery = deliveryOf(entry);
-                const destination = destinationOf(entry);
-                const fresh = isNew(entry);
+              {runs.map((run) => {
+                if (run.length === 1) return row(run[0]);
+                // The same thing said several times running: one row, newest first, that opens to each.
+                const [newest] = run;
+                const shown = unfolded.has(newest.id);
+                const fresh = run.filter(isNew).length;
+                const toggle = () => setUnfolded((current) => { const next = new Set(current); if (next.has(newest.id)) next.delete(newest.id); else next.add(newest.id); return next; });
                 return (
-                  <li key={entry.id} className="notifications-entry" data-new={fresh || undefined}>
+                  <li key={`run-${newest.id}`} className="notifications-run" data-new={fresh > 0 || undefined}>
                     <div className="notifications-entry__head">
-                      <strong>{entry.title}</strong>
-                      {fresh && <Tag tone="accent">New</Tag>}
+                      <strong>{newest.title}</strong>
+                      {fresh > 0 && <Tag tone="accent">{fresh === run.length ? "New" : `${fresh} new`}</Tag>}
                     </div>
-                    {entry.message && <p className="notifications-entry__message">{entry.message}</p>}
                     <div className="notifications-entry__meta">
-                      <time dateTime={entry.at} title={new Date(entry.at).toLocaleString()}>{relativeTime(entry.at, now)}</time>
-                      <StatusChip status={delivery.status}>{delivery.words}</StatusChip>
-                      {entry.kind === "alert" && (entry.resolvedAt
-                        ? <StatusChip status="good">Cleared {relativeTime(entry.resolvedAt, now)}</StatusChip>
-                        : entry.live ? <StatusChip status="warning">Still going</StatusChip> : null)}
-                      <Button variant="ghost" className="notifications-entry__go" onClick={() => go(entry)}>{destination.label}</Button>
+                      <span>{run.length} times, latest <time dateTime={newest.at} title={new Date(newest.at).toLocaleString()}>{relativeTime(newest.at, now)} at {clock(newest.at)}</time></span>
+                      <Button variant="ghost" className="notifications-entry__go" aria-expanded={shown} onClick={toggle}>{shown ? "Hide them" : `Show all ${run.length}`}</Button>
+                      <Button variant="ghost" onClick={() => go(newest)}>{destinationOf(newest).label}</Button>
                     </div>
+                    {shown && <ul className="notifications-run__entries" aria-label={`${newest.title}, each time`}>{run.map(row)}</ul>}
                   </li>
                 );
               })}

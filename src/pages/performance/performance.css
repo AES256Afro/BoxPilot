@@ -26,3 +26,6 @@
   .performance-actions-cell { width: auto; }
   .performance-app { white-space: normal; }
 }
+
+/* The wrapper that hears a column header pressed: it takes no box of its own. */
+.performance-hold { display: contents; }

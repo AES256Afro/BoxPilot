@@ -100,7 +100,7 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
       )}
 
       <div className="today-grid">
-        <Panel className="today-approvals" title="Waiting for approval" count={approvals ? { status: "warning", label: String(approvals) } : undefined}>
+        <Panel className={approvals === 0 ? "today-approvals today-approvals--none" : "today-approvals"} title="Waiting for approval" count={approvals ? { status: "warning", label: String(approvals) } : undefined}>
           {approvals === 0
             ? <p className="today-quiet">Nothing is waiting for your approval.</p>
             : <ul className="need-list">{model.approvals.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={stale ? () => undefined : act} tier="lead" />)}</ul>}

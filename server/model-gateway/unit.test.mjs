@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { registry } from "../ops/index.mjs";
 import { laneFor } from "../helper-lanes.mjs";
-import { credentialName, gatewayUnit, gatewayUser, keyFile } from "./paths.mjs";
+import { credentialName, defaultGatewaySocket, gatewayUnit, gatewayUser, keyFile } from "./paths.mjs";
 
 /*
  * The gateway's unit and the operations around it (M45.3): its own user, the key by LoadCredential
@@ -35,12 +35,48 @@ describe("the model gateway's unit", () => {
     expect(unit).not.toMatch(/^ReadWritePaths=/m);
   });
 
+  it("cannot reach the root helper's socket or the web service's, though it runs in their group", async () => {
+    // Group=boxpilot is what opens /run/boxpilot/helper.sock (0660 root:boxpilot), the job logs
+    // beside it and the Serve socket, so a gateway taken over could have asked the root helper for anything.
+    expect(directives("InaccessiblePaths").flatMap((value) => value.split(" "))).toEqual(expect.arrayContaining(["-/run/boxpilot", "-/run/boxpilot-web"]));
+    // Its own socket is in neither.
+    expect(defaultGatewaySocket).toBe("/run/boxpilot-model-gateway/gateway.sock");
+    expect(directives("RuntimeDirectory")).toEqual(["boxpilot-model-gateway"]);
+    // The two directories are what the helper's and the web service's units make (and remake at every
+    // restart): hidden only if they are there when this starts, so it starts after both and restarts with both.
+    const runtimeDirectory = async (file) => [...(await readFile(`deploy/${file}`, "utf8")).matchAll(/^RuntimeDirectory=(.*)$/gm)].map((match) => match[1]);
+    expect(await runtimeDirectory("boxpilot-helper.service")).toEqual(["boxpilot"]);
+    expect(await runtimeDirectory("boxpilot.service")).toEqual(["boxpilot-web"]);
+    for (const name of ["After", "PartOf"]) expect(directives(name).flatMap((value) => value.split(" ")), name).toEqual(expect.arrayContaining(["boxpilot-helper.service", "boxpilot.service"]));
+  });
+
   it("is installed with the other units and turned on only by connecting Claude", async () => {
     const install = (await readFile("scripts/boxpilot-install.sh", "utf8")).replaceAll("\r\n", "\n");
     const upgrade = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
     expect(install).not.toContain("boxpilot-model-gateway");
-    expect(upgrade).not.toMatch(/systemctl \S+ boxpilot-model-gateway/);
     expect(upgrade).toContain('for unit in "${INSTALL_DIR}"/deploy/*.service');
+    // An upgrade never turns it on: it asks whether it was running, and only then starts it again.
+    expect(upgrade).not.toMatch(/systemctl (enable|start)\b[^\n]*boxpilot-model-gateway/);
+  });
+
+  it("runs the new release after an upgrade, and the old one after a rollback, when it was running before", async () => {
+    // Only boxpilot-agents was restarted, so the gateway went on running the code and the sandbox
+    // of the release it was started under, for as many releases as the server stayed up.
+    const upgrade = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
+    expect(upgrade.match(/systemctl [a-z-]+(?: --quiet)? boxpilot-model-gateway\.service/g)).toEqual([
+      "systemctl is-active --quiet boxpilot-model-gateway.service",
+      "systemctl restart boxpilot-model-gateway.service",
+      "systemctl restart boxpilot-model-gateway.service",
+    ]);
+    // Asked before anything is stopped (stopping the helper stops it too: PartOf), and both restarts
+    // are behind the answer, after the helper and the web service are back.
+    const asked = upgrade.indexOf("systemctl is-active --quiet boxpilot-model-gateway.service");
+    expect(asked).toBeLessThan(upgrade.indexOf("systemctl stop boxpilot.service"));
+    expect(asked).toBeLessThan(upgrade.indexOf("systemctl stop boxpilot-helper.service"));
+    expect(upgrade.match(/if \[ "\$GATEWAY_WAS_RUNNING" -eq 1 \]; then\n\s+systemctl restart boxpilot-model-gateway\.service/g)).toHaveLength(2);
+    const rollbackRestart = upgrade.indexOf("systemctl restart boxpilot-model-gateway.service");
+    expect(rollbackRestart).toBeGreaterThan(upgrade.indexOf('systemctl restart boxpilot.service 2>/dev/null || log "boxpilot.service did not restart"'));
+    expect(upgrade.lastIndexOf("systemctl restart boxpilot-model-gateway.service")).toBeGreaterThan(upgrade.indexOf("if ! helper_up 90; then"));
   });
 });
 

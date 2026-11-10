@@ -55,7 +55,7 @@ env:
     generate: true
   - name: PHOTOPRISM_SITE_URL
     label: Address people use
-    description: The URL PhotoPrism is opened at, with a trailing slash; change it after Serve on tailnet.
+    description: The URL PhotoPrism is opened at, with a trailing slash; change it after you choose Reach only through Tailscale on the Reach tab.
     default: http://localhost:2342/
   - name: PHOTOPRISM_DISABLE_TLS
     default: "true"

@@ -61,7 +61,11 @@ describe("the offline banner", () => {
   it("says BoxPilot is not answering when the phone is online but off the tailnet, and can try again", async () => {
     resetConnection({ online: true, reachable: false });
     render(<OfflineBanner />);
-    expect(screen.getByRole("alert").textContent).toContain("Check that Tailscale is connected");
+    const words = screen.getByRole("alert").textContent ?? "";
+    expect(words).toContain("Check that Tailscale is connected");
+    // After a reboot or an update the likelier reason comes first, and the advice second.
+    expect(words).toContain("The server may be restarting. This page comes back by itself. Away from home?");
+    expect(words.indexOf("The server may be restarting")).toBeLessThan(words.indexOf("Tailscale"));
     vi.stubGlobal("fetch", vi.fn(health("host-aware")));
     await act(async () => { screen.getByRole("button", { name: "Try again" }).click(); });
     await vi.waitFor(() => expect(screen.queryByRole("alert")).toBeNull());

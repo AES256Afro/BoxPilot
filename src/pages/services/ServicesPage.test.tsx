@@ -22,7 +22,7 @@ describe("Services page", () => {
     // The name is the page's one h1, drawn in place without a shell.
     expect(screen.getByRole("heading", { level: 1, name: "Services" })).toBeTruthy();
     expect(screen.getByText("1 failed").closest(".ui-chip")?.getAttribute("data-status")).toBe("danger");
-    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("5 units · 4 active · 1 failed · 1 timer · 1 protected");
+    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("5 services · 4 active · 1 failed · 1 timer · 1 protected");
     // What the page is for waits behind the info toggle.
     const about = screen.getByRole("button", { name: "About Services" });
     expect(about.getAttribute("aria-expanded")).toBe("false");
@@ -43,14 +43,14 @@ describe("Services page", () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(list)));
     render(<ServicesPage csrfToken="csrf-token" />);
     await screen.findByText("docker.service");
-    const search = screen.getByRole("searchbox", { name: "Filter units" });
+    const search = screen.getByRole("searchbox", { name: "Filter services" });
     fireEvent.change(search, { target: { value: "getty" } });
     const table = screen.getByRole("table", { name: "System services and timers" });
     expect(within(table).getAllByRole("row").slice(1).map((row) => row.textContent)).toEqual([expect.stringContaining("getty@tty1.service")]);
     // A search overrides the scope, so no scope is chosen while it is there.
     expect(screen.getAllByRole("radio").every((radio) => radio.getAttribute("aria-checked") === "false")).toBe(true);
     fireEvent.change(search, { target: { value: "nothing-like-this" } });
-    expect(within(table).getByText("No units match")).toBeTruthy();
+    expect(within(table).getByText("No services match")).toBeTruthy();
     fireEvent.keyDown(search, { key: "Escape" });
     expect((search as HTMLInputElement).value).toBe("");
   });

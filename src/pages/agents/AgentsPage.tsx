@@ -79,6 +79,8 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
   const [jobsFinished, setJobsFinished] = useState(0);
   // The Build tab's form holds changes that are not saved; another tab would drop them, so it asks.
   const [buildDirty, setBuildDirty] = useState(false);
+  // So does the owner's settings form on the Usage tab.
+  const [usageDirty, setUsageDirty] = useState(false);
   const [leavingFor, setLeavingFor] = useState<Tab | null>(null);
 
   const setAgentId = useCallback((id: string | null) => { setAgentIdState(id); writeAgentParam(id); }, []);
@@ -228,18 +230,20 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
       {error && <Notice tone="danger" live onDismiss={() => setError(null)}>{error}</Notice>}
       {notice && <Notice tone="success" live onDismiss={() => setNotice(null)}>{notice}</Notice>}
 
-      {leavingFor && buildDirty && shown === "build" && (
+      {leavingFor && ((buildDirty && shown === "build") || (usageDirty && shown === "usage")) && (
         <Notice tone="warning" live title="Your changes are not saved"
           action={<>
             <Button variant="primary" onClick={() => setLeavingFor(null)}>Stay</Button>
-            <Button variant="ghost" onClick={() => { const next = leavingFor; setLeavingFor(null); setBuildDirty(false); setTab(next); if (next !== "test") setRunId(null); }}>Leave without saving</Button>
+            <Button variant="ghost" onClick={() => { const next = leavingFor; setLeavingFor(null); setBuildDirty(false); setUsageDirty(false); setTab(next); if (next !== "test") setRunId(null); }}>Leave without saving</Button>
           </>}>
-          Leaving the Build tab drops them; the saved version stays as it is. Save is at the foot of the form.
+          {shown === "usage"
+            ? "Leaving the Usage tab drops them; the settings stay as they were. Save settings is at the foot of the Settings panel."
+            : "Leaving the Build tab drops them; the saved version stays as it is. Save is at the foot of the form."}
         </Notice>
       )}
 
       <Tabs<Tab> label="Agents" tabs={tabs} value={shown} onChange={(next) => {
-        if (shown === "build" && buildDirty && next !== "build") { setLeavingFor(next); return; }
+        if (((shown === "build" && buildDirty) || (shown === "usage" && usageDirty)) && next !== shown) { setLeavingFor(next); return; }
         setLeavingFor(null); setTab(next); if (next !== "test") setRunId(null);
       }}>
         {(current) => {
@@ -256,7 +260,7 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
           }
           if (current === "memory") return <Memory agents={agents} agentId={selected} csrfToken={csrfToken} role={role} now={now()} tools={catalog?.tools ?? null} onSelectAgent={setAgentId} onOpenBuild={can.create ? (id) => open(id, "build") : undefined} />;
           if (current === "knowledge") return <Knowledge csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} />;
-          if (current === "usage") return <Usage module={module} csrfToken={csrfToken} role={role} now={now()} onStart={start} onModuleChanged={() => void refresh()} refreshKey={jobsFinished} />;
+          if (current === "usage") return <Usage module={module} csrfToken={csrfToken} role={role} now={now()} onStart={start} onModuleChanged={() => void refresh()} refreshKey={jobsFinished} onDirty={(dirty) => { setUsageDirty(dirty); if (!dirty) setLeavingFor(null); }} />;
           if (current === "evaluation") {
             return <Evaluation agents={agents} agentId={selected} csrfToken={csrfToken} now={now()} module={module} tools={catalog?.tools ?? null}
               canPause={can.pause} owner={owner} onResumeAll={resumeAll} onResumeAgent={resumeAgent}

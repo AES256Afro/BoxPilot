@@ -73,4 +73,4 @@ health:
   kind: healthcheck
   stableSeconds: 10
   timeoutSeconds: 600
-notes: "First visit creates the admin account. Install the Immich app on your phone, enter this server's address (use the Tailscale name after clicking Serve on tailnet so backups work away from home), and turn on automatic backup. The first machine-learning run downloads models (about 1 GB) and indexes faces and objects in the background; that can take hours for a large library. The database is included in app backups; the photo library is not, so copy it to the NAS or an external disk separately."
+notes: "First visit creates the admin account. Install the Immich app on your phone, enter this server's address (use the Tailscale name after choosing Reach only through Tailscale on the Reach tab, so backups work away from home), and turn on automatic backup. The first machine-learning run downloads models (about 1 GB) and indexes faces and objects in the background; that can take hours for a large library. The database is included in app backups; the photo library is not, so copy it to the NAS or an external disk separately."

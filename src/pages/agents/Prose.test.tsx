@@ -66,4 +66,18 @@ describe("Prose", () => {
     expect(fields.querySelector("dt")?.textContent).toBe("issue");
     expect(fields.querySelector("dd strong")?.textContent).toBe("sdb");
   });
+
+  it("reads a heading indented under a list item as a heading, not as the item's next line", () => {
+    const text = "- Disks are healthy [T1].\n  ## Backups\n  - Last night's ran.\n    ### Off this server\nBehind by a day.";
+    expect(blocksOf(text)).toEqual([
+      { kind: "list", ordered: false, start: 1, items: ["Disks are healthy [T1]."] },
+      { kind: "heading", text: "Backups" },
+      { kind: "list", ordered: false, start: 1, items: ["Last night's ran."] },
+      { kind: "heading", text: "Off this server" },
+      { kind: "paragraph", lines: ["Behind by a day."] },
+    ]);
+    const prose = draw(text);
+    expect(prose.textContent).not.toContain("#");
+    expect([...prose.querySelectorAll(".agents-prose__heading")].map((heading) => heading.textContent)).toEqual(["Backups", "Off this server"]);
+  });
 });

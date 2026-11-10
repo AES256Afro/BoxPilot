@@ -183,6 +183,17 @@ describe("manifest schema", () => {
     expect(resolveValues(manifest, sanitizeStoredValues(manifest, stored)).errors).toEqual([]);
     expect(sanitizeStoredValues(manifest, null)).toEqual({ ports: {}, env: {}, volumes: {} });
   });
+
+  it("drops a stored port the manifest now fixes, so a revision that moves it is not refused", () => {
+    // Every port is stored, fixed ones too. A revision moved the fixed DNS port from 53 to 5353 and
+    // fixed the web port the owner had moved to 9090: update, rollback and reinstall all stopped at
+    // "Stored settings no longer match the manifest: values.ports.dns: is fixed for this application".
+    const { manifest } = validateManifest({ ...base, ports: [{ id: "web", container: 80, host: 8080, fixed: true }, { id: "dns", container: 53, host: 5353, fixed: true }, { id: "admin", container: 81, host: 8081 }] });
+    const stored = { ports: { web: 9090, dns: 53, admin: 9191 } };
+    expect(resolveValues(manifest, stored).errors).toEqual(expect.arrayContaining(["values.ports.web: is fixed for this application", "values.ports.dns: is fixed for this application"]));
+    expect(sanitizeStoredValues(manifest, stored).ports).toEqual({ admin: 9191 });
+    expect(resolveValues(manifest, sanitizeStoredValues(manifest, stored))).toMatchObject({ errors: [], values: { ports: { web: 8080, dns: 5353, admin: 9191 } } });
+  });
 });
 
 describe("the qBittorrent tunnel, end to end through the real manifest", () => {

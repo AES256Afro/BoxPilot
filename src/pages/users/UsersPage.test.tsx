@@ -77,7 +77,10 @@ describe("Users & SSH page", () => {
     expect((name as HTMLInputElement).value).toBe("sam");
     const add = within(sheet).getByRole("button", { name: "Add user" });
     expect(add.getAttribute("data-risk")).toBe("medium");
-    fireEvent.click(add);
+    // Enter in the field: the sheet's form is submitted, and Add user is its button.
+    const form = name.closest("form") as HTMLFormElement;
+    expect((add as HTMLButtonElement).form).toBe(form);
+    fireEvent.submit(form);
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     await waitFor(() => expect(staged["users.add"]).toEqual({ parameters: { username: "sam" } }));
   });

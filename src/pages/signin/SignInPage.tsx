@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { AuthError, bootstrapOwner, fetchIdentityOptions, loginOwner, loginWithTailscale, pollGithubSignIn, startGithubSignIn, type AuthStatus, type GithubFlow, type IdentityOptions, type SignedOutReason } from "../../auth";
 import { passkeysSupported, signInWithPasskey, signInWithRecoveryCode } from "../../passkey";
-import { Button, CodeBlock, Field, Progress, SecretInput, TextInput } from "../../ui";
+import { Button, CodeBlock, CopyButton, Field, Progress, SecretInput, TextInput } from "../../ui";
 import { ThemeSwitch } from "../../ui/ThemeSwitch";
 import { useSigninStyle } from "./signinStyle";
 import "./signin.css";
@@ -16,6 +16,9 @@ import "./signin.css";
  * Two screens hold the same controls (signinStyle.ts): the terminal, the default, a console window
  * whose ways in are numbered and answer their number key; and the classic glass card.
  */
+
+/** The ways in, as far as an error needs to know which one it belongs to. */
+type Way = "passkey" | "github" | "tailscale" | "password" | "recovery";
 
 /** Why a session this browser had is gone, and the page signing in goes back to (M36). */
 export interface SignedOutNotice { reason: SignedOutReason; page: string | null }
@@ -90,7 +93,11 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
   const [password, setPassword] = useState("");
   const [bootstrapToken, setBootstrapToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // What failed, and which way in it belongs to: said under the control that was pressed, not in
+  // the password form whatever it was (a refused passkey read as a wrong password).
+  const [failure, setFailure] = useState<{ way: Way; words: string } | null>(null);
+  const setError = (words: string | null, way: Way = "password") => setFailure(words ? { way, words } : null);
+  const errorFor = (way: Way) => (failure?.way === way ? <p className="signin-error" role="alert">{failure.words}</p> : null);
   const [identity, setIdentity] = useState<IdentityOptions | null>(null);
   const [github, setGithub] = useState<GithubFlow | null>(null);
   const [githubStatus, setGithubStatus] = useState<string | null>(null);
@@ -130,8 +137,8 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
       onAuthenticated(await loginWithTailscale(password));
       setDevicePrompt(null); setDevicePassword("");
     } catch (requestError) {
-      if (requestError instanceof AuthError && requestError.code === "device_password_required") { setDevicePrompt({ username: requestError.username ?? "" }); if (password) setError("That password was not accepted"); }
-      else setError(requestError instanceof Error ? requestError.message : "Tailscale sign-in failed");
+      if (requestError instanceof AuthError && requestError.code === "device_password_required") { setDevicePrompt({ username: requestError.username ?? "" }); if (password) setError("That password was not accepted", "tailscale"); }
+      else setError(requestError instanceof Error ? requestError.message : "Tailscale sign-in failed", "tailscale");
     } finally { setSubmitting(false); }
   };
 
@@ -139,7 +146,7 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
   const passkeySignIn = async () => {
     setSubmitting(true); setError(null);
     try { onAuthenticated(await signInWithPasskey()); }
-    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Passkey sign-in failed"); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Passkey sign-in failed", "passkey"); }
     finally { setSubmitting(false); }
   };
 
@@ -148,7 +155,7 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
   const recoverySignIn = async () => {
     setSubmitting(true); setError(null);
     try { onAuthenticated(await signInWithRecoveryCode(recoveryCode)); }
-    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "That recovery code was not accepted"); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "That recovery code was not accepted", "recovery"); }
     finally { setSubmitting(false); }
   };
 
@@ -166,16 +173,16 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
           if (!current()) return;
           if (result.status === "complete" && result.session) { onAuthenticated(result.session); return; }
           if (result.status === "pending") { pollTimer.current = window.setTimeout(() => void poll(), flow.intervalSeconds * 1000); return; }
-          setGithub(null); setGithubStatus(null); setError(result.error ?? (result.status === "expired" ? "The GitHub code expired; try again." : result.status === "denied" ? "GitHub authorization was denied." : "GitHub sign-in failed."));
+          setGithub(null); setGithubStatus(null); setError(result.error ?? (result.status === "expired" ? "The GitHub code expired; try again." : result.status === "denied" ? "GitHub authorization was denied." : "GitHub sign-in failed."), "github");
         } catch (pollError) {
           if (!current()) return;
-          setGithub(null); setGithubStatus(null); setError(pollError instanceof Error ? pollError.message : "GitHub sign-in failed");
+          setGithub(null); setGithubStatus(null); setError(pollError instanceof Error ? pollError.message : "GitHub sign-in failed", "github");
         }
       };
       pollTimer.current = window.setTimeout(() => void poll(), flow.intervalSeconds * 1000);
     } catch (requestError) {
       if (!current()) return;
-      setGithubStatus(null); setError(requestError instanceof Error ? requestError.message : "GitHub sign-in failed");
+      setGithubStatus(null); setError(requestError instanceof Error ? requestError.message : "GitHub sign-in failed", "github");
     }
   };
 
@@ -216,28 +223,30 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
       <h1 id={titleId} className="signin-title">{heading}</h1>
       {notice && <p className="signin-notice" role="status">{signedOutWords(notice)}</p>}
       <p className="signin-lead">{bootstrapRequired
-        ? "Make a short-lived token from an SSH session on the server, then create the first owner here."
+        ? "Make a one-time setup code from an SSH session on the server, then create the first owner here."
         : "Sign in with this server's own BoxPilot account."}</p>
 
       {bootstrapRequired && (
         <div className="signin-bootstrap">
           <CodeBlock label="Run on the server">sudo -u boxpilot env BOXPILOT_STATE_DIRECTORY=/var/lib/boxpilot /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs create-bootstrap-token</CodeBlock>
-          <p className="signin-hint">The token expires in 15 minutes. Keep it out of chat and logs.</p>
+          <p className="signin-hint">The setup code expires in 15 minutes. Keep it out of chat and logs.</p>
         </div>
       )}
 
       {(passkey || githubReady || tailscale) && (
         <div className="signin-ways" role="group" aria-label="Ways to sign in" ref={ways}>
           {passkey && <Button variant={variantFor("passkey")} disabled={submitting} onClick={() => void passkeySignIn()}>Sign in with a passkey</Button>}
+          {errorFor("passkey")}
           {githubReady && !github && <Button variant={variantFor("github")} disabled={submitting || Boolean(githubStatus)} onClick={() => void githubSignIn()}>Sign in with GitHub</Button>}
           {github && (
             <div className="signin-device" aria-live="polite">
               <span>Open <a href={github.verificationUri} target="_blank" rel="noreferrer">{github.verificationUri}</a> and enter</span>
-              <code className="signin-device__code">{github.userCode}</code>
+              <span className="signin-device__copy"><code className="signin-device__code">{github.userCode}</code><CopyButton value={github.userCode} label="Copy code" /></span>
               <span className="signin-hint">{githubStatus}</span>
               <Button variant="ghost" onClick={cancelGithub}>Cancel</Button>
             </div>
           )}
+          {errorFor("github")}
           {tailscale && identity && <Button variant={variantFor("tailscale")} disabled={submitting} onClick={() => void tailscaleSignIn()}>Continue as {identity.tailscale.displayName ?? identity.tailscale.login} (Tailscale)</Button>}
           {devicePrompt && (
             <form className="signin-form" onSubmit={(event) => { event.preventDefault(); void tailscaleSignIn(devicePassword); }}>
@@ -245,9 +254,11 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
               <Field label={`Password for ${devicePrompt.username || "this account"}`}>
                 <SecretInput autoComplete="current-password" value={devicePassword} onValueChange={setDevicePassword} />
               </Field>
+              {errorFor("tailscale")}
               <Button variant="primary" type="submit" disabled={submitting || devicePassword.length < 12}>Confirm and sign in</Button>
             </form>
           )}
+          {!devicePrompt && errorFor("tailscale")}
           <p className="signin-divider"><span>or use your password</span></p>
         </div>
       )}
@@ -260,11 +271,11 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
           <SecretInput required autoComplete={bootstrapRequired ? "new-password" : "current-password"} minLength={12} maxLength={128} value={password} onValueChange={setPassword} />
         </Field>
         {bootstrapRequired && (
-          <Field label="Bootstrap token">
+          <Field label="Setup code">
             <SecretInput required autoComplete="off" value={bootstrapToken} onValueChange={setBootstrapToken} />
           </Field>
         )}
-        {error && <p className="signin-error" role="alert">{error}</p>}
+        {errorFor("password")}
         <Button variant={bootstrapRequired || lead === "password" ? "primary" : "secondary"} type="submit" busy={submitting}>{submitting ? "Verifying..." : bootstrapRequired ? "Create owner" : "Sign in"}</Button>
       </form>
 
@@ -275,6 +286,7 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
             <Field label="Recovery code">
               <TextInput mono autoComplete="one-time-code" spellCheck={false} autoCapitalize="characters" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" value={recoveryCode} onValueChange={setRecoveryCode} />
             </Field>
+            {errorFor("recovery")}
             <div className="signin-row">
               <Button variant="primary" type="submit" disabled={submitting || recoveryCode.trim().length < 16}>Use recovery code</Button>
               <Button variant="ghost" onClick={() => { setRecoveryOpen(false); setError(null); }}>Back</Button>

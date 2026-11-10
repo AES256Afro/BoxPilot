@@ -20,6 +20,8 @@ export interface NetworkOverviewProps {
   reach: Reachability | null;
   role: string;
   start: (operation: PendingOperation) => void;
+  /** Reads the network again: offered where a part of it could not be read. */
+  onCheckAgain?: () => void;
 }
 
 /** How to trust BoxPilot's own certificate authority on each kind of device. */
@@ -31,7 +33,7 @@ const trustSteps = [
   { id: "firefox", label: "Firefox", value: <>Keeps its own store: Settings, Privacy &amp; Security, Certificates, View Certificates, Authorities, Import.</> },
 ];
 
-export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, start }: NetworkOverviewProps) {
+export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, start, onCheckAgain }: NetworkOverviewProps) {
   const [trusting, setTrusting] = useState(false);
   const lanAddress = topology?.eligibleLanAddresses[0]?.address ?? null;
   const ways = reach?.ways ?? [];
@@ -62,8 +64,8 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
   /** The kernel's neighbour states in words (M49): "stale" and "probe" said nothing to anyone. */
   const neighbourWords = (state: string) => ({ REACHABLE: "reachable", STALE: "seen recently", DELAY: "checking", PROBE: "checking", FAILED: "not answering", PERMANENT: "static", NOARP: "no address lookup", INCOMPLETE: "looking up" } as Record<string, string>)[state] ?? state.toLowerCase();
   const deviceColumns: Array<TableColumn<Device>> = [
-    { id: "address", header: "Address", sortValue: (device) => device.address, cell: (device) => <code className="network-strong">{device.address}</code> },
-    { id: "mac", header: "MAC", sortValue: (device) => device.mac, cell: (device) => <code>{device.mac}</code> },
+    { id: "address", header: "Address", sortValue: (device) => device.address, cell: (device) => <span className="network-value"><code className="network-strong">{device.address}</code><CopyValue value={device.address} label={`Copy ${device.address}`} /></span> },
+    { id: "mac", header: "MAC", sortValue: (device) => device.mac, cell: (device) => (device.mac ? <span className="network-value"><code>{device.mac}</code><CopyValue value={device.mac} label={`Copy ${device.mac}`} /></span> : "—") },
     { id: "interface", header: "Interface", hideOnPhone: true, cell: (device) => (device.interface ? <code>{device.interface}</code> : "—") },
     { id: "state", header: "State", sortValue: (device) => (device.state === "REACHABLE" ? 0 : 1), cell: (device) => <StatusChip status={device.state === "REACHABLE" ? "good" : device.state === "FAILED" ? "warning" : "neutral"}>{neighbourWords(device.state)}</StatusChip> },
     {
@@ -102,7 +104,7 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
           {untrusted ? <Button variant="ghost" onClick={() => setTrusting(true)}>Trust the certificate…</Button> : null}
         </> : undefined}
         footer={reach && !reach.servePublished
-          ? <>Publish it on your tailnet with <code>tailscale serve --bg http://127.0.0.1:{networkCap?.port ?? 8787}</code> to reach it from anywhere over HTTPS.</>
+          ? <span className="network-value">Publish it on your tailnet with <code>tailscale serve --bg http://127.0.0.1:{networkCap?.port ?? 8787}</code> to reach it from anywhere over HTTPS.<CopyValue value={`tailscale serve --bg http://127.0.0.1:${networkCap?.port ?? 8787}`} label="Copy the tailscale serve command" /></span>
           : reach?.serveOverLoopback ? <>Tailscale Serve reaches BoxPilot through port {networkCap?.port ?? 8787}, which any program on this server can open and claim to be Serve, apps on the host network included. Move it to BoxPilot&apos;s socket so only Serve can.</> : undefined}
       >
         <Table caption="Addresses BoxPilot answers on" columns={wayColumns} rows={ways} rowKey={(way) => way.id} empty={reach ? "BoxPilot reported no address to reach it on." : "Reading…"} />
@@ -176,7 +178,7 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
           rowKey={(device) => `${device.address}-${device.mac}`}
           defaultSort={{ column: "state", direction: "ascending" }}
           empty={!topology ? "Reading…" : topology.collectors.neighbors === false
-            ? <EmptyState title="The neighbour table is unavailable" />
+            ? <EmptyState title="The devices nearby could not be listed" action={onCheckAgain ? <Button onClick={onCheckAgain}>Check again</Button> : undefined}>This server could not read its list of devices it has talked to on the network (the kernel's neighbour table), so none can be shown or woken from here. Nothing else on this page depends on it.</EmptyState>
             : <EmptyState title="No neighbours right now">Devices appear after this server exchanges traffic with them.</EmptyState>}
         />
       </Panel>

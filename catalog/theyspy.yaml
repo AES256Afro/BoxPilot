@@ -144,7 +144,7 @@ health:
   kind: healthcheck
   timeoutSeconds: 120
 notes: >-
-  Open the dashboard and sign in with the owner password from this card. Settings → Appearance
+  Open the dashboard and sign in with the owner password from this app's sheet. Settings → Appearance
   picks the look and branding; the defaults for everyone can also be set here. Activity shows
   every job and change. Pi-hole Sentinel connects to Pi-hole 6, hunts its history for lookups of
   spyware and ad-intelligence indicators, watches new queries every 30 seconds, and can add the

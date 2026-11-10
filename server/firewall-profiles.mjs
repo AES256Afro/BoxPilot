@@ -156,12 +156,15 @@ function ruleAllows(rule, port, protocol) {
 }
 
 /**
- * A rule that lets in only one address or range (ufw's `from`). firewall.rule.delete removes the
- * rule from anywhere (`ufw delete allow 3306/tcp`), which is not this one: offered its removal, the
- * owner got "does not exist any more" and the same advice on every visit. So the advice that
- * removes rules leaves these alone; the owner who wrote one meant it.
+ * A rule narrower than "this port, from anywhere, on every address": one that lets in only one
+ * address or range (ufw's `from`), is tied to an interface (`allow in on eth0 to any port 8084`),
+ * names an application profile (`allow 'Nginx HTTP'`) or is for one address of this server
+ * (`allow to 192.168.1.5 port 3306`). firewall.rule.delete removes the plain rule
+ * (`ufw delete allow 3306/tcp`), which is none of these: offered its removal, the owner got "does
+ * not exist any more" and the same advice on every visit. So the advice that removes rules leaves
+ * these alone; the owner who wrote one meant it.
  */
-const fromOneSource = (rule) => typeof rule.source === "string" && rule.source.length > 0;
+const narrowed = (rule) => [rule.source, rule.destination, rule.interface, rule.app].some((value) => typeof value === "string" && value.length > 0);
 
 /** ufw comments allow letters, digits, spaces, dot, underscore and dash — nothing else. */
 function ruleComment(text) {
@@ -217,7 +220,7 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
   }
 
   for (const entry of riskyPorts) {
-    const fromAnywhere = (rule) => ruleAllows(rule, entry.port, entry.protocol) && !fromOneSource(rule);
+    const fromAnywhere = (rule) => ruleAllows(rule, entry.port, entry.protocol) && !narrowed(rule);
     const open = rules.some(fromAnywhere);
     const listening = exposed.some((listener) => listener.port === entry.port && listener.protocol === entry.protocol);
     if (open && !isProtected(entry, protectedList)) {
@@ -257,7 +260,7 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
   // said, so it read as a broken app rather than a rule left behind.
   for (const rule of rules) {
     if (!["allow", "limit"].includes(rule.action) || rule.direction === "out") continue;
-    if (!Number.isInteger(rule.port) || isProtected(rule, protectedList) || fromOneSource(rule)) continue;
+    if (!Number.isInteger(rule.port) || isProtected(rule, protectedList) || narrowed(rule)) continue;
     if (listeners.some((entry) => entry.port === rule.port && (rule.protocol === "any" || entry.protocol === rule.protocol))) continue;
     if (apps.some((app) => (app.ports ?? []).some((port) => port.port === rule.port))) continue;
 

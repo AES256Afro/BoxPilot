@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { openActivity } from "../../activityEvents";
 import { countOf } from "../../data";
 import { adviseRetry } from "../../retryAdvice";
 import { useShellHost } from "../../shell/TopBarSlot";
@@ -18,7 +19,18 @@ import "./setup.css";
 interface Step { id: string; kind: string; title: string; status: "done" | "ready" | "blocked" | "unknown"; detail: string; /** The tier its job is approved at when the app's manifest raises it (a DNS server: high). */ risk?: RiskTier; job: { operationId: string; parameters: Record<string, unknown> } | null; schedule?: { operationId: string; parameters: Record<string, unknown>; frequency: string; minute: number; hour: number | null; weekday: number | null } }
 interface Profile { id: string; name: string; icon: string; description: string; steps: Step[]; remaining: number; blocked: number }
 interface SetupState { firstRun: boolean; installedApps: number; profiles: Profile[] }
-type StepProgress = Record<string, { state: "pending" | "running" | "done" | "failed" | "skipped"; error?: string }>;
+type StepProgress = Record<string, { state: "pending" | "running" | "done" | "failed" | "skipped"; error?: string; /** The job a failed step ran as, when it got as far as one: its log is in Activity. */ jobId?: string }>;
+
+/**
+ * A run the page was left in the middle of, kept for as long as the app stays open. The run is the
+ * page's loop, so leaving ends it after the step under way; coming back used to show the profiles
+ * as if nothing had happened. This says which steps ran, which was going, and which never started.
+ */
+interface LeftRun { profile: string; ran: string[]; running: string | null; notStarted: string[] }
+let leftRun: LeftRun | null = null;
+/** Forgets the run that was left (the notice's Dismiss, and each test's clean start). */
+export function forgetLeftRun(): void { leftRun = null; }
+const listed = (titles: string[]) => titles.join(", ");
 
 const modes = ["this", "new"] as const;
 type Mode = (typeof modes)[number];
@@ -90,14 +102,37 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
   // and coming back offered to start the same steps again beside it. The job already running goes
   // on, on the server; nothing after it is started.
   const open = useRef(true);
+  // The run as last drawn, for the moment the page is left.
+  const latest = useRef<{ phase: string; profile: Profile | null; progress: StepProgress }>({ phase: "choose", profile: null, progress: {} });
+  const [left, setLeft] = useState<LeftRun | null>(leftRun);
   useEffect(() => {
     open.current = true;
-    return () => { open.current = false; passwordRef.current = ""; };
+    return () => {
+      open.current = false; passwordRef.current = "";
+      const { phase: phaseNow, profile: plan, progress: at } = latest.current;
+      if (phaseNow !== "running" || !plan) return;
+      const stateOf = (step: Step) => at[step.id]?.state;
+      leftRun = {
+        profile: plan.name,
+        ran: plan.steps.filter((step) => stateOf(step) === "done").map((step) => step.title),
+        running: plan.steps.find((step) => stateOf(step) === "running")?.title ?? null,
+        notStarted: plan.steps.filter((step) => step.status !== "done" && !["done", "running", "skipped"].includes(stateOf(step) ?? "")).map((step) => step.title),
+      };
+    };
   }, []);
 
   const headers ={ "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken };
   const profile = setup?.profiles.find((entry) => entry.id === selected) ?? null;
   const mark = (id: string, state: StepProgress[string]) => setProgress((current) => ({ ...current, [id]: state }));
+  latest.current = { phase, profile, progress };
+  // The browser asks before a reload or a closed tab ends a run part-way: the steps after the one
+  // under way would never start, and nothing would say so.
+  useEffect(() => {
+    if (phase !== "running") return undefined;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [phase]);
 
   async function runStep(step: Step): Promise<"done" | "password" | "failed" | "left"> {
     if (!open.current) return "left";
@@ -134,14 +169,14 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
       const poll = await fetch(`/api/v1/jobs/${stagedBody.job.id}`);
       const body = (await poll.json().catch(() => ({}))) as { job?: { state: string; error: string | null }; error?: string };
       if (body.job?.state === "completed") return "done";
-      if (body.job?.state === "failed") { mark(step.id, { state: "failed", error: body.job.error ?? "The job failed" }); return "failed"; }
-      if (body.job?.state === "cancelled") { mark(step.id, { state: "failed", error: "The job was cancelled" }); return "failed"; }
+      if (body.job?.state === "failed") { mark(step.id, { state: "failed", error: body.job.error ?? "The job failed", jobId: stagedBody.job.id }); return "failed"; }
+      if (body.job?.state === "cancelled") { mark(step.id, { state: "failed", error: "The job was cancelled", jobId: stagedBody.job.id }); return "failed"; }
       // A job that has gone (or a session that has ended) will never report a state: stop asking.
       if (!poll.ok || !body.job) {
         unreadable += 1;
-        if (unreadable >= 5) { mark(step.id, { state: "failed", error: body.error ?? "BoxPilot stopped reporting on this job" }); return "failed"; }
+        if (unreadable >= 5) { mark(step.id, { state: "failed", error: body.error ?? "BoxPilot stopped reporting on this job", jobId: stagedBody.job.id }); return "failed"; }
       } else unreadable = 0;
-      if (Date.now() - started > 45 * 60 * 1000) { mark(step.id, { state: "failed", error: "Timed out waiting for the job" }); return "failed"; }
+      if (Date.now() - started > 45 * 60 * 1000) { mark(step.id, { state: "failed", error: "Timed out waiting for the job", jobId: stagedBody.job.id }); return "failed"; }
       await sleep(2000);
       if (!open.current) return "left";
     }
@@ -191,7 +226,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
     void load();
   }
 
-  const choose = (id: string) => { cameFrom.current = id; setSelected(id); setProgress({}); skipped.current = new Set(); setPhase("choose"); };
+  const choose = (id: string) => { forgetLeftRun(); setLeft(null); cameFrom.current = id; setSelected(id); setProgress({}); skipped.current = new Set(); setPhase("choose"); };
   const resume = () => { passwordRef.current = password; if (profile) void run(profile); };
   // Read the server again first: a step that timed out here may have finished there, and running it
   // again staged a second install that was refused as "already installed".
@@ -226,6 +261,15 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
           <p>Prepare a new server writes the files for an unattended Ubuntu install on another machine that installs BoxPilot on first boot.</p>
         </>}
       />
+
+      {left && phase === "choose" && (
+        <Notice tone="warning" title={`You left while ${left.profile} was being set up`} onDismiss={() => { forgetLeftRun(); setLeft(null); }}
+          action={<Button onClick={() => openActivity()}>Open Activity</Button>}>
+          {left.ran.length > 0 && <>Ran: {listed(left.ran)}. </>}
+          {left.running && <>Under way when you left: {left.running}. It went on by itself, and Activity says how it ended. </>}
+          {left.notStarted.length > 0 ? <>Not started: {listed(left.notStarted)}. Choose the profile again to run what is left.</> : "Nothing was left to start."}
+        </Notice>
+      )}
 
       {error && <Notice tone="danger" live title="Setup state is unavailable" action={<Button onClick={() => void load()}>Try again</Button>}>{error}</Notice>}
 
@@ -288,6 +332,8 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
                       <span className="setup-step__text">
                         <strong>{step.title}</strong>
                         <span className={progress[step.id]?.error ? "setup-step__error" : "setup-step__detail"}>{progress[step.id]?.error ?? step.detail}</span>
+                        {/* A step that failed as a job: its log, where the error has its context. */}
+                        {live === "failed" && progress[step.id]?.jobId && <span className="setup-step__log"><Button variant="ghost" aria-label={`Open the job log of ${step.title}`} onClick={() => openActivity(progress[step.id]?.jobId)}>Open the job log</Button></span>}
                       </span>
                       <span className="setup-step__tags">
                         {step.kind === "schedule" ? <Tag title="Adds a schedule; what it runs is approved as usual each time">schedule</Tag> : stepTier && step.status !== "done" ? <Tag tier={stepTier} /> : null}
@@ -296,7 +342,7 @@ export default function SetupPage({ csrfToken, role = "owner", onDone }: SetupPa
                   );
                 })}
               </ol>
-              {runnable.length === 0 && phase === "choose" && <EmptyState title="Nothing to run">Everything in this profile is already in place, or waits on something outside it.</EmptyState>}
+              {runnable.length === 0 && phase === "choose" && <EmptyState title="Nothing to run">Everything in this profile is already set up. Pick another, or add apps from Apps.</EmptyState>}
             </Panel>
             </div>
             {phase === "running" && <Notice live tone="info" title="Running">Each step is a normal job; follow the details in Activity.</Notice>}

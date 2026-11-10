@@ -31,6 +31,12 @@ const anywhere = new Set(["0.0.0.0/0", "::/0", "any"]);
  *   action proto dport dst sport src [dapp sapp] direction [comment=hex]
  * `source` is where the rule lets traffic come from (`ufw status`'s From column), null for anywhere:
  * a rule for 192.168.8.0/24 and one for anywhere on the same port are different rules.
+ * `destination` is the address on this server the rule is for (`ufw allow to 192.168.1.5 port 3306`),
+ * null for any of them.
+ * `deletable` says whether firewall.rule.delete can reach the rule: it runs `ufw delete <action>
+ * <port>/<proto>`, which matches a plain port rule from anywhere to anywhere and nothing narrower,
+ * so a rule tied to an interface, an application profile, a source or a destination is not one it
+ * can remove.
  */
 export function parseUserRules(content, family = "v4") {
   const rules = [];
@@ -45,16 +51,22 @@ export function parseUserRules(content, family = "v4") {
     }
     const direction = fields.at(-1)?.match(/^(in|out)(?:_(.+))?$/);
     if (!direction || fields.length < 7) { rules.push({ raw: match[1], family }); continue; }
-    const [action, protocol, dport, , , src] = fields;
+    const [action, protocol, dport, dst, , src] = fields;
     const app = fields.length >= 9 && fields[6] !== "-" ? fields[6] : null;
+    const port = /^\d+$/.test(dport) ? Number(dport) : null;
+    const source = anywhere.has(src) ? null : src;
+    const destination = anywhere.has(dst) ? null : dst;
+    const iface = direction[2] ?? null;
     rules.push({
       action,
       protocol: protocol === "any" ? "any" : protocol,
-      port: /^\d+$/.test(dport) ? Number(dport) : null,
+      port,
       app,
-      source: anywhere.has(src) ? null : src,
+      source,
+      destination,
       direction: direction[1],
-      interface: direction[2] ?? null,
+      interface: iface,
+      deletable: port !== null && !app && !source && !destination && !iface,
       comment,
       family,
     });
@@ -64,7 +76,7 @@ export function parseUserRules(content, family = "v4") {
 
 /** Collapse identical v4/v6 rules into one entry with family "both"; a rule from one source is never merged with one from anywhere. */
 export function mergeRuleFamilies(v4Rules, v6Rules) {
-  const key = (rule) => JSON.stringify([rule.action, rule.protocol, rule.port, rule.app, rule.source ?? null, rule.direction, rule.interface, rule.raw ?? null]);
+  const key = (rule) => JSON.stringify([rule.action, rule.protocol, rule.port, rule.app, rule.source ?? null, rule.destination ?? null, rule.direction, rule.interface, rule.raw ?? null]);
   const merged = [...v4Rules];
   const seen = new Map(v4Rules.map((rule) => [key(rule), rule]));
   for (const rule of v6Rules) {
@@ -100,7 +112,7 @@ export function firewallOperations() {
     }),
     defineOperation({
       id: "firewall.set", title: "Turn the firewall on or off", risk: "high", timeoutMs: minutes(3),
-      description: "Enables or disables ufw. Before enabling, rules keeping SSH (22/tcp), Tailscale (41641/udp), BoxPilot's own port when it is served on the LAN, and the tailscale0 interface reachable are added.",
+      description: "On: blocks incoming connections except the ones you allowed; SSH, Tailscale and BoxPilot always stay reachable. Off: every port on this server is open to your network.",
       parameters: { fields: { enabled: { type: "boolean" } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("firewall.set", { enabled: parameters.enabled }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),

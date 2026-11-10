@@ -118,7 +118,7 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
   const risk = riskOf("service.action");
   const columns: Array<TableColumn<Unit>> = [
     {
-      id: "unit", header: "Unit", sortValue: (unit) => unit.unit, cell: (unit) => (
+      id: "unit", header: "Service", sortValue: (unit) => unit.unit, cell: (unit) => (
         <span className="services-unit">
           <span className="services-unit__name">
             <code>{unit.unit}</code>
@@ -158,11 +158,11 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
       <PageHeader
         title="Services"
         status={verdict}
-        meta={data ? <><b>{data.counts.total}</b> {data.counts.total === 1 ? "unit" : "units"} · <b>{data.counts.active}</b> active · <b>{failed}</b> failed · <b>{timers}</b> {timers === 1 ? "timer" : "timers"} · <b>{protectedUnits}</b> protected</> : undefined}
+        meta={data ? <><b>{data.counts.total}</b> {data.counts.total === 1 ? "service" : "services"} · <b>{data.counts.active}</b> active · <b>{failed}</b> failed · <b>{timers}</b> {timers === 1 ? "timer" : "timers"} · <b>{protectedUnits}</b> protected</> : undefined}
         actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Check again</Button>}
         about={<>
           <p>The system services and timers systemd knows about: start, stop, restart, enable or disable them, and read each one's journal.</p>
-          <p>BoxPilot, SSH, systemd and Tailscale are protected: they cannot be stopped or disabled from here, so this page cannot cut off the way back in. A unit the firewall manages is changed on the Firewall page.</p>
+          <p>BoxPilot, SSH, systemd and Tailscale are protected: they cannot be stopped or disabled from here, so this page cannot cut off the way back in. A service the firewall manages is changed on the Firewall page.</p>
         </>}
       />
 
@@ -170,15 +170,15 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
 
       <Panel
         className="services-units"
-        title="Units"
+        title="Services"
         count={data ? visible.length : undefined}
         meta={data ? (needle ? `matching “${filter.trim()}” in all ${units.length}` : `${scopeWords[scope].toLowerCase()} · of ${units.length}`) : undefined}
       >
         <Toolbar
-          label="Units"
+          label="Services"
           className="services-toolbar"
-          search={{ value: filter, onValueChange: setFilter, label: "Filter units", placeholder: "Filter by name or description…" }}
-          filters={<Segmented<Scope> label="Which units" value={needle ? null : scope} onChange={(next) => { setScope(next); setFilter(""); }}
+          search={{ value: filter, onValueChange: setFilter, label: "Filter services", placeholder: "Filter by name or description…" }}
+          filters={<Segmented<Scope> label="Which services" value={needle ? null : scope} onChange={(next) => { setScope(next); setFilter(""); }}
             options={(["common", "active", "failed", "all"] as const).map((key) => ({ value: key, label: scopeWords[key], count: data ? counts[key] : undefined }))} />}
         />
         <Table
@@ -189,8 +189,8 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
           rowStatus={(unit) => (unit.active === "failed" ? "danger" : undefined)}
           defaultSort={{ column: "state", direction: "ascending" }}
           empty={!data
-            ? (loading ? "Reading systemd…" : "The units could not be read.")
-            : <EmptyState title={needle ? "No units match" : scope === "failed" ? "No unit has failed" : "No units here"}>{needle ? "Search looks through every unit's name and description." : "Choose All to see every unit."}</EmptyState>}
+            ? (loading ? "Reading…" : "The services could not be read.")
+            : <EmptyState title={needle ? "No services match" : scope === "failed" ? "No service has failed" : "No services here"}>{needle ? "Search looks through every service's name and description." : "Choose All to see every service."}</EmptyState>}
         />
       </Panel>
 

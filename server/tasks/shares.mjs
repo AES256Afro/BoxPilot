@@ -267,7 +267,7 @@ export async function shareMount({ kind, host, share, name, username = null, pas
  * @param {{ name?: string }} [parameters]
  */
 export async function shareUnmount({ name } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, unlink }, sleep = pause, processes = undefined, now = () => new Date() } = {}) {
-  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
+  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name must be lower-case letters, digits, and hyphens (max 32)");
   const content = await files.readFile(fstabPath, "utf8");
   const without = removeManagedEntry(content, `share-${name}`);
   if (without === null) throw new Error(`${name} is not a BoxPilot-managed share`);
@@ -324,7 +324,7 @@ export async function shareUnmount({ name } = {}, { run = fixedRun, log = null, 
  * @param {{ name?: string }} [parameters]
  */
 export async function shareReconnect({ name } = {}, { run = fixedRun, log = null, files = { readFile }, sleep = pause, clock = () => Date.now(), processes = undefined, now = () => new Date() } = {}) {
-  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
+  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name must be lower-case letters, digits, and hyphens (max 32)");
   const entry = parseManagedFstab(await files.readFile(fstabPath, "utf8")).find((row) => row.name === `share-${name}`);
   if (!entry) throw new Error(`${name} is not a BoxPilot-managed share`);
   const fstype = entry.line.trim().split(/\s+/)[2] ?? "";

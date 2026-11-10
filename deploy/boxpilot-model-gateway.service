@@ -3,6 +3,14 @@ Description=BoxPilot model gateway (holds the Claude key; one destination, a mon
 Documentation=https://github.com/AES256Afro/BoxPilot/blob/main/docs/HARNESS.md
 After=network-online.target
 Wants=network-online.target
+# The helper's and the web service's runtime directories are hidden from this service (the sandbox,
+# below), and systemd can only hide a directory that is there when this starts. Each is removed and
+# made again whenever its service restarts, which would leave the new one in plain sight: so this
+# starts after them and is restarted (or stopped) with them. Stopped with one of them, it comes
+# back when Claude is connected again, at boot, or with `systemctl start`; an upgrade starts it
+# again itself (scripts/boxpilot-upgrade.sh).
+After=boxpilot-helper.service boxpilot.service
+PartOf=boxpilot-helper.service boxpilot.service
 # Installed with every other unit and enabled only when the owner connects Claude (agents.cloud.connect).
 ConditionPathExists=/etc/boxpilot/secrets/anthropic-api-key
 
@@ -10,7 +18,7 @@ ConditionPathExists=/etc/boxpilot/secrets/anthropic-api-key
 Type=simple
 User=boxpilot-model-gateway
 # The web service's group, so its user may open the socket and nothing else may. The gateway reads
-# none of the web service's files (below).
+# none of the web service's files, and that group's sockets are hidden from it (below).
 Group=boxpilot
 WorkingDirectory=/opt/boxpilot
 Environment=NODE_ENV=production
@@ -41,6 +49,10 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 # ---- Sandbox ----
 # Nothing of the web service's, the helper's or the root secrets but its own key, given above.
 InaccessiblePaths=-/var/lib/boxpilot -/var/lib/boxpilot-managed -/etc/boxpilot/secrets
+# Its group is the web service's, which is also the group the root helper's socket and job logs
+# (/run/boxpilot) and the web service's Serve socket (/run/boxpilot-web) are open to. It needs
+# neither: its own socket is in /run/boxpilot-model-gateway.
+InaccessiblePaths=-/run/boxpilot -/run/boxpilot-web
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

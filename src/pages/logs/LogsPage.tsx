@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { countOf } from "../../data";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";
-import { Button, CodeBlock, Notice, PageHeader, Panel, Segmented, Select, SearchField, Switch, TextInput, Toolbar } from "../../ui";
+import { Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, Segmented, Select, SearchField, Switch, TextInput, Toolbar, useUrlParam } from "../../ui";
 import "./logs.css";
 
 /*
@@ -25,6 +25,27 @@ const sinceChoices = [
   { value: "1d", label: "Last day" },
   { value: "7d", label: "Last 7 days" },
 ];
+const kinds = ["group", "unit", "container"] as const;
+const sinceValues = sinceChoices.map((choice) => choice.value);
+/** A source's name as the address may carry it: a unit, a container or a journal group, nothing else. */
+const targetPattern = /^[A-Za-z0-9@_.:\\-]{1,200}$/;
+
+/** The source's name in the address, as ?tab= keeps a tab: read once, written as it changes, gone when it is the default. */
+function useTargetParam(fallback: string): [string, (next: string) => void] {
+  const [value, setValue] = useState(() => {
+    const found = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("target");
+    return found && targetPattern.test(found) ? found : fallback;
+  });
+  const set = useCallback((next: string) => {
+    setValue(next);
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (next === fallback || !targetPattern.test(next)) url.searchParams.delete("target"); else url.searchParams.set("target", next);
+    window.history.replaceState(window.history.state, "", url);
+  }, [fallback]);
+  return [value, set];
+}
+
 const kindWords: Record<Kind, string> = { group: "journal group", unit: "unit", container: "container" };
 
 /** Save text as a file the browser downloads. */
@@ -47,10 +68,12 @@ export interface LogsPageProps {
 export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPageProps) {
   const canRead = role === "owner" || role === "operator";
   const [sources, setSources] = useState<Sources | null>(null);
-  const [kind, setKind] = useState<Kind>("group");
-  const [target, setTarget] = useState("boxpilot");
+  // What is being read lives in the address (?kind=, ?target=, ?since=), so a reload or a shared
+  // link opens on the same source and window instead of BoxPilot's own journal.
+  const [kind, setKind] = useUrlParam<Kind>("kind", kinds, "group");
+  const [target, setTarget] = useTargetParam("boxpilot");
   const [lines, setLines] = useState(300);
-  const [since, setSince] = useState("");
+  const [since, setSince] = useUrlParam<string>("since", sinceValues, "");
   const [filter, setFilter] = useState("");
   // One journalctl run per keystroke would hammer the host; read after typing pauses.
   const [appliedFilter, setAppliedFilter] = useState("");
@@ -183,15 +206,15 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
 
       {canRead && (
         <>
-          <Panel padded className="logs-source" title="Source" meta={sources ? `${countOf(sources.units.length, "unit")} · ${sources.dockerAvailable ? countOf(sources.containers.length, "container") : "Docker not answering"}` : undefined}>
+          <Panel padded className="logs-source" title="Source" meta={sources ? `${countOf(sources.units.length, "service")} · ${sources.dockerAvailable ? countOf(sources.containers.length, "container") : "Docker not answering"}` : undefined}>
             <div className="logs-source__rows">
               <Segmented label="Journal group" value={kind === "group" ? target : null} onChange={(id) => select("group", id)} options={groups.map((group) => ({ value: group.id, label: group.label }))} />
               <form className="logs-source__unit" onSubmit={(event) => { event.preventDefault(); if (chosenUnit) select("unit", chosenUnit.unit); }}>
-                <TextInput aria-label="Find a unit" placeholder="Find a unit…" mono value={pick} onValueChange={setPick} list="logs-units" aria-describedby={pick.trim() && !chosenUnit ? "logs-unit-none" : undefined} />
+                <TextInput aria-label="Find a service" placeholder="Find a service…" mono value={pick} onValueChange={setPick} list="logs-units" aria-describedby={pick.trim() && !chosenUnit ? "logs-unit-none" : undefined} />
                 <datalist id="logs-units">{unitOptions.map((unit) => <option key={unit.unit} value={unit.unit}>{unit.description}</option>)}</datalist>
-                <Button type="submit" disabled={!chosenUnit}>{chosenUnit && chosenUnit.unit !== pick.trim() ? `Open ${chosenUnit.unit}` : "Open unit"}</Button>
+                <Button type="submit" disabled={!chosenUnit}>{chosenUnit && chosenUnit.unit !== pick.trim() ? `Open ${chosenUnit.unit}` : "Open service"}</Button>
               </form>
-              {pick.trim() && !chosenUnit && <p id="logs-unit-none" className="logs-source__none" role="status">No unit has “{pick.trim()}” in its name.</p>}
+              {pick.trim() && !chosenUnit && <p id="logs-unit-none" className="logs-source__none" role="status">No service has “{pick.trim()}” in its name.</p>}
               {sources?.dockerAvailable && (
                 <Select aria-label="Container" mono className="logs-source__container" value={kind === "container" ? target : ""} placeholder="A container…"
                   onValueChange={(name) => { if (name) select("container", name); }}
@@ -218,9 +241,16 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
             >
               <SearchField className="logs-toolbar__filter" label="Filter" placeholder="Filter text…" value={filter} onValueChange={setFilter} />
             </Toolbar>
-            <CodeBlock label="Log output" meta={countOf(entries.length, "line")} follow={follow} wrap empty={loading ? "Reading…" : "No log lines for this source in the chosen range."} className="logs-output__text">
-              {entries.join("\n")}
-            </CodeBlock>
+            {/* A filter that matches nothing is said as that, with the way out, not as an empty log. */}
+            {entries.length === 0 && !loading && !error && appliedFilter.trim() ? (
+              <EmptyState title={`No lines match “${appliedFilter.trim()}”`} action={<Button onClick={() => { setFilter(""); setAppliedFilter(""); }}>Clear filter</Button>}>
+                {shownName} has no line with that text in the last {lines} lines{since ? `, ${sinceWords}` : ""}.
+              </EmptyState>
+            ) : (
+              <CodeBlock label="Log output" meta={countOf(entries.length, "line")} follow={follow} wrap empty={loading ? "Reading…" : "No log lines for this source in the chosen range."} className="logs-output__text">
+                {entries.join("\n")}
+              </CodeBlock>
+            )}
           </Panel>
         </>
       )}

@@ -34,4 +34,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 300
-notes: "Create the admin user once from the container (see the PufferPanel docs: pufferpanel user add). Game ports you open in PufferPanel must also be published on this card's Settings."
+notes: "Create the admin user once from the container (see the PufferPanel docs: pufferpanel user add). Game ports you open in PufferPanel must also be published in Settings on this app's sheet."

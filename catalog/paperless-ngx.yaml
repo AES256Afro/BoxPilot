@@ -76,4 +76,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 600
-notes: First start runs database migrations and can take a few minutes. Sign in with the admin username and the generated password (Secrets on this card).
+notes: First start runs database migrations and can take a few minutes. Sign in with the admin username and the generated password (the Secrets tab on this app's sheet).

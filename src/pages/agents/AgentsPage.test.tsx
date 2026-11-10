@@ -127,6 +127,40 @@ describe("quality of life (M48.7)", () => {
     expect(Boolean(none.compareDocumentPosition(screen.getByRole("table", { name: "Agents on this server" })) & Node.DOCUMENT_POSITION_PRECEDING)).toBe(true);
   });
 
+  it("gathers cards that say the same thing under one head, answers them together, and never groups a plan", async () => {
+    const look = (id: string, minutes: number): Proposal => ({ ...proposal, id, kind: "escalation", agentName: "Pi-hole Watcher", title: "Pi-hole Watcher needs you to look", reason: "Blocking stopped twice overnight.", steps: [], createdAt: ago(minutes), expiresAt: ago(-4 * 24 * 60) });
+    const held = { cards: [look("look-1", 3 * 24 * 60), look("look-2", 26 * 60), look("look-3", 120), { ...proposal, id: "plan-1" }, { ...proposal, id: "plan-2" }] };
+    const calls = serve(base({
+      "GET /api/v1/agents/proposals": () => json({ proposals: held.cards }),
+      "POST /api/v1/agents/proposals/look-1/decide": () => { held.cards = held.cards.filter((card) => card.id !== "look-1"); return json({ ...look("look-1", 0), state: "dismissed" }); },
+      "POST /api/v1/agents/proposals/look-2/decide": () => json({ error: "The card could not be changed" }, 500),
+      "POST /api/v1/agents/proposals/look-3/decide": () => { held.cards = held.cards.filter((card) => card.id !== "look-3"); return json({ ...look("look-3", 0), state: "dismissed" }); },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const group = await screen.findByRole("region", { name: "3 cards: Pi-hole Watcher needs you to look" });
+    expect(group.textContent).toContain("3 cards, newest 2 hours ago");
+    // Two plans that read alike stay two cards, each with its own steps to stage.
+    expect(screen.getAllByRole("article", { name: `Card: ${proposal.title}` })).toHaveLength(2);
+    expect(within(group).queryByRole("article")).toBeNull();
+    fireEvent.click(within(group).getByRole("button", { name: "Show all 3" }));
+    const cards = within(group).getAllByRole("article");
+    expect(cards).toHaveLength(3);
+    expect(cards[0].textContent).toContain("left 3 days ago · lapses in 4 days");
+    fireEvent.click(within(group).getByRole("button", { name: "Done with all 3" }));
+    await waitFor(() => expect(calls.filter((call) => call.path.endsWith("/decide")).map((call) => call.path.split("/")[5])).toEqual(["look-1", "look-2", "look-3"]));
+    // The one the server refused is said, and stays: a single card now, with its own Done.
+    expect(await screen.findByText(/1 card could not be marked done/)).toBeTruthy();
+  });
+
+  it("says when the latest digest is facts only, a run without the model's words", async () => {
+    const glance = { enabled: true, paused: false, runnerOnline: true, digest: { agentId: keeperId, agentName: "Server Keeper", runId: finishedRun.id, at: ago(240), excerpt: "Disk: 81% full.", state: "degraded" }, cardsWaiting: 1 };
+    serve(base({ "GET /api/v1/agents/glance": glance }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const digest = await screen.findByRole("region", { name: "Latest digest" });
+    await waitFor(() => expect(digest.textContent).toContain("Facts only"));
+    expect(digest.textContent).toContain("The model's words are missing from this run, so this is what its tools found.");
+  });
+
   it("opens the evaluation from the accuracy chip", async () => {
     serve(base({
       "GET /api/v1/agents": overview({ agents: [summary(keeperId, "Server Keeper", { accuracy: { score: 0.6, at: ago(60), dropped: true } })] as Overview["agents"] }),
@@ -853,6 +887,31 @@ describe("a runner that is not running", () => {
     fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "right" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls.find((call) => call.method === "PUT" && call.path === "/api/v1/settings/agents")?.body).toMatchObject({ password: "right", cores: { waiting: 8, background: 3 } }));
+  });
+
+  it("asks before another tab drops unsaved settings on Usage, and says a wrong password once", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=usage");
+    serve(base({
+      "GET /api/v1/agents/usage": usage,
+      "GET /api/v1/agents/runtime": runtime,
+      "PUT /api/v1/settings/agents": () => json({ error: "That password is not right" }, 403),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    fireEvent.change(await screen.findByRole("spinbutton", { name: "Runs a day, all agents together" }), { target: { value: "120" } });
+    fireEvent.click(screen.getByRole("tab", { name: /^Agents/ }));
+    const asked = await screen.findByText("Your changes are not saved");
+    expect(asked.closest(".ui-notice")?.textContent).toContain("Leaving the Usage tab drops them");
+    expect(screen.getByRole("tab", { name: "Usage" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+    // The password sheet says what failed under the field, and nowhere else.
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "wrong" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getAllByText("That password is not right")).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("tab", { name: /^Agents/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Leave without saving" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^Agents/ }).getAttribute("aria-selected")).toBe("true"));
   });
 
   it("goes on from downloading the model on Usage to starting the runner", async () => {

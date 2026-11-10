@@ -49,6 +49,12 @@ describe("the notice before a session ends (M36)", () => {
     expect(screen.getByText(/in 5 minutes/)).toBeTruthy();
   });
 
+  it("is held under the bar as the offline banner is, so it is seen from anywhere down the page", () => {
+    const ends = new Date(Date.parse("2026-10-18T14:05:00Z")).toISOString();
+    render(<SessionEndingBanner expiresAt={ends} />);
+    expect(screen.getByText(/Your session ends/).closest(".offline-session")).not.toBeNull();
+  });
+
   it("says nothing without an expiry", () => {
     const { container } = render(<SessionEndingBanner expiresAt={null} />);
     expect(container.textContent).toBe("");

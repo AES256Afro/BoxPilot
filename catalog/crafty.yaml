@@ -55,4 +55,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 600
-notes: "The first admin password is in config/default-creds.txt inside the Configuration folder (read it via the Backups browser or the server). Each server you create needs its port published: open Settings on this card and add it."
+notes: "The first admin password is in config/default-creds.txt inside the Configuration folder (read it via the Backups browser or the server). Each server you create needs its port published: open Settings on this app's sheet and add it."

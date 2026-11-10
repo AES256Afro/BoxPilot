@@ -539,7 +539,8 @@ app.post("/api/v1/hooks/flows/:id/:token", async (request, response) => {
 });
 // Start an agent by webhook (M37), the same door as a flow's: the token is the auth, only its digest
 // is kept, a wrong one looks like a missing agent, and nothing from the request reaches the run -
-// the caller chooses only when the agent does its job, never what it does.
+// the caller chooses only when the agent does its job, never what it does. Its User-Agent goes to
+// the audit entry, so the owner can tell which system called; the run is titled "A webhook".
 app.post("/api/v1/hooks/agents/:id/:token", async (request, response) => {
   if (!await webhookSourceAllowed(request, response)) return undefined;
   const outcome = agents.fireAgentWebhook(request.params.id, request.params.token, { source: request.get("user-agent") ?? null });

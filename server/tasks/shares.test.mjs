@@ -407,7 +407,7 @@ describe("share.reconnect, the share's own remount", () => {
   it("refuses a name that is not one of BoxPilot's shares", async () => {
     const host = fakeHost();
     await expect(shareReconnect({ name: "other" }, { run: host.run, files: fakeFiles(MANAGED_FSTAB), now })).rejects.toThrow("other is not a BoxPilot-managed share");
-    await expect(shareReconnect({ name: "../etc" }, { run: host.run, files: fakeFiles(MANAGED_FSTAB), now })).rejects.toThrow("Name is invalid");
+    await expect(shareReconnect({ name: "../etc" }, { run: host.run, files: fakeFiles(MANAGED_FSTAB), now })).rejects.toThrow("Name must be lower-case letters, digits, and hyphens (max 32)");
     expect(host.calls).toEqual([]);
   });
 });

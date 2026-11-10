@@ -1,10 +1,13 @@
 import { defineOperation } from "./registry.mjs";
 import { needrestartScanner } from "../needrestart.mjs";
+import { redactLine } from "../redaction.mjs";
 
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
 const journalctl = process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl";
 const unitPattern = /^[A-Za-z0-9:._@\\-]{1,200}\.(service|timer|socket|mount|target)$/;
 export const serviceActions = Object.freeze(["start", "stop", "restart", "reload", "enable", "disable"]);
+/** Each action as the end of "could not be ...", for a failure a person reads. */
+const actionDone = Object.freeze({ start: "started", stop: "stopped", restart: "restarted", reload: "reloaded", enable: "set to start with this server", disable: "kept from starting with this server" });
 
 /**
  * Units BoxPilot will not stop or disable from the UI because doing so cuts off the operator or the
@@ -81,10 +84,6 @@ export function mergeUnitLists(unitsJson, filesJson) {
   return merged.sort((a, b) => a.unit.localeCompare(b.unit));
 }
 
-function redact(value) {
-  return String(value ?? "").replace(/\b(token|password|secret|api[_-]?key|authorization)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]");
-}
-
 export function serviceOperations() {
   return [
     defineOperation({
@@ -95,7 +94,7 @@ export function serviceOperations() {
           run(systemctl, ["list-units", "--type=service,timer", "--all", "--no-pager", "--plain", "--output=json"], { timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }),
           run(systemctl, ["list-unit-files", "--type=service,timer", "--no-pager", "--output=json"], { timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }),
         ]);
-        if (!units.ok) throw new Error(`systemctl list-units failed: ${units.stderr.split("\n").slice(-2).join(" ")}`);
+        if (!units.ok) throw new Error(`The list of services could not be read: ${units.stderr.split("\n").filter(Boolean).slice(-2).join(" ") || "no reason given"}. Try again.`);
         const list = mergeUnitLists(units.stdout, files.ok ? files.stdout : "[]");
         return { units: list, counts: { total: list.length, active: list.filter((item) => item.active === "active").length, failed: list.filter((item) => item.active === "failed").length } };
       },
@@ -106,13 +105,13 @@ export function serviceOperations() {
       run: async (parameters, { run }) => {
         const lines = parameters.lines ?? 200;
         const result = await run(journalctl, ["-u", parameters.unit, "-n", String(lines), "--no-pager", "-o", "short-iso"], { timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
-        if (!result.ok && !result.stdout) throw new Error(`journalctl failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
-        return { unit: parameters.unit, lines: result.stdout.split("\n").filter(Boolean).map(redact).slice(-lines) };
+        if (!result.ok && !result.stdout) throw new Error(`The log of ${parameters.unit} could not be read: ${result.stderr.split("\n").filter(Boolean).slice(-2).join(" ") || "no reason given"}. Try again.`);
+        return { unit: parameters.unit, lines: result.stdout.split("\n").filter(Boolean).map(redactLine).slice(-lines) };
       },
     }),
     defineOperation({
       id: "service.action", title: "Control a system service", risk: "medium", timeoutMs: 5 * 60_000,
-      description: "Start, stop, restart, reload, enable, or disable a systemd unit. BoxPilot, SSH, systemd, D-Bus, and Tailscale units cannot be stopped or disabled from here.",
+      description: "Starts, stops, restarts or reloads a system service, or sets whether it starts with this server. BoxPilot, SSH, Tailscale and the services Ubuntu itself runs on cannot be stopped or kept from starting here.",
       parameters: { fields: { unit: { type: "string", pattern: unitPattern, validate: machineStateRefusal }, action: { type: "string", enum: [...serviceActions] } } },
       run: async (parameters, { run, progress }) => {
         const { unit, action } = parameters;
@@ -131,7 +130,7 @@ export function serviceOperations() {
         progress?.(`$ systemctl ${args.join(" ")}`, "stdout");
         const result = await run(systemctl, args, { timeout: 4 * 60_000, onLine: progress ?? undefined });
         if (["restart", "reload"].includes(action)) needrestartScanner.forget();
-        if (!result.ok) throw new Error(`systemctl ${action} ${unit} failed: ${result.stderr.split("\n").slice(-3).join(" ") || "see the unit journal"}`);
+        if (!result.ok) throw new Error(`${unit} could not be ${actionDone[action]}: ${result.stderr.split("\n").filter(Boolean).slice(-3).join(" ").replace(/[.\s]+$/, "") || "it gave no reason"}. Its log says more.`);
         const show = await run(systemctl, ["show", "--property=ActiveState,SubState,UnitFileState,Result", "--", unit], { timeout: 15_000 });
         const state = Object.fromEntries(show.stdout.split("\n").map((line) => line.split("=", 2)).filter((pair) => pair.length === 2));
         // `systemctl start` of a simple service returns once it has forked: one that dies straight

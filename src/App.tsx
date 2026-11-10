@@ -1,12 +1,12 @@
 import PageErrorBoundary from "./shell/PageErrorBoundary";
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { viewLabel, type ViewName } from "./data";
 import { openViewEvent } from "./activityEvents";
 import { viewCopy } from "./pageCopy";
 import SignInPage, { SignInLoading, SignInUnavailable } from "./pages/signin/SignInPage";
 import ActivityDrawer from "./shell/ActivityDrawer";
 import { useOperation } from "./shell/ApproveDialog";
-import { SessionControls } from "./shell/SessionControls";
+import { SessionControls, signOut } from "./shell/SessionControls";
 import { AccountMenu } from "./shell/AccountMenu";
 import { useTheme } from "./useTheme";
 import { ThemeSwitch } from "./ui/ThemeSwitch";
@@ -111,10 +111,19 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   // Each request to open an app, counted: asked for the app the catalog was opened at already, the
   // page did not remount and its sheet, once closed, never came back.
   const [focusRequest, setFocusRequest] = useState(0);
+  const [tabRequest, setTabRequest] = useState(0);
   const [galleryAsked, setGalleryAsked] = useState(() => new URLSearchParams(window.location.search).has("gallery"));
+  // The page showing now, for setView to tell a change of page from a change within one.
+  const shown = useRef(view);
+  shown.current = view;
   const setView = useCallback((asked: ViewName, options: { app?: string; tab?: string } = {}) => {
     // A link to a page that is gone (an older server's "Open Overview") lands on Home.
     const next: ViewName = Object.hasOwn(viewCopy, asked) ? asked : "home";
+    const changedPage = next !== shown.current;
+    shown.current = next;
+    // A page reads its tab from the address as it opens. Asked for a tab while it is already
+    // showing (the command bar's "Schedules" on System), it opens again, at that tab.
+    if (!changedPage && options.tab && next !== "settings") setTabRequest((count) => count + 1);
     setViewState(next);
     setFocusApp(options.app ?? null);
     if (options.app) setFocusRequest((count) => count + 1);
@@ -123,12 +132,32 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     for (const name of [...url.searchParams.keys()]) if (!keptParams.has(name)) url.searchParams.delete(name);
     if (next !== "home") url.searchParams.set("view", next);
     if (options.app) url.searchParams.set("app", options.app);
-    if (options.tab) url.searchParams.set("tab", options.tab); // a tabbed page opens at this tab
-    window.history.replaceState(null, "", url);
+    // A tabbed page opens at this tab. Setup keeps its two halves under ?mode=.
+    if (options.tab) url.searchParams.set(next === "setup" ? "mode" : "tab", options.tab);
+    // A change of page is a step the browser's Back button undoes; a tab, an app or a sheet on the
+    // page already showing only rewrites its address, as the first page opened does.
+    if (changedPage) window.history.pushState(null, "", url);
+    else window.history.replaceState(null, "", url);
     // Settings already open hears of it too, and turns to the section ("Appearance" from the menu),
     // or to the first one when none is named: the address had dropped the section while the page
     // went on showing it, until any later render jumped to Account, in the middle of trying a look.
     if (next === "settings") openSection((options.tab ?? "account") as SettingsSection);
+  }, []);
+  // Back and Forward: the address says which page (and app, and tab), and nothing is pushed again.
+  useEffect(() => {
+    const onPop = () => {
+      const params = new URLSearchParams(window.location.search);
+      const next = viewFromLocation();
+      const app = params.get("app");
+      shown.current = next;
+      setViewState(next);
+      setFocusApp(app);
+      if (app) setFocusRequest((count) => count + 1);
+      setGalleryAsked(params.has("gallery"));
+      if (next === "settings") openSection((params.get("tab") ?? "account") as SettingsSection);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
   // A page asked for from anywhere (M49): a button deep in Settings opens Updates, or the page a
   // watched condition belongs to, as a tile on Home would.
@@ -256,7 +285,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <div className="topbar-slot" ref={setTopBarSlot} />
             <ViewSwitch view={showGallery ? null : view} onSelect={setView} />
           </div>
-          <CommandBar csrfToken={csrfToken} onNavigate={setView} onStart={startOperation} role={role} />
+          <CommandBar csrfToken={csrfToken} onNavigate={setView} onStart={startOperation} role={role} onSignOut={() => signOut(csrfToken, onSignedOut)} />
           <div className="topbar-right">
             <RefreshButton />
             <span className="connection-pill" title="How this browser reached BoxPilot">{connectionLabel(window.location)}</span>
@@ -276,13 +305,16 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 
         <main id="content" tabIndex={-1}>
           <div className={shell === "console" ? "content content--console" : "content content--wide"} data-density={shell === "console" ? lookChoice.density : undefined}>
-            <OfflineBanner />
-            {!authStatus.offline && <SessionEndingBanner expiresAt={authStatus.expiresAt} />}
+            {/* One box that stays under the bar while the page scrolls; both notices at once stack in it. */}
+            <div className="offline-stack">
+              <OfflineBanner />
+              {!authStatus.offline && <SessionEndingBanner expiresAt={authStatus.expiresAt} />}
+            </div>
             {showGallery ? <Suspense fallback={<PageLoading name="the design system" />}><Gallery /></Suspense> : <>
               {!ownHeader.has(view) && <PageHeader title={copy.title} about={copy.description} />}
               {/* Keyed by the page, so the page left behind unmounts at once rather than waiting, hidden,
                   behind the next one's loading: its name in the bar would otherwise linger. */}
-              <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense key={view} fallback={<PageLoading name={viewLabel(view)} />}>{pageContent}</Suspense></PageErrorBoundary>
+              <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense key={`${view}:${tabRequest}`} fallback={<PageLoading name={viewLabel(view)} />}>{pageContent}</Suspense></PageErrorBoundary>
             </>}
           </div>
         </main>

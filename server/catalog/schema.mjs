@@ -688,6 +688,9 @@ export function resolveValues(manifest, raw = {}) {
  * Drop stored value keys the current manifest no longer accepts, so update/redeploy of an
  * installed app never fails on settings the operator could not change anyway (for example a
  * non-configurable volume echoed into old state, or a setting a manifest revision removed).
+ * A fixed port is one of those: every port is stored, so a revision that moves a fixed port (or
+ * fixes one the owner had moved) would otherwise be refused as "is fixed for this application"
+ * on every update, rollback and reinstall. The stored number is dropped and the manifest's is used.
  */
 export function sanitizeStoredValues(manifest, stored = {}) {
   const raw = isObject(stored) ? stored : {};
@@ -695,7 +698,7 @@ export function sanitizeStoredValues(manifest, stored = {}) {
   const env = isObject(raw.env) ? raw.env : {};
   const volumes = isObject(raw.volumes) ? raw.volumes : {};
   return {
-    ports: Object.fromEntries(Object.entries(ports).filter(([id]) => manifest.ports.some((port) => port.id === id))),
+    ports: Object.fromEntries(Object.entries(ports).filter(([id]) => manifest.ports.some((port) => port.id === id && !port.fixed))),
     env: Object.fromEntries(Object.entries(env).filter(([name]) => manifest.env.some((entry) => entry.name === name))),
     volumes: Object.fromEntries(Object.entries(volumes).filter(([id]) => manifest.volumes.some((volume) => volume.id === id && volume.configurable))),
     ...(appExposures.includes(raw.exposure) ? { exposure: raw.exposure } : {}),

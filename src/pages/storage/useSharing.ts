@@ -23,6 +23,8 @@ export interface SambaControl {
   setWorkgroup: (workgroup: string) => void;
   /** An apply finished: what the server has now is the list, so the next read takes it. */
   settle: () => void;
+  /** Throws the unapplied edits away: the list, the scope and the workgroup are what the server has. */
+  discard: () => void;
   refresh: () => Promise<void>;
   scheduleAutoClean: (share: string) => Promise<void>;
   unscheduleAutoClean: (scheduleId: string) => Promise<void>;
@@ -96,6 +98,11 @@ export function useSamba(csrfToken: string): SambaControl {
     setScope: (next) => { setScopeState(next); setDirty(true); },
     setWorkgroup: (next) => { setWorkgroupState(next); setDirty(true); },
     settle: () => { dirtyRef.current = false; setDirty(false); },
+    discard: () => {
+      dirtyRef.current = false; setDirty(false);
+      if (state) { setDraftState(state.config.shares); setScopeState(state.config.scope === "lan" ? "lan" : "tailscale"); setWorkgroupState(state.config.workgroup || "WORKGROUP"); }
+      void refresh();
+    },
     refresh, scheduleAutoClean, unscheduleAutoClean,
   };
 }
@@ -109,6 +116,8 @@ export interface NfsControl {
   setDraft: (change: (current: NfsExport[]) => NfsExport[]) => void;
   setScope: (scope: Scope) => void;
   settle: () => void;
+  /** Throws the unapplied edits away: the exports and the scope are what the server has. */
+  discard: () => void;
   refresh: () => Promise<void>;
 }
 
@@ -145,6 +154,11 @@ export function useNfs(): NfsControl {
     setDraft: (change) => { setDraftState(change); setDirty(true); },
     setScope: (next) => { setScopeState(next); setDirty(true); },
     settle: () => { dirtyRef.current = false; setDirty(false); },
+    discard: () => {
+      dirtyRef.current = false; setDirty(false);
+      if (state) { setDraftState(state.config.exports.map((entry) => ({ path: entry.path, readOnly: entry.readOnly }))); setScopeState(state.config.scope === "lan" ? "lan" : "tailscale"); }
+      void refresh();
+    },
     refresh,
   };
 }

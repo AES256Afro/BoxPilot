@@ -351,7 +351,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
     }
     const { username, password, bootstrapToken } = request.body ?? {};
     const errors = validateCredentials(username, password);
-    if (typeof bootstrapToken !== "string" || bootstrapToken.length < 20) errors.push("A valid server-generated bootstrap token is required");
+    if (typeof bootstrapToken !== "string" || bootstrapToken.length < 20) errors.push("Enter the one-time setup code the server printed");
     if (errors.length) {
       response.status(400).json({ error: errors.join(". "), code: "invalid_bootstrap" });
       return;

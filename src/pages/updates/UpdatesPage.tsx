@@ -214,7 +214,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
               <li key={unit} className="updates-restarts__row">
                 <code>{unit}</code>
                 {unit === "systemd-manager"
-                  ? may("system.manager.reexec") && <Button risk={riskOf("system.manager.reexec")} onClick={() => start({ operationId: "system.manager.reexec", title: "Refresh systemd manager", parameters: {}, preview: <span>Starts the system manager again on the updated libraries. It keeps its state, and every service keeps running.</span> })}>Refresh systemd manager</Button>
+                  ? may("system.manager.reexec") && <Button risk={riskOf("system.manager.reexec")} onClick={() => start({ operationId: "system.manager.reexec", title: "Finish applying system updates", parameters: {}, preview: <span>Starts the system manager again on the updated libraries. It keeps its state, and every service keeps running.</span> })}>Refresh systemd manager</Button>
                   : !restartable(unit)
                     ? <span className="updates-note">Reboot the server to refresh this process.</span>
                     : may("service.action") && <Button risk={riskOf("service.action")} onClick={() => start({ operationId: "service.action", title: `Restart ${unit}`, parameters: { unit, action: "restart" }, preview: <span>Stops and starts {unit.replace(/\.service$/, "")}; anything using it is cut off for a moment.{/^(docker|containerd)(\.service)?$/.test(unit) ? " Every app restarts with it." : ""}</span> })}>Restart {unit}</Button>}

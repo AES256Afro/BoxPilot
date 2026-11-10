@@ -34,6 +34,16 @@ describe("storage operations", () => {
       .toEqual([{ target: "/", source: "/dev/sda1", fstype: "ext4", sizeBytes: 100, usedBytes: 40, availableBytes: 60, options: [], readOnly: false }]);
   });
 
+  it("reads a space fstab wrote as \\040 back as a space, in the device and the mountpoint", () => {
+    // The share's own entry is what BoxPilot writes for "My Photos"; the Storage page and the
+    // rebuild runbook showed it as //nas.lan/My\040Photos.
+    const fstab = "# boxpilot:share-photos\n//nas.lan/My\\040Photos /mnt/photos cifs guest,nofail 0 0\n/dev/sdb1 /mnt/old\\040disk ext4 defaults 0 2\n";
+    expect(parseFstab(fstab).map((row) => [row.device, row.mountpoint, row.managedName])).toEqual([
+      ["//nas.lan/My Photos", "/mnt/photos", "share-photos"],
+      ["/dev/sdb1", "/mnt/old disk", null],
+    ]);
+  });
+
   it("stages mutations as root tasks and enforces parameter shapes", async () => {
     const runUnit = { runTask: vi.fn(async (task, parameters) => ({ task, parameters })) };
     await expect(operations["storage.mount"].run({ uuid: "abcd-1234", name: "media" }, { runUnit, jobLog: null }))
@@ -104,7 +114,7 @@ describe("listing folders on a drive", () => {
     expect(spec.pattern.test("/var/lib/boxpilot")).toBe(false);
     expect(spec.pattern.test("/")).toBe(false);
     // Traversal matches the pattern but is rejected in the body.
-    await expect(op().run({ path: "/mnt/../etc" })).rejects.toThrow("invalid");
+    await expect(op().run({ path: "/mnt/../etc" })).rejects.toThrow("The path cannot contain \"..\"");
   });
 
   it("refuses a symlink that points out of /mnt, rather than listing what it aims at", async () => {

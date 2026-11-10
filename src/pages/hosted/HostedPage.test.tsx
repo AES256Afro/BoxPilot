@@ -32,6 +32,9 @@ describe("Hosted domains page", () => {
     expect(within(rows[1]).getByText("Needs a look")).toBeTruthy();
     expect(within(rows[1]).getByText("9 days").closest(".ui-chip")?.getAttribute("data-status")).toBe("warning");
     expect(within(rows[2]).getByText("Up")).toBeTruthy();
+    // What is behind "down", on the row itself and not only in the chip's tooltip.
+    expect(document.querySelector(".hosted-figure__hint")).toBeTruthy();
+    expect([...table.querySelectorAll("td .hosted-figure__hint")].map((hint) => hint.textContent)).toContain("Cloudflare cannot reach this server (HTTP 530)");
     expect(within(rows[2]).getByText("Cloudflare")).toBeTruthy();
     expect(within(rows[2]).getByText("100% / 99.9%")).toBeTruthy();
     expect(within(rows[2]).getByText("27 hours ago")).toBeTruthy(); // the backup

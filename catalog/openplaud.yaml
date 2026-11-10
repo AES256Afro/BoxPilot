@@ -149,7 +149,7 @@ health:
   kind: healthcheck
   timeoutSeconds: 120
 notes: >-
-  Open the page, enter the password from this card, and choose Start Plaud sign-in. Approve access
+  Open the page, enter the password from this app's sheet, and choose Start Plaud sign-in. Approve access
   on Plaud's page; your browser then lands on a localhost:8199 address that does not load. Copy that
   address into OpenPlaud within two minutes to finish. Recordings then sync on the schedule above,
   and each one can be run by hand as meeting notes, action items or a follow-up email. Notes are

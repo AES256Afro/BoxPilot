@@ -43,6 +43,23 @@ const canFormat = (device: DeviceRow) => Boolean(!device.protected && device.pat
 // A folder the file servers would serve: never one under /mnt/boxpilot, the backup destination.
 const dataMountpoint = (device: DeviceRow) => device.mountpoints.find((point) => (point.startsWith("/mnt/") || point.startsWith("/srv/")) && mayServe(point));
 
+/** A filesystem as a person would know it: ext4 “photos”. */
+const namedFs = (device: DeviceRow) => `${device.fstype}${device.label ? ` “${device.label}”` : ""}`;
+
+/**
+ * What a device holds, for the sentence before it is erased: its own filesystem, or those of the
+ * partitions under it (the rows that follow it, deeper, until the next one at its level).
+ */
+export function holdsWords(device: DeviceRow, devices: DeviceRow[]): string {
+  if (device.fstype) return `It holds ${namedFs(device)}.`;
+  const at = devices.indexOf(device);
+  const below: DeviceRow[] = [];
+  for (let index = at + 1; at >= 0 && index < devices.length && devices[index].depth > device.depth; index += 1) below.push(devices[index]);
+  const held = below.filter((entry) => entry.fstype);
+  if (held.length === 0) return "It has no filesystem.";
+  return `Its ${held.length === 1 ? "partition holds" : "partitions hold"} ${held.map((entry) => `${namedFs(entry)}${entry.path ? ` (${entry.path})` : ""}`).join(", ")}.`;
+}
+
 function filesystemOf(device: DeviceRow) {
   if (device.type === "lvm" && device.volumeGroup) return <>LVM volume <code>{device.volumeGroup}/{device.logicalVolume}</code>{device.fstype ? ` · ${device.fstype}` : ""}</>;
   if (device.fstype === "LVM2_member") return <>LVM physical volume{device.holdsVolumeGroups.length ? <> for <code>{device.holdsVolumeGroups.join(", ")}</code></> : null}</>;
@@ -96,7 +113,7 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
     title: `Erase and format ${device.path}`,
     parameters: { device: device.path },
     confirmText: device.path ?? "",
-    preview: <span>Runs <code>wipefs -a</code> then <code>mkfs.ext4</code> on <code>{device.path}</code> ({gib(device.sizeBytes)}{device.model ? `, ${device.model}` : ""}). <strong>Everything on it is destroyed.</strong></span>,
+    preview: <span>Runs <code>wipefs -a</code> then <code>mkfs.ext4</code> on <code>{device.path}</code> ({gib(device.sizeBytes)}{device.model ? `, ${device.model}` : ""}). {holdsWords(device, report?.devices ?? [])} <strong>Everything on it is destroyed.</strong></span>,
   });
   const openMount = (device: DeviceRow) => setForm({ device, name: device.label ? slug(device.label) : "", readOnly: false, appWritable: permissionlessFs(device.fstype) });
   const submitMount = () => {
@@ -147,6 +164,8 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
           {device.model && <span className="storage-name__sub">{device.model}</span>}
           {device.removable && <Tag>removable</Tag>}
           {device.protected && <Tag title={device.protectedReason ?? undefined}>{device.protectedReason === "system disk" ? "system" : "protected"}</Tag>}
+          {/* Why it is protected, on the row: the tag's tooltip never reaches a finger. */}
+          {device.protected && device.protectedReason && device.protectedReason !== "system disk" && <span className="storage-name__sub storage-device__why">Protected: {device.protectedReason}</span>}
         </span>
       ),
     },

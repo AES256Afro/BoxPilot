@@ -1,7 +1,8 @@
 # Architecture
 
-BoxPilot manages one Ubuntu server from a browser. It runs as two processes on that server: a
-web service that never has root, and a helper that does. Everything the owner asks for becomes a
+BoxPilot manages one Ubuntu server from a browser. At its core it runs as two processes on that server: a
+web service that never has root, and a helper that does; three smaller units, each off until the
+owner turns it on, are listed under Processes. Everything the owner asks for becomes a
 declared *operation*, staged as a durable *job*, approved according to its risk tier, and carried
 out by the helper.
 
@@ -37,6 +38,22 @@ The web service is the only process the browser talks to. It cannot change the h
 has no root, and the helper refuses anything that is not a registered operation with valid
 parameters. The helper is sandboxed so tightly that it cannot reach the network or real devices;
 work that needs either is handed to a one-shot unit whose task table is fixed at build time.
+
+Three more units are installed with BoxPilot and stay off until the owner asks for them:
+
+- **`boxpilot-agents.service`**, the agents' runner (ADR-005). It is enabled when the owner turns
+  Agents on, runs as its own user (`boxpilot-agents`) and asks the web service for work with a
+  token systemd hands it; the local model server is its child. It is capped (four processors at
+  idle priority, 8 GB of memory, no swap) and may reach this machine only (`IPAddressAllow=localhost`).
+- **`boxpilot-model-gateway.service`**, the one process that holds the Claude key (ADR-013). It is
+  enabled when the owner connects Claude, runs as `boxpilot-model-gateway`, and gets the key from a
+  root-only file through `LoadCredential`. The web service reaches it over a Unix socket; it sends
+  to api.anthropic.com alone, keeps its own count against the monthly cap, and cannot read the web
+  service's or the helper's files.
+- **`boxpilot-heartbeat.service`** and **`.timer`**, the heartbeat to the owner's dead man's switch.
+  The timer is off until the heartbeat is turned on in Settings; then every five minutes (unless
+  changed) the one-shot service makes one request, ten seconds at most and never retried. It runs
+  as root with no capabilities, enough to read the credential store and nothing else.
 
 ## Operations, jobs, approval
 

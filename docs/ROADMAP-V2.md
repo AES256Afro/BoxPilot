@@ -3145,7 +3145,7 @@ Each item is its own pull request, released and deployed when green.
   tools, which the examples migration had run before. Tests: the
   survey reading all seven within its steps and tokens, the M43 budget still reaching its limit at
   eight steps, the schema (`findings.test.mjs`, `templates.test.mjs`, `brain.test.mjs`). To measure
-  on bigbox: the first widened survey's model time against its 25 minutes (Usage tab; the first is
+  on the owner's server: the first widened survey's model time against its 25 minutes (Usage tab; the first is
   due Sunday 2026-10-11 04:20 UTC). Measured in CI (2026-10-09, main against `baseline: v1.171.0`,
   Qwen3.5-4B at four threads, bench runs 37955857245 and 37955860701): the eight-step plan did not
   widen a Keeper's reads; the built-in set 6 of 6 on both trees in the same time (687 s against

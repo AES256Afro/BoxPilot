@@ -105,6 +105,8 @@
 @media (max-width: 640px) {
   .approve-backdrop { align-items: flex-end; padding: 0; }
   .approve-dialog { width: 100%; max-height: 94vh; border-width: 1px 0 0; border-radius: 8px 8px 0 0; }
+  /* The part of the screen that can be seen, so the title and Close stay on it; vh above is for a browser without dvh. */
+  .approve-dialog { max-height: min(92dvh, 100%); }
   .approve-title { font-size: 18px; }
   .approve-foot .ui-button { flex: 1 1 auto; }
   /* On a phone it rises from the bottom edge (M25): the buttons stay above the home indicator. */

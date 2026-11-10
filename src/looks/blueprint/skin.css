@@ -477,3 +477,8 @@
 
 /* Settings > Appearance: the line that says what is chosen is a boxed callout like the rest. */
 :root[data-look="blueprint"] .settings-appearance__now { border: 1.4px solid var(--bp-ink); border-radius: 0; background: transparent; }
+
+/* A finger, not a pointer: what this look draws smaller than the kit's 44 px grows back on a touch screen. */
+@media (pointer: coarse) {
+  :root[data-look="blueprint"] :is(.ui-button, .ui-tabs__tab, .ui-segmented__option) { min-height: 44px; }
+}

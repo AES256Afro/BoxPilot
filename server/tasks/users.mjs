@@ -76,7 +76,7 @@ export async function userAdd({ username, githubUser = null } = {}, { run = fixe
   if (await userEntry(run, username)) throw new Error(`User ${username} already exists`);
   log?.(`$ useradd --create-home --shell /bin/bash ${username}`, "stdout");
   const result = await run("/usr/sbin/useradd", ["--create-home", "--shell", "/bin/bash", username], { timeout: 30_000 });
-  if (!result.ok) throw new Error(`useradd failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+  if (!result.ok) throw new Error(`The account ${username} could not be created: ${result.stderr.split("\n").filter(Boolean).slice(-2).join(" ") || "no reason given"}. Nothing was changed.`);
   const entry = await userEntry(run, username);
   if (!entry) throw new Error(`User ${username} was not created`);
   let importedKeys = null;
@@ -112,7 +112,7 @@ export async function userKeysImport({ username, githubUser = null, keys = null 
 /** @param {{ username?: string, sudo?: boolean }} [parameters] */
 export async function userSudoSet({ username, sudo } = {}, { run = fixedRun, log = null } = {}) {
   assertUsername(username);
-  if (typeof sudo !== "boolean") throw new Error("sudo must be true or false");
+  if (typeof sudo !== "boolean") throw new Error("Choose on or off.");
   if (username === "root") throw new Error("root's privileges cannot be changed from here");
   if (!(await userEntry(run, username))) throw new Error(`User ${username} does not exist`);
   const members = await run("/usr/bin/getent", ["group", "sudo"], { timeout: 10_000 });
@@ -143,7 +143,7 @@ async function usersWithKeys(run, files) {
 
 /** @param {{ enabled?: boolean }} [parameters] */
 export async function sshPasswordAuthSet({ enabled } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, unlink } } = {}) {
-  if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
+  if (typeof enabled !== "boolean") throw new Error("Choose on or off.");
   if (!enabled) {
     const keyed = await usersWithKeys(run, files);
     if (keyed.length === 0) throw new Error("No user has an SSH key yet. Import a key first so key-only login still works.");

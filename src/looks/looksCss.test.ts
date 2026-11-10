@@ -129,3 +129,21 @@ describe("the looks' stylesheets", () => {
     expect(selectors(sheets["./fonts.css"])).toEqual([]);
   });
 });
+
+describe("a look on a touch screen", () => {
+  it("grows back to 44 px every button, tab and segment it draws smaller", () => {
+    for (const id of LOOK_IDS) {
+      const css = (sheets[`./${id}/skin.css`] ?? "").replace(/\/\*[\s\S]*?\*\//g, "");
+      if (!css) continue;
+      const coarse = [...css.matchAll(/@media \(pointer: coarse\)[^{]*\{((?:[^{}]|\{[^{}]*\})*)\}/g)].map((match) => match[1]).join("\n");
+      const outside = css.replace(/@media \(pointer: coarse\)[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g, "");
+      for (const control of [".ui-button", ".ui-tabs__tab", ".ui-segmented__option"]) {
+        const shrunk = [...outside.matchAll(/([^{}]+)\{([^{}]*)\}/g)].some(([, selector, body]) => selector.includes(control) && /min-height:\s*(?:[1-3]?\d|4[0-3])(?:\.\d+)?px/.test(body));
+        if (!shrunk) continue;
+        const restored = [...coarse.matchAll(/([^{}]+)\{([^{}]*)\}/g)].some(([, selector, body]) => selector.includes(control) && /min-height:\s*4[4-9]px/.test(body));
+        expect(restored, `${id}: ${control} is drawn under 44 px and has no (pointer: coarse) rule`).toBe(true);
+      }
+    }
+  });
+});
+

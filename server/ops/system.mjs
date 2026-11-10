@@ -138,8 +138,8 @@ export function systemOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.timezone", { timezone: parameters.timezone }, { timeoutMs: 60_000, logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "system.swappiness.set", title: "Set swap pressure", risk: "medium", timeoutMs: 2 * 60_000,
-      description: "Applies vm.swappiness now and persists it in /etc/sysctl.d/99-boxpilot.conf.",
+      id: "system.swappiness.set", title: "Set how readily memory moves to swap", risk: "medium", timeoutMs: 2 * 60_000,
+      description: "Sets how readily Ubuntu moves memory to swap, from 0 (only when it must) to 100 (freely). It applies now and stays after a restart.",
       parameters: { fields: { value: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 0 && value <= 100 ? null : "must be a whole number between 0 and 100") } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.swappiness", { value: parameters.value }, { timeoutMs: 60_000, logPath: jobLog?.path ?? null }),
     }),

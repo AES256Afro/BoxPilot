@@ -1,4 +1,5 @@
 import { defineOperation, moreTimeCeilingMs } from "./registry.mjs";
+import { backupNamePattern } from "../app-backups.mjs";
 import { parseServeStatus } from "../tailscale-serve.mjs";
 import { composeVerdicts, planProbes } from "../reachability.mjs";
 import { coversEveryAddress, serveUrl } from "../ports.mjs";
@@ -277,7 +278,7 @@ export function appOperations() {
     defineOperation({
       // With start, it may build the app's container again, which can pull its image.
       id: "app.serve.set", title: "Publish an app on the tailnet", risk: "medium", timeoutMs: minutes(17),
-      description: "Serves the app's web port over HTTPS on your tailnet with a real certificate (tailnet only, Funnel stays off), or stops serving it. Serve fronts a port the app publishes on this server alone: an app published on your home network is refused, because Tailscale would hold the same port on the tailnet address and Linux will not let Docker publish it on every address beside that; change who can reach it to Tailnet only instead. With start, the app is started once it is no longer served, its container built again if it was removed.",
+      description: "Gives the app an HTTPS address on your tailnet with a real certificate, reachable from your tailnet only and never from the internet, or takes that address away. An app your home network can reach is refused, because the two cannot hold the same port: change who can reach it to Tailnet only instead.",
       parameters: { fields: { id: idField, enabled: { type: "boolean" }, start: { type: "boolean", optional: true } } },
       run: async (parameters, { run, apps, progress }) => {
         const { applications } = await apps.inspect({ id: parameters.id });
@@ -319,7 +320,7 @@ export function appOperations() {
     defineOperation({
       // Pulls the previous images again, so a slow line can be given more time (M30.3): up to 4x.
       id: "app.rollback", title: "Go back to the previous version", risk: "medium", timeoutMs: checkpointMs + minutes(40), maxTimeoutMs: 4 * (checkpointMs + minutes(40)),
-      description: "Takes a data checkpoint, then puts the application back on the versions it was running before its last update - the app and any sidecar that moved with it. The version to restore comes from this application's own recorded history, not from the request, so nothing else can be deployed this way. Data and settings are untouched; only the images change.",
+      description: "Takes a backup of its data first, then puts the app, and any helper container that moved with it, back on the version it ran before its last update. The version comes from this app's own recorded history, so nothing else can be installed this way. Data and settings are not touched.",
       parameters: { fields: { id: idField, at: { type: "string", optional: true, maxLength: 32, pattern: /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/ }, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
       run: (parameters, { apps, progress, timeScale }) => apps.rollbackApp({ id: parameters.id, at: parameters.at ?? null, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true, timeScale }),
     }),
@@ -352,7 +353,7 @@ export function appOperations() {
     defineOperation({
       id: "app.backup.verify", title: "Rehearse restoring a backup", risk: "medium", timeoutMs: minutes(70),
       description: "Proves a backup would actually restore: checks it against the checksum recorded when it was written, unpacks the whole archive into scratch space, confirms everything it claims to contain is there and that its compose file is valid, then deletes the scratch copy. The app is never stopped and nothing it holds is changed. Without a backup name, the newest one is checked.",
-      parameters: { fields: { id: idField, backup: { type: "string", optional: true, maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
+      parameters: { fields: { id: idField, backup: { type: "string", optional: true, maxLength: 40, pattern: backupNamePattern } } },
       run: (parameters, { apps, progress }) => apps.verifyAppBackup({ id: parameters.id, backup: parameters.backup ?? null }, { progress }),
     }),
     defineOperation({
@@ -362,7 +363,7 @@ export function appOperations() {
       confirm: (parameters) => (parameters.allowCompose ? `allow ${parameters.id}` : null),
       confirmWhen: "it starts a backup's own compose file as it was archived",
       description: "Checksums the backup and unpacks it beside the app, checks nothing else holds its ports, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it. An app the backup has reachable for the tailnet only is then published over HTTPS on your tailnet with Tailscale Serve. A compose file edited by hand (or one whose settings no longer fit the catalog) is started exactly as it was backed up only when it gives the app nothing past the catalog, this server already runs it, or allowCompose names its sha256.",
-      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ }, allowCompose: composeHashField } },
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: backupNamePattern }, allowCompose: composeHashField } },
       // The deployer writes the backup's compose file again for this server and says who can reach
       // the app and on which ports, as an install does: a tailnet-only app's web ports are on
       // 127.0.0.1 for Serve to front, so it is published as app.install and a snapshot restore do.
@@ -380,7 +381,7 @@ export function appOperations() {
       // not all of it. The restore dialog asks it before staging a restore (sweep 4).
       id: "app.backup.review", title: "Check what restoring a backup would start", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: minutes(5),
       description: "Whether restoring this backup would start its compose file exactly as it was archived (edited by hand, or with settings that no longer fit the catalog), and if so every setting in it that gives the app more than the catalog does - privileged, host folders, devices, capabilities, the host's network - with the file's sha256 to allow it by. Data folders the backup's settings name that an install would refuse are listed too. Nothing is unpacked or changed.",
-      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: backupNamePattern } } },
       run: (parameters, { apps }) => apps.reviewAppBackup({ id: parameters.id, backup: parameters.backup }),
     }),
     defineOperation({
@@ -390,25 +391,25 @@ export function appOperations() {
       // anyway. It also inflates a whole archive to answer, so it is not a cheap thing to invite.
       id: "app.backup.files", title: "List the files in an application backup", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: minutes(10),
       description: "Paths, sizes, and kinds inside one backup archive, so a single file or folder can be restored. The first 5000 come back, or the first 5000 whose path contains the filter: a backup with more is filtered here, not in the browser.",
-      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ }, filter: { type: "string", optional: true, maxLength: 200 } } },
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: backupNamePattern }, filter: { type: "string", optional: true, maxLength: 200 } } },
       run: (parameters, { apps }) => apps.listAppBackupFiles({ id: parameters.id, backup: parameters.backup, ...(parameters.filter ? { filter: parameters.filter } : {}) }),
     }),
     defineOperation({
       id: "app.backup.restore-path", title: "Restore one file or folder from a backup", risk: "medium", timeoutMs: checkpointMs + minutes(60),
-      description: "Checksums the backup, takes a data checkpoint, stops the app briefly, restores only the chosen path over the current one, and starts the app again. Everything else is untouched.",
-      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ }, path: { type: "string", maxLength: 512, validate: (value) => (value && !value.startsWith("/") && !value.split("/").some((part) => part === "" || part === "." || part === "..") ? null : "must be a relative path inside the backup") } } },
+      description: "Checks the backup is whole, takes a backup of the app's data first, stops the app briefly, puts back only the chosen file or folder over the current one, and starts the app again. Everything else is untouched.",
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: backupNamePattern }, path: { type: "string", maxLength: 512, validate: (value) => (value && !value.startsWith("/") && !value.split("/").some((part) => part === "" || part === "." || part === "..") ? null : "must be a relative path inside the backup") } } },
       run: (parameters, { apps, progress }) => apps.restoreAppBackupPath({ id: parameters.id, backup: parameters.backup, path: parameters.path }, { progress }),
     }),
     defineOperation({
       // The owner's: an operator could otherwise remove every app's backups, one job at a time.
       id: "app.backup.delete", title: "Delete an application backup", risk: "medium", minimumRole: "owner",
       description: "Removes one archive and its record. The app and its live data are untouched, and any copy already mirrored off this server stays where it is.", timeoutMs: 60_000,
-      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: backupNamePattern } } },
       run: (parameters, { apps }) => apps.deleteAppBackup(parameters),
     }),
     defineOperation({
       id: "app.compose.edit", title: "Edit application compose file", risk: "high", timeoutMs: checkpointMs + minutes(20),
-      description: "Takes a data checkpoint, then replaces the app's compose.yaml verbatim, giving you full control and full responsibility. Validated by docker compose, applied with rollback; the next Settings change or Update regenerates the file from the manifest.",
+      description: "Takes a backup of its data first, then replaces the app's Compose file with what you typed. Docker checks it first, and the old file comes back if the app will not start. The next Settings change or Update writes the file again from the catalog.",
       parameters: { fields: { id: idField, compose: { type: "string", secret: true, maxLength: 65536 }, checkpoint: { type: "boolean", optional: true } } },
       run: (parameters, { apps, progress }) => apps.editCompose({ id: parameters.id, compose: parameters.compose }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
@@ -433,7 +434,7 @@ export function appOperations() {
     defineOperation({
       // Pulls the app's images; a slow line or a large image can be given more time (M30.3): up to 4x.
       id: "app.install", title: "Install application", risk: "medium", timeoutMs: minutes(25), maxTimeoutMs: minutes(100),
-      description: "Writes the compose project, pulls the image, starts the container, and waits for it to be healthy; rolls back on failure. An app installed for the tailnet only (Zulip, unless you choose otherwise) is then published over HTTPS on your tailnet with Tailscale Serve.",
+      description: "Downloads the app, starts it and waits until it answers. If it does not, the install is undone. An app installed for the tailnet only (Zulip, unless you choose otherwise) then gets an HTTPS address on your tailnet.",
       parameters: { fields: { id: idField, values: valuesField, devices: devicesField } },
       run: async (parameters, { apps, run, progress, timeScale }) => {
         const installed = await apps.install({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress, timeScale });
@@ -446,7 +447,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.uninstall", title: "Uninstall application (keep data)", risk: "medium", timeoutMs: minutes(10),
-      description: "Stops and removes the container; the application's data directory is kept for reinstall.",
+      description: "Stops and removes the app. Its data folder is kept, so installing it again picks up where it left off.",
       parameters: { fields: { id: idField } },
       run: (parameters, { apps, progress }) => apps.uninstall({ id: parameters.id, purge: false }, { progress }),
     }),
@@ -454,7 +455,7 @@ export function appOperations() {
       // Repair's "Reinstall" for an app listed as installed with no container (M35). A container
       // pruned away can take its image with it, so this may pull, and may be given more time.
       id: "app.reinstall", title: "Rebuild an application's container", risk: "medium", timeoutMs: minutes(25), maxTimeoutMs: minutes(100),
-      description: "For an app BoxPilot lists as installed that has no container: builds its container again from its saved compose project (or, if that file is gone too, from the catalog with its saved settings on the image it last ran), starts it and waits for it to be healthy. With start set to false it only creates the container and leaves it stopped, for an app that was stopped on purpose. Its data folder is used as it is; nothing is reset or deleted. If it does not come up, what started is taken down again.",
+      description: "For an app BoxPilot lists as installed that has no container: builds the container again from what was saved, starts it (or leaves it stopped, for an app that was stopped on purpose) and waits until it answers. Its data folder is used as it is and nothing is deleted; if the app does not come up, what started is taken down again.",
       parameters: { fields: { id: idField, devices: devicesField, start: { type: "boolean", optional: true } } },
       run: (parameters, { apps, progress, timeScale }) => apps.reinstall({ id: parameters.id, devices: parameters.devices ?? null, start: parameters.start !== false }, { progress, timeScale }),
     }),
@@ -470,7 +471,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.purge", title: "Uninstall application and delete its data", risk: "high", confirm: (parameters) => parameters.id, timeoutMs: minutes(10),
-      description: "Stops and removes the container and deletes everything under the application's data directory.",
+      description: "Stops and removes the app and deletes its data folder. This cannot be undone. Backups already made of it are kept, and so are folders you pointed it at yourself.",
       parameters: { fields: { id: idField } },
       run: (parameters, { apps, progress }) => apps.uninstall({ id: parameters.id, purge: true }, { progress }),
     }),
@@ -483,7 +484,7 @@ export function appOperations() {
     defineOperation({
       // Pulls the new images; a slow line or a large image can be given more time (M30.3): up to 4x.
       id: "app.update", title: "Update application", risk: "medium", timeoutMs: checkpointMs + minutes(40), maxTimeoutMs: 4 * (checkpointMs + minutes(40)),
-      description: "Takes a data checkpoint, pulls the catalog's current image, and recreates the container; restores the previous image if it fails to become healthy.",
+      description: "Takes a backup of its data first, downloads the catalog's current version and starts the app on it. If the new version does not start properly, the previous one is put back.",
       parameters: { fields: { id: idField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
       run: (parameters, { apps, progress, timeScale }) => apps.update({ id: parameters.id, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true, timeScale }),
     }),
@@ -492,7 +493,7 @@ export function appOperations() {
       // Twenty apps at app.update's worst case would outlast any budget, so this has the longest one,
       // and the run starts no app it could not finish in what is left (see below).
       id: "app.update.many", title: "Update several applications", risk: "medium", timeoutMs: moreTimeCeilingMs,
-      description: "Updates each app in turn exactly as Update application does: a data checkpoint, the catalog's current image, the container recreated, and the previous image restored if the new one does not become healthy. One app at a time. One that fails does not stop the others; the job names it at the end, and any app it had no time left to start.",
+      description: "Updates each app in turn exactly as Update application does: a backup of its data first, the catalog's current version, and the previous version put back if the new one does not start properly. One app at a time. One that fails does not stop the others; the job names it at the end, and any app it had no time left to start.",
       parameters: { fields: {
         ids: { type: "array", validate: (value) => (value.length >= 1 && value.length <= 20 && value.every((entry) => typeof entry === "string" && idField.pattern.test(entry)) && new Set(value).size === value.length ? null : "must list 1 to 20 different app ids") },
         // Found by the web process for each app that globs for a device (index.mjs prepare hook), never the browser's.
@@ -530,7 +531,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.exposure.set", title: "Change who can reach an application", risk: "medium", timeoutMs: minutes(15),
-      description: "Tailnet only publishes the app on your tailnet over HTTPS and stops it listening on the network, so Tailscale authenticates every visitor before the app sees them. Home network publishes it on the LAN address instead, where anything on your network can reach it and only the firewall stands in the way; its tailnet HTTPS address is withdrawn first, because Tailscale holds that port on the tailnet address and Docker cannot publish it on every address beside it.",
+      description: "Tailnet only gives the app an HTTPS address on your tailnet and stops it listening on your home network, so Tailscale checks every visitor before the app sees them. Home network puts it on this server's home-network address instead, where anything on your network can reach it and only the firewall stands in the way; its tailnet HTTPS address is taken away first.",
       parameters: { fields: { id: idField, mode: { type: "string", validate: (value) => (["lan", "tailnet"].includes(value) ? null : "must be lan or tailnet") }, devices: devicesField } },
       run: async (parameters, { apps, run, progress }) => {
         const tailnet = parameters.mode === "tailnet";
@@ -627,13 +628,13 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.reconfigure", title: "Change application settings", risk: "medium", timeoutMs: checkpointMs + minutes(15),
-      description: "Takes a data checkpoint, rewrites ports, settings, and volume paths, and recreates the container; restores the previous configuration on failure.",
+      description: "Takes a backup of its data first, then applies the new ports, settings and folders and starts the app again. If it does not start properly, the previous settings are put back.",
       parameters: { fields: { id: idField, values: valuesField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
       run: (parameters, { apps, progress }) => apps.reconfigure({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
       id: "app.action", title: "Start, stop, pause, or restart application", risk: "low", timeoutMs: minutes(5),
-      description: "Pause freezes the container (0 CPU, keeps its memory, resumes instantly); stop shuts it down and frees its memory. Start, restart, and unpause bring it back; start and restart build the container again from its saved compose project if it was removed (by docker system prune, say). Start and restart first check that nothing else holds the app's ports, and name what does when something does.",
+      description: "Pause freezes the container (0 CPU, keeps its memory, resumes instantly); stop shuts it down and frees its memory. Start, restart, and unpause bring it back; start and restart build the container again from its saved compose project if it was removed. Start and restart first check that nothing else holds the app's ports, and name what does when something does.",
       parameters: { fields: { id: idField, action: { type: "string", enum: ["start", "stop", "restart", "pause", "unpause"] } } },
       run: (parameters, { apps, progress }) => apps.action(parameters, { progress }),
     }),

@@ -67,14 +67,14 @@ function stampOf(date) {
 
 async function unitBase(run, mountpoint) {
   const escaped = await run(binaries.systemdEscape, ["-p", mountpoint], { timeout: 10_000 });
-  if (!escaped.ok || !escaped.stdout.trim()) throw new Error(`systemd-escape failed for ${mountpoint}: ${tail(escaped.stderr)}`);
+  if (!escaped.ok || !escaped.stdout.trim()) throw new Error(`Ubuntu could not name the mount for ${mountpoint}: ${tail(escaped.stderr) || "no reason given"}`);
   return escaped.stdout.trim();
 }
 
 /** The filesystem types mounted exactly at a path, top one last: ["autofs"], ["autofs", "cifs"], []. */
 async function mountedAt(run, mountpoint) {
   const listed = await run(binaries.findmnt, ["-rn", "-o", "TARGET,FSTYPE"], { timeout: 15_000, maxBuffer: 4 * 1024 * 1024 });
-  if (!listed.ok) throw new Error(`findmnt failed: ${tail(listed.stderr)}`);
+  if (!listed.ok) throw new Error(`the list of what is mounted could not be read: ${tail(listed.stderr) || "no reason given"}`);
   return listed.stdout.split("\n").map((row) => row.trim().split(/\s+/)).filter(([target]) => target === mountpoint).map(([, fstype]) => fstype);
 }
 const real = (types) => types.some((type) => type !== "autofs");
@@ -116,17 +116,19 @@ export async function moveBackupMount(_parameters = {}, { run = fixedRun, log = 
     return { moved: false, reason: plan.reason, from: legacyBackupMountpoint, to: backupMountpoint };
   }
   if (plan.action === "refuse") throw new Error(`The backup destination was not moved: ${plan.reason}. fstab was not changed.`);
-  if ((await mountedAt(run, backupMountParent)).length) throw new Error(`${backupMountParent} is itself a mount point; the backup destination was not moved and fstab was not changed`);
-  if ((await mountedAt(run, backupMountpoint)).length) throw new Error(`Something is already mounted at ${backupMountpoint}; the backup destination was not moved and fstab was not changed`);
+  // A read that fails before anything is touched is said as a failure after it is, below.
+  const untouched = (work) => work.catch((error) => { throw new Error(`The backup destination was not moved (${error.message}); fstab was not changed.`); });
+  if ((await untouched(mountedAt(run, backupMountParent))).length) throw new Error(`${backupMountParent} is itself a mount point; the backup destination was not moved and fstab was not changed`);
+  if ((await untouched(mountedAt(run, backupMountpoint))).length) throw new Error(`Something is already mounted at ${backupMountpoint}; the backup destination was not moved and fstab was not changed`);
   await files.mkdir(backupMountpoint, { recursive: true, mode: 0o755 });
   // Mounting over a folder with files in it hides them; that is not a thing to do to somebody quietly.
   const inside = await files.readdir(backupMountpoint);
   if (inside.length) throw new Error(`${backupMountpoint} already has files in it (${inside.slice(0, 3).join(", ")}); move them away and try again. fstab was not changed.`);
 
-  const [oldBase, newBase] = [await unitBase(run, legacyBackupMountpoint), await unitBase(run, backupMountpoint)];
-  const wasMounted = real(await mountedAt(run, legacyBackupMountpoint));
+  const [oldBase, newBase] = [await untouched(unitBase(run, legacyBackupMountpoint)), await untouched(unitBase(run, backupMountpoint))];
+  const wasMounted = real(await untouched(mountedAt(run, legacyBackupMountpoint)));
   log?.(`Moving ${plan.managedName ? `the BoxPilot ${plan.managedName.startsWith("share-") ? "share" : "drive"} ${plan.managedName}` : "an fstab entry"} from ${legacyBackupMountpoint} to ${backupMountpoint}: ${plan.line.trim()}`, "stdout");
-  await releaseAt(run, log, legacyBackupMountpoint, oldBase);
+  await untouched(releaseAt(run, log, legacyBackupMountpoint, oldBase));
 
   const verifiedBefore = await run(binaries.findmnt, ["--verify"], { timeout: 30_000 });
   const fstabCopy = `${fstabPath}.boxpilot-${stampOf(now())}`;
@@ -138,9 +140,9 @@ export async function moveBackupMount(_parameters = {}, { run = fixedRun, log = 
     await files.writeFile(fstabPath, plan.content);
     const verified = await run(binaries.findmnt, ["--verify"], { timeout: 30_000 });
     // Judged against fstab as it was: a warning that was already there is not this move's doing.
-    if (verifiedBefore.ok && !verified.ok) throw new Error(`findmnt --verify rejected the moved entry: ${tail(verified.stderr || verified.stdout)}`);
+    if (verifiedBefore.ok && !verified.ok) throw new Error(`Ubuntu's check of the drive list refused the moved entry: ${tail(verified.stderr || verified.stdout)}`);
     const reloaded = await systemctl(run, ["daemon-reload"], log);
-    if (!reloaded.ok) throw new Error(`systemctl daemon-reload failed: ${tail(reloaded.stderr)}`);
+    if (!reloaded.ok) throw new Error(`Ubuntu did not take the change: ${tail(reloaded.stderr) || "no reason given"}`);
     const started = await startAt(run, log, newBase, { automount: plan.automount, wasMounted });
     if (!started.ok) throw new Error(`could not start ${backupMountpoint}: ${tail(started.stderr)}`);
     const types = await mountedAt(run, backupMountpoint);

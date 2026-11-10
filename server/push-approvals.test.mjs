@@ -132,6 +132,40 @@ describe("when a push goes", () => {
     expect(test.opened()).toEqual([]);
   });
 
+  it("writes what it remembers only when that changed, not on every sweep", async () => {
+    // Every 30 seconds, day and night: 2,880 rewrites of one settings row a day with nothing waiting.
+    const store = memoryStore();
+    const writes = [];
+    const setSetting = store.setSetting;
+    store.setSetting = (key, value, options) => { if (key === "pushApprovalsState") writes.push(structuredClone(value)); return setSetting(key, value, options); };
+    const test = harness({ store });
+    test.addPhone();
+    for (const offset of [1, 2, 3]) { test.at(offset * minute); await test.push.sweep(); }
+    expect(writes).toEqual([]);
+    // A job inside its two minutes changes nothing yet; pushed, it is remembered once.
+    const job = test.store.stage({ createdAt: new Date(start + 3 * minute).toISOString() });
+    test.at(4 * minute); await test.push.sweep();
+    expect(writes).toEqual([]);
+    test.at(6 * minute); await test.push.sweep();
+    expect(writes).toHaveLength(1);
+    expect(Object.keys(writes[0].pushed)).toEqual([job.id]);
+    for (const offset of [7, 8, 9]) { test.at(offset * minute); await test.push.sweep(); }
+    expect(writes).toHaveLength(1);
+    // Approved: forgotten, which is a change; and the send ageing out of the hour is another.
+    test.store.jobs[0].state = "applying";
+    test.at(10 * minute); await test.push.sweep();
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toEqual({ pushed: {}, sent: [new Date(start + 6 * minute).toISOString()] });
+    test.at(11 * minute); await test.push.sweep();
+    test.at(70 * minute); await test.push.sweep();
+    expect(writes).toHaveLength(3);
+    expect(writes[2]).toEqual({ pushed: {}, sent: [] });
+    // A job the owner's tiers leave out is marked skipped once, then left alone.
+    test.store.stage({ risk: "low", createdAt: new Date(start + 70 * minute).toISOString() });
+    for (const offset of [73, 74, 75]) { test.at(offset * minute); await test.push.sweep(); }
+    expect(writes).toHaveLength(4);
+  });
+
   it("pushes each job once, however many sweeps see it", async () => {
     const test = harness();
     test.addPhone();

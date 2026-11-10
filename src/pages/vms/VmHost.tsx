@@ -31,11 +31,14 @@ export function VmHost({ status, foundation, resources, guidance, role, start, o
   const setup = foundationState(foundation);
   const serveUrl = status.tailscale.serveUrls?.[0] ?? null;
 
+  const canSetUp = Boolean(foundation?.planAvailable && !foundation.ready && mayStart(role, "vm.foundation.initialize"));
+  const noneYet = canSetUp ? "None yet. Press Set them up above." : "None yet.";
+
   const initialize = () => start({
     operationId: "vm.foundation.initialize",
     title: "Set up the default VM network and storage",
     parameters: {},
-    preview: <span>Defines, starts, and autostarts only the missing canonical default NAT network and default storage pool. Failure rolls back only this job's changes.</span>,
+    preview: <span>Sets up the network and the disk folder new VMs use, if they are missing. If it fails, only what this job made is undone.</span>,
   });
 
   return (
@@ -51,12 +54,12 @@ export function VmHost({ status, foundation, resources, guidance, role, start, o
           rows={status.checks}
           rowKey={(check) => check.id}
           rowStatus={(check) => (check.ok ? undefined : "danger")}
-          empty="No checks reported."
+          empty="None yet."
         />
       </Panel>
 
       <Panel padded title="Default network and storage pool" count={{ status: setup.status, label: setup.label }}
-        actions={foundation?.planAvailable && !foundation.ready && mayStart(role, "vm.foundation.initialize") ? <Button variant="primary" risk={riskOf("vm.foundation.initialize")} onClick={initialize}>Set them up</Button> : undefined}>
+        actions={canSetUp ? <Button variant="primary" risk={riskOf("vm.foundation.initialize")} onClick={initialize}>Set them up</Button> : undefined}>
         <KeyValue items={[
           { id: "network", label: "NAT network", mono: true, value: <>{foundation?.network.name ?? "default"} · {onOff(foundation?.network.exists, foundation?.network.active)} · {foundation?.network.autostart ? "autostart" : "manual"} · {foundation?.network.bridge ?? "virbr0"}</>, hint: foundation?.boundary.networkCidr ?? "192.168.122.0/24" },
           { id: "pool", label: "Storage pool", mono: true, value: <>{foundation?.pool.name ?? "default"} · {onOff(foundation?.pool.exists, foundation?.pool.active)} · {foundation?.pool.autostart ? "autostart" : "manual"}</>, hint: foundation?.pool.targetPath ?? "/var/lib/libvirt/images" },
@@ -91,7 +94,7 @@ export function VmHost({ status, foundation, resources, guidance, role, start, o
             ]}
             rows={resources?.networks ?? []}
             rowKey={(network) => network.name}
-            empty="No libvirt networks reported."
+            empty={noneYet}
           />
           <Table<Pool>
             caption="Storage pools"
@@ -103,7 +106,7 @@ export function VmHost({ status, foundation, resources, guidance, role, start, o
             ]}
             rows={resources?.pools ?? []}
             rowKey={(pool) => pool.name}
-            empty="No storage pools reported."
+            empty={noneYet}
           />
         </div>
         {(resources?.errors?.length ?? 0) > 0 && <ul className="vms-list vms-errors">{resources!.errors.map((error) => <li key={error}>{error}</li>)}</ul>}
@@ -121,7 +124,7 @@ export function VmHost({ status, foundation, resources, guidance, role, start, o
           { id: "tailscale", label: "Tailscale", value: serveUrl ? <a className="vms-link" href={serveUrl}>{serveUrl}</a> : status.tailscale.connected ? `Connected${status.tailscale.dnsName ? ` as ${status.tailscale.dnsName}` : ""}; no Serve address` : "Not connected on this host" },
           { id: "console", label: "Console", value: guidance?.privateUrl ? <a className="vms-link" href={guidance.privateUrl} target="_blank" rel="noreferrer">Open the Cockpit console</a> : guidance?.cockpit.installed ? "Cockpit installed, not reachable yet" : "No web console" },
         ]} />
-        <p className="vms-note">{guidance?.accessNote || "Console guidance is unavailable."} For a service inside a VM, install Tailscale in the guest or give it a planned LAN address; BoxPilot does not proxy a guest's console.</p>
+        <p className="vms-note">{guidance?.accessNote || "Console guidance is unavailable."} For a service inside a VM, install Tailscale in the guest or give it a planned LAN address.</p>
       </Panel>
     </>
   );

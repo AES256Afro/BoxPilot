@@ -60,7 +60,7 @@ export function createForeignProjects({ docker, redact }) {
     const files = composeFileArgs(project);
     if (!files.length) throw new Error(`${name} does not report a compose file, so BoxPilot cannot act on it`);
     progress?.(`${action} ${name}...`, "stdout");
-    const result = await docker(["compose", "--project-name", name, ...files, action], { timeout: 5 * 60_000, progress });
+    const result = await docker(["compose", "--project-name", name, ...files, action], { timeout: 5 * 60_000, ...(progress ? { onLine: progress } : {}) });   // onLine is what the Docker runner streams to
     if (!result.ok) throw new Error(`docker compose ${action} failed: ${redact(result.stderr).split("\n").slice(-3).join(" ")}`);
     return { name, action, done: true };
   }

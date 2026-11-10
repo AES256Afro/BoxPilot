@@ -35,7 +35,7 @@ export function prerequisiteOperations() {
       run: async (_parameters, { createProbeWriter = createJobLogWriter, inspectProbe = stat, now = () => new Date() } = {}) => {
         const jobId = "00000000-0000-4000-8000-00000000c0de";   // one fixed probe, rewritten each time
         const writer = createProbeWriter({ jobId, gid: serviceGroupId(), replaceExisting: true });
-        if (!await writer.append(`canary ${now().toISOString()}`, "stdout")) throw new Error("The helper could not write fresh diagnostic log evidence");
+        if (!await writer.append(`canary ${now().toISOString()}`, "stdout")) throw new Error("BoxPilot's helper answered but could not write a job log, so a job would run with nothing to show for it. Restart BoxPilot, then check again.");
         const path = jobLogPath(jobId);
         const mode = await inspectProbe(path).then((entry) => entry.mode & 0o777, () => null);
         return { verified: true, helperVersion: productVersion, mutationPerformed: false, jobLog: { path, mode } };

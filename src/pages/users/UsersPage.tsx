@@ -113,8 +113,8 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
     title: passwordAuth ? "Turn off SSH password login" : "Allow SSH password login",
     parameters: { enabled: !passwordAuth },
     preview: passwordAuth
-      ? <span>Writes <code>PasswordAuthentication no</code> to a validated sshd drop-in and reloads ssh. Only key holders can sign in over plain SSH afterwards; Tailscale SSH is unaffected.</span>
-      : <span>Writes <code>PasswordAuthentication yes</code> to the sshd drop-in and reloads ssh.</span>,
+      ? <span>Turns off signing in over SSH with a password. Only key holders can sign in over plain SSH afterwards; Tailscale SSH is unaffected.</span>
+      : <span>Turns signing in over SSH with a password back on. Open sessions stay.</span>,
   });
 
   const toggleSudo = (user: UserRow) => start({
@@ -227,9 +227,10 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
           side="center"
           size="sm"
           onClose={() => setSheet(null)}
+          onSubmit={() => { if (keysReady) importKeys(); }}
           footer={<>
             <Button variant="ghost" onClick={() => setSheet(null)}>Cancel</Button>
-            <Button variant="primary" risk={riskOf("users.keys.import")} disabled={!keysReady} onClick={importKeys}>Import</Button>
+            <Button variant="primary" type="submit" risk={riskOf("users.keys.import")} disabled={!keysReady}>Import</Button>
           </>}
         >
           <div className="users-form">
@@ -250,9 +251,10 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
           side="center"
           size="sm"
           onClose={() => setSheet(null)}
+          onSubmit={() => { if (username && !usernameProblem && !newGithubProblem) addUser(); }}
           footer={<>
             <Button variant="ghost" onClick={() => setSheet(null)}>Cancel</Button>
-            <Button variant="primary" risk={riskOf("users.add")} disabled={!username || Boolean(usernameProblem) || Boolean(newGithubProblem)} onClick={addUser}>Add user</Button>
+            <Button variant="primary" type="submit" risk={riskOf("users.add")} disabled={!username || Boolean(usernameProblem) || Boolean(newGithubProblem)}>Add user</Button>
           </>}
         >
           <div className="users-form">
