@@ -10,8 +10,8 @@ description: "Security news, CVEs and advisories in one timeline; a change regis
 website: https://github.com/AES256Afro/BaselineWatch
 risk: low
 image:
-  reference: ghcr.io/aes256afro/baselinewatch:0.54.1@sha256:aa719d0dca618a19dad2af5df4ba2dcda1db4c4d8d4a3eb7997ea9ac773c43f7
-  version: "0.54.1"
+  reference: ghcr.io/aes256afro/baselinewatch:0.55.0@sha256:3223f77367228dbbda3b5055cff88ae6a29525e86522a9c4b0233cb8180f8e71
+  version: "0.55.0"
 ports:
   - id: web
     label: Web UI
@@ -82,12 +82,12 @@ env:
     default: "llama3.2:3b"
   - name: BW_LOOK
     label: Look
-    description: How pages are drawn unless a browser chooses otherwise from the masthead. Console is the dense dashboard with panels and charts; Register is the paper look.
-    default: console
-    options: ["console", "register"]
+    description: How pages are drawn unless a browser chooses otherwise on the Appearance page. Register is the paper look, the default; Console is the dense dashboard with panels and charts.
+    default: register
+    options: ["register", "console"]
   - name: BW_SCHEME
     label: Colours
-    description: Light, dark, or whatever each device says. Each browser can pick its own from the masthead.
+    description: Light, dark, or whatever each device says. Each browser can pick its own on the Appearance page.
     default: system
     options: ["system", "light", "dark"]
   - name: BW_PROBE_ORIGIN
