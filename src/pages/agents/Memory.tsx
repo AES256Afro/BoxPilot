@@ -33,15 +33,20 @@ export interface MemoryProps {
   /** The tool catalog, so a fact's or an example's tools are named by their titles. */
   tools?: ToolInfo[] | null;
   onSelectAgent: (agentId: string) => void;
+  /** Opens an agent's Build tab, where sharing and using findings are switched; absent when this person has no Build tab. */
+  onOpenBuild?: (agentId: string) => void;
 }
 
-export function Memory({ agents, agentId, csrfToken, role, now, tools = null, onSelectAgent }: MemoryProps) {
+export function Memory({ agents, agentId, csrfToken, role, now, tools = null, onSelectAgent, onOpenBuild }: MemoryProps) {
   const usable = agents.filter((agent) => agent.canEdit);
   const agent = usable.find((entry) => entry.id === agentId) ?? usable[0] ?? null;
   const [state, setState] = useState<MemoryState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<MemoryNote | null>(null);
+  // A save of the fact being edited: out, and why it failed, said in its sheet rather than behind it.
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [exporting, setExporting] = useState(false);
   // The example book arrives apart from the rest, and an older server has none to give.
@@ -78,7 +83,27 @@ export function Memory({ agents, agentId, csrfToken, role, now, tools = null, on
     kicker: agent.name, title, body, confirmLabel: "Forget",
     onConfirm: async () => { await work(); setNotice(done); setError(null); await read(agent.id); },
   });
-  const openEdit = (note: MemoryNote) => { setEditing(note); setDraft({ title: note.title, body: note.body, freshDays: "" }); };
+  const saveEdit = async (note: MemoryNote) => {
+    if (editBusy) return;
+    setEditBusy(true); setEditError(null);
+    try {
+      // Only what changed (sweep 4): new words are the person's own, and clear a flagged fact's flag; its own words sent back unchanged must not.
+      await agentsApi.editMemory(csrfToken, agent.id, note.id, {
+        ...(draft.title !== note.title ? { title: draft.title } : {}),
+        ...(draft.body !== note.body ? { body: draft.body } : {}),
+        ...(draft.freshDays === "always" ? { freshDays: null } : draft.freshDays ? { freshDays: Number(draft.freshDays) } : {}),
+      });
+      setEditing(null);
+      setNotice("The fact is changed; its embedding is made again in quiet hours.");
+      setError(null);
+      await read(agent.id);
+    } catch (requestError) {
+      setEditError(errorText(requestError, "The server did not say why"));
+    } finally {
+      setEditBusy(false);
+    }
+  };
+  const openEdit = (note: MemoryNote) => { setEditing(note); setEditError(null); setDraft({ title: note.title, body: note.body, freshDays: "" }); };
   const toolNames = (ids: string[]) => ids.map((id) => toolTitle(tools, id)).join(", ");
 
   const factColumns: Array<TableColumn<MemoryNote>> = [
@@ -157,6 +182,8 @@ export function Memory({ agents, agentId, csrfToken, role, now, tools = null, on
     { id: "forget", header: <span className="ui-visually-hidden">Forget</span>, label: "Actions", className: "agents-actions-cell", cell: (example) => <Button variant="ghost" onClick={() => forget("Forget this example?", `The planner is no longer shown it${example.seed ? ", though the template's own examples come back when the agent is made again" : ""}. It leaves the training export too. This cannot be undone.`, () => agentsApi.forgetExample(csrfToken, agent.id, example.id), "Forgot that example; the planner is no longer shown it.")} aria-label={`Forget the example ${example.request}`}>Forget</Button> },
   ];
 
+  const teamButton = onOpenBuild ? <Button onClick={() => onOpenBuild(agent.id)}>Open its Build tab</Button> : undefined;
+
   return (
     <div className="agents-tab agents-memory">
       {error && <Notice tone="danger" live onDismiss={() => setError(null)}>{error}</Notice>}
@@ -187,15 +214,15 @@ export function Memory({ agents, agentId, csrfToken, role, now, tools = null, on
       <Panel className="agents-findings" title="Findings this agent shared" count={findings.shared.length} meta="what its routine runs and checked answers found, for the other agents">
         <Table caption={`Findings ${agent.name} shared`} columns={findingColumns(true)} rows={findings.shared} rowKey={(finding) => finding.id}
           rowStatus={(finding) => (finding.unsure || finding.partial ? "warning" : undefined)}
-          empty={<EmptyState title="Nothing shared yet">{state.settings.shareFindings === false
-            ? "It does not share its findings. Turn that on in its Build tab, under Team."
+          empty={<EmptyState title="Nothing shared yet" action={state.settings.shareFindings === false ? teamButton : undefined}>{state.settings.shareFindings === false
+            ? `It does not share its findings. That is switched on its Build tab, under Team.`
             : "After its next routine run, or an answer it checks against its tools, what it found is kept here for the other agents."}</EmptyState>} />
       </Panel>
 
       <Panel className="agents-findings-usable" title="Findings it can use" count={findings.usable.length} meta="the other agents' fresh ones, as far as you may read">
         <Table caption={`Other agents' findings ${agent.name} can use`} columns={findingColumns(false)} rows={findings.usable} rowKey={(finding) => finding.id}
-          empty={<EmptyState title="None to use now">{state.settings.useFindings === false
-            ? "It does not use the other agents' findings. Turn that on in its Build tab, under Team."
+          empty={<EmptyState title="None to use now" action={state.settings.useFindings === false ? teamButton : undefined}>{state.settings.useFindings === false
+            ? "It does not use the other agents' findings. That is switched on its Build tab, under Team."
             : "When another agent shares a finding, it shows here until it goes stale."}</EmptyState>} />
       </Panel>
 
@@ -257,16 +284,9 @@ export function Memory({ agents, agentId, csrfToken, role, now, tools = null, on
       {exporting && examples && <ExportSheet agent={agent} counts={examples.counts} onClose={() => setExporting(false)} />}
       {editing && (
         <Sheet kicker={agent.name} title="Edit a fact" onClose={() => setEditing(null)}
-          footer={<><Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button><Button variant="primary" onClick={() => void act(async () => {
-            // Only what changed (sweep 4): new words are the person's own, and clear a flagged fact's flag; its own words sent back unchanged must not.
-            await agentsApi.editMemory(csrfToken, agent.id, editing.id, {
-              ...(draft.title !== editing.title ? { title: draft.title } : {}),
-              ...(draft.body !== editing.body ? { body: draft.body } : {}),
-              ...(draft.freshDays === "always" ? { freshDays: null } : draft.freshDays ? { freshDays: Number(draft.freshDays) } : {}),
-            });
-            setEditing(null);
-          }, "The fact is changed; its embedding is made again in quiet hours.")}>Save</Button></>}>
+          footer={<><Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button><Button variant="primary" busy={editBusy} onClick={() => void saveEdit(editing)}>Save</Button></>}>
           <div className="agents-password">
+            {editError && <Notice tone="danger" live title="The fact was not changed">{editError}</Notice>}
             <Field label="Title"><TextInput value={draft.title} maxLength={120} onValueChange={(value) => setDraft({ ...draft, title: value })} /></Field>
             <Field label="What it remembers"><Textarea rows={6} value={draft.body} maxLength={2000} onValueChange={(value) => setDraft({ ...draft, body: value })} /></Field>
             <Field label="Stays fresh" hint="Leave as it is, or set again">

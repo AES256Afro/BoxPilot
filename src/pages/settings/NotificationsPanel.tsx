@@ -11,6 +11,7 @@ interface QuietHoursState { enabled: boolean; start: string; end: string; holdHi
 interface WeeklyReportStatus { enabled: boolean; cadence: string; nextDueAt: string | null; lastSentAt: string | null; lastResult: "sent" | "not-announced" | "missed" | null; targetConfigured: boolean }
 
 const services = [{ value: "ntfy", label: "ntfy" }, { value: "gotify", label: "Gotify" }, { value: "webhook", label: "Webhook" }];
+const serviceLabel = (kind: string | null) => services.find((service) => service.value === kind)?.label ?? kind ?? "";
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : null);
 
 /**
@@ -101,15 +102,17 @@ function QuietHours({ csrfToken }: { csrfToken: string }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed read has Try again, as the weekly report's has.
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let gone = false;
     fetch("/api/v1/settings/quiet-hours")
       .then(async (response) => { if (!response.ok) throw new Error(`The server answered ${response.status}`); return response.json() as Promise<QuietHoursState>; })
-      .then((body) => { if (!gone) { setState(body); setDraft({ enabled: body.enabled, start: body.start, end: body.end, holdHigh: body.holdHigh }); } })
+      .then((body) => { if (!gone) { setState(body); setDraft({ enabled: body.enabled, start: body.start, end: body.end, holdHigh: body.holdHigh }); setError(null); } })
       .catch((requestError: unknown) => { if (!gone) setError(requestError instanceof Error ? requestError.message : "Could not read quiet hours"); });
     return () => { gone = true; };
-  }, []);
-  if (!state || !draft) return error ? <Panel title="Quiet hours" padded className="settings-panel"><Notice tone="danger" live>{error}</Notice></Panel> : null;
+  }, [attempt]);
+  if (!state || !draft) return error ? <Panel title="Quiet hours" padded className="settings-panel"><Notice tone="danger" live title="Quiet hours could not be read" action={<Button onClick={() => setAttempt((count) => count + 1)}>Try again</Button>}>{error}</Notice></Panel> : null;
   const changed = draft.enabled !== state.enabled || draft.start !== state.start || draft.end !== state.end || draft.holdHigh !== state.holdHigh;
   const save = async () => {
     setBusy(true); setError(null); setMessage(null);
@@ -170,7 +173,16 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
   // A notification server the owner already installed on this box. BoxPilot can send to it over
   // loopback without anything being exposed, so the target is one click of prefill plus a password.
   const [localServer, setLocalServer] = useState<{ kind: "ntfy" | "gotify"; name: string; sendUrl: string; reachAddress: string | null } | null>(null);
-  const refresh = () => fetch("/api/v1/settings/notifications").then((response) => response.json()).then((body: NotificationState) => setCurrent(body)).catch(() => setError("Could not read the notification settings"));
+  // A refusal's body ({ error }) used to be kept as the settings, so the panel drew "Off" and a form
+  // over a target it had not read: the answer is checked, and a failure is said with Try again.
+  const [readError, setReadError] = useState<string | null>(null);
+  const refresh = () => fetch("/api/v1/settings/notifications")
+    .then(async (response) => {
+      const body = (await response.json().catch(() => null)) as (NotificationState & { error?: string }) | null;
+      if (!response.ok || !body || typeof body.configured !== "boolean") throw new Error(body?.error ?? `The server answered ${response.status}`);
+      setCurrent(body); setReadError(null);
+    })
+    .catch((requestError: unknown) => setReadError(requestError instanceof Error ? requestError.message : "The server did not answer"));
   // The watch list is read apart, with Try again when it fails (M50): it used to vanish without a word.
   const [watchError, setWatchError] = useState<string | null>(null);
   const readWatch = useCallback(() => fetch("/api/v1/settings/watch")
@@ -245,7 +257,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
       <div className="settings-column">
         <Panel
           title="Where alerts go"
-          count={current ? { status: configured ? "good" : "neutral", label: configured ? `${current.kind} configured` : "Off" } : undefined}
+          count={current ? { status: configured ? "good" : "neutral", label: configured ? `On · ${serviceLabel(current.kind)}` : "Off" } : undefined}
           padded
           className="settings-panel"
           footer="A push for a failed job, a new BoxPilot release, a sign-in from a new address, a watched condition turning bad and clearing, and the weekly report."
@@ -253,7 +265,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
           {configured && !editing && current && (
             <>
               <KeyValue layout="rows" items={[
-                { id: "kind", label: "Service", value: current.kind ?? "", mono: true },
+                { id: "kind", label: "Service", value: serviceLabel(current.kind) },
                 { id: "url", label: "Sends to", value: current.url ?? "", mono: true },
                 ...(current.kind === "ntfy" && current.topic ? [{ id: "topic", label: "Topic", value: current.topic, mono: true }] : []),
                 { id: "token", label: "Token", value: current.hasToken ? "kept on this server" : "none" },
@@ -264,14 +276,15 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
               </div>
             </>
           )}
-          {!current && !error && <p className="settings-quiet">Reading…</p>}
+          {!current && !readError && <p className="settings-quiet">Reading…</p>}
+          {readError && <Notice tone="danger" live title="The notification settings could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{readError}</Notice>}
           {offerLocal && localServer && (
             <Notice tone="info" title={`${localServer.name} is running on this server`} action={<Button onClick={useLocalServer}>Use the {localServer.name} on this server</Button>}>
               Point BoxPilot at it in one step.
             </Notice>
           )}
           {localServer && url === localServer.sendUrl && (
-            <p className="settings-quiet">Alerts will be sent to the {localServer.name} on this server. To get them on your phone, open the {localServer.name} app and subscribe to {kind === "ntfy" ? <>topic <code>{topic || "boxpilot"}</code></> : "this server"}{localServer.reachAddress ? <> at <code>{localServer.reachAddress}</code></> : ""}. If the app is only reachable from this server, publish it on your tailnet first from its catalog card.</p>
+            <p className="settings-quiet">Alerts will be sent to the {localServer.name} on this server. To get them on your phone, open the {localServer.name} app and subscribe to {kind === "ntfy" ? <>topic <code>{topic || "boxpilot"}</code></> : "this server"}{localServer.reachAddress ? <> at <code>{localServer.reachAddress}</code></> : ""}. If the app is only reachable from this server, publish it on your tailnet first. <Button variant="ghost" onClick={() => openView("catalog", { app: localServer.kind })}>Open {localServer.name} in the catalog</Button></p>
           )}
           {form && current && (
             <form className="settings-form" onSubmit={(event) => { event.preventDefault(); if (password.length >= 12 && url) void save({ kind, url, ...(kind === "ntfy" ? { topic } : {}), ...(token ? { token } : {}) }); }}>
@@ -302,6 +315,8 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
                   {editing && <Button variant="ghost" onClick={() => { setEditing(false); setPassword(""); }}>Cancel</Button>}
                 </div>
               </div>
+              {/* Not greyed buttons with no reason: say what they wait for. */}
+              {!busy && password.length < 12 && <p className="settings-quiet">Type your password to save.</p>}
             </form>
           )}
           {message && <Notice tone="success" live>{message}</Notice>}

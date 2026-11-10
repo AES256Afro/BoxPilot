@@ -369,7 +369,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
           {canToggle && report?.installed && report.enabled !== null && (
             <Button variant={report.enabled ? "secondary" : "primary"} risk={riskOf("firewall.set")} disabled={loading} onClick={toggleFirewall}>{report.enabled ? "Turn off" : "Turn on"}</Button>
           )}
-          <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(overview)}>Read again</Button>
+          <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(overview)}>Check again</Button>
         </>}
         about={<>
           <p>Profiles, open ports, and suggestions based on what is listening.</p>

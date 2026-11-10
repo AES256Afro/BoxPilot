@@ -53,4 +53,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 600
-notes: "Register the first account; registration can be closed later with NEXT_PUBLIC_DISABLE_REGISTRATION via Config."
+notes: "Register the first account; registration can be closed later with NEXT_PUBLIC_DISABLE_REGISTRATION on its Compose tab."

@@ -127,6 +127,7 @@
 /* On, Asked, Off on one line: a narrow column would otherwise stack them. */
 .agents-tool__permission .ui-segmented { flex-wrap: nowrap; }
 .agents-editor__foot { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: flex-end; gap: 8px; }
+.agents-editor__result { flex: 1 1 100%; min-width: 0; }
 .agents-editor__note { flex: 1 1 14rem; min-width: 0; }
 .agents-diff { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .agents-diff__field { display: grid; gap: 4px; min-width: 0; }

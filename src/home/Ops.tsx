@@ -149,7 +149,9 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
     { id: "state", header: "State", cell: (job) => { const state = jobState(job); return <StatusChip status={state.status}>{state.label}</StatusChip>; } },
     { id: "started", header: "Started", numeric: true, cell: (job) => shortAge(job.createdAt, clock) ?? "—" },
     { id: "took", header: "Took", numeric: true, hideOnPhone: true, cell: (job) => {
-      const from = Date.parse(job.createdAt ?? "");
+      // From the approval, when there was one: a job staged by an agent and approved six hours
+      // later ran for five seconds, not "6h 00m".
+      const from = Date.parse(job.approvals?.[0]?.createdAt ?? job.createdAt ?? "");
       if (!Number.isFinite(from)) return "—";
       if (job.state === "applying" || job.state === "verifying") return elapsed(clock - from);
       const to = Date.parse(job.updatedAt ?? "");
