@@ -23,9 +23,16 @@ describe("the Pi-hole manifest", () => {
     const manifest = await piHole();
     const listening = manifest.env.find((entry) => entry.name === setting);
     expect(listening).toMatchObject({ label: "Listening mode", options: ["all", "local", "single", "bind"], default: "all", fixed: false, required: false, secret: false, type: "string" });
-    for (const mode of ["all", "local", "single", "bind"]) expect(listening.description).toMatch(new RegExp(`\\b${mode} `));
-    expect(listening.description).toMatch(/Pick bind when another DNS server runs on this machine/);
-    expect(listening.description).toContain("libvirt");
+    // Each mode is offered in words, with what it does said under the field when it is the one chosen;
+    // the value stored and handed to pihole-FTL is still Pi-hole's own word.
+    expect(listening.optionLabels.map((option) => [option.value, option.label])).toEqual([["all", "Everyone who asks"], ["local", "Only this network"], ["single", "The main connection only"], ["bind", "The main connection, leaving other addresses free"]]);
+    for (const option of listening.optionLabels) expect(option.hint).toBeTruthy();
+    const bind = listening.optionLabels.find((option) => option.value === "bind");
+    expect(bind.hint).toMatch(/Pick this when another DNS server runs on this machine/);
+    expect(bind.hint).toContain("libvirt");
+    const upstream = manifest.env.find((entry) => entry.name === "FTLCONF_dns_upstreams");
+    expect(upstream.default).toBe("9.9.9.9;149.112.112.112");
+    expect(upstream.optionLabels.map((option) => [option.value, option.label])).toEqual([["9.9.9.9;149.112.112.112", "Quad9"], ["1.1.1.1;1.0.0.1", "Cloudflare"], ["8.8.8.8;8.8.4.4", "Google"], ["94.140.14.14;94.140.15.15", "AdGuard"], ["unbound#53", "The bundled resolver (Unbound)"]]);
     // The host-mode note still covers systemd-resolved, and now points at the setting.
     expect(manifest.notes).toContain("DNSStubListener=no");
     expect(manifest.notes).toContain("Listening mode setting");

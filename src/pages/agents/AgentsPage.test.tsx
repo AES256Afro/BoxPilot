@@ -301,7 +301,8 @@ describe("the builder", () => {
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude" } });
     fireEvent.change(screen.getByLabelText("What may leave this server"), { target: { value: "as-is" } });
     fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
-    expect(await screen.findByText("Saved as version 3.")).toBeTruthy();
+    // Said at the foot of the form, beside the button that saved it.
+    expect((await screen.findByText("Saved as version 3.")).closest(".agents-editor__foot")?.contains(screen.getByRole("button", { name: /^Save as version/ }))).toBe(true);
     const saved = (calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec;
     expect(saved.name).toBe("Keeper");
     expect(saved.model).toMatchObject({ route: "claude", dataPolicy: "as-is", thinking: spec.model.thinking });
@@ -404,6 +405,74 @@ describe("the builder's steps", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save, then test" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Test" }).getAttribute("aria-selected")).toBe("true"));
     expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec }).spec.name).toBe("Keeper");
+  });
+
+  // The guard covered "Test it", the picker and "New agent"; another tab, or closing the page, dropped the changes unasked.
+  it("asks before another tab of Agents, or the browser, drops unsaved changes", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    serve(base({ [`GET /api/v1/agents/${keeperId}`]: detail(2), "GET /api/v1/agents/usage": usage, "GET /api/v1/agents/runtime": runtime }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const closing = () => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; };
+    await screen.findByLabelText("Name");
+    expect(closing()).toBe(false);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Keeper" } });
+    await waitFor(() => expect(closing()).toBe(true));
+    fireEvent.click(screen.getByRole("tab", { name: "Usage" }));
+    expect(screen.getByRole("tab", { name: "Build" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Your changes are not saved")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+    expect(screen.queryByText("Your changes are not saved")).toBeNull();
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Keeper");
+    fireEvent.click(screen.getByRole("tab", { name: "Usage" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave without saving" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Usage" }).getAttribute("aria-selected")).toBe("true"));
+    expect(closing()).toBe(false);
+    // With nothing unsaved, a tab is a tab.
+    fireEvent.click(screen.getByRole("tab", { name: "Build" }));
+    await screen.findByLabelText("Name");
+    fireEvent.click(screen.getByRole("tab", { name: "Usage" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Usage" }).getAttribute("aria-selected")).toBe("true"));
+    expect(screen.queryByText("Your changes are not saved")).toBeNull();
+  });
+
+  it("says a failed save at the foot of the form, beside Save", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    serve(base({ [`GET /api/v1/agents/${keeperId}`]: detail(2), [`PUT /api/v1/agents/${keeperId}`]: () => json({ error: "The name is taken." }, 409) }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Keeper" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
+    const failure = await screen.findByText("The name is taken.");
+    expect(failure.closest(".agents-editor__foot")).toBeTruthy();
+    expect(within(failure.closest(".agents-editor__foot") as HTMLElement).getByText("Not saved")).toBeTruthy();
+  });
+
+  it("asks before replacing or taking away a webhook URL something may be calling", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    const hooked = { ...detail(2), webhook: { enabled: true, minted: true }, spec: { ...spec, triggers: { ...spec.triggers, webhook: true } } };
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}`]: hooked,
+      [`POST /api/v1/agents/${keeperId}/webhook`]: { token: "t".repeat(43), path: `/api/v1/hooks/agents/${keeperId}/${"t".repeat(43)}` },
+      [`DELETE /api/v1/agents/${keeperId}/webhook`]: { cleared: true },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const webhook = await screen.findByRole("region", { name: "Webhook" });
+    const changes = () => calls.filter((call) => call.path.endsWith("/webhook")).map((call) => call.method);
+    fireEvent.click(within(webhook).getByRole("button", { name: "Make a new URL" }));
+    let asked = screen.getByRole("dialog", { name: "Make a new URL?" });
+    expect(asked.textContent).toContain("The old one stops working at once; whatever calls it has to be given the new one.");
+    fireEvent.click(within(asked).getByRole("button", { name: "Keep the old one" }));
+    expect(changes()).toEqual([]);
+    fireEvent.click(within(webhook).getByRole("button", { name: "Make a new URL" }));
+    asked = screen.getByRole("dialog", { name: "Make a new URL?" });
+    fireEvent.click(within(asked).getByRole("button", { name: "Make a new URL" }));
+    expect(await within(webhook).findByText("Copy it now")).toBeTruthy();
+    expect(changes()).toEqual(["POST"]);
+    fireEvent.click(within(webhook).getByRole("button", { name: "Take it away" }));
+    asked = screen.getByRole("dialog", { name: "Take the URL away?" });
+    expect(asked.textContent).toContain("Nothing can start Server Keeper from outside until you make a new one.");
+    expect(changes()).toEqual(["POST"]);
+    fireEvent.click(within(asked).getByRole("button", { name: "Take it away" }));
+    await waitFor(() => expect(changes()).toEqual(["POST", "DELETE"]));
   });
 
   it("goes straight to testing when nothing is unsaved", async () => {
@@ -847,6 +916,13 @@ describe("the learning library", () => {
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
     const documents = await screen.findByRole("table", { name: "Documents you gave the agents" });
     expect(within(documents).getByText("PDF")).toBeTruthy();
+    // Where Notion's token is saved, as a button rather than a sentence.
+    const opened: unknown[] = [];
+    const onOpen = (event: Event) => opened.push((event as CustomEvent).detail);
+    window.addEventListener("boxpilot:open-view", onOpen);
+    fireEvent.click(screen.getByRole("button", { name: "Open Credentials" }));
+    window.removeEventListener("boxpilot:open-view", onOpen);
+    expect(opened).toEqual([{ view: "settings", options: { tab: "credentials" } }]);
     fireEvent.click(within(documents).getByRole("button", { name: "Pin How the network is laid out" }));
     await waitFor(() => expect(calls.find((call) => call.path.endsWith("/pin"))?.body).toEqual({ pinned: true }));
 
@@ -1039,6 +1115,37 @@ describe("memory", () => {
     await waitFor(() => expect(calls.filter((call) => call.method === "PUT").map((call) => call.body).at(-1)).toEqual({ title: "Sign-in prompts" }));
     await edit(() => fireEvent.change(screen.getByRole("textbox", { name: "What it remembers" }), { target: { value: "Nothing needs a sign-in." } }));
     await waitFor(() => expect(calls.filter((call) => call.method === "PUT").map((call) => call.body).at(-1)).toEqual({ body: "Nothing needs a sign-in." }));
+  });
+
+  // A failed save went into the page's notice, behind the open sheet, and Save showed nothing while it was out.
+  it("says in the Edit sheet why a fact was not changed, and keeps what was typed", async () => {
+    window.history.replaceState(null, "", `/?view=agents&tab=memory&agent=${keeperId}`);
+    const fact = { id: "99999999-9999-4999-8999-999999999997", title: "Sign-in", body: "The app asked for a sign-in.", source: { by: "agent", tools: [] }, createdAt: ago(600), updatedAt: ago(600), freshUntil: ago(-6000), stale: false, pinned: false, shared: false, readRole: "owner", indexed: false };
+    let refuse = true;
+    serve(base({
+      [`GET /api/v1/agents/${keeperId}/memory`]: {
+        facts: [fact], shared: [], episodes: [], thread: null,
+        settings: { enabled: true, share: true, threads: true, turns: 6, freshDays: 14, maxNotes: 80, shareFindings: false, useFindings: true },
+        search: { byMeaning: false, model: "fake", pending: 0, vectors: 0 },
+      },
+      [`PUT /api/v1/agents/${keeperId}/memory/notes/${fact.id}`]: () => (refuse ? json({ error: "A title is needed." }, 400) : json(fact)),
+      [`GET /api/v1/agents/${keeperId}`]: detail(2),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    fireEvent.click(within(await screen.findByRole("table", { name: "Facts Server Keeper learned" })).getByRole("button", { name: "Edit the fact Sign-in" }));
+    const sheet = screen.getByRole("dialog", { name: "Edit a fact" });
+    fireEvent.change(within(sheet).getByRole("textbox", { name: "Title" }), { target: { value: "Sign-in prompts" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Save" }));
+    expect(await within(sheet).findByText("The fact was not changed")).toBeTruthy();
+    expect(within(sheet).getByText("A title is needed.")).toBeTruthy();
+    expect((within(sheet).getByRole("textbox", { name: "Title" }) as HTMLInputElement).value).toBe("Sign-in prompts");
+    refuse = false;
+    fireEvent.click(within(sheet).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit a fact" })).toBeNull());
+    expect(await screen.findByText(/The fact is changed/)).toBeTruthy();
+    // Where the switch is, as a button: its Build tab.
+    fireEvent.click(within(screen.getByRole("region", { name: "Findings this agent shared" })).getByRole("button", { name: "Open its Build tab" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Build" }).getAttribute("aria-selected")).toBe("true"));
   });
 
   it("says when a fact's words are another account's, and lets the owner trust them (sweep 4, R4B1-2)", async () => {

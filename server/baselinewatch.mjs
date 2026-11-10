@@ -76,16 +76,21 @@ export function summarizeGlance({ items, vulns, changes, triage, digest }, { sin
   const releases = changeRows ? releasesIn(changeRows) : null;
   const controls = changeRows ? changeRows.length : null;
   const affects = affectsRows ? affectsRows.length : null;
+  // A list that came back full was asked for no more than it holds: its count is "at least", and the card says so
+  // (`more`, and the caption in words) rather than showing 200 as the whole of it. A total the app counted itself is whole.
+  const full = (rows) => rows !== null && rows.length >= baselinewatchLimits.listLimit;
+  const more = { kev: full(kevItems), watched: count(vulns?.total) === null && full(list(vulns?.vulns)), changes: full(changeRows), affects: full(affectsRows) };
+  const orMore = (cut, words) => (cut ? `or more, ${words}` : words);
   const latest = digest && typeof digest === "object" && digest.digest && typeof digest.digest === "object" ? digest.digest : null;
   const generatedAt = isoTime(latest?.generatedAt);
   return {
     since,
     readAt: now.toISOString(),
     metrics: [
-      { id: "kev", label: "KEV additions", value: kev, caption: kev === null ? "not read" : "known exploited", status: toneOf(kev, { danger: kev !== null && kev > 0 }), path: "/wire?kind=kev" },
-      { id: "watched", label: "Watched CVEs changed", value: changedVulns, caption: changedVulns === null ? "not read" : "on your watchlist", status: toneOf(changedVulns), path: "/vulns?watch=1" },
-      { id: "releases", label: "Standard releases", value: releases, caption: releases === null ? "not read" : controls === 1 ? "1 control changed" : `${controls} controls changed`, status: toneOf(releases), path: "/" },
-      { id: "affects", label: "Marked affects us", value: affects, caption: affects === null ? "not read" : "open in triage", status: toneOf(affects), path: "/triage?state=affects" },
+      { id: "kev", label: "KEV additions", value: kev, caption: kev === null ? "not read" : orMore(more.kev, "known exploited"), status: toneOf(kev, { danger: kev !== null && kev > 0 }), path: "/wire?kind=kev", ...(more.kev ? { more: true } : {}) },
+      { id: "watched", label: "Watched CVEs changed", value: changedVulns, caption: changedVulns === null ? "not read" : orMore(more.watched, "on your watchlist"), status: toneOf(changedVulns), path: "/vulns?watch=1", ...(more.watched ? { more: true } : {}) },
+      { id: "releases", label: "Standard releases", value: releases, caption: releases === null ? "not read" : more.changes ? `or more: only the first ${controls} changed controls were read` : controls === 1 ? "1 control changed" : `${controls} controls changed`, status: toneOf(releases), path: "/", ...(more.changes ? { more: true } : {}) },
+      { id: "affects", label: "Marked affects us", value: affects, caption: affects === null ? "not read" : orMore(more.affects, "open in triage"), status: toneOf(affects), path: "/triage?state=affects", ...(more.affects ? { more: true } : {}) },
     ],
     digest: latest ? { period: text(latest.period, 20), generatedAt, coversFrom: isoTime(latest.coversFrom), coversTo: isoTime(latest.coversTo) } : null,
   };

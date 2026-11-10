@@ -24,6 +24,7 @@
 .backups-foot__text { font-family: var(--font-condensed); font-size: 12.5px; }
 .backups-links { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
 .backups-inline { min-height: 24px; padding: 0 6px; font-size: 12.5px; }
+.backups-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
 .backups-blocker { margin-right: auto; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.35; }
 
 /* What a restore staged for review, one restore after another. */

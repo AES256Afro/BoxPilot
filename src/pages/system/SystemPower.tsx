@@ -198,7 +198,7 @@ function WatchdogPanel({ role, operator, start, hardware, error, loading, onRead
   const canTurnOn = reading?.usable && reading.state !== "on";
   return (
     <Panel padded title="Watchdog" count={operator ? { status: words.status, label: words.label } : undefined}
-      actions={operator ? <Button variant="ghost" busy={loading} onClick={onRead}>Read again</Button> : undefined}>
+      actions={operator ? <Button variant="ghost" busy={loading} onClick={onRead}>Check again</Button> : undefined}>
       <div className="system-ups">
         <p className="system-note">A watchdog is a timer on the board that restarts the server if it freezes, so a hang does not leave the house without its network until someone presses the button.</p>
         {!operator ? <Notice tone="info" title="Reading the watchdog is for an operator">It runs as root to read the kernel's drivers, so an owner or operator reads it.</Notice>

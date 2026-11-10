@@ -71,12 +71,24 @@ export function createJobStore({ database, now, timestamp, recordAudit, deleteEx
   }) {
     const at = timestamp();
     const job = { id: randomUUID(), type, title, state: "awaiting_approval", risk, parameters, recovery, createdBy, createdAt: at, updatedAt: at };
-    database.prepare(`
-      INSERT INTO jobs (id, type, title, state, risk, parameters_json, recovery_json, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(job.id, job.type, job.title, job.state, job.risk, json(job.parameters), json(job.recovery), job.createdBy, at, at);
-    for (const step of initialSteps) addJobStep(job.id, step.name, step.state, step.detail);
-    recordAudit("job.created", { actorId: createdBy, subjectId: job.id, details: { type, risk } });
+    // The job, its first steps and its audit line are one write: each alone was its own commit (four
+    // waits on the disk for one job), and a stop between them left a job with no steps or no record
+    // of who made it. A caller already inside a transaction keeps its own, which then covers these.
+    const own = !database.isTransaction;
+    if (own) database.exec("BEGIN IMMEDIATE");
+    try {
+      database.prepare(`
+        INSERT INTO jobs (id, type, title, state, risk, parameters_json, recovery_json, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(job.id, job.type, job.title, job.state, job.risk, json(job.parameters), json(job.recovery), job.createdBy, at, at);
+      for (const step of initialSteps) addJobStep(job.id, step.name, step.state, step.detail);
+      recordAudit("job.created", { actorId: createdBy, subjectId: job.id, details: { type, risk } });
+      if (own) database.exec("COMMIT");
+    } catch (error) {
+      // Only ours is rolled back: a caller's transaction is the caller's to end.
+      if (own) { try { database.exec("ROLLBACK"); } catch { /* nothing of ours was open */ } }
+      throw error;
+    }
     emitJobChanged(job.id);
     return getJob(job.id);
   }

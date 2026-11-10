@@ -133,7 +133,15 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   for (const outage of (facts.outages ?? []).filter((entry) => !entry.acknowledged)) {
     const title = outageTitle(outage, facts.inventory?.hostname || "This server", { now });
     const seen: NeedAction | null = role === "owner" || role === "operator" ? { kind: "acknowledge", operationId: "", label: "Got it", title: `Got it: ${title}`, parameters: { id: outage.id }, preview: "", risk: "low" } : null;
-    needs.push({ id: `outage:${outage.id}`, kind: "alert", severity: "warning", title, detail: outageDetail(outage), view: "system", action: null, ...(seen ? { actions: [seen] } : {}) });
+    // Where the advice is carried out, a button each rather than three instructions in a sentence:
+    // the UPS on System's Power tab, and the router's second DNS server on Network. They only open a
+    // page, so a viewer has them too.
+    const opens: NeedAction[] = [
+      ...(outage.cause === "overheated" ? [] : [openAction({ view: "system", tab: "power", label: "Power settings" })]),
+      ...(outage.dnsApps.length ? [openAction({ view: "network", tab: "dns", label: "Second DNS steps" })] : []),
+    ];
+    const actions = [...(seen ? [seen] : []), ...opens];
+    needs.push({ id: `outage:${outage.id}`, kind: "alert", severity: "warning", title, detail: outageDetail(outage), view: "system", action: null, ...(actions.length ? { actions } : {}) });
   }
 
   // ── Health: what the watcher sees, and whatever BoxPilot could not tell anybody (M27.2). ──
@@ -288,7 +296,9 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   const newestBackup = new Map<string, Job>();
   for (const job of jobs) {
     const id = job.parameters?.id;
-    if (job.type === "op:app.backup" && typeof id === "string" && !newestBackup.has(id)) newestBackup.set(id, job);
+    // The newest backup that ran. One staged and then cancelled ("Back up again", then Escape), or
+    // waiting for approval, is not the backup's news: it used to hide the failure it was opened for.
+    if (job.type === "op:app.backup" && typeof id === "string" && !newestBackup.has(id) && ["completed", "failed", "applying", "verifying"].includes(job.state)) newestBackup.set(id, job);
   }
   // Backed up since, however it happened: Repair's "Back up now" for several apps runs one
   // app.backup.many, and the backups list knows the newest copy whoever made it. A failure followed

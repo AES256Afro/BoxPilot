@@ -3,6 +3,10 @@ import { Button, CodeBlock, EmptyState, Notice, Segmented } from "../../ui";
 import { runRead } from "./appState";
 import type { CatalogContext, Entry } from "./types";
 
+const helperNames: Record<string, string> = { vpn: "VPN", redis: "Redis", mongo: "MongoDB", rabbitmq: "RabbitMQ", ollama: "Ollama", unbound: "Unbound", memcached: "Memcached", meilisearch: "Meilisearch", cadvisor: "cAdvisor", chrome: "Chrome" };
+/** What to call a helper container: a manifest gives it an id ("node-exporter", "vpn"), not a name. */
+const helperLabel = (id: string) => helperNames[id] ?? id.replace(/[-_]+/g, " ");
+
 /** An app's newest log lines, from its own container or, for an app with helpers, from one of theirs. */
 export function LogsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) {
   const { manifest } = entry;
@@ -30,14 +34,14 @@ export function LogsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) {
   const noContainer = container === manifest.id && entry.live?.container?.exists === false;
   useEffect(() => { if (!noContainer) void read(container); }, [read, container, noContainer]);
 
-  const label = container === manifest.id ? `Logs for ${manifest.name}` : `Logs for ${manifest.name}'s ${container}`;
+  const label = container === manifest.id ? `Logs for ${manifest.name}` : `Logs for ${manifest.name}'s ${helperLabel(container)}`;
   return (
     <div className="catalog-tab">
       <div className="catalog-inline catalog-logs__bar">
         {helpers.length > 0 && (
-          <Segmented label="Container" value={container} onChange={setContainer} options={[{ value: manifest.id, label: manifest.id }, ...helpers.map((helper) => ({ value: helper.id, label: helper.id }))]} />
+          <Segmented label="Logs from" value={container} onChange={setContainer} options={[{ value: manifest.id, label: manifest.name }, ...helpers.map((helper) => ({ value: helper.id, label: `its ${helperLabel(helper.id)}` }))]} />
         )}
-        {!noContainer && <Button onClick={() => void read(container)} busy={reading}>Read again</Button>}
+        {!noContainer && <Button onClick={() => void read(container)} busy={reading}>Check again</Button>}
       </div>
       {error && !noContainer && <Notice tone="danger" live title="The logs could not be read">{error}</Notice>}
       {noContainer

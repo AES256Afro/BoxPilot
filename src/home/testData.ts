@@ -17,6 +17,7 @@ const job = (id: string, type: string, state: string, hours: number, extra: Reco
 });
 
 export const answers: Record<string, unknown> = {
+  "/api/v1/apps/glances": { glances: [], liveKnown: true },
   "/api/v1/catalog?view=summary": { host: { lanAddress: "192.0.2.10" }, liveError: null, applications: [
     { manifest: { id: "jellyfin", name: "Jellyfin", icon: "🎬", category: "Media" }, live: { installed: true, container: { running: true, status: "running", health: "healthy" }, updateAvailable: true, urls: [{ host: 8096, exposure: "lan" }] } },
     { manifest: { id: "vaultwarden", name: "Vaultwarden", icon: null, category: "Security" }, live: { installed: true, container: { running: false, status: "exited", health: "none" }, urls: [{ host: 8222, exposure: "lan" }] } },

@@ -423,7 +423,13 @@ const dataRoutes = {
   "GET /api/v1/power/ups/detect": [open],
   "GET /api/v1/power/overview": [{ ...open, check: ({ role, body }) => expect(body.guidance.steps.length, role).toBeGreaterThan(3) }],
   // When the server went down without shutting down (2026-09-29): every role reads it; who said "Got it" is the owner's.
-  "GET /api/v1/power/outages": [{ ...open, check: ({ role, body }) => expect(body.outages[0].acknowledged, role).toMatchObject({ by: role === "owner" ? accounts.owner.id : null }) }],
+  // The evidence is journal lines, an operator's read (ADR-003): a viewer gets the outage without them.
+  "GET /api/v1/power/outages": [{ ...open, check: ({ role, body }) => {
+    expect(body.outages[0].acknowledged, role).toMatchObject({ by: role === "owner" ? accounts.owner.id : null });
+    expect(body.outages[0], role).toMatchObject({ stoppedAt: "2026-09-29T18:41:02.000Z", cause: "power" });
+    if (role === "viewer") expect(JSON.stringify(body), role).not.toContain("sshd");
+    else expect(body.outages[0].evidence, role).toEqual(["its last entry: sshd: Accepted publickey for alex from 192.0.2.7"]);
+  } }],
   "GET /api/v1/setup/checklist": [{ ...open, check: ({ role, body }) => expect(body.items.find((item) => item.id === "shares").done, role).toBe(true) }],
   "GET /api/v1/diagnostics/runtime": [open],
   "GET /api/v1/catalog": [{
@@ -733,7 +739,7 @@ beforeAll(async () => {
   state.setSetting("appDataUsageHistory", { "jellyfin:/srv/media": [2, 1].map((ago, index) => ({ appId: "jellyfin", path: "/srv/media", mount: "/srv", bytes: (index + 1) * 1e9, at: new Date(Date.now() - ago * day).toISOString() })) });
   state.setSetting("appDataUsageLastRun", { at: checkedAt, sampled: 1, unmeasured: 0, error: null });
   // A power cut the owner has seen and said "Got it" to: who said it is theirs to see.
-  state.setSetting("powerOutages", [{ id: "7a0b2f1c3d4e5f60718293a4b5c6d7e8", stoppedAt: "2026-09-29T18:41:02.000Z", backAt: "2026-09-29T22:18:00.000Z", offForMs: 13_018_000, cause: "power", dnsApps: ["Pi-hole"], ups: false, evidence: [], detectedAt: checkedAt, acknowledged: { at: checkedAt, by: owner.id } }]);
+  state.setSetting("powerOutages", [{ id: "7a0b2f1c3d4e5f60718293a4b5c6d7e8", stoppedAt: "2026-09-29T18:41:02.000Z", backAt: "2026-09-29T22:18:00.000Z", offForMs: 13_018_000, cause: "power", dnsApps: ["Pi-hole"], ups: false, evidence: ["its last entry: sshd: Accepted publickey for alex from 192.0.2.7"], detectedAt: checkedAt, acknowledged: { at: checkedAt, by: owner.id } }]);
   state.setSetting("healthAlertsState", {
     "system.reboot": { title: "A reboot is required", since: checkedAt, notified: true },
     [`schedule.failed:${ownerSchedule.id}`]: { title: "Scheduled task failed: owner-marker", since: checkedAt, notified: false },

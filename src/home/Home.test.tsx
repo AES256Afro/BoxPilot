@@ -210,22 +210,42 @@ describe("Home", () => {
     let outages: OutageFact[] = [cut];
     const base = stubFetch();
     const posted: Array<{ url: string; csrf: string | null }> = [];
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === "/api/v1/power/outages") return new Response(JSON.stringify({ outages, unacknowledged: outages.filter((entry) => !entry.acknowledged).length }));
       if (init?.method === "POST" && url.endsWith("/acknowledge")) {
         posted.push({ url, csrf: new Headers(init.headers).get("X-BoxPilot-CSRF") });
+        if (posted.length === 1) return new Response(JSON.stringify({ error: "the record could not be written" }), { status: 500, headers: { "Content-Type": "application/json" } });
+        await gate;
         outages = [{ ...cut, acknowledged: { at: new Date().toISOString(), by: "owner-1" } }];
         return new Response(JSON.stringify({ outage: outages[0] }));
       }
       return base(input, init);
     }));
-    renderHome();
+    const onNavigate = renderHome();
     const needs = await screen.findByRole("region", { name: /What needs you/ });
     const title = await within(needs).findByRole("button", { name: /^Needs a look: homebox lost power \(or froze\) at .+ and was off for 3 h 37 min\.$/ });
     expect(title.closest("li")?.textContent).toContain("Pi-hole was down with it, so devices using it had no DNS.");
-    fireEvent.click(within(needs).getByRole("button", { name: /^Got it: homebox lost power/ }));
-    await waitFor(() => expect(posted).toEqual([{ url: `/api/v1/power/outages/${cut.id}/acknowledge`, csrf: "csrf" }]));
+    // Where the advice is carried out is a button each, on the row.
+    fireEvent.click(within(needs).getByRole("button", { name: /^Power settings: homebox lost power/ }));
+    expect(onNavigate).toHaveBeenLastCalledWith("system", { tab: "power" });
+    fireEvent.click(within(needs).getByRole("button", { name: /^Second DNS steps: homebox lost power/ }));
+    expect(onNavigate).toHaveBeenLastCalledWith("network", { tab: "dns" });
+    // The first Got it is refused: the row itself says so, and the button is there to try again.
+    const row = title.closest("li")!;
+    const gotIt = () => within(needs).getByRole("button", { name: /^Got it: homebox lost power/ });
+    fireEvent.click(gotIt());
+    expect((await within(row).findByRole("alert")).textContent).toBe("That was not recorded: the record could not be written. Try again.");
+    // The second is on its way: the button is busy, and another tap posts nothing more.
+    fireEvent.click(gotIt());
+    await waitFor(() => expect(gotIt().getAttribute("aria-busy")).toBe("true"));
+    expect(within(row).queryByRole("alert")).toBeNull();
+    fireEvent.click(gotIt());
+    expect(posted).toHaveLength(2);
+    release();
+    await waitFor(() => expect(posted[1]).toEqual({ url: `/api/v1/power/outages/${cut.id}/acknowledge`, csrf: "csrf" }));
     await waitFor(() => expect(within(needs).queryByRole("button", { name: /lost power/ })).toBeNull());
   });
 });

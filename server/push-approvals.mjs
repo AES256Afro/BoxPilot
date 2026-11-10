@@ -23,6 +23,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { checkSubscription, pushRequest } from "./web-push.mjs";
+import { logged } from "./logged-loop.mjs";
 
 export const pushSettingsKey = "pushApprovals";
 export const pushSubscriptionsKey = "pushSubscriptions";
@@ -358,7 +359,7 @@ export function createPushApprovals({
   }
 
   function start({ subscribeJobs = (listener) => store.subscribeJobs(listener) } = {}) {
-    const run = () => { void sweep().catch(() => {}); };
+    const run = () => { void sweep().catch(logged("push approvals")); };
     const interval = timers.setInterval(run, limits.sweepMs);
     interval?.unref?.();
     const unsubscribe = subscribeJobs((job) => {

@@ -20,6 +20,7 @@ import { mountpointFor } from "./backup-mount.mjs";
 import { queuedCeilingMs } from "./helper-client.mjs";
 import { mayStillBeRunning } from "./timeouts.mjs";
 import { restartsBoxPilot } from "./ops/services.mjs";
+import { logged } from "./logged-loop.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -933,7 +934,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   function start(options = {}) {
     const { intervalMs = 60_000, interrupted = [] } = typeof options === "number" ? { intervalMs: options } : options;
     recover(interrupted);
-    const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
+    const timer = setInterval(() => { tick().catch(logged("flows")); }, intervalMs);
     timer.unref?.();
     return () => clearInterval(timer);
   }

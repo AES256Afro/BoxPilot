@@ -6,6 +6,7 @@ import type { Finding } from "../repair/types";
 import type { ViewName } from "../data";
 import { loadRepairs, type Facts } from "./facts";
 import type { Need, NeedAction } from "./needs";
+import { rowDrawn, seenState, setSeen } from "./seen";
 
 /*
  * What a button in "What needs you" does, for Home and Ops alike (M35). A Repair finding's fix runs
@@ -38,12 +39,21 @@ export function useNeedActions({ csrfToken, refresh, accept, navigate }: { csrfT
   const repair = useRepairFixes({ csrfToken, recheck });
   // "Got it" on a power cut (2026-09-29): it stays on record and stops being said, here and in the ledger.
   const [problem, setProblem] = useState<string | null>(null);
+  // One post at a time: a second tap while the first is on its way is ignored, and the button is
+  // busy meanwhile. A failure is said in the row itself (NeedRow reads it), and here only for a look
+  // that draws its own list, which has no row to say it in.
   const acknowledge = useCallback((need: Need, id: string) => {
+    if (seenState(need.id)?.busy) return;
     setProblem(null);
+    setSeen(need.id, { busy: true, problem: null });
     void fetch(`/api/v1/power/outages/${encodeURIComponent(id)}/acknowledge`, { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } })
       .then((response) => readJson(response))
-      .then(() => refresh(["outages", "watch"]))
-      .catch((error: unknown) => setProblem(`Could not mark "${need.title}" as seen: ${error instanceof Error ? error.message : "that did not work"}`));
+      .then(() => { setSeen(need.id, null); return refresh(["outages", "watch"]); })
+      .catch((error: unknown) => {
+        const why = error instanceof Error ? error.message : "that did not work";
+        setSeen(need.id, { busy: false, problem: `That was not recorded: ${why}. Try again.` });
+        if (!rowDrawn(need.id)) setProblem(`Could not mark "${need.title}" as seen: ${why}`);
+      });
   }, [csrfToken, refresh]);
   const act = useCallback((need: Need, action: NeedAction | null = need.action) => {
     if (!action) return;

@@ -703,3 +703,17 @@ places were host-dependent, two of them latent rather than failing:
 Written into `AGENTS.md` as a convention, because grepping for the last instance is not how this
 gets caught: **assert what the code does, not what the machine has.** A `skipIf` is the wrong fix —
 the property worth testing is that the read answers at all, whatever is installed.
+
+---
+
+## Merged with v1.239.0 (2026-11-10)
+
+`main` bounded the hosted-domains read on its own in the 2026-11-10 sweep, and that is the version
+that stands: `readSmallFile` (no link followed, 256 KiB), 32 names per file, 200 in all
+(`sourceLimits`). M53.2's 500-per-file caps, the 2 MiB parse limit and the `cut` flag with its
+"more names than BoxPilot shows" line are gone; its tests are kept against the shipped limits. What
+was lost with them is the notice: a list cut at a cap no longer says so. Open, for a later sweep.
+
+The export check flagged two exports the release added that nothing else reads (`glanceHoldMs`,
+`helperLabel`, both un-exported) and one allowlist line whose name had gained a reader
+(`sealedFolder`). The clock rule found nothing in the new code.

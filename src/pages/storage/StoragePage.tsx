@@ -151,7 +151,7 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
         meta={report ? <>
           <b>{disks.length}</b> {disks.length === 1 ? "disk" : "disks"} · <b>{disks.filter((disk) => disk.removable).length}</b> removable · <b>{mounts.length}</b> mounted · <b>{shares.length}</b> {shares.length === 1 ? "network share" : "network shares"} (<b>{shares.filter((entry) => entry.mounted).length}</b> connected) · <b>{gib(unallocated)}</b> unallocated
         </> : undefined}
-        actions={<Button variant="ghost" busy={loading && Boolean(report)} onClick={refreshAll}>Read again</Button>}
+        actions={<Button variant="ghost" busy={loading && Boolean(report)} onClick={refreshAll}>Check again</Button>}
         about={<>
           <p>The disks in this server and what is mounted from them, folders mounted from a NAS, the folders this server shares with your other devices, and snapshots to roll back to.</p>
           <p>A drive is checked before it is mounted and mounts again at every boot; a missing drive or a NAS that is off never stops the server starting. Format erases everything on a drive, and the system disk is never offered. Mounting a share only connects out: nothing is opened to your LAN.</p>

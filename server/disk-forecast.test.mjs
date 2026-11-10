@@ -97,3 +97,17 @@ describe("a mount that is gone", () => {
     expect(Object.keys(next).sort()).toEqual(["/", "/mnt/the-dump"]);
   });
 });
+
+describe("a filesystem that is no longer measured", () => {
+  it("is not forecast from a slope that ended days ago", () => {
+    const GB = 1024 ** 3;
+    const day = 86_400_000;
+    const start = Date.parse("2026-10-01T00:00:00Z");
+    // Losing 10 GB a day with 400 GB free, sampled for five days, then unplugged.
+    const samples = Array.from({ length: 6 }, (_, index) => ({ at: new Date(start + index * day).toISOString(), availableBytes: (400 - index * 10) * GB }));
+    const last = start + 5 * day;
+    expect(projectDaysToFull(samples, { now: last + day })).toBeGreaterThan(30);
+    expect(projectDaysToFull(samples, { now: last + 3 * day })).toBeNull();
+    expect(projectDaysToFull(samples, { now: last + 12 * day })).toBeNull();
+  });
+});

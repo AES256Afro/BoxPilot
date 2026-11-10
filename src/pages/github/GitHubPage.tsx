@@ -170,10 +170,10 @@ export default function GitHubPage({ now = Date.now }: GitHubPageProps) {
         title="GitHub"
         status={verdict}
         meta={status ? <><b>{repositories.length}</b> {repositories.length === 1 ? "repository" : "repositories"} · {boundary?.tokenConfigured ? <>token <b>configured</b></> : <><b>no</b> token</>} · cached <b>{minutes}</b> min · fetched <b>{relativeTime(status.fetchedAt, clock) ?? status.fetchedAt}</b></> : undefined}
-        actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(status)}>Read again</Button>}
+        actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(status)}>Check again</Button>}
         about={<>
           <p>Where this BoxPilot came from: release, commit, and asset digests.</p>
-          <p>Read from the public repositories on a fixed allowlist, without a GitHub token, and cached on the server; Read again respects that cache. Nothing is written back, downloaded or installed, and GitHub&apos;s word about a digest or a signature is not the same as checking it here.</p>
+          <p>Read from the public repositories on a fixed allowlist, without a GitHub token, and cached on the server; Check again respects that cache. Nothing is written back, downloaded or installed, and GitHub&apos;s word about a digest or a signature is not the same as checking it here.</p>
         </>}
       />
 

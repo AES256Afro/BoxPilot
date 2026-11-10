@@ -88,6 +88,8 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, module, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<Run[] | null>(null);
+  // The read of the earlier runs failed: said, with Try again, where it used to read "Reading…" for ever.
+  const [historyFailed, setHistoryFailed] = useState(false);
   const stopFollowing = useRef<(() => void) | null>(null);
   // The page hands a new callback on every render; following a run must not restart because of it,
   // or the page's chosen run snaps back over the one opened from Earlier runs.
@@ -102,8 +104,8 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, module, 
     if (!staff) { setHistory([]); return; }
     try {
       const { runs } = await agentsApi.runs(id);
-      if (historyFor.current === id) setHistory(runs);
-    } catch { if (historyFor.current === id) setHistory(null); }
+      if (historyFor.current === id) { setHistory(runs); setHistoryFailed(false); }
+    } catch { if (historyFor.current === id) setHistoryFailed(true); }
   }, [staff]);
 
   const follow = useCallback((id: string) => {
@@ -122,7 +124,7 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, module, 
   useEffect(() => () => stopFollowing.current?.(), []);
 
   const currentId = agent?.id ?? null;
-  useEffect(() => { if (currentId) { setHistory(null); void readHistory(currentId); } }, [currentId, readHistory]);
+  useEffect(() => { if (currentId) { setHistory(null); setHistoryFailed(false); void readHistory(currentId); } }, [currentId, readHistory]);
   useEffect(() => { if (runId) follow(runId); }, [runId, follow]);
   // With nothing chosen, the agent's latest run opens, so the console never starts blank: once for
   // each agent chosen. It used to follow the latest again whenever the run on show was another
@@ -250,9 +252,10 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, module, 
 
       {staff && (
         <Panel className="agents-history" title="Earlier runs" count={history?.length}>
+          {historyFailed && <Notice tone="warning" live title="The earlier runs could not be read" action={<Button onClick={() => void readHistory(agent.id)}>Try again</Button>}>{history ? "The list below is as it was last read." : undefined}</Notice>}
           <Table caption={`Runs of ${agent.name}`} columns={columns} rows={history ?? []} rowKey={(entry) => entry.id}
             rowStatus={(entry) => (["failed", "timeout", "killed"].includes(entry.state) ? "danger" : undefined)}
-            empty={history === null ? "Reading the runs…" : "No runs yet."} />
+            empty={history === null ? (historyFailed ? "Not read." : "Reading the runs…") : "No runs yet."} />
         </Panel>
       )}
     </div>

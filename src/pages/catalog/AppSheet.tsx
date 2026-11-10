@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { AppIcon, Button, KeyValue, Notice, Panel, Sheet, StatusChip, Tabs, mayStart, riskOf, type KeyValueItem, type TabItem } from "../../ui";
+import { inline } from "../agents/Prose";
 import { AccessTab } from "./AccessTab";
 import { BackupsTab } from "./BackupsTab";
 import { ConfigTab } from "./ConfigTab";
@@ -177,7 +178,7 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
             : <Button risk={riskOf("app.action")} onClick={() => lifecycle("start", `Start ${name}`)}>Start</Button>)}
         {installed && may("app.update") && (
           <Button variant={live?.updateAvailable ? "primary" : "secondary"} risk={riskOf("app.update")} onClick={() => act({ operationId: "app.update", title: `Update ${name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code title={live.installedImage ?? undefined}>{shortImage(live.installedImage)}</code> to <code title={manifest.image.reference}>{shortImage(manifest.image.reference)}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>
-            {live?.updateAvailable ? "Update available" : "Update"}
+            {live?.updateAvailable ? "Update now" : "Update"}
           </Button>
         )}
         {installed && may("app.reconfigure") && <Button onClick={() => ctx.configure(entry, "reconfigure")}>Settings</Button>}
@@ -208,7 +209,8 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
 
       <KeyValue layout="rows" className="catalog-facts" items={facts} />
 
-      {manifest.notes && installed && <p className="catalog-note">{manifest.notes}</p>}
+      {/* A manifest's note is written with **bold** for what to look for: drawn, not printed with its stars. */}
+      {manifest.notes && installed && manifest.notes.split(/\n\s*\n/).filter((paragraph) => paragraph.trim()).map((paragraph, index) => <p className="catalog-note" key={index}>{inline(paragraph.trim(), `note${index}`)}</p>)}
 
       {/* The update that succeeded and turned out wrong. Every version comes from this app's own
           recorded history, so this can only put back something it already ran. */}

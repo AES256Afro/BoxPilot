@@ -552,3 +552,25 @@ describe("jobs a restart cut off (M27.2)", () => {
     });
   });
 });
+
+describe("a condition that gets worse", () => {
+  it("is said again when what was ordinary becomes urgent, and once only", async () => {
+    const settings = new Map();
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn() };
+    const send = vi.fn(async () => ({ sent: true }));
+    const ups = (state, charge) => ({ power: { ups: { available: true, state, batteryChargePercent: charge, estimatedRuntimeSeconds: 600 } } });
+    let snapshot = ups("on-battery", 91);
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => snapshot }, notifications: { getTarget: () => ({ kind: "ntfy" }), send }, store, now: () => new Date("2026-08-22T13:00:00Z") });
+    expect(await alerts.check()).toMatchObject({ sent: ["power.ups"] });
+    expect(await alerts.check()).toMatchObject({ sent: [] });
+    snapshot = ups("low-battery", 9);
+    expect(await alerts.check()).toMatchObject({ sent: ["power.ups"] });
+    expect(send.mock.calls.at(-1)[0]).toMatchObject({ priority: "high" });
+    expect(await alerts.check()).toMatchObject({ sent: [] });
+    expect(send).toHaveBeenCalledTimes(2);
+    // An entry kept before the priority was recorded is not replayed by the upgrade.
+    settings.set("healthAlertsState", { "power.ups": { since: "2026-08-22T12:00:00.000Z", title: "UPS battery is low", notified: true } });
+    expect(await alerts.check()).toMatchObject({ sent: [] });
+    expect(settings.get("healthAlertsState")["power.ups"]).toMatchObject({ priority: "high" });
+  });
+});

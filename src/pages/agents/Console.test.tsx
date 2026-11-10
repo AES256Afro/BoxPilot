@@ -37,6 +37,21 @@ const run = (id: string, question: string, minutes: number): Run => ({
 } as unknown as Run);
 
 describe("earlier runs", () => {
+  // A failed read left "Reading the runs…" there for good.
+  it("says when the earlier runs could not be read, and reads them again when asked", async () => {
+    const earlier = run("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "What runs on this server?", 40);
+    let fail = true;
+    mocked.runsFor = async () => { if (fail) throw new Error("no answer"); return { runs: [earlier] }; };
+    render(<Console agents={[agent]} agentId={agentId} runId={null} csrfToken="csrf" role="owner" now={now} module={live} onSelectAgent={() => undefined} onStage={() => undefined} onRunFinished={() => undefined} />);
+    const panel = await screen.findByRole("region", { name: "Earlier runs" });
+    expect(await within(panel).findByText("The earlier runs could not be read")).toBeTruthy();
+    expect(within(panel).queryByText("Reading the runs…")).toBeNull();
+    fail = false;
+    fireEvent.click(within(panel).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(within(panel).queryByText("The earlier runs could not be read")).toBeNull());
+    expect(within(panel).getByText("What runs on this server?")).toBeTruthy();
+  });
+
   it("opens the chosen run above, scrolls to it, and keeps it when the page renders again", async () => {
     const latest = run("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Most important issue right now?", 1);
     const earlier = run("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "What runs on this server?", 40);

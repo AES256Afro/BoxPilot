@@ -153,6 +153,27 @@ describe("the Cloudflare Tunnel app's Tunnel tab", () => {
     await waitFor(() => expect(staged["cloudflare.publish"]).toEqual({ parameters: { appId: "forgejo", portId: "web", domain: "example.org", name: "forgejo", https: true } }));
   });
 
+  it("puts the publish form back as it was filled in when its approval is cancelled", async () => {
+    serve();
+    const sheet = await openTunnelTab();
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Tunnel" }));
+    const form = await within(sheet).findByRole("form", { name: "Publish an app" });
+    fireEvent.change(within(form).getByLabelText("App"), { target: { value: "forgejo" } });
+    fireEvent.change(within(form).getByLabelText("Name"), { target: { value: "git" } });
+    fireEvent.change(within(form).getByLabelText("Domain"), { target: { value: "example.org" } });
+    fireEvent.click(within(form).getByLabelText("This port speaks HTTPS"));
+    fireEvent.click(within(form).getByRole("button", { name: /^Publish/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Publish Forgejo at git.example.org" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    const again = await screen.findByRole("dialog", { name: "Cloudflare Tunnel" });
+    const back = await within(again).findByRole("form", { name: "Publish an app" });
+    await waitFor(() => expect((within(back).getByLabelText("App") as HTMLSelectElement).value).toBe("forgejo"));
+    expect((within(back).getByLabelText("Port") as HTMLSelectElement).value).toBe("web");
+    expect((within(back).getByLabelText("Name") as HTMLInputElement).value).toBe("git");
+    expect((within(back).getByLabelText("Domain") as HTMLSelectElement).value).toBe("example.org");
+    expect((within(back).getByLabelText("This port speaks HTTPS") as HTMLInputElement).checked).toBe(true);
+  });
+
   it("stages unpublishing a name, and disconnecting with what it leaves running", async () => {
     const staged = serve();
     const sheet = await openTunnelTab();

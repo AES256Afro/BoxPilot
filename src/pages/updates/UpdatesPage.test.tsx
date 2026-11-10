@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import UpdatesPage from "./UpdatesPage";
 
@@ -49,13 +49,42 @@ describe("Updates page", () => {
     const refresh = await screen.findByRole("button", { name: "Refresh systemd manager" });
     expect(refresh.getAttribute("data-risk")).toBe("medium");
     fireEvent.click(refresh);
-    expect(await screen.findByText("systemctl daemon-reexec")).toBeTruthy();
+    // The approval says what happens, not the command (sweep four).
+    expect(await screen.findByText(/Starts the system manager again on the updated libraries/)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("systemctl");
     expect(await screen.findByRole("button", { name: "Confirm and run" })).toBeTruthy();
     expect(calls.find((call) => call.url.endsWith("/operations/system.manager.reexec/jobs"))?.body).toBe(JSON.stringify({ parameters: {} }));
     expect(screen.queryByRole("button", { name: "Restart systemd-manager" })).toBeNull();
     expect(screen.getByRole("button", { name: "Restart cron.service" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Restart systemd-user" })).toBeNull();
     expect(screen.getByText("Reboot the server to refresh this process.")).toBeTruthy();
+  });
+
+  it("says in plain words what each approval does, with no apt command", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/apt.upgradable.inspect/inspect")) return json({ result: { ...twoUpdates, servicesNeedingRestart: ["cron.service"] } });
+      if (url.endsWith("/operations/apt.unattended.inspect/inspect")) return json({ result: { installed: true, enabled: false } });
+      if (url.endsWith("/operations/packages.curated.inspect/inspect")) return json({ result: { packages: [] } });
+      const staging = /\/operations\/([a-z.]+)\/jobs$/.exec(url);
+      if (staging) return staged(`job-${staging[1]}`, staging[1]);
+      return json({ error: "no" }, 500);
+    }));
+    render(<UpdatesPage csrfToken="csrf-token" />);
+    const said = async (button: string, words: string) => {
+      fireEvent.click(await screen.findByRole("button", { name: button }));
+      const dialog = await screen.findByRole("dialog");
+      expect(await within(dialog).findByText(words)).toBeTruthy();
+      expect(dialog.textContent).not.toMatch(/apt-get|APT::|systemctl/);
+      fireEvent.keyDown(dialog, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    };
+    await said("Install all updates", "Installs all 2 waiting updates, after asking Ubuntu for the newest list.");
+    await said("Refresh lists", "Asks Ubuntu's mirrors what is new. Installs nothing.");
+    await said("Turn on automatic updates", "Security updates install by themselves every night.");
+    await said("Restart cron.service", "Stops and starts cron; anything using it is cut off for a moment.");
+    fireEvent.click(screen.getByRole("tab", { name: /Install/ }));
+    await said("Remove unused packages", "Removes packages nothing needs any more, with their settings.");
   });
 
   it("lists upgradable packages and upgrades selected ones through the approval dialog", async () => {
