@@ -1,6 +1,7 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { fetchGuarded, isLinkLocalAddress } from "./outbound-guard.mjs";
 import { heldKey, heldLimit, holds, isQuiet, normalizeQuietHours, quietHoursKey, summaryOf } from "./quiet-hours.mjs";
+import { logged } from "./logged-loop.mjs";
 /**
  * Failed-job push notifications (M8.4 v1). Subscribes to the store's job events and sends
  * one push per failed job to the configured target — ntfy, Gotify, or a plain webhook.
@@ -28,7 +29,9 @@ function usableUrl(url) {
  * gets a step - whether it ran again (M30.2), the retry that was staged - and after a restart this
  * process does not remember having pushed it, so without this each such step pushed it again.
  */
-const failureAlreadyHandled = (job) => (job?.steps ?? []).some((step) => (step.name === "recovery" && step.state === "required") || (step.name === "retry" && step.state === "staged"));
+const failureAlreadyHandled = (job) => (job?.steps ?? []).some((step) => (step.name === "recovery" && step.state === "required") || (step.name === "retry" && step.state === "staged")
+  // Dismissing an old failure writes a step too: pressed after a restart, it pushed "X failed" for a failure the owner had just waved away.
+  || (step.name === "dismissed" && step.state === "completed"));
 
 export function validateTarget(target) {
   if (!target || typeof target !== "object") return "Target must be an object";
@@ -52,6 +55,13 @@ function clickUrl(click) {
   return url.protocol === "https:" && !url.username && !url.password && !url.hash ? url.href : null;
 }
 
+/**
+ * A header value fetch will carry. A header is bytes: one character past U+00FF ("Nightly — backups",
+ * a name in another script) made fetch refuse the request, so that push could never be sent and was
+ * retried every round; Latin-1 went out as bytes that are not UTF-8. ntfy reads RFC 2047.
+ */
+const headerText = (text) => (/^[\x20-\x7e]*$/.test(text) ? text : `=?UTF-8?B?${Buffer.from(text, "utf8").toString("base64")}?=`);
+
 /** Build the HTTP request for one message; exported for tests. */
 export function buildRequest(target, { title, message, priority = "default", click = null }) {
   const opens = clickUrl(click);
@@ -61,7 +71,7 @@ export function buildRequest(target, { title, message, priority = "default", cli
       url: `${base}/${target.topic}`,
       options: {
         method: "POST",
-        headers: { Title: title, Priority: priority === "high" ? "high" : "default", ...(opens ? { Click: opens } : {}), ...(target.token ? { Authorization: `Bearer ${target.token}` } : {}) },
+        headers: { Title: headerText(String(title ?? "")), Priority: priority === "high" ? "high" : "default", ...(opens ? { Click: opens } : {}), ...(target.token ? { Authorization: `Bearer ${target.token}` } : {}) },
         body: message,
       },
     };
@@ -227,7 +237,7 @@ export function createNotificationService({ store, fetcher = fetch, lookup = dns
 
   function start({ flushEveryMs = 60_000 } = {}) {
     const unsubscribe = store.subscribeJobs(onJob);
-    const timer = setInterval(() => { void flushHeld().catch(() => {}); }, flushEveryMs);
+    const timer = setInterval(() => { void flushHeld().catch(logged("held notifications")); }, flushEveryMs);
     timer.unref?.();
     return () => { clearInterval(timer); unsubscribe?.(); };
   }

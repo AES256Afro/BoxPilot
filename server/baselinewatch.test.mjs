@@ -77,6 +77,28 @@ describe("the card's figures", () => {
     expect(summarizeGlance({ ...quiet, vulns: { total: 12, vulns: [{ cve: "CVE-2026-1" }] } }, { since, now }).metrics[1].value).toBe(12);
     expect(summarizeGlance({ ...quiet, vulns: { vulns: [{ cve: "CVE-2026-1" }] } }, { since, now }).metrics[1].value).toBe(1);
   });
+
+  it("say a count is at least that many when the list came back full", () => {
+    // Each list is asked for 200 rows at most: a full one showed 200 as though it were the whole count.
+    const rows = (make) => Array.from({ length: baselinewatchLimits.listLimit }, (_, index) => make(index));
+    const full = { items: { items: rows((index) => ({ id: index })) }, vulns: { vulns: rows((index) => ({ cve: `CVE-2026-${index}` })) }, changes: { changes: rows((index) => ({ source: "nist", document: "800-53", version: `r${index % 3}` })) }, triage: { triage: rows((index) => ({ id: index })) }, digest: { digest: null } };
+    const { metrics } = summarizeGlance(full, { since, now });
+    expect(metrics.map((metric) => [metric.id, metric.value, metric.more, metric.caption])).toEqual([
+      ["kev", 200, true, "or more, known exploited"],
+      ["watched", 200, true, "or more, on your watchlist"],
+      ["releases", 3, true, "or more: only the first 200 changed controls were read"],
+      ["affects", 200, true, "or more, open in triage"],
+    ]);
+    // A total the app counted itself is the whole count, however short the page beside it.
+    const counted = summarizeGlance({ ...full, vulns: { total: 431, vulns: full.vulns.vulns } }, { since, now }).metrics[1];
+    expect(counted).toMatchObject({ value: 431, caption: "on your watchlist" });
+    expect(counted).not.toHaveProperty("more");
+    // One short of full is a whole count, and says nothing more.
+    const short = summarizeGlance({ ...full, items: { items: full.items.items.slice(1) } }, { since, now }).metrics[0];
+    expect(short).toMatchObject({ value: 199, caption: "known exploited" });
+    expect(short).not.toHaveProperty("more");
+    for (const metric of summarizeGlance(recorded, { since, now }).metrics) expect(metric).not.toHaveProperty("more");
+  });
 });
 
 describe("the reader", () => {

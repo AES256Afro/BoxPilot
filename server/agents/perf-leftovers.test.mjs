@@ -71,3 +71,44 @@ describe("an agent's runs, as far as a person may see them", () => {
     expect(knowledge.learning.agents.find((entry) => entry.agentId === keeper.id)).toMatchObject({ state: "queued", at: learned.queuedAt });
   });
 });
+
+describe("the stored vectors a search reads", () => {
+  it("are the ones its own items have, the same as picked out of every vector of their kinds", async () => {
+    // A search over one agent's memory read every agent's vectors, and every document's, to use a few of them.
+    h = await createAgentsHarness();
+    const vector = (seed) => Buffer.from(new Float32Array([seed, seed + 1, seed + 2, seed + 3]).buffer);
+    for (let index = 0; index < 450; index += 1) h.store.setVector("chunk", `doc-${index}:${index % 7}`, { model: "external", vector: vector(index), textHash: `c${index}` });
+    for (let index = 0; index < 5; index += 1) h.store.setVector("note", `n${index}`, { model: index === 3 ? "older" : "external", vector: vector(1000 + index), textHash: `n${index}` });
+    h.store.setVector("episode", "n1", { model: "external", vector: vector(2000), textHash: "e1" });
+    const everything = new Map([...h.store.vectorsOf(["chunk"]), ...h.store.vectorsOf(["note"]), ...h.store.vectorsOf(["episode"])]);
+    const pickedFrom = (keys) => new Map(keys.filter((key) => everything.has(key)).map((key) => [key, everything.get(key)]));
+    const sorted = (map) => [...map].sort(([a], [b]) => a.localeCompare(b));
+    // More than one lot of chunks (ids with a colon of their own), two notes, one id that is both a note and an episode, and some that are stored nowhere.
+    const asked = [...Array.from({ length: 430 }, (_, index) => `chunk:doc-${index}:${index % 7}`), "note:n1", "note:n3", "note:n1", "episode:n1", "note:gone", "chunk:doc-9:9", "episode:", "nonsense"];
+    const found = h.store.vectorsFor(asked);
+    expect(found.size).toBe(433);
+    expect(sorted(found)).toEqual(sorted(pickedFrom([...new Set(asked)])));
+    expect(found.get("note:n3")).toEqual({ model: "older", vector: new Uint8Array(vector(1003)), textHash: "n3" });
+    expect(found.has("note:n0")).toBe(false);
+    expect(h.store.vectorsFor([]).size).toBe(0);
+  });
+
+  it("are not read at all to say which of an agent's memories are indexed", async () => {
+    h = await createAgentsHarness();
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    h.store.writeNote(keeper.id, { title: "Router", body: "The router is at the usual address." });
+    h.store.writeNote(keeper.id, { title: "Switch", body: "The switch is under the desk." });
+    const [note] = h.store.listNotes(keeper.id).filter((entry) => entry.title === "Router");
+    // Indexed under the model in use is indexed; under another, or not at all, is not.
+    const fresh = h.service.memoryOf(h.caller("owner"), keeper.id);
+    expect(fresh.facts.map((fact) => fact.indexed)).toEqual([false, false]);
+    h.store.setVector("note", note.id, { model: "external", vector: Buffer.alloc(16), textHash: "x" });
+    const other = h.store.listNotes(keeper.id).find((entry) => entry.title === "Switch");
+    h.store.setVector("note", other.id, { model: "a-model-no-longer-used", vector: Buffer.alloc(16), textHash: "y" });
+    const before = h.service.memoryOf(h.caller("owner"), keeper.id);
+    h.store.vectorsOf = () => { throw new Error("every vector was read"); };
+    h.store.vectorsFor = () => { throw new Error("vectors were read"); };
+    expect(h.service.memoryOf(h.caller("owner"), keeper.id)).toEqual(before);
+    expect(Object.fromEntries(before.facts.map((fact) => [fact.title, fact.indexed]))).toEqual({ Router: true, Switch: false });
+  });
+});

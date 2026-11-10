@@ -53,6 +53,21 @@ export function driveToolsCheck(inspection) {
  * bind. An address pattern that stopped at the `%` matched every other resolver and missed the
  * one that is actually there on a stock install.
  */
+/**
+ * Does something answer on port 53 for more than this machine itself (every address, or one that
+ * is not loopback)? That is a DNS server at work, a Pi-hole or AdGuard Home the owner installed
+ * as likely as not, which is the port in use as intended; only the loopback stub is in the way of
+ * one. The owner's own server read "conflict" for as long as its Pi-hole ran.
+ */
+export function port53Served(text) {
+  return String(text ?? "").split("\n").some((line) => {
+    const local = line.trim().split(/\s+/)[4];
+    if (!local || local.slice(local.lastIndexOf(":")) !== ":53") return false;
+    const address = local.slice(0, local.lastIndexOf(":")).replace(/^\[|\]$/g, "").replace(/%.*$/, "");
+    return !(address.startsWith("127.") || address === "::1");
+  });
+}
+
 export function port53Occupied(text) {
   return String(text ?? "").split("\n").some((line) => {
     const columns = line.trim().split(/\s+/);
@@ -251,17 +266,19 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
 
     const listeners = await runCommand("ss", ["-H", "-lntu"]);
     const port53InUse = listeners.ok && port53Occupied(listeners.stdout);
+    const port53Answering = listeners.ok && port53Served(listeners.stdout);
     checks.push(check(
       "dns.port53",
       "DNS",
       "DNS listener port",
-      !listeners.ok ? "unavailable" : port53InUse ? "conflict" : "ready",
+      !listeners.ok ? "unavailable" : port53Answering ? "ready" : port53InUse ? "conflict" : "ready",
       !listeners.ok
         ? "The listening-socket list could not be read, so nothing is known about port 53"
-        : port53InUse ? "TCP or UDP port 53 is already occupied; identify the active resolver before deploying another" : "Port 53 is available for a future DNS appliance",
+        : port53Answering ? "A DNS server on this server answers on port 53 (Pi-hole, AdGuard Home or another resolver)"
+        : port53InUse ? "Ubuntu's own lookup helper holds port 53 on this server, which stops a DNS app from starting there" : "Port 53 is free for a DNS app",
       !listeners.ok
         ? { kind: "manual", description: "Check port 53 yourself with: ss -lntu | grep :53" }
-        : port53InUse ? { kind: "manual", description: "Choose one primary DNS service or assign a separate VM address" } : null,
+        : port53InUse && !port53Answering ? { kind: "manual", description: "Matters only if you want a DNS app here: give it its own address, or turn off the helper's listener (DNSStubListener=no) first" } : null,
     ));
 
     const counts = checks.reduce((summary, item) => ({ ...summary, [item.status]: (summary[item.status] ?? 0) + 1 }), {});

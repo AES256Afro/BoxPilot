@@ -52,6 +52,7 @@ import { createAgentAdmin } from "./agent-admin.mjs";
 import { createCardSteps } from "./card-steps.mjs";
 import { createCloudRuns } from "./cloud-runs.mjs";
 import { createTeamChat } from "./team-chat.mjs";
+import { logged } from "../logged-loop.mjs";
 
 export { gradeDrives, gradeFact } from "./grade.mjs";
 
@@ -830,8 +831,8 @@ export function createAgentService({
 
   /** The memory items with their vectors, for one embedding model. */
   function withVectors(items, model) {
-    const kinds = [...new Set(items.map((item) => item.key.split(":")[0]))];
-    const vectors = kinds.length ? store.vectorsOf(kinds) : new Map();
+    // By the items' own keys: reading every vector of their kinds loaded every agent's, and every document's, for one search.
+    const vectors = items.length ? store.vectorsFor(items.map((item) => item.key)) : new Map();
     return items.map((item) => {
       const stored = vectors.get(item.key);
       return stored && stored.model === model ? { ...item, vector: decodeVector(stored.vector) } : item;
@@ -1921,7 +1922,11 @@ export function createAgentService({
       const ofNotes = news?.length ? `read ${rememberedWhy(news)}. Until you trust or forget ${news.length === 1 ? "it" : "them"} on the Memory tab, every run that reads ${news.length === 1 ? "it" : "them"} is flagged and what it asks to tell you is held back; you are told this once for each.` : null;
       if (risky) reasons.push(ofNotes ? `It ${ofNotes}` : "Something it read looked like an instruction to it. It was told to treat it as data; check what it read and what it did.");
       if (reasons.length) {
-        card("escalation", `${agent.name} needs you to look`, reasons.join(" "));
+        // A card that already stands open saying exactly this tells the owner nothing a second time:
+        // an agent that met its step limit every night left a card a night (28 of them on the owner's
+        // server, 2026-11-10). The escalation is still audited; a run that read something like an
+        // instruction always gets its card.
+        if (risky || !store.findOpenEscalation(agent.id, reasons.join(" "))) card("escalation", `${agent.name} needs you to look`, reasons.join(" "));
         audit("agents.escalated", { actorId: run.requestedBy, subjectId: run.id, details: { agentId: agent.id, lowConfidence: !clarify && typeof confidence === "number" && confidence < limits.lowConfidence, limit: Boolean(run.flags?.limitReached), risk: Boolean(risky) } });
       }
       // Nothing proves the agent did not act on what it read (it may have proposed a plan or kept a
@@ -2415,7 +2420,8 @@ export function createAgentService({
     const agent = agentFor(person, agentId);
     if (!canEdit(person, agent)) refuse(403, "An agent's memory is for the owner and the person who made it", "forbidden");
     const agentNames = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
-    const vectors = store.vectorsOf(["note", "episode"]);
+    // Which are indexed, not the vectors themselves: only the model is compared.
+    const vectors = store.vectorKeys(["note", "episode"]);
     const model = embedModelName();
     const indexed = (key) => vectors.get(key)?.model === model;
     const thread = store.getThread(agent.id, person.id);
@@ -2823,7 +2829,7 @@ export function createAgentService({
   function start({ subscribeJobs = null, afterRound = null } = {}) {
     recoverAtStartup();
     try { migrateDefaults(); } catch { /* the agents stay as they were saved */ }
-    const timer = setInterval(() => { void tick().catch(() => {}); }, limits.tickMs);
+    const timer = setInterval(() => { void tick().catch(logged("agents")); }, limits.tickMs);
     timer.unref?.();
     const unsubscribeJobs = subscribeJobs ? subscribeJobs(onJob) : null;
     const unsubscribeRounds = afterRound ? afterRound(onHealthRound) : null;
