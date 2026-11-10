@@ -1,7 +1,7 @@
 import { access, copyFile, lchown, readFile, realpath, rename, stat } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
-import { cleanServedPath, homeThroughLink, readLoginHomes } from "./served-folder.mjs";
+import { cleanServedPath, dataRoots, homeThroughLink, insideDataRoots, outsideThroughLink, readLoginHomes, systemStatePrefixes } from "./served-folder.mjs";
 
 /**
  * Root-side Samba (SMB file server) tasks executed by scripts/boxpilot-run.mjs.
@@ -21,7 +21,7 @@ export const workgroupPattern = /^[A-Za-z0-9_-]{1,15}$/;
 export const sambaUsernamePattern = /^[a-z_][a-z0-9_-]{0,31}$/;
 export const scopes = Object.freeze(["tailscale", "lan"]);
 export const reservedShareNames = Object.freeze(["global", "homes", "printers", "print$", "ipc$"]);
-export const sharePathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/samba", "/mnt/boxpilot"]);
+export const sharePathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/samba", "/mnt/boxpilot", ...systemStatePrefixes]);
 /** Written by useradd for the accounts sambaUserSet makes (system accounts, no shell, no home). */
 const sambaAccountComment = "BoxPilot Samba user";
 export const maxShares = 32;
@@ -58,7 +58,10 @@ export const discoveryPorts = Object.freeze([
 ]);
 
 function cleanPath(value) {
-  return cleanServedPath(value, sharePathDenyPrefixes);
+  // No "%": smb.conf expands %U, %m and the rest per connection, some of them from what the client
+  // sends, so the folder smbd served was not the one every check here had looked at. No backslash:
+  // one at the end of a line joins the next line to it.
+  return cleanServedPath(value, sharePathDenyPrefixes, { forbidden: /[\0\r\n%\\]/ });
 }
 
 /** The share's folder as the kernel will find it, refused when a link leads it somewhere protected. */
@@ -66,7 +69,7 @@ async function resolvedShareFolder(files, share, homes = []) {
   const path = cleanPath(share.path);
   const real = typeof files.realpath === "function" ? await files.realpath(path) : path;
   if (cleanPath(real) !== real) throw new Error(`share "${share.name}": ${path} leads to ${real}, a system location BoxPilot does not share`);
-  const linked = homeThroughLink(path, real, homes);
+  const linked = homeThroughLink(path, real, homes) ?? outsideThroughLink(path, real);
   if (linked) throw new Error(`share "${share.name}": ${linked}`);
   return real;
 }
@@ -83,8 +86,10 @@ export function validateSambaConfig({ workgroup = "WORKGROUP", scope = "tailscal
     if (typeof share.name !== "string" || !shareNamePattern.test(share.name) || reservedShareNames.includes(share.name.toLowerCase())) return `share name "${share.name}" is invalid`;
     if (names.has(share.name.toLowerCase())) return `share name "${share.name}" is used twice`;
     names.add(share.name.toLowerCase());
+    if (typeof share.path === "string" && /[%\\]/.test(share.path)) return `share "${share.name}": the folder's path may not contain % or a backslash, which the file server reads as its own; rename the folder`;
     if (cleanPath(share.path) === null) return `share "${share.name}": path must be an absolute folder outside system locations`;
     if (share.comment !== undefined && share.comment !== null && (typeof share.comment !== "string" || share.comment.length > 80 || /[\r\n]/.test(share.comment))) return `share "${share.name}": comment is too long`;
+    if (typeof share.comment === "string" && /[%\\]/.test(share.comment)) return `share "${share.name}": the comment may not contain % or a backslash, which the file server reads as its own`;
     for (const flag of ["readOnly", "guest", "recycle"]) if (share[flag] !== undefined && typeof share[flag] !== "boolean") return `share "${share.name}": ${flag} must be true or false`;
     if (share.users !== undefined && !(Array.isArray(share.users) && share.users.every((user) => typeof user === "string" && sambaUsernamePattern.test(user)))) return `share "${share.name}": users must be a list of usernames`;
     if (share.guest && share.users?.length) return `share "${share.name}": a guest share cannot also be limited to users`;
@@ -291,6 +296,15 @@ export async function sambaShareWritable({ share } = {}, { run = fixedRun, log =
   if (!cleanPath(target.path)) throw new Error(`${share}'s folder is in a system location BoxPilot does not hand over`);
   // The folder itself, with every link on the way resolved: root hands over what it finds there.
   const path = await resolvedShareFolder(files, target, await readLoginHomes(files.readFile));
+  // The whole configuration is checked before anything is changed: this job applies it again at
+  // the end, and one written before a rule tightened (a "%" in a comment) used to be refused only
+  // after the folder's owner had already been changed.
+  const invalid = validateSambaConfig({ workgroup: config.workgroup, scope: config.scope, shares: config.shares.map((entry) => ({ name: entry.name, path: entry.path, comment: entry.comment ?? null, readOnly: entry.readOnly, guest: entry.guest, users: entry.users ?? [], recycle: entry.recycle })) });
+  if (invalid) throw new Error(`The file sharing configuration no longer passes its own check (${invalid}), so nothing was changed. Open Storage, File sharing, fix that share and apply, then try again.`);
+  // Handing a folder to the apps user is for a drive's folders. One outside the data roots is a
+  // service's or the system's own, and whoever owns it there often runs as root: an operator could
+  // otherwise share /var/lib/<service> and take it over with this one medium job.
+  if (!insideDataRoots(path)) throw new Error(`${path} is outside ${dataRoots.join(", ")}, so BoxPilot does not change who owns it; change it with chown on the server if you mean to. Nothing was changed.`);
   const info = await files.stat(path);
   if (!info.isDirectory()) throw new Error(`${path} is not a folder`);
   const where = await run(binaries.findmnt, ["--task", "1", "-n", "-o", "FSTYPE,TARGET", "-T", path], { timeout: 15_000 });

@@ -41,8 +41,11 @@ export function dockerSizeBytes(text) {
 
 /** Bytes back in Docker's words, to one decimal: 1900000000 is "1.9GB". */
 export function dockerSize(bytes) {
-  const [unit, scale] = /** @type {[string, number][]} */ ([["TB", 1e12], ["GB", 1e9], ["MB", 1e6], ["kB", 1e3]]).find(([, size]) => bytes >= size) ?? ["B", 1];
-  return `${Number((bytes / scale).toFixed(1))}${unit}`;
+  const steps = /** @type {[string, number][]} */ ([["TB", 1e12], ["GB", 1e9], ["MB", 1e6], ["kB", 1e3]]);
+  // The step is taken where the smaller unit would round up into it: 999,960,000 read "1000MB".
+  const step = steps.find(([, size]) => bytes >= size * 0.99995);
+  if (!step) return `${Number(bytes.toFixed(1))}B`;
+  return `${Number((Math.max(bytes, step[1]) / step[1]).toFixed(1))}${step[0]}`;
 }
 
 export function systemOperations() {
@@ -126,8 +129,9 @@ export function systemOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.locale", { locale: parameters.locale }, { timeoutMs: 45_000, logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "system.hostname.set", title: "Rename this server", risk: "medium", timeoutMs: 2 * 60_000,
-      description: "Sets the hostname with hostnamectl and updates the 127.0.1.1 entry in /etc/hosts.",
+      // High: the name is what the tailnet address, the passkeys and every dashboard link are built on.
+      id: "system.hostname.set", title: "Rename this server", risk: "high", timeoutMs: 2 * 60_000,
+      description: "Sets the hostname with hostnamectl and updates the 127.0.1.1 entry in /etc/hosts. The server's Tailscale name follows, so its tailnet address changes and passkeys made for the old address stop matching.",
       parameters: { fields: { hostname: { type: "string", maxLength: 253, pattern: hostnamePattern } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.hostname", { hostname: parameters.hostname }, { timeoutMs: 60_000, logPath: jobLog?.path ?? null }),
     }),

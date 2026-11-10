@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Syntax-check the server and script sources without running them.
- *   node scripts/check-sources.mjs syntax   # `node --check` every .mjs under server/ and scripts/
- *   node scripts/check-sources.mjs shell    # `sh -n` every .sh in scripts/ and deploy/
+ *   node scripts/check-sources.mjs syntax   # `node --check` every .mjs under server/, scripts/, packages/, test/ and tests/
+ *   node scripts/check-sources.mjs shell    # `sh -n` every .sh in scripts/ and deploy/, `bash -n` every one in tests/ubuntu/
  *
  * These were shell one-liners (`find | xargs`, a `for` loop), and npm runs scripts through cmd.exe
  * on Windows, where neither parses: `npm run check` could not pass on a Windows checkout however
@@ -56,11 +56,21 @@ async function checkAll(files, argsFor, command) {
 const mode = process.argv[2];
 let files; let failures;
 if (mode === "syntax") {
-  files = [...await filesUnder("server", ".mjs", { recursive: true }), ...await filesUnder("scripts", ".mjs", { recursive: true }), ...await filesUnder("packages", ".mjs", { recursive: true })];
+  files = [...await filesUnder("server", ".mjs", { recursive: true }), ...await filesUnder("scripts", ".mjs", { recursive: true }), ...await filesUnder("packages", ".mjs", { recursive: true }),
+    // The test helpers and the Linux integration scripts' own modules: they run only inside CI's
+    // host jobs, so a syntax slip in one was found there, a release later.
+    ...await filesUnder("test", ".mjs", { recursive: true }), ...await filesUnder("tests", ".mjs", { recursive: true })];
   failures = await checkAll(files, (file) => ["--check", file], process.execPath);
 } else if (mode === "shell") {
   files = [...await filesUnder("scripts", ".sh", { recursive: false }), ...await filesUnder("deploy", ".sh", { recursive: false })];
   failures = await checkAll(files, (file) => ["-n", file], "sh");
+  // The Linux integration scripts are bash (arrays, [[ ]]): sh -n would refuse what bash runs. Not
+  // on Windows, where a checkout has no bash to ask and CI's Linux jobs check them anyway.
+  if (process.platform !== "win32") {
+    const bashFiles = await filesUnder(path.join("tests", "ubuntu"), ".sh", { recursive: false });
+    files.push(...bashFiles);
+    failures.push(...await checkAll(bashFiles, (file) => ["-n", file], "bash"));
+  }
 } else {
   console.error("Usage: node scripts/check-sources.mjs syntax|shell");
   process.exit(2);

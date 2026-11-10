@@ -38,7 +38,7 @@ describe("registering a passkey", () => {
       handed = options;
       return { rawId: bytes(0xfb, 0xef), response: { getPublicKey: () => bytes(1, 2, 3), getPublicKeyAlgorithm: () => -7, getAuthenticatorData: () => bytes(9), clientDataJSON: bytes(0x7b, 0x7d), getTransports: () => ["internal"] } };
     } });
-    await expect(registerPasskey("csrf-token", "Laptop")).resolves.toEqual({ id: "pk1", label: "Laptop" });
+    await expect(registerPasskey("csrf-token", "Laptop", "the password")).resolves.toEqual({ id: "pk1", label: "Laptop" });
     const publicKey = (handed as unknown as CredentialCreationOptions).publicKey!;
     expect(text(publicKey.challenge)).toEqual([0xfb, 0xff, 0xfe]);
     expect(text(publicKey.user.id)).toEqual([1, 2, 3]);
@@ -51,13 +51,13 @@ describe("registering a passkey", () => {
   it("says why the browser refused, and refuses a browser that cannot export the key", async () => {
     server({ "/api/v1/auth/passkey/register/options": () => json(registerOptions) });
     credentials({ create: async () => { throw new DOMException("x", "InvalidStateError"); } });
-    await expect(registerPasskey("csrf", "Laptop")).rejects.toMatchObject({ message: "A passkey for this account is already on this device.", code: "passkey_cancelled" });
+    await expect(registerPasskey("csrf", "Laptop", "the password")).rejects.toMatchObject({ message: "A passkey for this account is already on this device.", code: "passkey_cancelled" });
     credentials({ create: async () => { throw new DOMException("x", "NotAllowedError"); } });
-    await expect(registerPasskey("csrf", "Laptop")).rejects.toThrow("Passkey setup was cancelled or timed out.");
+    await expect(registerPasskey("csrf", "Laptop", "the password")).rejects.toThrow("Passkey setup was cancelled or timed out.");
     credentials({ create: async () => null });
-    await expect(registerPasskey("csrf", "Laptop")).rejects.toThrow("No passkey was created");
+    await expect(registerPasskey("csrf", "Laptop", "the password")).rejects.toThrow("No passkey was created");
     credentials({ create: async () => ({ rawId: bytes(1), response: { getAuthenticatorData: () => bytes(1), clientDataJSON: bytes(1) } }) });
-    await expect(registerPasskey("csrf", "Laptop")).rejects.toMatchObject({ code: "passkey_unsupported" });
+    await expect(registerPasskey("csrf", "Laptop", "the password")).rejects.toMatchObject({ code: "passkey_unsupported" });
   });
 });
 

@@ -308,14 +308,18 @@ export function backupStateOf(appId, protection, schedules = [], { now = Date.no
   if (!appId) return null;
   if (!protection || protection.available === false || !Array.isArray(protection.apps)) return { state: "unknown", newestAt: null, scheduled: false, backups: 0 };
   const app = protection.apps.find((entry) => entry?.id === appId);
-  const scheduled = (Array.isArray(schedules) ? schedules : []).some((schedule) => schedule?.operationId === "app.backup" && schedule.enabled !== false && (schedule.parameters?.id === appId || schedule.parameters?.subject === appId));
+  const scheduled = (Array.isArray(schedules) ? schedules : []).some((schedule) => schedule && schedule.enabled !== false && (
+    // As Repair and Backups count it (remediations.mjs scheduledBackupApps): a nightly job for several apps schedules each of them.
+    (schedule.operationId === "app.backup" && (schedule.parameters?.id === appId || schedule.parameters?.subject === appId))
+    || (schedule.operationId === "app.backup.many" && Array.isArray(schedule.parameters?.ids) && schedule.parameters.ids.includes(appId))));
   if (!app || app.protectable === false) return { state: "none", newestAt: null, scheduled, backups: app?.backups ?? 0 };
   const newestAt = typeof app.newestAt === "string" ? app.newestAt : null;
   if (!app.backups || !newestAt) return { state: "never", newestAt: null, scheduled, backups: 0 };
   const ageDays = (now - Date.parse(newestAt)) / 86_400_000;
   // A date that cannot be read is not a recent backup: its age is not known, and that is what is said.
   if (!Number.isFinite(ageDays)) return { state: "unknown", newestAt: null, scheduled, backups: app.backups };
-  return { state: ageDays > staleAfterDays ? "stale" : "ok", newestAt, scheduled, backups: app.backups };
+  // Whole days, as Repair and Backups count them: fourteen days and six hours is not yet stale there.
+  return { state: Math.floor(ageDays) > staleAfterDays ? "stale" : "ok", newestAt, scheduled, backups: app.backups };
 }
 
 const list = (addresses) => (Array.isArray(addresses) && addresses.length ? addresses.slice(0, 4).join(", ") : "nothing");

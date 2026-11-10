@@ -863,7 +863,15 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     let skipped = 0;
     for (const [position, step] of flow.steps.slice(0, from).entries()) {
       const earlier = jobIds[position] ? store.getJob?.(jobIds[position]) ?? null : null;
-      if (!earlier) { skipped += 1; continue; }
+      // A run writes null for a step its condition skipped and for a keep-going step that could not
+      // start. Only a step with a condition can have been skipped by one: counting every null as a
+      // skip ended the resumed run "completed", cleared the automation's alert and never said a step
+      // had not run. (A conditional step that could not start still reads as skipped: the record
+      // does not tell the two apart.)
+      if (!earlier) {
+        if (step.when) skipped += 1; else problems.push(`step ${position + 1} (${titleOf(step)}) could not start`.slice(0, 200));
+        continue;
+      }
       if (earlier.state === "completed") { if (typeof step.name === "string") namedResults[step.name] = earlier.result ?? {}; continue; }
       problems.push(`step ${position + 1} (${titleOf(step)}) ${earlier.state}`.slice(0, 200));
     }

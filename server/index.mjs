@@ -12,7 +12,7 @@ import { productVersion } from "./version.mjs";
 import { webHostOf, webPortOf } from "./env-file.mjs";
 import { createCatalogService, installRiskLookup, secretEnvNamesLookup } from "./catalog/index.mjs";
 import { archivedComposeRisk } from "./ops/apps.mjs";
-import { escalationRiskHooks, higherOf, homepageHostRisk, serveWithdrawRisk } from "./ops/escalation.mjs";
+import { escalationRiskHooks, homepageHostRisk, serveWithdrawRisk, withManifestTier } from "./ops/escalation.mjs";
 import { createJobLogReader } from "./job-log.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
@@ -177,12 +177,13 @@ function markProfileEdited(job) {
 
 const secretEnvNamesFor = secretEnvNamesLookup(catalogService);
 // Installing an app its manifest calls high risk (the house's DNS, the VPN) is staged and approved
-// as high: the owner, with the password. The registry has the same hooks, so a card an agent or the
+// as high: the owner, with the password. So is setting its password, changing its settings or opening
+// it to the network (withManifestTier). The registry has the same hooks, so a card an agent or the
 // assistant proposes says the tier the job will be staged at (sweep 3).
 // A restore that allows a backup's own compose file to start as archived is high, owner only, typed
 // out (sweep 4): both already are, and stay so whatever their own tier becomes.
 // identity is made further down; the hook reads it only when a job is staged.
-const operationRiskHooks = { ...escalationRiskHooks, "app.serve.withdraw": serveWithdrawRisk(() => identity.servedOrigins()), "homepage.sync": homepageHostRisk(() => identity.servedOrigins()), "app.install": higherOf(escalationRiskHooks["app.install"], installRiskLookup(catalogService)), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk };
+const operationRiskHooks = withManifestTier({ ...escalationRiskHooks, "app.serve.withdraw": serveWithdrawRisk(() => identity.servedOrigins()), "homepage.sync": homepageHostRisk(() => identity.servedOrigins()), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk }, installRiskLookup(catalogService));
 registry.useRiskHooks(operationRiskHooks);
 // Where alerts go, and the one ledger of what was announced and what could not be (M27.2). A failed
 // scheduled run, an automation's step, or a result that could not be saved is announced through the
@@ -585,7 +586,7 @@ app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, autoReconne
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit, auth }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, notificationHistory, weeklyReport, auth }));
 app.use("/api/v1", createPushRouter({ push: pushApprovals, auth }));
-app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
+app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host, tlsPort: /^\d{1,5}$/.test(process.env.BOXPILOT_TLS_PORT ?? "") ? Number(process.env.BOXPILOT_TLS_PORT) : null }));
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter({ state, alerts: healthAlerts, auth }));
 app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network, storage: storageRead }));

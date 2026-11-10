@@ -16,7 +16,7 @@ describe("Network page", () => {
     expect(within(strip).getByText("192.168.1.10")).toBeTruthy();
     expect(within(strip).getByText("94.140.14.49 + 94.140.14.59")).toBeTruthy();
     expect(within(strip).getByText("Connected")).toBeTruthy();
-    await waitFor(() => expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("5 of 5 read · 1 on the LAN · 2 of 3 on the tailnet"));
+    await waitFor(() => expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("1 on the LAN · 2 of 3 on the tailnet"));
     // What the page is for waits behind the info toggle.
     expect(screen.getByRole("button", { name: "About Network and DNS" }).getAttribute("aria-expanded")).toBe("false");
   });

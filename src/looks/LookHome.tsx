@@ -22,6 +22,8 @@ const homes: Record<LookId, LazyExoticComponent<ComponentType<HomeProps>>> = {
   eink: lazy(() => import("./eink/Home")),
   quest: lazy(() => import("./quest/Home")),
   transit: lazy(() => import("./transit/Home")),
+  manual: lazy(() => import("./manual/Home")),
+  workbook: lazy(() => import("./workbook/Home")),
 };
 
 export function LookHome({ look, ...props }: HomeProps & { look: LookId }) {

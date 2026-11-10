@@ -29,6 +29,12 @@ COPY packages ./packages
 COPY scripts ./scripts
 # The server reads the app manifests from /app/catalog (server/catalog/index.mjs): without them the App catalog is empty.
 COPY catalog ./catalog
+# The Automations library reads /app/automations (server/flow-library.mjs) and the assistant reads
+# /app/docs/*.md and AGENTS.md (server/assistant/knowledge.mjs): missing, both are silently empty.
+# Only the documents: docs/ also holds screenshots and design studies the server never opens.
+COPY automations ./automations
+COPY docs/*.md ./docs/
+COPY AGENTS.md ./
 COPY --from=build /app/dist ./dist
 
 USER node

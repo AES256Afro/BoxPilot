@@ -381,9 +381,9 @@ function AddDomainSheet({ onClose, send, onAdded }: { onClose: () => void; send:
   return (
     <Sheet kicker="Watch a name" title="Add a domain" side="center" size="sm" onClose={onClose} footer={<>
       <Button variant="ghost" onClick={onClose}>Cancel</Button>
-      <Button variant="primary" disabled={!ready} busy={saving} onClick={() => void submit()}>Add</Button>
+      <Button variant="primary" type="submit" form="hosted-add-form" disabled={!ready} busy={saving}>Add</Button>
     </>}>
-      <form className="hosted-form" onSubmit={(event) => void submit(event)}>
+      <form id="hosted-add-form" className="hosted-form" onSubmit={(event) => void submit(event)}>
         {problem && <Notice tone="danger" live title="Not added">{problem}</Notice>}
         <Field label="Name" hint="The public name, as people type it: news.example.com. A pasted address is cut down to its name." required>
           <TextInput mono autoFocus placeholder="news.example.com" value={hostname} onValueChange={(value) => setHostname(hostnameFrom(value))} autoComplete="off" autoCapitalize="off" spellCheck={false} />

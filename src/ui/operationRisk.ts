@@ -133,7 +133,7 @@ export const operationRisk = {
   "storage.swapfile.set": "medium",
   "storage.unmount": "medium",
   "storage.writable": "medium",
-  "system.hostname.set": "medium",
+  "system.hostname.set": "high",
   "system.locale.set": "medium",
   "system.manager.reexec": "medium",
   "system.reboot": "high",

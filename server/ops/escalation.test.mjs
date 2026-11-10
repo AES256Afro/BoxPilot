@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRegistry } from "./registry.mjs";
 import { operationModules, registry } from "./index.mjs";
-import { escalationRiskHooks, higherOf, homepageHostRisk, loginHomesFrom, packetFilterUnit, reachesBackupDestination, serveWithdrawRisk } from "./escalation.mjs";
+import { escalationRiskHooks, higherOf, homepageHostRisk, loginHomesFrom, manifestTierOperations, packetFilterUnit, reachesBackupDestination, serveWithdrawRisk, withManifestTier } from "./escalation.mjs";
 import { loadCatalog } from "../catalog/index.mjs";
 import { onLinux } from "../../test/platform.mjs";
 import { servesHome } from "../tasks/served-folder.mjs";
@@ -23,6 +23,41 @@ describe("a medium operation is high for what it acts on", () => {
     expect(await tier("samba.apply", { shares: [] })).toBe("medium");
     expect(await tier("nfs.apply", { exports: [{ path: "/home/admin/photos" }] })).toBe("high");
     expect(await tier("nfs.apply", { exports: [{ path: "/srv/media" }] })).toBe("medium");
+  });
+
+  // Samba writes as a folder's owner and NFS squashes every client to it: outside the data drives
+  // that owner is a service, and an operator sharing its folder had that service's account.
+  it("raises a share or export of any folder outside the data roots", async () => {
+    for (const path of ["/var/www", "/var/log", "/var/lib/postgresql", "/var/backups", "/tmp/x", "/mnt", "/srv"]) {
+      expect(await tier("samba.apply", { shares: [{ name: "x", path }] }), path).toBe("high");
+      expect(await tier("nfs.apply", { exports: [{ path }] }), path).toBe("high");
+    }
+    expect(await tier("samba.apply", { shares: [{ name: "Media", path: "/media/usb/films/" }] })).toBe("medium");
+    expect(await tier("samba.apply", { shares: [{ name: "Media", path: "/mnt/media" }, { name: "Web", path: "/var/www" }] })).toBe("high");
+  });
+
+  it("raises systemd's own services and a package that decides who signs in, and a rename of the server is high outright", async () => {
+    expect(await tier("service.action", { unit: "systemd-resolved.service", action: "restart" })).toBe("high");
+    expect(await tier("service.action", { unit: "dbus-org.freedesktop.resolve1.service", action: "stop" })).toBe("high");
+    expect(await tier("service.action", { unit: "jellyfin.service", action: "restart" })).toBe("medium");
+    // Renaming the server is high outright: homepage.sync's own-name check and the tailnet address rest on it.
+    expect(registry.get("system.hostname.set").risk).toBe("high");
+    expect(await tier("apt.install", { packages: ["htop", "libpam-krb5"] })).toBe("high");
+    expect(await tier("apt.install", { packages: ["libnss-ldapd=0.9.12"] })).toBe("high");
+    expect(await tier("apt.install", { packages: ["htop", "libpng16-16"] })).toBe("medium");
+  });
+
+  // Duplicati's install is high because it mounts the backups; setting its sign-in password was a
+  // medium job, and an operator alone had its page and everything it mounts.
+  it("holds an app's password, settings and exposure to its manifest's tier, as its install is", async () => {
+    const manifestTier = async (parameters) => (["duplicati", "portainer", "pi-hole"].includes(parameters?.id) ? "high" : null);
+    const hooks = createRegistry(operationModules).useRiskHooks(withManifestTier(escalationRiskHooks, manifestTier));
+    for (const id of manifestTierOperations) {
+      expect(await hooks.effectiveRisk(id, { id: "duplicati", password: "long enough pw", values: {}, mode: "lan", enabled: true }), id).toBe("high");
+      expect(await hooks.effectiveRisk(id, { id: "jellyfin", password: "long enough pw", values: {}, mode: "lan", enabled: true }), id).toBe("medium");
+    }
+    // The folder rule on reconfigure still raises by itself, with the manifest's tier beside it.
+    expect(await hooks.effectiveRisk("app.reconfigure", { id: "jellyfin", values: { volumes: { media: "/var/spool/cron" } } })).toBe("high");
   });
 
   it("raises a new account that comes with SSH keys, as importing them is", async () => {

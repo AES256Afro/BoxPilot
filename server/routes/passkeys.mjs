@@ -131,8 +131,13 @@ export function createPasskeyRouter({ store, auth, passkeys, identity = null, pu
     response.json(passkeys.status(request.boxpilotSession.owner.id));
   });
 
+  // A passkey outlives the session that adds it: it signs in from any address, past a password
+  // change and past "sign out everywhere". So adding one asks what removing one asks, the password
+  // (or a session the password unlocked in the last ten minutes), not a session and a token alone.
   router.post("/auth/passkey/register/options", auth.requireSession, auth.requireCsrf, async (request, response) => {
-    const owner = store.findOwnerById(request.boxpilotSession.owner.id);
+    const unlockedUntil = Date.parse(request.boxpilotSession.elevatedUntil ?? "");
+    const owner = Number.isFinite(unlockedUntil) && unlockedUntil > Date.now() ? store.findOwnerById(request.boxpilotSession.owner.id) : await ownerWithPassword(request, response);
+    if (!owner) return;
     try {
       response.json(passkeys.registerOptions({ owner, origin: request.body?.origin, allowedOrigins: await ownOrigins(request) }));
     } catch (error) {

@@ -19,3 +19,5 @@ import "./cockpit/skin.css";
 import "./eink/skin.css";
 import "./quest/skin.css";
 import "./transit/skin.css";
+import "./manual/skin.css";
+import "./workbook/skin.css";

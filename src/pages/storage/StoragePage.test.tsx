@@ -70,7 +70,7 @@ describe("Storage page", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Storage" })).toBeTruthy();
     // /mnt/olddata is 95% full: the verdict says so, in words and in red.
     expect(screen.getByText("1 nearly full").closest(".ui-chip")?.getAttribute("data-status")).toBe("danger");
-    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("2 disks · 1 removable · 2 mounted · 0 network shares (0 connected) · 850.0 GiB unallocated");
+    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("2 disks · 1 removable · 2 mounted · 0 network shares (0 connected) · 850.0 GiB not in use");
     expect(screen.getAllByRole("tab").map((tab) => /^[A-Za-z ]+/.exec(tab.textContent ?? "")?.[0].trim())).toEqual(["Drives", "Shares", "File sharing", "Snapshots", "Mounts"]);
     const about = screen.getByRole("button", { name: "About Storage" });
     expect(about.getAttribute("aria-expanded")).toBe("false");
@@ -235,7 +235,7 @@ describe("Storage page", () => {
       fireEvent.click(toggle);
       await waitFor(() => expect(screen.getByRole("switch", { name: "Reconnect if it drops: /mnt/olddata" }).getAttribute("aria-checked")).toBe("true"));
       expect(request).toEqual({ method: "POST", csrf: "csrf-token" });
-      expect(screen.getByText("Reconnects automatically.")).toBeTruthy();
+      expect(screen.getByText("Reconnects by itself")).toBeTruthy();
       expect(screen.getAllByText(/at most 3 times a day and 30 minutes apart/)).toHaveLength(1);
       // One switch on the drive's row (a look may draw the same control above the tabs, M41).
       expect(within(screen.getByRole("tabpanel")).getAllByRole("switch", { name: /Reconnect if it drops/ })).toHaveLength(1);

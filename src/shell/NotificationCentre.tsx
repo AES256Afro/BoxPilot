@@ -135,7 +135,7 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
               {unseen > 0 && <Button variant="ghost" onClick={() => void markSeen()}>Mark all seen</Button>}
             </div>
           )}
-          {problem && <Notice tone="danger" live title="The notifications could not be read">{problem}</Notice>}
+          {problem && <Notice tone="danger" live title="The notifications could not be read" action={<Button onClick={() => void load()}>Try again</Button>}>{problem}</Notice>}
           {list && !list.targetConfigured && (
             <Notice tone="warning" action={<Button onClick={() => { setOpen(false); onNavigate("settings", { tab: "notifications" }); }}>Set one in Settings</Button>}>
               No notification target is set, so none of this reached your phone.

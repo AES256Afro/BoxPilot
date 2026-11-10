@@ -71,6 +71,11 @@ describe("native systemd network boundaries", () => {
     // The server lists apps from /app/catalog: the stage that runs it has to hold the manifests, not only the stage that builds the UI.
     const runtime = dockerfile.slice(dockerfile.indexOf(" AS runtime"));
     expect(runtime).toContain("COPY catalog ./catalog");
+    // The same for the two other directories the server resolves beside itself: the Automations
+    // library and the assistant's documents were silently empty in the image.
+    expect(runtime).toContain("COPY automations ./automations");
+    expect(runtime).toContain("COPY docs/*.md ./docs/");
+    expect(runtime).toContain("COPY AGENTS.md ./");
     expect(runtime).toContain("COPY server ./server");
     expect(compose).toContain(`image: boxpilot:${productVersion}`);
     expect(compose).toContain("read_only: true");

@@ -1,0 +1,76 @@
+/*
+ * Home in the Workbook look (M57): the first sheet. Every selector starts with .workbook-
+ * (src/looks/looksCss.test.ts); the colours are the skin's own, written out as its skin writes them.
+ * Rows number themselves with a counter, down the left as a sheet's do.
+ */
+
+.workbook-home { display: flex; flex-direction: column; gap: 16px; max-width: 1240px; color: #1f1f1f; font-family: "PT Sans", "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.4; counter-reset: workbook-row 1; }
+
+.workbook-bar { display: inline-flex; gap: 18px; font-weight: 700; }
+.workbook-bar span + span { color: #c9c9c9; font-weight: 500; }
+.workbook-bar__date { color: #c9c9c9; font-size: 12px; }
+
+/* The formula bar: which cell, and what it was worked out from. */
+.workbook-fx { display: flex; flex-wrap: wrap; align-items: stretch; margin: 0; border: 1px solid #8f8f8f; background: #f1f1f1; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12.5px; }
+.workbook-fx__cell { min-width: 34px; padding: 6px 12px; border-right: 1px solid #b5b5b5; background: #ffffff; font-weight: 700; text-align: center; }
+.workbook-fx__sign { padding: 6px 11px; border-right: 1px solid #b5b5b5; color: #5c5c5c; font-style: italic; }
+.workbook-fx__formula { flex: 1 1 240px; min-width: 0; padding: 6px 12px; background: #ffffff; overflow-wrap: anywhere; }
+
+.workbook-head { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.workbook-head__title { margin: 0; padding: 0 6px 0 0; background: #ffffff; font-size: 32px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.1; }
+/* The verdict is the selected cell: the selection rectangle and its fill handle. */
+.workbook-verdict { position: relative; max-width: 78ch; margin: 0; padding: 8px 12px; outline: 2px solid #1a56db; outline-offset: 0; background: #ffffff; font-size: 16px; font-weight: 700; line-height: 1.35; }
+.workbook-verdict::after { position: absolute; right: -5px; bottom: -5px; width: 7px; height: 7px; border: 1px solid #ffffff; background: #1a56db; content: ""; }
+.workbook-verdict[data-fill="good"] { color: #14532d; background: #dff2e1; }
+.workbook-verdict[data-fill="warning"] { color: #6b4e00; background: #fff3c4; }
+.workbook-verdict[data-fill="danger"] { color: #8c1d18; background: #fde0dd; }
+
+/* A range: a framed block of rows under a heading row. */
+.workbook-range { display: flex; flex-direction: column; min-width: 0; border: 1px solid #8f8f8f; background: #ffffff; }
+.workbook-range__title { display: flex; align-items: baseline; gap: 10px; margin: 0; padding: 6px 10px 6px 44px; border-bottom: 2px solid #1f1f1f; background: #fafafa; font: 600 12.5px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; letter-spacing: 0.06em; text-transform: uppercase; }
+.workbook-range__title span { color: #5c5c5c; font: 500 12px "JetBrains Mono", ui-monospace, monospace; letter-spacing: 0; }
+.workbook-empty { margin: 0; padding: 8px 10px 8px 44px; color: #5c5c5c; list-style: none; }
+
+.workbook-rows { margin: 0; padding: 0; list-style: none; }
+.workbook-row { position: relative; display: grid; grid-template-columns: 86px minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; min-height: 36px; padding: 5px 10px 5px 44px; border-bottom: 1px solid #d4d4d4; counter-increment: workbook-row; }
+.workbook-row:last-child { border-bottom: 0; }
+.workbook-row::before { position: absolute; top: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; width: 34px; border-right: 1px solid #d4d4d4; color: #5c5c5c; background: #f1f1f1; font: 500 11px "JetBrains Mono", ui-monospace, monospace; content: counter(workbook-row); }
+.workbook-row[data-fill="warning"] { background: #fffbe8; }
+.workbook-row[data-fill="danger"] { background: #fff1ef; }
+.workbook-row__tier { font: 700 11.5px "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; }
+.workbook-row[data-fill="warning"] .workbook-row__tier { color: #6b4e00; }
+.workbook-row[data-fill="danger"] .workbook-row__tier { color: #8c1d18; }
+.workbook-row__words { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.workbook-row__title { padding: 0; border: 0; color: #1f1f1f; background: none; font: 700 14.5px/1.35 "PT Sans", sans-serif; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.workbook-row__title:hover { color: #1a56db; text-decoration: underline; }
+.workbook-row__run { color: #5c5c5c; font: 500 12px "JetBrains Mono", ui-monospace, monospace; }
+.workbook-row__acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.workbook-cellbutton { min-height: 30px; padding: 0 11px; border: 1px solid #1f1f1f; color: #1f1f1f; background: #ffffff; font: 700 13.5px "PT Sans", sans-serif; cursor: pointer; }
+.workbook-cellbutton:hover { border-color: #1a56db; background: #dbe6fb; }
+.workbook-more { align-self: flex-start; margin: 6px 10px 8px 44px; }
+
+/* Four cells in a row, each with its bar drawn in the cell. */
+.workbook-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); }
+.workbook-figure { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 7px 10px 9px; border: 0; border-right: 1px solid #d4d4d4; border-bottom: 1px solid #d4d4d4; margin: 0 -1px -1px 0; color: #1f1f1f; background: #ffffff; text-align: left; cursor: pointer; }
+.workbook-figure:hover { box-shadow: inset 0 0 0 2px #1a56db; }
+.workbook-figure[data-fill="warning"] { color: #6b4e00; background: #fff3c4; }
+.workbook-figure__label { color: #5c5c5c; font: 600 11.5px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; letter-spacing: 0.06em; text-transform: uppercase; }
+.workbook-figure[data-fill="warning"] .workbook-figure__label { color: #6b4e00; }
+.workbook-figure b { font: 700 25px/1.1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: -0.02em; }
+.workbook-figure__bar { display: block; height: 6px; margin-top: 4px; background: #e4e4e4; }
+.workbook-figure__bar i { display: block; height: 100%; background: #1a56db; }
+.workbook-figure[data-fill="warning"] .workbook-figure__bar i { background: #8a6d00; }
+
+/* The apps: a name and a state to a row. */
+.workbook-row--app { display: block; padding: 0 0 0 34px; }
+.workbook-app { display: grid; grid-template-columns: minmax(0, 1fr) minmax(110px, auto); align-items: stretch; width: 100%; min-height: 34px; padding: 0; border: 0; color: #1f1f1f; background: none; font: inherit; text-align: left; cursor: pointer; }
+.workbook-app:hover { background: #eef3fd; }
+.workbook-app__name { display: flex; align-items: center; min-width: 0; padding: 5px 10px; font-size: 14.5px; font-weight: 700; overflow-wrap: anywhere; }
+.workbook-app__state { display: flex; align-items: center; padding: 5px 10px; border-left: 1px solid #d4d4d4; font: 500 12.5px "JetBrains Mono", ui-monospace, monospace; white-space: nowrap; }
+.workbook-app__state[data-fill="good"] { color: #14532d; background: #dff2e1; }
+.workbook-app__state[data-fill="warning"] { color: #6b4e00; background: #fff3c4; }
+
+@media (max-width: 640px) {
+  .workbook-row { grid-template-columns: minmax(0, 1fr); }
+  .workbook-row__acts { justify-content: flex-start; }
+}

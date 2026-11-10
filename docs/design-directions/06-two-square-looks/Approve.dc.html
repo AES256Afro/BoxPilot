@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Approve on the phone (Field Manual look)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&display=swap">
+<style>
+body{margin:0}
+a{color:#111111}a:hover{color:#b00d1a}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #ffffff; color: #111111; font-family: 'B612', Arial, sans-serif; font-size: 15px; line-height: 1.45; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="display: flex; justify-content: space-between; gap: 10px; padding: 12px 18px; background: #111111; color: #ffffff; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase">
+    <span>homebox · approval</span>
+    <span>21:16</span>
+  </div>
+
+  <sc-if value="{{ isAsk }}" hint-placeholder-val="{{ true }}">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; padding: 18px 18px 20px; gap: 16px">
+      <header style="display: flex; flex-direction: column; gap: 4px; border-bottom: 4px solid #111111; padding-bottom: 12px">
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase">Server Keeper asks to</span>
+        <h1 style="margin: 0; font-size: 30px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.01em; line-height: 1.1">Restart Immich</h1>
+      </header>
+
+      <div role="note" style="border: 2.5px solid #111111">
+        <div style="height: 10px; background: repeating-linear-gradient(135deg, #111111 0 8px, #ffd400 8px 16px)"></div>
+        <p style="margin: 0; padding: 9px 12px 10px; background: #ffd400; font-size: 14px"><b style="letter-spacing: 0.1em">CAUTION · MEDIUM</b><br>One confirmation. Immich is away for about 40 seconds.</p>
+      </div>
+
+      <section aria-label="Procedure" style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase">Procedure</h2>
+        <ol style="margin: 0; padding-left: 24px; display: flex; flex-direction: column; gap: 6px; font-size: 15px">
+          <li>Stops Immich's four containers.</li>
+          <li>Starts them again.</li>
+          <li>Asks Immich whether it is healthy.</li>
+        </ol>
+      </section>
+
+      <section aria-label="Reason" style="display: flex; flex-direction: column; gap: 6px">
+        <h2 style="margin: 0; font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase">Reason</h2>
+        <p style="margin: 0; font-size: 14px">Its machine-learning container has held <span style="font-family: 'B612 Mono', monospace">3.9 GB</span> for six hours and stopped answering its health check at <span style="font-family: 'B612 Mono', monospace">21:14</span>.</p>
+      </section>
+
+      <p style="margin: 0; padding: 9px 12px; border: 1.5px solid #111111; font-size: 13.5px"><b style="letter-spacing: 0.08em">NOTE</b> · Does not touch your photos, the database, or any other app.</p>
+
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <button type="button" onClick="{{ approve }}" style="min-height: 56px; padding: 0 18px 0 0; border: 2px solid #111111; background: #111111; color: #ffffff; font: 700 15px 'B612', sans-serif; letter-spacing: 0.1em; text-transform: uppercase; display: flex; align-items: center; gap: 14px; cursor: pointer"><span aria-hidden="true" style="align-self: stretch; width: 14px; background: repeating-linear-gradient(135deg, #111111 0 4px, #ffd400 4px 8px)"></span><span style="flex-grow: 1; text-align: center">Approve</span></button>
+        <button type="button" style="min-height: 48px; border: 2px solid #111111; background: #ffffff; color: #111111; font: 700 14px 'B612', sans-serif; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer">Not now</button>
+        <span style="font-family: 'B612 Mono', monospace; font-size: 12px; color: #444444; text-align: center">asked 21:16 · lapses 21:30 · signed in as alex</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isRunning }}" hint-placeholder-val="{{ false }}">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; padding: 18px 18px 20px; gap: 16px">
+      <header style="display: flex; flex-direction: column; gap: 4px; border-bottom: 4px solid #111111; padding-bottom: 12px">
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase">In progress · approved by alex</span>
+        <h1 style="margin: 0; font-size: 30px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.01em; line-height: 1.1">Restarting Immich</h1>
+      </header>
+
+      <section aria-label="Procedure, in progress" aria-live="polite" style="display: flex; flex-direction: column; gap: 0; border: 1.5px solid #111111">
+        <div style="display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 12px 12px; border-bottom: 1.5px solid #111111">
+          <span aria-hidden="true" style="width: 22px; height: 22px; box-sizing: border-box; border: 2px solid #111111; background: #111111; color: #ffffff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">×</span>
+          <span>1. Stops Immich's four containers</span>
+          <span style="font-family: 'B612 Mono', monospace; font-size: 12.5px">done 9 s</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 12px 12px; border-bottom: 1.5px solid #111111; background: #fff4b8">
+          <span aria-hidden="true" style="width: 22px; height: 22px; box-sizing: border-box; border: 2px solid #111111; background: repeating-linear-gradient(135deg, #111111 0 3px, #ffd400 3px 6px)"></span>
+          <b>2. Starts them again</b>
+          <span style="font-family: 'B612 Mono', monospace; font-size: 12.5px; font-weight: 700">now</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 12px 12px; color: #444444">
+          <span aria-hidden="true" style="width: 22px; height: 22px; box-sizing: border-box; border: 2px solid #444444"></span>
+          <span>3. Asks Immich whether it is healthy</span>
+          <span style="font-family: 'B612 Mono', monospace; font-size: 12.5px">next</span>
+        </div>
+      </section>
+
+      <pre style="margin: 0; padding: 10px 12px; background: #111111; color: #ffffff; font: 400 11.5px/1.6 'B612 Mono', monospace; white-space: pre-wrap; overflow-wrap: anywhere">21:16:41 immich_server      Stopped
+21:16:44 immich_ml          Stopped
+21:16:50 immich_postgres    Started
+21:16:52 immich_redis       Started</pre>
+
+      <p style="margin: auto 0 0; font-size: 13px; color: #444444; text-align: center">You can put the phone down. It finishes either way, and Today will say how it went.</p>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isDone }}" hint-placeholder-val="{{ false }}">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; padding: 18px 18px 20px; gap: 16px">
+      <header style="display: flex; flex-direction: column; gap: 4px; border-bottom: 4px solid #111111; padding-bottom: 12px">
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase">Complete · 21:17</span>
+        <h1 style="margin: 0; font-size: 30px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.01em; line-height: 1.1">Immich is back</h1>
+      </header>
+
+      <div style="align-self: flex-start; border: 3px solid #111111; padding: 8px 14px; transform: rotate(-2deg); display: flex; flex-direction: column">
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase">Health check</span>
+        <span style="font-size: 22px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase">Passed</span>
+      </div>
+
+      <dl style="margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); border: 1.5px solid #111111; font-size: 14px">
+        <dt style="padding: 9px 12px; border-bottom: 1.5px solid #111111; border-right: 1.5px solid #111111; font-weight: 700">Took</dt><dd style="margin: 0; padding: 9px 12px; border-bottom: 1.5px solid #111111; font-family: 'B612 Mono', monospace">38 s, from your approval</dd>
+        <dt style="padding: 9px 12px; border-bottom: 1.5px solid #111111; border-right: 1.5px solid #111111; font-weight: 700">Memory</dt><dd style="margin: 0; padding: 9px 12px; border-bottom: 1.5px solid #111111; font-family: 'B612 Mono', monospace">3.9 GB, now 1.1 GB</dd>
+        <dt style="padding: 9px 12px; border-right: 1.5px solid #111111; font-weight: 700">Told</dt><dd style="margin: 0; padding: 9px 12px">Server Keeper, which will look again at 22:00</dd>
+      </dl>
+
+      <p style="margin: 0; padding: 9px 12px; border: 1.5px solid #111111; font-size: 13.5px"><b style="letter-spacing: 0.08em">NOTE</b> · This is the third restart this week. Server Keeper suggests a memory limit for the machine-learning container.</p>
+
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px">
+        <button type="button" style="min-height: 48px; border: 2px solid #111111; background: #ffffff; color: #111111; font: 700 14px 'B612', sans-serif; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer">Read the log</button>
+        <button type="button" onClick="{{ reset }}" style="min-height: 56px; border: 2px solid #111111; background: #111111; color: #ffffff; font: 700 15px 'B612', sans-serif; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer">Done</button>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { step: 'ask' };
+this.timer = null;
+}
+componentWillUnmount() {
+if (this.timer) clearTimeout(this.timer);
+}
+renderVals() {
+const step = (this.state && this.state.step) || 'ask';
+return {
+isAsk: step === 'ask',
+isRunning: step === 'running',
+isDone: step === 'done',
+approve: () => {
+this.setState({ step: 'running' });
+if (this.timer) clearTimeout(this.timer);
+this.timer = setTimeout(() => { this.timer = null; this.setState({ step: 'done' }); }, 2600);
+},
+reset: () => {
+if (this.timer) clearTimeout(this.timer);
+this.timer = null;
+this.setState({ step: 'ask' });
+},
+};
+}
+}
+</script>
+</body>
+</html>

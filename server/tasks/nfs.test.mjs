@@ -30,6 +30,12 @@ describe("what an export may serve", () => {
     expect(validateNfsConfig({ exports: [{ path }] })).toContain("system locations");
   });
 
+  // The exports file reads \ooo as an octal escape: "\056\056" is ".." to exportfs.
+  it("refuses a path the exports file would read differently from how it was checked", () => {
+    for (const path of ["/mnt/data/pub/\\056\\056/\\056\\056", "/mnt/data/%h", "/mnt/data\\"]) expect(validateNfsConfig({ exports: [{ path }] }), path).toBeTruthy();
+    expect(validateNfsConfig({ exports: [{ path: "/mnt/data/pub" }] })).toBeNull();
+  });
+
   it("still exports ordinary folders", () => {
     for (const path of ["/srv/media", "/mnt/nas-media", "/home/homebox/Shared", "/data/photos"]) expect(validateNfsConfig({ exports: [{ path }] })).toBeNull();
   });

@@ -98,7 +98,13 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
     const lastRedrawAt = { stdout: 0, stderr: 0 };
     let settled = false;
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; try { child.kill("SIGTERM"); } catch { /* ignore */ } setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 5000).unref?.(); }, timeout);
+    // 'close' waits for the pipes, and a descendant that outlives the child (the compose plugin under
+    // docker, dpkg under apt-get, the command under runuser) keeps them open: the limit then held only
+    // if the whole tree died, and the step, its rollback and the app's lane waited on the orphan. Once
+    // the child has been killed for running over, the pipes are closed here, as execFile closes its own.
+    const letGo = () => { try { child.stdout.destroy(); child.stderr.destroy(); } catch { /* already closed */ } };
+    const timer = setTimeout(() => { timedOut = true; try { child.kill("SIGTERM"); } catch { /* ignore */ } setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } letGo(); }, 5000).unref?.(); }, timeout);
+    child.on("exit", () => { if (timedOut) setTimeout(letGo, 250).unref?.(); });
     const deliver = (stream, line) => {
       const clean = stripTerminalCodes(line).trimEnd();
       // A blank line is still output: it goes into the tail the caller reads, even though there is
@@ -107,7 +113,7 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
       if (clean) { try { onLine(clean, stream); } catch { /* logging must never break the command */ } }
     };
     const consume = (stream, chunk) => {
-      const text = partial[stream] + asRedraws(chunk.toString("utf8"));
+      const text = partial[stream] + asRedraws(String(chunk));
       const rows = text.split("\n");
       partial[stream] = rows.pop() ?? "";
       // A completed line is always delivered.
@@ -128,6 +134,10 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
       // A child that emits neither newline nor carriage return is still bounded.
       if (partial[stream].length > tailBytes) partial[stream] = partial[stream].slice(-tailBytes);
     };
+    // Decoded by the stream, which holds back a character cut by a read boundary: decoding each
+    // chunk by itself turned compose's check mark, or a file name from tar, into two U+FFFD.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => consume("stdout", chunk));
     child.stderr.on("data", (chunk) => consume("stderr", chunk));
     const finish = (code, error) => {

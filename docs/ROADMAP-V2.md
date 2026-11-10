@@ -3145,7 +3145,7 @@ Each item is its own pull request, released and deployed when green.
   tools, which the examples migration had run before. Tests: the
   survey reading all seven within its steps and tokens, the M43 budget still reaching its limit at
   eight steps, the schema (`findings.test.mjs`, `templates.test.mjs`, `brain.test.mjs`). To measure
-  on bigbox: the first widened survey's model time against its 25 minutes (Usage tab; the first is
+  on the owner's server: the first widened survey's model time against its 25 minutes (Usage tab; the first is
   due Sunday 2026-10-11 04:20 UTC). Measured in CI (2026-10-09, main against `baseline: v1.171.0`,
   Qwen3.5-4B at four threads, bench runs 37955857245 and 37955860701): the eight-step plan did not
   widen a Keeper's reads; the built-in set 6 of 6 on both trees in the same time (687 s against
@@ -3600,6 +3600,215 @@ network; and the Today page draws whatever the server sends, knowing no app by n
   digest; a question about CVEs, KEV, security news or a standard points at it. Tests replay
   responses recorded from BaselineWatch 0.10.0 (`test/fixtures/baselinewatch`): the reader, the
   registry and addresses, the tool, the route and the card.
+
+## M57: The second pass of 2026-11-10: four mockups built, two square looks, and what three audits found
+
+The same four stages as the morning's sweep, run again from `main` at 1.239.0 on
+`sweep/2026-11-10-b` (M52 to M56 are the audit loop's, on PR #640, and are not in this branch). The
+mockups are `docs/design-directions/06-two-square-looks/`; the owner's answer to them was to build
+all four, drop the rounded buttons and the glass, and offer whatever was drawn as looks.
+
+- ✅ **M57.1 Two looks: Field Manual and Workbook** (unreleased). Fifteen looks now. Both are
+  square, light only, a skin for every page and a Home each (`src/looks/manual/`,
+  `src/looks/workbook/`), described in `docs/design-directions/06-two-square-looks.md`. The Field
+  Manual prints the three risk tiers as the three blocks an operator's manual has (NOTE, CAUTION
+  under yellow hatching, WARNING under red) and numbers each panel as a section; the Workbook fills
+  a state's cell as conditional formatting would, numbers a table's rows, makes search the formula
+  bar and the areas sheet tabs. Found by looking, not by the tests: a skin that set `display` on the
+  dock's items un-hid the areas a narrow window has no room for and made every page scroll sideways.
+- ✅ **M57.2 Backups: what you'd get back** (unreleased). The page's first tab. One row per app that
+  holds data, worst first: the sentence that matters ("Comes back installed and empty", "Gone: its
+  only copy is on that disk", "Back to 8 September: 63 days gone, if the copy restores"), then the
+  three facts it is worked out from as a depth of three: a copy on this server, a copy off it (a
+  sync that finished after the app's newest backup carried it; nothing records what a destination
+  holds, so that is said), and a restore proven by `app.backup.verify`. Each row's next step is an
+  operation that already existed, the rehearsal among them. `src/pages/backups/recovery.ts` is the
+  derivation, with its clock injected.
+- ✅ **M57.3 Installing an app: will it fit** (unreleased). The install form opens with a preflight:
+  memory, the system disk and the drive the app's folders land on (in use, what this adds, what is
+  left, pass or caution at the thresholds Home already uses), the port it will really get (a taken
+  default moves to the next free one and says whose it was), where it will answer, and a nightly
+  backup offered once it is installed. A manifest may now say what it needs
+  (`needs: { memoryMb, diskMb }`, optional, validated); none does yet, and a row says "not stated"
+  rather than guess.
+- ✅ **M57.4 Automations: Tonight** (unreleased). What the server will do by itself from 20:00 to
+  08:00 on a time axis in half hours: each schedule, scheduled automation and agent, how long its
+  last run really took, quiet hours, and the jobs that will run into each other. The later one can
+  be moved from there. A schedule's time could not be changed at all before (delete and add again,
+  losing its last result): `PUT /schedules/:id { time }` now moves it in place, same job and
+  frequency, for whoever may pause it.
+- ✅ **M57.5 Approving on a phone** (unreleased). Below 760px the approval dialog is the whole
+  screen: the body scrolls, the actions stay at the bottom above the keyboard and the home
+  indicator, Approve is 52px and full width. It says when it was asked and when it lapses (where
+  the server says so), that it finishes either way once running, and ends with the result and
+  "Took 38s, from your approval".
+- ✅ **M57.6 Security, the first two sweeps** (unreleased). Proven by probe unless said:
+  - An operator alone reached root: `samba.apply` took `/var/lib/dpkg/info` at medium and
+    `samba.share.writable` handed it to uid 1000. A share or export outside `/mnt`, `/media` and
+    `/srv` is now the owner's (high); dpkg's, apt's, cron's, cloud-init's and systemd's state and
+    BoxPilot's own runner and gateway are refused for everyone; making a share writable never
+    changes the owner of a folder outside the data roots; a path with `%` (which smb.conf expands
+    per connection) or a backslash (which the exports file reads as an escape) is not a path.
+  - An app whose install is high (it holds the Docker socket, the backups, the house's DNS) is as
+    high when its password is set, its settings changed or it is opened to the network
+    (`withManifestTier`). It was medium: an operator could take over Duplicati's sign-in.
+  - An approval reads the job's tier again. A job staged before a tier rose was approved at the old
+    one for up to seven days.
+  - Adding a passkey asks for the password. A session and its token were enough, and a passkey
+    outlives both.
+  - `systemd-*` units and `dbus-org.freedesktop.*` aliases raise `service.action` to high, and
+    `systemd-exit` and `systemd-storagetm` are refused; renaming the server is high;
+    `libpam-*`/`libnss-*` raise `apt.install`; the LAN HTTPS port is a protected firewall rule and
+    BoxPilot's own ports are never rate-limited; `dns.blocker.verify` is an operator's read; the
+    model gateway cannot reach the helper's socket.
+  - An app's data folders are checked again before every start or restart: Docker resolves a bind
+    source each time, and a folder swapped for a link after the deploy was mounted where the link
+    pointed (reasoned, not run on Linux).
+- ✅ **M57.7 Bugs, the first sweep** (unreleased). "Update every app that has one" held no app's
+  lane, so the nightly run recreated containers while apt restarted Docker or a drive was checked:
+  it holds the Docker lane now. A job staged with a secret was never expired after a restart (the
+  secrets are memory) and stood for approval for seven days. A streamed command's time limit held
+  only if every descendant died, and a character cut by a read boundary came out as two U+FFFD. A
+  resumed automation counted a keep-going step that could not start as "skipped by condition",
+  ended "completed" and cleared its alert.
+- ✅ **M57.8 The code audits' small ones** (unreleased). Five more byte formatters pick their unit
+  after rounding. The Docker image ships `automations/` and the documents the assistant reads.
+  `VIRTUALIZATION-API.md`, which documents nineteen routes that have gone, is in `docs/legacy/`.
+  Real host names and a router model are placeholders. The cited Unsloth spike is in `docs/spikes/`.
+  The power router throws without its CSRF guard. `setup-profiles.test` reads the registry and the
+  catalog. Lint, `node --check` and a `bash -n` pass now cover `test/` and `tests/`. Every catalog
+  image reference is held to a digest by a test (ADR-016 is marked accepted). Hosted domains counts
+  a scheduled backup as Repair does. A refused `ufw` rule is said in the job's log.
+- ✅ **M57.9 Quality of life, the walk** (unreleased). One verb on Updates ("Install selected",
+  "Look for new updates"); "not in use" for free space everywhere on Storage; one wording for a
+  drive that reconnects by itself; "6 of 6 read" is not said when everything was read; a
+  certificate's last day is a date; a firewall that is off no longer shows its profile as in force
+  or its policy as if it applied; root's SSH sign-in, Docker's log cap and swap are in words; "None
+  yet" for a server with no apps, not "0 of 0"; and the demo answers the two reads whose absence put
+  a warning on Today and "Not read" in the install form.
+
+- ✅ **M57.10 What the second and third sweeps found, the part that was small** (unreleased).
+  Repair no longer offers "Let people write to it" for a share the task now refuses, and the task
+  checks the whole configuration before it changes an owner. Settings no longer sends a
+  host-network app back to bridge (app.inspect left `networkMode` out). A backup whose stop fails
+  starts the app again before it fails. Retention never removes the machine snapshot just written.
+  The weekly report counts a many-app backup schedule. The gateway counts the whole request against
+  the monthly cap and refuses a call whose cost cannot be worked out. Pasted documents share the
+  uploads' limit of three hundred. Enter submits Add a rule, Add a domain and Connect the router;
+  the bell's failed read has Try again; two touch targets grow to 44px; the package repair is
+  offered only to who may start it. Found in this pass's own code by the third code audit and
+  fixed: the phone sheet's rules were lighter than every look's and did nothing in most of them,
+  and both new skins undid the kit's 44px targets under a finger. BACKUPS.md said cloud copies are
+  not encrypted (they are); RECOVERY.md named a section that does not exist.
+
+## M58: The plan from the second pass (not built)
+
+What the audits and the sweeps of 2026-11-10 found and this pass did not do, in the order it should
+be done. Each milestone is small enough to ship by itself; the first three are the ones with risk in
+them.
+
+- **M58.1 The folder that is served is the folder that was checked.** The share and export checks
+  run when the configuration is applied, and the app deployer's when the app is deployed or
+  started; smbd, the kernel's NFS server and Docker's own restart policy resolve the path again
+  later. Verify on the owner's server what Samba does with a path that was a real folder at apply
+  time and is a link afterwards, and what Docker does at boot; then raise `app.install`,
+  `app.reconfigure`, `samba.apply` and `nfs.apply` to high when a chosen folder sits on a filesystem
+  another machine controls (one mounted by `share.mount`), and run the data-folder check at the
+  other places a container is started (`app-backups.mjs` after a backup and a restore). Decide, and
+  write into ADR-015, whether `app.rollback`, `app.uninstall` and `app.backup.restore-path` on a
+  high-tier app are the owner's too, and whether `apt.install` should read the plan for a PAM or
+  NSS module pulled in as a dependency. Done when a probe on Linux shows each path refused.
+- **M58.2 The helper unit without the retired stack.** `deploy/boxpilot-helper.service` still sets
+  six variables and creates two directories for the application stack retired in c2c81cb0, held in
+  place by `server/deployment.test.mjs`; `scripts/boxpilot-application-restic-setup.sh` and
+  `test/fixtures/migration-compose/` go with them. It is a root unit: remove them on a branch, run
+  the install smoke and the `tests/ubuntu` scripts on Linux, then land it. With it, replace
+  `deployment.test.mjs`'s assertions on JavaScript source text (nine of the negative ones cannot
+  fail) with assertions on the argv each script's own test records.
+- **M58.3 After PR #640 lands.** One "is it running" predicate at the three sites it missed
+  (`app-glances.mjs:99`, `agents/tool-text.mjs:289`, `assistant/index.mjs:212`), with "restarting"
+  decided once. The dead job-type table in `ops/risk.mjs` and the test that only reads it.
+  `ownHeader` in `App.tsx`, which now lists every view.
+- **M58.4 One clock.** About eighty `toLocale*` calls in eight formats, twelve-hour and
+  twenty-four-hour on one page. One module (a time, a day, a day and time, an age) and every page
+  on it. Sized by the third code audit, below.
+- **M58.5 Errors by their code.** The job service throws `wrong_password`, `password_required`,
+  `approval_expired`; the route answers `job_approval_failed` for all of them and picks a status by
+  reading the sentence, and the dialog shows the password field by matching "owner password" in the
+  message. Seventeen such sites, two of which already disagree (400 and 403 for the same refusal).
+  Pass the code through, switch on it in `src/http.ts` and the dialog.
+- **M58.6 Finish what the four features left honest gaps for.** Record what each destination
+  holds, so "off this server" is a fact per app and not an inference from sync times; return each
+  backup's date so "newest not sent" names the copy that was. Say `needs` in the manifests of the
+  twenty apps people install most, from each project's own documentation. Send the seven-day lapse
+  with the approval policy so every waiting job says when it lapses. Let the port precheck say when
+  the listeners could not be read instead of answering "no clash". Change a schedule's time from
+  the Schedules tab as well as from Tonight. A redeploy drill for the machine snapshot, so "the
+  server itself" has a third fact.
+- **M58.7 The GitHub page in the product's voice.** Its main content is a strip of five constants
+  ("Credentials: Rejected", "Writes: Locked") and a panel of what BoxPilot does not do, from
+  before ADR-001; the same `boundary` object is built in eighteen server modules.
+- **M58.8 Two estimates of one prune, two thresholds for one disk.** Housekeeping counts a dangling
+  image a stopped container still uses as reclaimable and Space recovery does not; the root disk
+  alerts at 90% and every other mount at 85%. One rule each.
+- **M58.9 A night variant of the Field Manual,** red on black as a manual is read under a red lamp,
+  and a dark Workbook. The skins are written against their own few colours for this.
+
+- **M58.10 Bugs found and not fixed.** Each was reproduced by a probe unless it says otherwise.
+  The recycle bin's weekly clean deletes by a file's own date, which a rename into the bin keeps,
+  so a folder of 2019 photos deleted on Saturday is gone on Sunday (check `find -ctime` on the
+  server first). A settings change recreates an app on the catalog's image, not the one deployed,
+  which undoes a rollback. "Could not reconnect" clears itself after fifteen minutes for a drive
+  that is still held. A restore of an app with half a million files fails on a 64 MB listing. An
+  uninstall with Docker stopped reports success and the containers come back. A resolver that
+  times out is read as "the name has no records" and every hosted name is announced as down. The
+  Docker firewall chain drops port ranges and multi-port rules. Tonight drops a job that is running
+  now from the chart and the overlap check. The install preflight does not ask about ports again
+  after an unrelated field is fixed. An agent's run queued inside quiet hours is cancelled after
+  eighteen hours instead of running the next night. A one-step agent run can never answer. Every
+  script's "am I the main module" guard does nothing when `/opt/boxpilot` is a symlink.
+- **M58.11 The gateway and the agents.** Take the model gateway out of the `boxpilot` group (a
+  mask over `/run/boxpilot` does not survive the helper restarting; verify with `nsenter` on the
+  server) and restart it on upgrade. Make "this run read someone else's words" a fact about the
+  run, not a match on phrases: four of ten plain-language instructions passed the detector, and a
+  run that read a log, a web page or a shared document should be held to Ask however it is worded.
+  Pin the two HauhauCS models (ADR-019, in the owner's uncommitted work) to a commit and a hash.
+- **M58.12 Speed, measured.** Load only the chosen look's skin: 63% of the first-load stylesheet
+  is skins for looks not on screen (80.4 kB gzip to about 33 kB for the default look; the two new
+  looks added 9.6 kB to everyone's first load). Brotli beside gzip (first load 224 kB to 185 kB).
+  React in its own chunk, so sixty releases a month do not re-download it. One event-stream
+  error turns a tab into a five-second poller for good, hidden or not: let it reconnect. Home asks
+  for the whole inventory every minute, twice, to show container state: a home view of it, asked
+  once. The catalog's 175 unchanging summaries are sent to every tab every minute (22.8 kB gzip).
+  Hosted domains writes an audit row every round whether anything changed.
+- **M58.13 One word for one thing.** The table from the readability sweep: rehearse (not drill,
+  test restore, restore-tested), drive and disk space, restart (not reboot), Check again (not
+  Rescan, Look again, Retry), turn on (not enable), automation (not flow, chain), job (not
+  operation, stage), Repair (not Repair Center). The first screen a new owner sees says "Bootstrap
+  token" for what the README calls a setup code. Health alerts name device nodes, containers and
+  units where the owner knows drives, apps and services, and "resolved" carries the bad sentence
+  on a lock screen. About sixty errors are a binary's name and its stderr. RECOVERY.md opens with a
+  report, not with what to do first; the controller recovery it links to has no commands.
+- **M58.14 How things behave.** Escape and X in a sheet with a filled form ask before discarding
+  (this reverses M50.1's choice, so it is the owner's call). Enter in the six forms that have no
+  form element. A compose edit that survives a look at the Logs tab. Filters that survive a
+  reload on Logs, Services and the catalog. "Show older" in Activity. Failed reads that say so with
+  Try again on Sessions, People and Schedules. Search on Updates' package list. The rest of the
+  thirty are in the sweep's report.
+- **M58.15 Structure.** `sendJson` and `getJson` in `src/http.ts` (41 hand-rolled error parses
+  never raise session-ended). `useRead` for read, failed, try again, polling only while visible.
+  `isStaff(role)` and `mayStart` instead of 36 string comparisons, one of which draws an operator
+  a Stage button the server refuses. `server/agents/service.mjs` is 2,841 lines, 2,600 of them one
+  closure; the audit names seven parts along lines the file already has. A specificity test so no
+  skin out-ranks the phone sheet again, and one holding every skin to 44px under a finger.
+- **M58.16 Features, in the order the feature sweep argued for.** A page that reads the audit log
+  (the UI already says "recorded in the audit log" and nothing shows it). Alerts through the Web
+  Push that already carries approvals, so a new owner need not install ntfy first. Move an app's
+  data to another drive. Go back to the previous BoxPilot release (the kept tree and database copy
+  are on disk; only the button is missing). A second way in: recovery codes shown at first run and
+  a console `reset-password`. Then: approve with a passkey, remove a key or an account, undo in
+  Activity where an operation has an opposite, rehearse from the off-server copy, health over a
+  year with memory, a family account that opens only its apps.
 
 ## App catalogue candidates
 

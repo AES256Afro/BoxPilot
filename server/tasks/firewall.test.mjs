@@ -38,6 +38,28 @@ describe("root firewall tasks", () => {
     expect(await read("BOXPILOT_PORT=9000\n#BOXPILOT_PORT=8000\nBOXPILOT_PORT_TLS=9443\n")).toEqual({ webPort: 9000, webHost: "127.0.0.1" });
   });
 
+  // The owner set up HTTPS on the LAN (8443); an operator deleted its allow rule from the rules
+  // list, or swapped the web port's for a rate limit, and browsers on the network were cut off.
+  it("keeps the LAN HTTPS port's rule, and never rate-limits a port of BoxPilot's own", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "boxpilot-firewall-tls-"));
+    try {
+      const envPath = path.join(directory, "boxpilot.env");
+      await fs.writeFile(envPath, "BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=8787\nBOXPILOT_TLS_PORT=8443\n");
+      const run = okRun();
+      const options = { run, envPath, dockerSync: lanEnv.dockerSync };
+      await expect(firewallRuleDelete({ action: "allow", port: 8443, protocol: "tcp" }, options)).rejects.toThrow("BoxPilot over HTTPS rule stays");
+      await expect(firewallRuleAdd({ action: "deny", port: 8443, protocol: "tcp" }, options)).rejects.toThrow("Port 8443 stays open");
+      await expect(firewallRuleAdd({ action: "limit", port: 8443, protocol: "tcp" }, options)).rejects.toThrow("a rate limit there would stop this page loading");
+      await expect(firewallRuleAdd({ action: "limit", port: 8787, protocol: "tcp" }, options)).rejects.toThrow("a rate limit there would stop this page loading");
+      expect(run).not.toHaveBeenCalled();
+      // SSH may still be rate-limited: that is what limit is for.
+      await firewallRuleAdd({ action: "limit", port: 22, protocol: "tcp" }, options);
+      expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["limit", "22/tcp"], expect.anything());
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("protects the port the service really listens on when the env file overrides it further down", async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "boxpilot-firewall-env-"));
     try {

@@ -309,13 +309,13 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
         padded
         className="firewall-profile"
         title="Profile"
-        count={overview ? (currentProfile ? { status: "good", label: "in force" } : { status: "neutral", label: "none" }) : undefined}
+        count={overview ? (currentProfile ? (report?.enabled === false ? { status: "warning", label: "chosen, not in force: the firewall is off" } : { status: "good", label: "in force" }) : { status: "neutral", label: "none" }) : undefined}
         meta={current?.appliedAt ? `applied ${relativeTime(current.appliedAt, clock) ?? current.appliedAt}` : undefined}
         actions={canProfile && overview && !notInstalled ? <Button onClick={openProfiles}>Choose a profile…</Button> : undefined}
       >
         {!overview ? <p className="firewall-quiet">{loading ? "Reading…" : "Not read."}</p> : (
           <KeyValue items={[
-            { id: "profile", label: "In force", value: currentProfile?.name ?? "None applied", hint: currentProfile?.summary ?? "Apply one to get sensible defaults." },
+            { id: "profile", label: report?.enabled === false && currentProfile ? "Chosen" : "In force", value: currentProfile?.name ?? "None applied", hint: currentProfile?.summary ?? "Apply one to get sensible defaults." },
             ...(current ? [
               { id: "services", label: "Open to the LAN", value: current.services.length ? current.services.map((id) => overview.services.find((service) => service.id === id)?.name ?? id).join(", ") : "Nothing" },
               { id: "ssh", label: "SSH logins", value: current.sshRateLimit ? "Rate-limited" : "Not limited" },
@@ -362,7 +362,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
         status={verdict}
         summary={report?.enabled === false ? "All incoming traffic is accepted." : undefined}
         meta={report?.installed ? <>
-          in <b>{report.defaults?.incoming ?? "?"}</b> · out <b>{report.defaults?.outgoing ?? "?"}</b> · <b>{rules.length}</b> {rules.length === 1 ? "rule" : "rules"}
+          {report.enabled === false ? "once on: " : ""}in <b>{report.defaults?.incoming ?? "?"}</b> · out <b>{report.defaults?.outgoing ?? "?"}</b> · <b>{rules.length}</b> {rules.length === 1 ? "rule" : "rules"}
           {fail2ban?.installed ? <> · fail2ban <b>{bans.label}</b>{fail2ban.currentlyBanned !== null ? <>, <b>{fail2ban.currentlyBanned}</b> banned</> : null}</> : null}
         </> : undefined}
         actions={<>
@@ -428,10 +428,10 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
           onClose={() => setSheet(null)}
           footer={<>
             <Button variant="ghost" onClick={() => setSheet(null)}>Cancel</Button>
-            <Button variant="primary" risk={riskOf("firewall.rule.add")} disabled={!portValid || Boolean(protectedHit)} onClick={addRule}>Add rule</Button>
+            <Button variant="primary" risk={riskOf("firewall.rule.add")} type="submit" form="firewall-rule-form" disabled={!portValid || Boolean(protectedHit)}>Add rule</Button>
           </>}
         >
-          <form className="firewall-rule-form" onSubmit={(event) => { event.preventDefault(); if (portValid && !protectedHit) addRule(); }}>
+          <form id="firewall-rule-form" className="firewall-rule-form" onSubmit={(event) => { event.preventDefault(); if (portValid && !protectedHit) addRule(); }}>
             <Field label="Action">
               <Select value={ruleAction} onValueChange={setRuleAction} options={[{ value: "allow", label: "Allow" }, { value: "deny", label: "Deny" }, { value: "limit", label: "Rate-limit" }]} />
             </Field>

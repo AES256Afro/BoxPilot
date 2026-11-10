@@ -9,6 +9,7 @@ import { ModelsTab } from "./ModelsTab";
 import { ReachTab, reachOf } from "./ReachTab";
 import { TunnelTab } from "./TunnelTab";
 import { appStatus, drillFailed, installTier, isPaused, isRunning, shortImage, troubledSidecar } from "./appState";
+import { nightlyTime } from "./preflight";
 import type { CatalogContext, Entry } from "./types";
 
 /*
@@ -119,6 +120,10 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
   const verification = live?.backupVerification ?? null;
   const reach = installed && live ? reachOf(entry) : null;
   const history = (live?.updateHistory ?? []).filter((update) => update.from?.[manifest.id]);
+  // Installed a moment ago with "Back it up every night" ticked: the schedule is offered here, and
+  // created only when it is pressed (the Backups page's "Schedule it", for this one app).
+  const nightlyOffered = installed && ctx.nightlyOffer === manifest.id && Boolean(ctx.schedules.backupNightly);
+  const nightlySchedule = ctx.nightly?.[manifest.id] ?? null;
 
   const facts: KeyValueItem[] = [
     // The container's own state here; a folder it cannot write to is said above, in its notice.
@@ -159,6 +164,16 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
           During the drill on {new Date(live.killSwitchDrill.at).toLocaleString()}, traffic escaped while the tunnel was down.
         </Notice>
       )}
+
+      {nightlyOffered && (nightlySchedule
+        ? <Notice tone="success" live title="Backed up every night" onDismiss={ctx.schedules.declineNightly}>{name} is backed up {nightlySchedule.cadence}. Backups lists it with the rest.</Notice>
+        : (
+          <Notice tone="info" title={`Back up ${name} every night`} onDismiss={ctx.schedules.declineNightly}
+            action={<Button disabled={ctx.scheduling} aria-label={`Schedule it: back up ${name} nightly`} onClick={() => void ctx.schedules.backupNightly?.(manifest.id)}>Schedule it</Button>}>
+            You asked for this before installing. A backup every night at {nightlyTime}; each one stops {name} briefly and keeps the newest 5 copies.
+          </Notice>
+        ))}
+      {nightlyOffered && !nightlySchedule && ctx.scheduleError && <Notice tone="danger" live title="The nightly backup was not scheduled">{ctx.scheduleError}</Notice>}
 
       <div className="catalog-sheet__actions">
         {installed && live && live.urls.map((port, index) => (

@@ -1,0 +1,465 @@
+/*
+ * The Field Manual look (M57): the server as an operator's manual. White paper, black ink set in
+ * B612 (drawn for cockpit displays, and already bundled), square corners and ruled boxes; a panel is
+ * a numbered section, a table is a ruled table, and the three risk tiers are the three blocks every
+ * such manual has: a NOTE in a plain box (low), a CAUTION under black-and-yellow hatching (medium)
+ * and a WARNING under black-and-red (high). Colour is kept for those two.
+ * Light only: the same values whatever the device prefers. Every selector starts with
+ * :root[data-look="manual"]. The drawing is docs/design-directions/06-two-square-looks.md.
+ */
+
+/* Every rule of the skin sits in @media (min-width: 0), which a browser matches at every width and
+   jsdom skips (see src/looks/swiss/skin.css for why). */
+@media (min-width: 0) {
+  :root[data-look="manual"] {
+    color-scheme: light;
+    --manual-hazard: repeating-linear-gradient(135deg, #111111 0 6px, #ffd400 6px 12px);
+    --manual-danger: repeating-linear-gradient(135deg, #b00d1a 0 6px, #ffffff 6px 12px);
+    --manual-bar: 44px;
+    --manual-tabs: 32px;
+
+    --font-condensed: "B612", "Helvetica Neue", Arial, sans-serif;
+    --font-sans: "B612", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "B612 Mono", ui-monospace, Menlo, monospace;
+    --font-display: "B612", "Helvetica Neue", Arial, sans-serif;
+
+    --cc-canvas: #ffffff;
+    --cc-topbar: #111111;
+    --cc-rail: #ffffff;
+    --cc-panel: #ffffff;
+    --cc-raised: #f2f2f2;
+    --cc-inset: #ffffff;
+    --cc-line: #111111;
+    --cc-hairline: #b9b9b9;
+    --cc-line-strong: #111111;
+    --cc-text: #111111;
+    --cc-text-strong: #111111;
+    --cc-muted: #444444;
+    --cc-icon: #444444;
+    --cc-amber: #111111;
+    --cc-amber-ink: #ffffff;
+    --cc-amber-bg: rgba(17, 17, 17, 0.06);
+    --cc-amber-border: #111111;
+    --cc-cyan: #111111;
+    --cc-cyan-fill: rgba(17, 17, 17, 0.08);
+    --cc-green: #111111;
+    --cc-green-bg: transparent;
+    --cc-green-border: #111111;
+    --cc-red: #b00d1a;
+    --cc-red-text: #b00d1a;
+    --cc-red-bg: transparent;
+    --cc-red-border: #b00d1a;
+    --cc-track: #e2e2e2;
+
+    --radius-sm: 0;
+    --radius-md: 0;
+    --radius-lg: 0;
+    --radius-card: 0;
+    --radius-control: 0;
+    --radius-pill: 0;
+    --elevation-1: none;
+    --elevation-2: none;
+    --elevation-3: none;
+    --shadow-lg: none;
+    --shadow-xl: none;
+    --modal-bg: rgba(255, 255, 255, 0.9);
+    --backdrop-bg: rgba(17, 17, 17, 0.55);
+    --text-on-emphasis: #ffffff;
+    --lx-avatar: #ffffff;
+    --lx-avatar-ink: #111111;
+    --lx-focus: #111111;
+  }
+
+  /* Fine is black, a caution is dark amber on white and black on yellow in a box, a warning is red.
+     Set again on what opens over a page (.look-console). */
+  :root[data-look="manual"],
+  :root[data-look="manual"] .look-console {
+    --status-good: #111111;
+    --status-good-text: #111111;
+    --status-good-bg: transparent;
+    --status-good-border: #111111;
+    --status-warning: #7a5200;
+    --status-warning-text: #6b4700;
+    --status-warning-bg: #ffd400;
+    --status-warning-border: #111111;
+    --status-danger: #b00d1a;
+    --status-danger-text: #b00d1a;
+    --status-danger-bg: transparent;
+    --status-danger-border: #b00d1a;
+    --status-neutral: #444444;
+    --status-neutral-text: #444444;
+    --status-neutral-bg: transparent;
+    --status-neutral-border: #444444;
+    --status-unknown: #444444;
+    --status-unknown-text: #444444;
+    --status-unknown-border: #444444;
+    --risk-low: #444444;
+    --risk-low-text: #444444;
+    --risk-low-bg: transparent;
+    --risk-low-border: #444444;
+    --risk-medium: #7a5200;
+    --risk-medium-text: #6b4700;
+    --risk-medium-bg: #ffd400;
+    --risk-medium-border: #111111;
+    --risk-high: #b00d1a;
+    --risk-high-text: #b00d1a;
+    --risk-high-bg: transparent;
+    --risk-high-border: #b00d1a;
+    --warn: #7a5200;
+    --warn-text: #6b4700;
+    --danger: #b00d1a;
+    --danger-text: #b00d1a;
+    --success: #111111;
+  }
+
+  /* ── Every page: white paper, ink, no rounded corners and no shadows anywhere ── */
+  :root[data-look="manual"] body { background: #ffffff; }
+  :root[data-look="manual"] .app-shell { color: #111111; background: #ffffff; }
+  :root[data-look="manual"] *,
+  :root[data-look="manual"] *::before,
+  :root[data-look="manual"] *::after { border-radius: 0 !important; }
+  :root[data-look="manual"] ::selection { color: #111111; background: #ffd400; }
+  :root[data-look="manual"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 3px solid #111111; outline-offset: 2px; }
+  :root[data-look="manual"] :is(code, kbd, samp, pre, .ui-code__text, .ui-input--mono, .ops-mono, .ops-link--mono) { font-family: "B612 Mono", ui-monospace, monospace; }
+  :root[data-look="manual"] :is(.ui-table td, .ui-metric__value, .ui-kv__value, .ui-facts) { font-variant-numeric: tabular-nums; }
+
+  /* ── The bar: the manual's running head, white capitals on a black band ── */
+  :root[data-look="manual"] .topbar {
+    position: sticky;
+    top: 0;
+    align-items: center;
+    gap: 0 26px;
+    height: var(--manual-bar);
+    min-height: var(--manual-bar);
+    padding: 0 40px;
+    border-bottom: 0;
+    color: #ffffff;
+    background: #111111;
+    backdrop-filter: none;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  :root[data-look="manual"] :is(.topbar-left, .topbar-slot) { display: contents; }
+  :root[data-look="manual"] .topbar-slot:empty { display: none; }
+  :root[data-look="manual"] .brand { display: flex; order: -2; font-family: "B612", sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.12em; }
+  :root[data-look="manual"] .brand > span,
+  :root[data-look="manual"] .brand small { display: none; }
+  :root[data-look="manual"] .brand div { display: block; color: #ffffff; font-size: inherit; }
+  :root[data-look="manual"] .cc-crumb { gap: 26px; font-size: 11.5px; }
+  :root[data-look="manual"] .cc-crumb h1 { order: -1; color: #ffffff; font-size: 11.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  :root[data-look="manual"] .cc-crumb__host { color: #ffffff; font-size: 11.5px; font-weight: 700; }
+  :root[data-look="manual"] .cc-crumb__sep { display: none; }
+  :root[data-look="manual"] .cc-kv { margin-left: 0; color: #d6d6d6; font-family: "B612", sans-serif; font-size: 11.5px; font-weight: 700; }
+  :root[data-look="manual"] .cc-kv b { color: #ffffff; font-weight: 700; }
+
+  :root[data-look="manual"] .command-trigger {
+    flex: 0 1 13rem;
+    min-height: 28px;
+    margin-left: auto;
+    padding: 0 9px;
+    border: 1.5px solid #ffffff;
+    color: #ffffff;
+    background: none;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  :root[data-look="manual"] .command-trigger__label { color: #d6d6d6; font-weight: 400; }
+  :root[data-look="manual"] .command-trigger__keys { padding: 0; border: 0; color: #ffffff; background: none; font: 700 10.5px/1.2 "B612 Mono", monospace; }
+  :root[data-look="manual"] .command-trigger:hover { color: #111111; background: #ffffff; }
+  :root[data-look="manual"] .command-trigger:hover :is(.command-trigger__label, .command-trigger__keys) { color: #111111; }
+  :root[data-look="manual"] .topbar :is(button, a):focus-visible { outline-color: #ffd400; }
+  :root[data-look="manual"] .topbar-right { gap: 18px; margin-left: 0; }
+  :root[data-look="manual"] .ui-theme-switch { display: none; }
+  :root[data-look="manual"] .connection-pill { padding: 0; border: 0; color: #d6d6d6; background: none; font: 400 11px "B612", sans-serif; }
+  :root[data-look="manual"] .connection-pill::before { display: none; }
+  :root[data-look="manual"] .bar-button { min-height: 0; padding: 0; color: #ffffff; font-family: "B612", sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  :root[data-look="manual"] .bar-button:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+  :root[data-look="manual"] .bar-button[data-live] { color: #ffffff; }
+  :root[data-look="manual"] .bar-badge { min-width: 0; height: auto; padding: 0 5px; color: #111111; background: #ffd400; font-family: "B612 Mono", monospace; font-size: 11px; font-weight: 700; }
+  :root[data-look="manual"] .bar-label { padding: 0; border: 0; color: #d6d6d6; font-family: "B612", sans-serif; font-size: 11px; }
+  :root[data-look="manual"] .bar-lock { color: #ffd400; }
+  :root[data-look="manual"] .signed-in-user { color: #ffffff; font-family: "B612", sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  :root[data-look="manual"] .signed-in-user__avatar { display: none; }
+
+  /* ── The areas: the manual's thumb tabs, a line of capitals under the band ── */
+  @media (min-width: 761px) {
+    :root[data-look="manual"] .view-switch {
+      position: absolute;
+      z-index: 2;
+      top: var(--manual-bar);
+      left: 40px;
+      display: flex;
+      gap: 0;
+      height: var(--manual-tabs);
+      align-items: stretch;
+      padding: 0;
+      border: 0;
+      background: none;
+    }
+    :root[data-look="manual"] .view-switch__option {
+      min-height: 0;
+      padding: 0 11px;
+      border: 0;
+      color: #444444;
+      background: none;
+      font: 700 11.5px/1 "B612", sans-serif;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      box-shadow: none;
+    }
+    :root[data-look="manual"] .view-switch__option svg { display: none; }
+    :root[data-look="manual"] .view-switch__option:hover { color: #111111; text-decoration: underline; }
+    :root[data-look="manual"] .view-switch__option[aria-current="page"] { color: #ffffff; background: #111111; text-decoration: none; }
+
+    :root[data-look="manual"] .shell-dock.shell-dock--top {
+      position: sticky;
+      z-index: 9;
+      top: var(--manual-bar);
+      right: auto;
+      bottom: auto;
+      left: auto;
+      display: block;
+      height: var(--manual-tabs);
+      padding: 0 40px 0 calc(40px + 128px);
+      border-bottom: 2.5px solid #111111;
+      background: #ffffff;
+      pointer-events: auto;
+    }
+    :root[data-look="manual"] .ui-dock.shell-dock--top ul {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: stretch;
+      gap: 0;
+      height: calc(var(--manual-tabs) - 2.5px);
+      padding: 0;
+      overflow: hidden;
+      border: 0;
+      background: none;
+      box-shadow: none;
+      backdrop-filter: none;
+    }
+    :root[data-look="manual"] .shell-dock--top .ui-dock__separator { width: 2px; height: 14px; margin: 0 6px; align-self: center; background: #111111; }
+    :root[data-look="manual"] .shell-dock--top .ui-dock__item { display: flex; height: 100%; align-items: center; gap: 5px; width: auto; padding: 0 9px; }
+    :root[data-look="manual"] .shell-dock--top .ui-dock__icon { display: contents; }
+    :root[data-look="manual"] .shell-dock--top .ui-dock__icon svg { display: none; }
+    :root[data-look="manual"] .shell-dock--top .ui-dock__label { order: -1; max-width: none; overflow: visible; color: #444444; font: 700 11.5px/1 "B612", sans-serif; letter-spacing: 0.08em; text-transform: uppercase; }
+    :root[data-look="manual"] .shell-dock--top .ui-dock__badge { position: static; min-width: 0; height: auto; padding: 1px 4px; color: #111111; background: #ffd400; box-shadow: none; font: 700 10.5px/1 "B612 Mono", monospace; }
+    :root[data-look="manual"] .shell-dock--top .ui-dock__item:hover .ui-dock__label { color: #111111; text-decoration: underline; }
+    :root[data-look="manual"] .shell-dock--top .ui-dock__item[aria-current="page"] { background: #111111; }
+    :root[data-look="manual"] .shell-dock--top .ui-dock__item[aria-current="page"] .ui-dock__label { color: #ffffff; text-decoration: none; }
+    :root[data-look="manual"] .shell-dock--top .ui-dock__item:focus-visible { outline-offset: -3px; }
+  }
+
+  /* ── The page: the manual's margins, each panel a numbered section ── */
+  :root[data-look="manual"] .content { max-width: none; padding: 22px 40px calc(var(--shell-bottom-inset, 0px) + 44px); }
+  :root[data-look="manual"] .app-shell[data-view="home"] .content { padding-top: 22px; }
+  :root[data-look="manual"] .content--console { gap: 20px; counter-reset: manual-section; }
+
+  :root[data-look="manual"] .ui-page-header { gap: 8px 18px; padding-bottom: 12px; border-bottom: 4px solid #111111; }
+  :root[data-look="manual"] .ui-page-header__summary { color: #111111; font-size: 16px; line-height: 1.4; }
+  :root[data-look="manual"] .ui-facts { color: #444444; font-family: "B612 Mono", monospace; font-size: 12.5px; }
+  :root[data-look="manual"] .ui-facts b { color: #111111; font-weight: 700; }
+  :root[data-look="manual"] .ui-info-toggle { border: 2px solid #111111; color: #111111; }
+
+  :root[data-look="manual"] .ui-panel { overflow: visible; border: 1.5px solid #111111; background: #ffffff; counter-increment: manual-section; }
+  :root[data-look="manual"] .ui-panel__head { min-height: 0; padding: 8px 12px; border-bottom: 1.5px solid #111111; }
+  :root[data-look="manual"] .ui-panel__title { color: #111111; font-family: "B612", sans-serif; font-size: 12.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; }
+  :root[data-look="manual"] .content--console .ui-panel__title::before { content: counter(manual-section) ". "; }
+  :root[data-look="manual"] .ui-panel__count { color: #111111; font-family: "B612 Mono", monospace; }
+  :root[data-look="manual"] .ui-panel__count[data-status="warning"] { padding: 0 5px; color: #111111; background: #ffd400; }
+  :root[data-look="manual"] .ui-panel__count[data-status="danger"] { padding: 0 5px; color: #ffffff; background: #b00d1a; }
+  :root[data-look="manual"] .ui-panel__meta { color: #444444; font-family: "B612 Mono", monospace; font-size: 12px; }
+  :root[data-look="manual"] .ui-panel__meta b { color: #111111; font-weight: 700; }
+  :root[data-look="manual"] .ui-panel--padded > .ui-panel__body { padding: 12px; }
+  :root[data-look="manual"] .ui-panel__foot { padding: 8px 12px; border-top: 1.5px solid #111111; color: #444444; font-family: "B612", sans-serif; font-size: 12.5px; }
+  :root[data-look="manual"] .cc .ops-quiet,
+  :root[data-look="manual"] .ops-quiet { padding: 10px 12px; color: #444444; }
+  :root[data-look="manual"] .ui-card { border: 1.5px solid #111111; background: #ffffff; box-shadow: none; }
+
+  /* Figures: a ruled box, the reading large, its name in capitals over it. */
+  :root[data-look="manual"] .ui-metric,
+  :root[data-look="manual"] .ui-metric[data-status] { min-height: 0; padding: 9px 12px 8px; border: 1.5px solid #111111; background: #ffffff; box-shadow: none; }
+  :root[data-look="manual"] .ui-metric[data-status="warning"] { background: linear-gradient(#ffd400, #ffd400) top / 100% 6px no-repeat, #ffffff; }
+  :root[data-look="manual"] .ui-metric[data-status="danger"] { background: linear-gradient(#b00d1a, #b00d1a) top / 100% 6px no-repeat, #ffffff; }
+  :root[data-look="manual"] .ui-metric--link:hover { background-color: #f2f2f2; }
+  :root[data-look="manual"] .ui-metric__value { margin-top: 2px; color: #111111; font: 700 27px/1.05 "B612", sans-serif; letter-spacing: -0.01em; }
+  :root[data-look="manual"] .ui-metric__value small { color: #111111; font-size: 14px; font-weight: 700; }
+  :root[data-look="manual"] .ui-metric__label { color: #111111; font-family: "B612", sans-serif; font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  :root[data-look="manual"] .ui-metric__caption { color: #444444; font-size: 12.5px; }
+  :root[data-look="manual"] .ui-metric__bar { height: 8px; border: 1.5px solid #111111; background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), #111111 calc(10% - 1px) 10%); }
+  :root[data-look="manual"] .ui-metric__bar > i,
+  :root[data-look="manual"] .ui-metric[data-status] .ui-metric__bar > i { background: #111111; }
+  :root[data-look="manual"] .ui-metric[data-status="danger"] .ui-metric__bar > i { background: #b00d1a; }
+  :root[data-look="manual"] .ui-spark__line { stroke: #111111; }
+  :root[data-look="manual"] .ui-spark__area { fill: rgba(17, 17, 17, 0.07); }
+  :root[data-look="manual"] .ui-kv--strip { border: 1.5px solid #111111; background: #ffffff; }
+  :root[data-look="manual"] .ui-kv--strip .ui-kv__item { padding: 8px 14px; border-right: 1.5px solid #111111; box-shadow: none; }
+  :root[data-look="manual"] .ui-kv--strip .ui-kv__value { font: 700 18px/1.15 "B612", sans-serif; }
+  :root[data-look="manual"] .ui-kv__label,
+  :root[data-look="manual"] .ui-kv--columns .ui-kv__label,
+  :root[data-look="manual"] .ui-kv--strip .ui-kv__label { color: #444444; font-family: "B612", sans-serif; font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  :root[data-look="manual"] .ui-kv--rows .ui-kv__item { border-top-color: #b9b9b9; }
+
+  /* Tables: ruled, the heading row reversed. */
+  :root[data-look="manual"] .ui-table { font-size: 13px; }
+  :root[data-look="manual"] .ui-table th { height: 28px; border-bottom: 0; color: #ffffff; background: #111111; font-family: "B612", sans-serif; font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; }
+  :root[data-look="manual"] .ui-table td { height: 32px; border-bottom: 1px solid #111111; color: #111111; font-family: "B612 Mono", monospace; font-size: 12.5px; }
+  :root[data-look="manual"] .ui-table tbody tr:last-child td { border-bottom: 0; }
+  :root[data-look="manual"] .ui-table :is(th, td) + :is(th, td) { border-left: 1px solid #b9b9b9; }
+  :root[data-look="manual"] .ui-table th + th { border-left-color: #444444; }
+  :root[data-look="manual"] .ui-table tbody tr:hover td { background: #f2f2f2; }
+  :root[data-look="manual"] .ui-table .ops-link { color: #111111; font-family: "B612", sans-serif; font-weight: 700; }
+  :root[data-look="manual"] .ui-table__caption { padding: 6px 12px; color: #444444; }
+  :root[data-look="manual"] .ui-table__sort { color: inherit; font: inherit; letter-spacing: inherit; }
+  :root[data-look="manual"] .ui-table th[aria-sort="ascending"],
+  :root[data-look="manual"] .ui-table th[aria-sort="descending"] { color: #ffd400; }
+  :root[data-look="manual"] .cc-tag,
+  :root[data-look="manual"] .ui-tag { padding: 0 5px; border: 1.5px solid #111111; color: #111111; background: none; font-family: "B612", sans-serif; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  :root[data-look="manual"] :is(.cc-tag[data-reach="LAN"], .ui-tag--accent, .ui-tag--warning, .ui-tag[data-reach="lan"]) { color: #111111; background: #ffd400; }
+  :root[data-look="manual"] :is(.ui-tag--danger, .ui-tag[data-reach="public"]) { border-color: #b00d1a; color: #ffffff; background: #b00d1a; }
+  :root[data-look="manual"] :is(.ui-tag--good, .ui-tag--info) { color: #111111; background: none; }
+  :root[data-look="manual"] .ops-bar,
+  :root[data-look="manual"] .cc .ops-bar { background: #e2e2e2; }
+  :root[data-look="manual"] :is(.ops-bar, .cc .ops-bar) > i { background: #111111; }
+
+  /* Words for state, boxed as the manual boxes them: a caution on yellow, a warning on red. */
+  :root[data-look="manual"] .ui-chip { padding: 1px 6px; border: 1.5px solid currentColor; background: none; font-family: "B612", sans-serif; font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; }
+  :root[data-look="manual"] .ui-chip--warning { border-color: #111111; color: #111111; background: #ffd400; }
+  :root[data-look="manual"] .ui-chip--danger { border-color: #b00d1a; color: #ffffff; background: #b00d1a; }
+  :root[data-look="manual"] .ui-chip--unknown { border-style: dashed; }
+  :root[data-look="manual"] .ui-page-header__verdict { padding: 3px 9px; border-width: 2px; font-size: 12px; }
+  :root[data-look="manual"] .ui-risk { padding: 1px 5px; border: 1.5px solid currentColor; background: none; font-family: "B612", sans-serif; font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; }
+
+  /* Buttons: ruled rectangles in capitals. One that starts a medium job carries the yellow
+     hatching down its left edge, a high one the red. */
+  :root[data-look="manual"] .ui-button { min-height: 32px; padding: 0 12px; border: 2px solid #111111; color: #111111; background: #ffffff; font-family: "B612", sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  :root[data-look="manual"] .ui-button:hover:not(:disabled) { border-color: #111111; color: #ffffff; background: #111111; }
+  :root[data-look="manual"] .ui-button--primary { border-color: #111111; color: #ffffff; background: #111111; }
+  :root[data-look="manual"] .ui-button--primary:hover:not(:disabled) { color: #111111; background: #ffd400; }
+  :root[data-look="manual"] .ui-button--ghost { border-color: transparent; color: #111111; background: none; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+  :root[data-look="manual"] .ui-button--ghost:hover:not(:disabled) { border-color: transparent; color: #111111; background: #ffd400; }
+  :root[data-look="manual"] :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 21px; }
+  :root[data-look="manual"] .ui-button--risk-medium::before { top: 0; bottom: 0; left: 0; width: 10px; height: auto; background: repeating-linear-gradient(135deg, #111111 0 3px, #ffd400 3px 6px); }
+  :root[data-look="manual"] .ui-button--risk-high::before { top: 0; bottom: 0; left: 0; width: 10px; height: auto; background: repeating-linear-gradient(135deg, #b00d1a 0 3px, #ffffff 3px 6px); }
+  :root[data-look="manual"] .ui-button__tier,
+  :root[data-look="manual"] .ui-button .ui-button__tier { padding: 0 4px; border: 1px solid currentColor; color: inherit; background: none; font-size: 10px; }
+  :root[data-look="manual"] .ui-button__lock { color: inherit; }
+
+  /* Tabs inside a page: index tabs, the open one reversed. */
+  :root[data-look="manual"] .ui-tabs__list { gap: 0; border-bottom: 2.5px solid #111111; }
+  :root[data-look="manual"] .ui-tabs__tab { min-height: 34px; padding: 0 13px; border-bottom-width: 0; color: #444444; font-family: "B612", sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  :root[data-look="manual"] .ui-tabs__tab:hover { color: #111111; text-decoration: underline; }
+  :root[data-look="manual"] .ui-tabs__tab[aria-selected="true"] { color: #ffffff; background: #111111; text-decoration: none; }
+  :root[data-look="manual"] .ui-tabs__count { color: #111111; font-family: "B612 Mono", monospace; font-size: 11px; font-weight: 700; }
+  :root[data-look="manual"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: #ffd400; }
+
+  /* Forms: ruled white fields. */
+  :root[data-look="manual"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 1.5px solid #111111; color: #111111; background: #ffffff; font-family: "B612", sans-serif; }
+  :root[data-look="manual"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: #111111; outline: 3px solid #111111; }
+  :root[data-look="manual"] .ui-field__label { color: #111111; font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; }
+  :root[data-look="manual"] .ui-secret__toggle { border: 1.5px solid #111111; color: #111111; background: #f2f2f2; }
+  :root[data-look="manual"] .ui-switch__track { border: 2px solid #111111; background: #ffffff; }
+  :root[data-look="manual"] .ui-switch__thumb { top: 2px; left: 2px; width: 10px; height: 10px; background: #111111; }
+  :root[data-look="manual"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: #111111; background: #111111; }
+  :root[data-look="manual"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #ffd400; }
+  :root[data-look="manual"] .ui-switch__state { color: #111111; font-family: "B612", sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  :root[data-look="manual"] .ui-check__mark { border: 2px solid #111111; background: #ffffff; }
+  :root[data-look="manual"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: #111111; background: #111111; }
+  :root[data-look="manual"] .ui-check__mark::after { border-color: #ffffff; }
+  :root[data-look="manual"] .ui-segmented { gap: 0; padding: 0; border: 2px solid #111111; background: #ffffff; }
+  :root[data-look="manual"] .ui-segmented__option { min-height: 28px; color: #111111; font-family: "B612", sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+  :root[data-look="manual"] .ui-segmented__option + .ui-segmented__option { border-left: 2px solid #111111; }
+  :root[data-look="manual"] .ui-segmented__option[aria-checked="true"] { color: #ffffff; background: #111111; box-shadow: none; }
+  :root[data-look="manual"] .ui-search__icon { color: #111111; }
+
+  /* Notices are the manual's three blocks: a note in a plain box, a caution under the yellow
+     hatching, a warning under the red. */
+  :root[data-look="manual"] .ui-notice { padding: 10px 12px; border: 1.5px solid #111111; background: #ffffff; box-shadow: none; }
+  :root[data-look="manual"] .ui-notice--warning { padding-top: 20px; border-width: 2.5px; background: var(--manual-hazard) top / 100% 10px no-repeat, #ffd400; }
+  :root[data-look="manual"] .ui-notice--danger { padding-top: 20px; border: 2.5px solid #b00d1a; background: var(--manual-danger) top / 100% 10px no-repeat, #ffffff; }
+  :root[data-look="manual"] .ui-notice--warning :is(.ui-notice__title, .ui-notice__body, .ui-mark) { color: #111111; }
+  :root[data-look="manual"] .ui-notice__title { font-weight: 700; }
+  :root[data-look="manual"] .need,
+  :root[data-look="manual"] .need[data-severity],
+  :root[data-look="manual"] .need.need--lead { padding: 10px 12px; border-top: 1px solid #111111; box-shadow: none; }
+  :root[data-look="manual"] .need:first-child { border-top: 0; }
+  :root[data-look="manual"] .need__title { color: #111111; font-weight: 700; }
+  :root[data-look="manual"] .need__title:hover { color: #111111; text-decoration: underline; }
+  :root[data-look="manual"] .ui-empty__icon { border: 2px solid #111111; color: #111111; }
+  :root[data-look="manual"] .ui-code { border: 1.5px solid #111111; background: #f2f2f2; }
+  :root[data-look="manual"] .ui-code__bar { border-bottom: 1.5px solid #111111; background: #ffffff; }
+  :root[data-look="manual"] .ui-job { border: 1.5px solid #111111; background: #ffffff; }
+  :root[data-look="manual"] .ui-progress__track { height: 8px; border: 1.5px solid #111111; background: #ffffff; }
+  :root[data-look="manual"] .ui-progress__fill { background: var(--manual-hazard); }
+
+  /* Apps in black and white, as a manual prints its figures. */
+  :root[data-look="manual"] :is(.ui-app-icon, .ui-tile__icon) { border: 1.5px solid #111111; box-shadow: none; filter: grayscale(1) contrast(1.15); }
+  :root[data-look="manual"] .ui-tile:hover { border-color: transparent; background: #f2f2f2; }
+  :root[data-look="manual"] .ui-tile__name { color: #111111; font-weight: 700; }
+  :root[data-look="manual"] .ui-tile__mark { box-shadow: 0 0 0 2px #ffffff; }
+
+  /* Sheets and dialogs: a page of the manual laid over the one beneath, under a black band. An
+     approval's tier is the block it would be printed in. */
+  :root[data-look="manual"] :is(.ui-sheet, .approve-dialog, .command-dialog) { border: 2.5px solid #111111; border-top-width: 10px; background: #ffffff; box-shadow: none; }
+  :root[data-look="manual"] .ui-sheet--right { border-width: 0 0 0 2.5px; border-top-width: 0; }
+  :root[data-look="manual"] :is(.ui-sheet__head, .approve-head) { border-bottom: 4px solid #111111; }
+  :root[data-look="manual"] :is(.ui-sheet__title, .approve-title) { color: #111111; font-family: "B612", sans-serif; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
+  :root[data-look="manual"] :is(.ui-sheet__close, .approve-close) { border: 2px solid #111111; color: #111111; background: #ffffff; }
+  :root[data-look="manual"] .approve-tier,
+  :root[data-look="manual"] .approve-tier[data-tier] { border: 1.5px solid #111111; background: #ffffff; box-shadow: none; }
+  :root[data-look="manual"] .approve-tier[data-tier="medium"] { padding-top: 20px; border-width: 2.5px; background: var(--manual-hazard) top / 100% 10px no-repeat, #ffd400; }
+  :root[data-look="manual"] .approve-tier[data-tier="high"] { padding-top: 20px; border: 2.5px solid #b00d1a; background: var(--manual-danger) top / 100% 10px no-repeat, #ffffff; }
+  :root[data-look="manual"] .approve-tier[data-tier="medium"] :is(p, span, strong, b, .ui-risk) { color: #111111; }
+  :root[data-look="manual"] :is(.approve-preview, .approve-staged, .approve-once) { border: 1.5px solid #111111; background: #f2f2f2; }
+  :root[data-look="manual"] .approve-foot { border-top: 4px solid #111111; }
+  :root[data-look="manual"] .command-input:focus-within { box-shadow: inset 0 -4px 0 #111111; }
+  :root[data-look="manual"] .command-option[aria-selected="true"] { color: #ffffff; background: #111111; box-shadow: none; }
+  :root[data-look="manual"] .command-option[aria-selected="true"] :is(.command-option__icon, .command-option__hint, .ui-risk) { color: #ffffff; }
+  :root[data-look="manual"] .command-group { color: #111111; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  :root[data-look="manual"] .command-close { border: 2px solid #111111; color: #111111; background: #ffffff; }
+
+  :root[data-look="manual"] .settings-appearance { padding: 14px; border: 1.5px solid #111111; background: #ffffff; box-shadow: none; }
+  :root[data-look="manual"] .settings-appearance__title { font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
+  :root[data-look="manual"] .settings-appearance__now { border: 2px solid #111111; background: #ffffff; }
+
+  /* ── A narrower window: the search keeps its magnifier and gives its words to the line ── */
+  @media (max-width: 1100px) {
+    :root[data-look="manual"] .command-trigger { flex: 0 0 auto; }
+    :root[data-look="manual"] .command-trigger__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
+
+  /* ── A phone: the band wraps, and the areas stand along the bottom under a heavy rule ── */
+  @media (max-width: 760px) {
+    :root[data-look="manual"] .topbar { position: static; flex-wrap: wrap; height: auto; min-height: 0; gap: 8px 14px; padding: 10px 16px; }
+    :root[data-look="manual"] .cc-crumb { gap: 12px; }
+    :root[data-look="manual"] .brand { display: none; }
+    :root[data-look="manual"] .view-switch { gap: 0; padding: 0; border: 1.5px solid #ffffff; background: none; }
+    :root[data-look="manual"] .view-switch__option { min-height: 28px; padding: 0 9px; border: 0; color: #ffffff; background: none; font: 700 11px/1 "B612", sans-serif; letter-spacing: 0.08em; text-transform: uppercase; box-shadow: none; }
+    :root[data-look="manual"] .view-switch__option svg { display: none; }
+    :root[data-look="manual"] .view-switch__option[aria-current="page"] { color: #111111; background: #ffffff; }
+    :root[data-look="manual"] .command-trigger { flex: 0 0 auto; width: auto; min-width: 0; }
+    :root[data-look="manual"] .topbar-right { gap: 12px; }
+    :root[data-look="manual"] .content { padding: 14px 16px calc(var(--shell-bottom-inset, 0px) + 96px); }
+    :root[data-look="manual"] .app-shell[data-view="home"] .content { padding: 14px 16px calc(var(--shell-bottom-inset, 0px) + 96px); }
+    :root[data-look="manual"] .shell-dock { right: 0; bottom: var(--shell-bottom-inset, 0px); left: 0; }
+    :root[data-look="manual"] .ui-dock.shell-dock ul { width: 100%; justify-content: space-around; padding: 6px 4px 8px; border: 0; border-top: 4px solid #111111; background: #ffffff; box-shadow: none; backdrop-filter: none; }
+    :root[data-look="manual"] .shell-dock .ui-dock__item { width: 60px; }
+    :root[data-look="manual"] .shell-dock .ui-dock__icon { width: 34px; height: 30px; border: 0; color: #111111; background: none; }
+    :root[data-look="manual"] .shell-dock .ui-dock__icon svg { width: 19px; height: 19px; }
+    :root[data-look="manual"] .shell-dock .ui-dock__label { color: #111111; font: 700 10px/1.2 "B612", sans-serif; letter-spacing: 0.06em; text-transform: uppercase; }
+    :root[data-look="manual"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: transparent; color: #111111; background: none; }
+    :root[data-look="manual"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__icon { color: #ffffff; background: #111111; }
+    :root[data-look="manual"] .shell-dock .ui-dock__badge { top: -4px; right: -8px; min-width: 16px; height: 16px; color: #111111; background: #ffd400; box-shadow: 0 0 0 2px #ffffff; }
+    :root[data-look="manual"] .shell-dock .ui-dock__separator { width: 2px; margin: 6px 0; background: #111111; }
+  }
+
+  /* A finger, not a pointer: the kit's 44px targets, which this skin's own smaller sizes would undo. */
+  @media (pointer: coarse) {
+    :root[data-look="manual"] :is(.ui-button, .ui-tabs__tab, .ui-segmented__option, .ui-select__control, .ui-input, .ui-textarea, .ui-switch__control, .ui-secret__toggle, .bar-button, .command-trigger, .view-switch__option) { min-height: 44px; }
+    :root[data-look="manual"] :is(.ui-info-toggle, .ui-sheet__close, .approve-close) { width: 44px; height: 44px; }
+  }
+}

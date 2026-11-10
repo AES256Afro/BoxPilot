@@ -482,7 +482,7 @@ docker build -t boxpilot:local .
 - [Dependency-ordered roadmap](ROADMAP.md)
 - [QEMU/KVM setup and operation](../VIRTUALIZATION.md)
 - [QEMU/KVM milestones](VIRTUALIZATION-MILESTONES.md)
-- [QEMU/KVM API and agent contract](../VIRTUALIZATION-API.md)
+- [QEMU/KVM API and agent contract](VIRTUALIZATION-API.md)
 - [Ubuntu Server installation runbook](../../UBUNTU-SERVER-INSTALL-RUNBOOK.md)
 
 ## Keel Notes guarded native-service adapter

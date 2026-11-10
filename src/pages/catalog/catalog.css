@@ -94,6 +94,19 @@
 .catalog-form__problems { display: grid; gap: 4px; margin: 0; padding-left: 18px; }
 .catalog-form .ui-check__description a { color: var(--accent); }
 
+/* Will it fit, at the head of the install form: the result, what it takes as a ruled table (cells
+   wrap, so six columns fit the sheet), where it will answer, the first night, and what it starts. */
+.catalog-preflight { display: grid; gap: 10px; min-width: 0; }
+.catalog-preflight__result { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; }
+.catalog-preflight__kicker { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; }
+.catalog-preflight__summary { flex: 1 1 14rem; color: var(--text-muted); font-size: 13px; line-height: 1.4; }
+.catalog-preflight__takes .ui-table td { white-space: normal; overflow-wrap: anywhere; }
+.catalog-preflight__item { color: var(--text-strong); white-space: nowrap; overflow-wrap: normal; word-break: normal; }
+.catalog-preflight__scale { min-width: 4.5rem; }
+.catalog-preflight__hint { display: block; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12px; }
+.catalog-preflight__answers code { overflow-wrap: anywhere; }
+.catalog-preflight__starts { padding-top: 10px; border-top: 1px solid var(--border); }
+
 /* The Cloudflare Tunnel app's Tunnel tab (M42): connecting Cloudflare, and publishing an app. */
 .catalog-tunnel__lead { margin: 0 0 8px; color: var(--text); font-size: 13.5px; line-height: 1.45; }
 .catalog-tunnel__lead code, .catalog-tunnel__preview code { overflow-wrap: anywhere; }

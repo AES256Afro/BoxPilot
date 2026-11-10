@@ -207,7 +207,10 @@ export function createJobService(store, helper, {
       throttle.record([`user:${owner.id}`], ok);
       if (!ok) throw Object.assign(new Error("Wrong password"), { code: "wrong_password" });
     }
-    const policy = approvalPolicy(job, session);
+    // The tier is read again here, not only when the job was staged: a job that waited through a
+    // release that raised its tier (an app that now holds the Docker socket), or whose hook reads
+    // something that has since changed, is approved at the tier it has now. Never a lower one.
+    const policy = approvalPolicy({ ...job, risk: await tierNow(job) }, session);
     if (policy.expired) {
       expireSecretJob(job);
       throw Object.assign(new Error("This approval expired after 30 minutes. Close it and stage the operation again with its credentials."), { code: "approval_expired" });
@@ -559,6 +562,13 @@ export function createJobService(store, helper, {
     return operationRiskHooks[operationId] ? higherTier(operation.risk, await operationRiskHooks[operationId](parameters ?? {})) : operation.risk;
   }
 
+  /** The higher of the tier a job was staged at and the one its operation and parameters have now. */
+  async function tierNow(job) {
+    if (!job.type.startsWith("op:")) return job.risk ?? null;
+    const live = await effectiveRisk(job.type.slice(3), job.parameters ?? {}).catch(() => null);
+    return live ? higherTier(job.risk ?? live, live) : job.risk ?? null;
+  }
+
   /** Apply the operation's prepare hook without staging — the scheduler validates with it. */
   async function prepareParameters(operationId, parameters = {}) {
     return operationPrepareHooks[operationId] ? operationPrepareHooks[operationId](parameters ?? {}) : parameters ?? {};
@@ -644,10 +654,9 @@ export function createJobService(store, helper, {
     return approvalPolicy(job, session);
   }
 
-  function expireSecretJob(job) {
+  function expireSecretJob(job, reason = "Approval expired. Stage the operation again and re-enter its credentials.") {
     stagedSecrets.delete(job.id);
     if (job.state !== "awaiting_approval") return;
-    const reason = "Approval expired. Stage the operation again and re-enter its credentials.";
     store.transitionJob(job.id, "awaiting_approval", "cancelled", { error: reason });
     store.recordAudit("job.approval.expired", { actorId: null, subjectId: job.id, details: { type: job.type } });
   }
@@ -666,6 +675,17 @@ export function createJobService(store, helper, {
       if (job?.state === "awaiting_approval" && record.expiresAt > now()) continue;
       stagedSecrets.delete(jobId); dropped += 1;
       if (job?.state === "awaiting_approval") expireSecretJob(job);
+    }
+    // The map is memory: after a restart it is empty, and a job staged with a secret before it had
+    // nothing left to expire it. It waited on Home and in push approvals for seven days, and
+    // approving it could only ever say the credentials were gone.
+    for (const job of store.listAwaitingApproval?.() ?? []) {
+      if (stagedSecrets.has(job.id)) continue;
+      const expiresAt = Date.parse(job.recovery?.approvalExpiresAt ?? "");
+      const lost = placeholderPaths(job.parameters ?? {}).length > 0;
+      if (!lost && !(Number.isFinite(expiresAt) && expiresAt <= now())) continue;
+      expireSecretJob(job, lost ? "BoxPilot restarted before this was approved, so the credentials typed for it are gone. Stage the operation again and re-enter them." : undefined);
+      dropped += 1;
     }
     return dropped;
   }

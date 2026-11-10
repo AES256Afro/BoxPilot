@@ -25,9 +25,6 @@ on:
         default: "builtin"
         type: choice
         options: [builtin, boundary]
-  push:
-    branches: [fix/agents-first-run]
-    paths: [".github/workflows/agents-bench.yml", "tests/bench/**"]
   # Every Monday (M47): both evaluation sets on main, so the real model's accuracy and time are a
   # history and not a memory. No baseline: the week before is in the previous run's summary.
   schedule:

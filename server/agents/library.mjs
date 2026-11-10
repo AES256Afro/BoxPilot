@@ -332,7 +332,8 @@ export function createAgentLibrary({ store, state, limits, now, audit, redact, c
     const cleanText = typeof text === "string" ? text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim() : "";
     if (!cleanTitle || cleanTitle.length > 120) refuse(400, "Give the document a title under 120 characters", "invalid_document");
     if (!cleanText || cleanText.length > 64_000) refuse(400, "A document is some text, at most 64,000 characters", "invalid_document");
-    if (store.countDocuments() >= 100) refuse(409, "A hundred documents is the most the library keeps", "document_limit");
+    // The same three hundred an upload and a file from chat are held to: pasted text was refused at a hundred.
+    if (store.countDocuments() >= 300) refuse(409, "Three hundred documents is the most the library keeps", "document_limit");
     const document = store.addDocument({ title: cleanTitle, text: redact(cleanText), createdBy: person.id });
     audit("agents.document.added", { actorId: person.id, subjectId: document.id, details: { characters: document.characters } });
     const { text: _text, ...rest } = document;

@@ -80,7 +80,7 @@ describe("Updates page", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     };
     await said("Install all updates", "Installs all 2 waiting updates, after asking Ubuntu for the newest list.");
-    await said("Refresh lists", "Asks Ubuntu's mirrors what is new. Installs nothing.");
+    await said("Look for new updates", "Asks Ubuntu's mirrors what is new. Installs nothing.");
     await said("Turn on automatic updates", "Security updates install by themselves every night.");
     await said("Restart cron.service", "Stops and starts cron; anything using it is cut off for a moment.");
     fireEvent.click(screen.getByRole("tab", { name: /Install/ }));
@@ -107,11 +107,11 @@ describe("Updates page", () => {
     expect(await screen.findByText("htop")).toBeTruthy();
     expect(screen.getByText("noble-security")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Select all packages"));
-    expect(screen.getByRole("button", { name: "Upgrade selected (2)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Install selected (2)" })).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Select all packages"));
-    expect(screen.getByRole("button", { name: "Upgrade selected (0)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Install selected (0)" })).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Select htop"));
-    const upgrade = screen.getByRole("button", { name: "Upgrade selected (1)" });
+    const upgrade = screen.getByRole("button", { name: "Install selected (1)" });
     expect(upgrade.getAttribute("data-risk")).toBe("medium");
     fireEvent.click(upgrade);
 

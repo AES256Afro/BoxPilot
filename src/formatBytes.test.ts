@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatBytes } from "./formatBytes";
+import { gibibytes } from "./pages/agents/format";
+import { bytesWords } from "./pages/system/systemTypes";
 
 describe("formatBytes", () => {
   it("uses IEC units all the way up", () => {
@@ -25,5 +27,16 @@ describe("a size just under the next unit", () => {
     expect(formatBytes(1024 ** 3 - 1)).toBe("1.0 GiB");
     expect(formatBytes(1023)).toBe("1023 B");
     expect(formatBytes(1024 ** 2 - 60 * 1024)).toBe("964.0 KiB");
+  });
+});
+
+describe("the System page's and the agents' sizes", () => {
+  it("pick their unit after rounding too", () => {
+    expect(bytesWords(1024 ** 3 - 1)).toBe("1.0 GiB");
+    expect(bytesWords(0)).toBe("nothing");
+    expect(bytesWords(1536)).toBe("1.5 KiB");
+    expect(gibibytes(1024 ** 3 - 1)).toBe("1 GiB");
+    expect(gibibytes(8 * 1024 ** 3)).toBe("8 GiB");
+    expect(gibibytes(700 * 1024 ** 2)).toBe("700 MiB");
   });
 });

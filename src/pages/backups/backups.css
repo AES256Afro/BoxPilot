@@ -18,6 +18,14 @@
 .backups-pick { width: 2.25rem; }
 .backups-pick .ui-check { padding-block: 4px; }
 
+/* What you'd get back: an app's depth as three segments, filled for each protection it has and
+   hollow for each it lacks (a shape, with the count in figures beside it), and its verdict in words. */
+.backups-depth { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.backups-depth__bar { display: inline-flex; gap: 2px; }
+.backups-depth__segment { box-sizing: border-box; width: 11px; height: 9px; border: 1px solid var(--text-muted); }
+.backups-depth__segment[data-on] { border-color: var(--text-strong); background: var(--text-strong); }
+.backups-outcome { display: inline-block; min-width: 22ch; color: var(--text-strong); font-family: var(--font-condensed); font-size: 13.5px; line-height: 1.35; white-space: normal; }
+
 /* A panel's foot: the words in the page's type, a way on in amber. */
 .backups-foot { display: block; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.5; }
 .backups-foot--row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-family: var(--font-mono); font-size: 11.5px; }
@@ -46,6 +54,7 @@
   .backups-page td.backups-actions-cell:has(> .backups-actions:empty) { display: none; }
   .backups-page .ui-panel__meta { flex-basis: 100%; margin-left: 0; text-align: left; white-space: normal; }
   .backups-actions { flex-wrap: wrap; justify-content: flex-start; padding-top: 4px; white-space: normal; }
+  .backups-outcome { min-width: 0; }
   .backups-actions-cell { width: auto; }
   .backups-pick { width: auto; }
   /* The restore sheet's rows stacked: the box needs no "Restore:" before it. */

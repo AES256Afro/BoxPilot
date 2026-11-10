@@ -58,9 +58,9 @@ async function postJson<T>(path: string, body: unknown, csrfToken?: string): Pro
 
 const origin = () => window.location.origin;
 
-/** Register a new passkey for the signed-in owner. Returns the stored passkey summary. */
-export async function registerPasskey(csrfToken: string, label: string): Promise<{ id: string; label: string }> {
-  const options = await postJson<RegisterOptions>("/api/v1/auth/passkey/register/options", { origin: origin() }, csrfToken);
+/** Register a new passkey for the signed-in owner, whose password the server asks for first. Returns the stored passkey summary. */
+export async function registerPasskey(csrfToken: string, label: string, password: string): Promise<{ id: string; label: string }> {
+  const options = await postJson<RegisterOptions>("/api/v1/auth/passkey/register/options", { origin: origin(), password }, csrfToken);
   let credential: PublicKeyCredential | null;
   try {
     credential = (await navigator.credentials.create({

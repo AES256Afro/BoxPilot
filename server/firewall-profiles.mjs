@@ -14,12 +14,16 @@ export const tailscalePort = 41641;
 export const defaultWebPort = 8787;
 
 /** Rules BoxPilot always keeps open (or, for the web port, refuses to deny). */
-export function protectedRules({ webPort = defaultWebPort, webHost = "127.0.0.1" } = {}) {
+export function protectedRules({ webPort = defaultWebPort, webHost = "127.0.0.1", tlsPort = null } = {}) {
   const lanWeb = webHost === "0.0.0.0" || webHost === "::";
+  // The LAN HTTPS listener is this page too, once the owner has set it up: deleting its allow rule
+  // from the rules list cut every browser on the network off, with a medium approval.
+  const https = Number.isInteger(tlsPort) && tlsPort !== webPort ? [{ port: tlsPort, protocol: "tcp", label: "BoxPilot over HTTPS", reason: "This page, for browsers on your network.", allow: true, own: true }] : [];
   return [
     { port: 22, protocol: "tcp", label: "SSH", reason: "Your way back in if the web UI ever breaks.", allow: true },
     { port: tailscalePort, protocol: "udp", label: "Tailscale", reason: "WireGuard port; without it tailnet traffic falls back to relays.", allow: true },
-    { port: webPort, protocol: "tcp", label: "BoxPilot", reason: lanWeb ? "This page. BoxPilot is served on the LAN, so the port stays open." : "This page. Served via Tailscale or an SSH tunnel, so no LAN rule is needed, but it can never be denied.", allow: lanWeb },
+    { port: webPort, protocol: "tcp", label: "BoxPilot", reason: lanWeb ? "This page. BoxPilot is served on the LAN, so the port stays open." : "This page. Served via Tailscale or an SSH tunnel, so no LAN rule is needed, but it can never be denied.", allow: lanWeb, own: true },
+    ...https,
   ];
 }
 
@@ -110,14 +114,14 @@ function spec({ port, protocol }) {
  * task agree on exactly what runs. Protected allows come first; `ufw enable` comes last and
  * only after every rule succeeded, so a half-applied plan fails open, never closed.
  *
- * @param {{ profileId?: string, serviceIds?: string[], replace?: boolean, sshRateLimit?: boolean, webPort?: number, webHost?: string }} [options]
+ * @param {{ profileId?: string, serviceIds?: string[], replace?: boolean, sshRateLimit?: boolean, webPort?: number, webHost?: string, tlsPort?: number | null }} [options]
  */
-export function buildPlan({ profileId, serviceIds: chosen = [], replace = false, sshRateLimit = false, webPort = defaultWebPort, webHost = "127.0.0.1" } = {}) {
+export function buildPlan({ profileId, serviceIds: chosen = [], replace = false, sshRateLimit = false, webPort = defaultWebPort, webHost = "127.0.0.1", tlsPort = null } = {}) {
   const profile = profiles.find((entry) => entry.id === profileId);
   if (!profile) throw new Error(`Unknown firewall profile: ${profileId}`);
   const unknown = chosen.filter((id) => !serviceIds.includes(id));
   if (unknown.length) throw new Error(`Unknown services: ${unknown.join(", ")}`);
-  const protectedList = protectedRules({ webPort, webHost });
+  const protectedList = protectedRules({ webPort, webHost, tlsPort });
   const steps = [];
   if (replace) steps.push({ args: ["--force", "reset"], label: "Remove every existing rule and start from the profile" });
   for (const entry of protectedList) {
@@ -180,8 +184,9 @@ function ruleComment(text) {
  * @param {any} [input.fail2ban]         fail2ban.inspect result, if any
  * @param {number} [input.webPort]
  * @param {string} [input.webHost]
+ * @param {number | null} [input.tlsPort]  the LAN HTTPS port, when one is set up
  */
-export function adviseFirewall({ report, listeners = [], apps = [], current = null, fail2ban = null, webPort = defaultWebPort, webHost = "127.0.0.1" } = {}) {
+export function adviseFirewall({ report, listeners = [], apps = [], current = null, fail2ban = null, webPort = defaultWebPort, webHost = "127.0.0.1", tlsPort = null } = {}) {
   const advice = [];
   if (!report) {
     advice.push({ id: "unavailable", level: "warn", title: "The firewall state could not be read", detail: "BoxPilot could not reach the part of itself that reads ufw. Check the BoxPilot services on the Services page, then refresh.", focus: undefined });
@@ -191,7 +196,7 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
     advice.push({ id: "install", level: "action", title: "Install ufw", detail: "BoxPilot manages the firewall through ufw. Installing it does not turn it on.", focus: "install" });
     return advice;
   }
-  const protectedList = protectedRules({ webPort, webHost });
+  const protectedList = protectedRules({ webPort, webHost, tlsPort });
   if (report.enabled && apps.length > 0 && report.dockerRules === false) {
     advice.push({ id: "docker-rules", level: "action", title: "Docker apps are not following the firewall yet", detail: "Docker publishes app ports outside ufw, so until the firewall is re-applied every installed app is reachable from the LAN whatever the rules say. Apply a profile (or turn the firewall off and on) once; BoxPilot then adds the rules that make Docker ports follow it.", focus: "profiles" });
   }
@@ -266,7 +271,7 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
     const movedTo = named ? (named.ports ?? []).map((port) => `${port.port}/${port.protocol}`).join(", ") : "";
     advice.push({
       id: `orphan-${rule.port}-${rule.protocol}`, level: "info",
-      title: named ? `${named.name} no longer uses port ${rule.port}` : `Nothing is listening on port ${rule.port}`,
+      title: named ? `${named.name} no longer uses port ${rule.port}` : `Nothing is listening on ${rule.protocol && rule.protocol !== "any" ? `${rule.port}/${rule.protocol}` : `port ${rule.port}`}`,
       detail: named && movedTo
         ? `This rule opens ${rule.port}/${rule.protocol} for ${named.name}, which now publishes ${movedTo}. Nothing answers on ${rule.port} any more, so the rule holds a port open for nothing. Removing it changes nothing you can reach.`
         : `A rule allows ${rule.port}/${rule.protocol}, and nothing on this server is listening there. Either whatever used it has gone, or it has not started yet. A rule for a port nothing answers is one more way in for no benefit.`,

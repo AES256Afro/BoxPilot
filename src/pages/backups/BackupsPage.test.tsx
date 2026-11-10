@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import BackupsPage from "./BackupsPage";
 import { nightlySlot } from "./types";
 
-beforeEach(() => { window.history.replaceState(null, "", "/?view=backups"); });
+// The page opens on "What you'd get back", whose verdict is then the header's. Everything below that
+// is about the page as the other four tabs show it starts at the Apps tab's address, which was the
+// page's default before; the first tab has its own tests at the bare address, at the end.
+beforeEach(() => { window.history.replaceState(null, "", "/?view=backups&tab=apps"); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -36,6 +39,8 @@ interface World {
   remoteSettings?: unknown;
   cloud?: unknown;
   cloudSettings?: unknown;
+  /** The catalog's summary, whose live rows carry each app's last restore rehearsal; unanswered unless given. */
+  catalog?: unknown;
   extra?: (url: string, init?: RequestInit) => Response | null;
 }
 
@@ -57,6 +62,7 @@ function mockFetch(world: World = {}) {
     if (url.endsWith("/api/v1/settings/cloud-destination")) return json(world.cloudSettings ?? { destination: null, lastSync: null });
     if (url.endsWith("/operations/app.backup.protection/inspect")) return json({ result: { available: true, apps: world.apps ?? [{ id: "vaultwarden", name: "Vaultwarden", protectable: true, backups: 3, newestAt: daysAgo(0.5) }] } });
     if (url.endsWith("/api/v1/schedules") && init?.method !== "POST") return json({ schedules: world.schedules ?? [{ operationId: "app.backup", parameters: { subject: "vaultwarden" }, enabled: true }, { operationId: "backup.sync", parameters: {}, enabled: true }] });
+    if (url.endsWith("/api/v1/catalog?view=summary") && world.catalog) return json(world.catalog);
     if (url.endsWith("/operations/host.snapshot.restores/inspect")) return json({ result: { restores: [] } });
     if (url.endsWith("/operations/host.snapshot.sources/inspect")) return json({ result: { sources: [], mount: { mounted: true, blocker: null } } });
     if (url.endsWith("/operations/host.snapshot.discover/inspect")) return json({ result: { locations: [] } });
@@ -96,7 +102,8 @@ describe("Backups page", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Backups" })).toBeTruthy();
     expect(screen.getByText("Protected").closest(".ui-chip")?.getAttribute("data-status")).toBe("good");
     expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("1 apps with data · 1 nightly · 1 database backups · 1 machine snapshots · off this server today");
-    expect(screen.getAllByRole("tab").map((tab) => /^[A-Za-z -]+/.exec(tab.textContent ?? "")?.[0].trim())).toEqual(["Apps", "This server", "Off this server", "Restore"]);
+    expect(screen.getAllByRole("tab").map((tab) => /^[A-Za-z' -]+/.exec(tab.textContent ?? "")?.[0].trim())).toEqual(["What you'd get back", "Apps", "This server", "Off this server", "Restore"]);
+    expect(screen.getByRole("tab", { name: /^Apps/ }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "About Backups" }));
     expect(screen.getByText(/an app with no backup comes back installed and empty/).closest("[hidden]")).toBeNull();
   });
@@ -620,5 +627,141 @@ describe("Backups page", () => {
       expect(screen.getByText("Restoring needs an operator or the owner")).toBeTruthy();
       expect(fetchMock.mock.calls.some(([url]) => String(url).includes("host.snapshot.sources"))).toBe(false);
     });
+  });
+});
+
+describe("What you'd get back", () => {
+  beforeEach(() => { window.history.replaceState(null, "", "/?view=backups"); });
+
+  // Midday on a fixed day. A verdict names the day a copy was made, on the calendar of the zone the
+  // browser is in, so every copy a verdict names here is a whole number of days old: "yesterday" and
+  // "8 September" are then the same words wherever the test runs. recovery.test.ts names its zone.
+  const noon = Date.parse("2026-11-10T12:00:00Z");
+  const clock = () => noon;
+  const before = (days: number, hours = 0) => new Date(noon - days * day - hours * 3_600_000).toISOString();
+  const synced = before(0, 6);
+  const drive = { ...machineState, snapshots: [{ ...machineState.snapshots[0], createdAt: before(0, 8) }], sync: { ...machineState.sync, lastSync: { completedAt: synced, copiedCount: 12 } } };
+  const lived = {
+    backups: [{ ...backup, createdAt: before(0, 9) }],
+    machine: drive,
+    apps: [
+      { id: "jellyfin", name: "Jellyfin", protectable: true, backups: 9, newestAt: before(1) },
+      { id: "pi-hole", name: "Pi-hole", protectable: true, backups: 4, newestAt: before(1) },
+      { id: "immich", name: "Immich", protectable: true, backups: 2, newestAt: before(63) },
+      { id: "open-webui", name: "Open WebUI", protectable: true, backups: 1, newestAt: before(0, 2) },
+      { id: "nextcloud", name: "Nextcloud", protectable: true, backups: 0, newestAt: null },
+      { id: "homepage", name: "Homepage", protectable: false, backups: 0, newestAt: null },
+    ],
+    schedules: [{ operationId: "app.backup", parameters: { subject: "jellyfin" }, enabled: true }, { operationId: "app.backup", parameters: { subject: "pi-hole" }, enabled: true }, { operationId: "backup.sync", parameters: {}, enabled: true }],
+    catalog: { liveError: null, applications: ["jellyfin", "pi-hole", "immich", "open-webui", "nextcloud", "homepage"].map((id) => ({ manifest: { id, name: id }, live: { installed: true, backupVerification: id === "jellyfin" ? { verified: true, backup: "20261029T031400Z.tar.gz", reason: null, checkedAt: before(12) } : null } })) },
+  };
+  /** A row's cells as read; a button's tier, which it also says for a screen reader, is left to its own assertion. */
+  const cells = (name: string) => within(screen.getByText(name).closest("tr")!).getAllByRole("cell").map((cell) => cell.textContent?.replace(/(Low|Medium|High) risk: .*$/, ""));
+
+  it("opens first, with its verdict as the page's and each app's row worst first", async () => {
+    mockFetch(lived);
+    render(<BackupsPage csrfToken="csrf-token" now={clock} />);
+    const chip = await screen.findByText("If the disk died tonight, 2 apps come back empty");
+    expect(chip.closest(".ui-chip")?.getAttribute("data-status")).toBe("danger");
+    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("5 apps with data · 1 fully recoverable · 2 partly · 2 not at all");
+    expect(screen.getByRole("tab", { name: /^What you'd get back/ }).getAttribute("aria-selected")).toBe("true");
+    expect(new URLSearchParams(window.location.search).get("tab")).toBeNull();
+
+    const table = screen.getByRole("table", { name: "What each app would get back if this server's disk died tonight" });
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["App", "If the disk died tonight", "Depth", "On this server", "Off this server", "Restore proven", "Next step"]);
+    expect(within(table).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual(["Nextcloud", "Open WebUI", "Immich", "Pi-hole", "Jellyfin"]);
+    expect(screen.queryByText("Homepage")).toBeNull();
+
+    expect(cells("Nextcloud")).toEqual(["Nextcloud", "Comes back installed and empty", "0/3", "never", "none", "never tried", "Back up now"]);
+    expect(cells("Open WebUI")).toEqual(["Open WebUI", "Gone: its only copy is on that disk", "1/3", "2 hours ago", "none", "never tried", "Send off this server"]);
+    expect(cells("Immich")).toEqual(["Immich", "Back to 8 September: 63 days gone, if the copy restores", "2/3", "63 days ago", "6 hours ago", "never tried", "Back up nightly"]);
+    expect(cells("Pi-hole")).toEqual(["Pi-hole", "Back to yesterday, if the copy restores", "2/3", "24 hours ago", "6 hours ago", "never tried", "Rehearse a restore"]);
+    expect(cells("Jellyfin")).toEqual(["Jellyfin", "Back to yesterday", "3/3", "24 hours ago", "6 hours ago", "passed 12 days ago", "nothing to do"]);
+
+    // The depth is said in words, and each row's state by its mark as well as its sentence.
+    expect(within(screen.getByText("Pi-hole").closest("tr")!).getByRole("img", { name: "2 of 3: a copy on this server, a copy off this server" })).toBeTruthy();
+    expect(screen.getByText("Nextcloud").closest("tr")?.getAttribute("data-status")).toBe("danger");
+    expect(screen.getByText("Jellyfin").closest("tr")?.getAttribute("data-status")).toBeNull();
+    // The unproven row offers the rehearsal the server already has, at its tier.
+    expect(screen.getByRole("button", { name: "Rehearse a restore: Pi-hole" }).getAttribute("data-risk")).toBe("medium");
+    expect(screen.queryByRole("button", { name: "Rehearse a restore: Jellyfin" })).toBeNull();
+  });
+
+  it("says the server itself from what the page already read", async () => {
+    mockFetch(lived);
+    render(<BackupsPage csrfToken="csrf-token" now={clock} />);
+    const panel = (await screen.findByRole("region", { name: "The server itself" }));
+    expect([...panel.querySelectorAll(".ui-kv__item")].map((item) => item.textContent)).toEqual(["Machine snapshot8 hours ago", "Off this server6 hours ago", "BoxPilot's databasedrilled, passed, 9 hours ago"]);
+  });
+
+  it("starts each row's one step through the approval dialog, with its tier on the button", async () => {
+    const posted: unknown[] = [];
+    const { bodies, staged } = mockFetch({ ...lived, extra: (url, init) => (url.endsWith("/api/v1/schedules") && init?.method === "POST" ? (posted.push(JSON.parse(init.body as string)), json({ schedule: { id: "s" } }, 201)) : null) });
+    render(<BackupsPage csrfToken="csrf-token" now={clock} />);
+    const backUp = await screen.findByRole("button", { name: "Back up now: Nextcloud" });
+    expect(backUp.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(backUp);
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(JSON.parse(bodies["app.backup"] ?? "{}")).toEqual({ parameters: { id: "nextcloud" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+
+    const send = screen.getByRole("button", { name: "Send off this server: Open WebUI" });
+    expect(send.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(send);
+    expect(await screen.findByText(/Nothing on the drive is ever deleted/)).toBeTruthy();
+    expect(staged).toEqual(["app.backup", "backup.sync"]);
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Back up nightly: Immich" }));
+    expect(await screen.findByText("Scheduled nightly backups for 1 app. The first runs tonight.")).toBeTruthy();
+    expect(posted).toEqual([{ operationId: "app.backup", parameters: { id: "immich" }, frequency: "daily", hour: 2, minute: 0 }]);
+  });
+
+  it("leaves out what a viewer cannot start, and still says every verdict", async () => {
+    mockFetch(lived);
+    render(<BackupsPage csrfToken="csrf-token" role="viewer" now={clock} />);
+    expect(await screen.findByText("Comes back installed and empty")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Back up/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Send off this server/ })).toBeNull();
+    // Looking at the destinations is not an operation.
+    expect(screen.getByRole("button", { name: "Open Off this server: Open WebUI" }).getAttribute("data-risk")).toBeNull();
+  });
+
+  it("offers to set up a copy elsewhere when there is nowhere to send one, and opens that tab", async () => {
+    mockFetch({ ...lived, machine: { ...drive, sync: { ...drive.sync, mount: { mounted: false, blocker: null }, lastSync: null } } });
+    render(<BackupsPage csrfToken="csrf-token" now={clock} />);
+    expect(await screen.findByText("If the disk died tonight, 5 apps come back empty")).toBeTruthy();
+    expect(cells("Jellyfin")).toEqual(["Jellyfin", "Gone: its only copy is on that disk", "2/3", "24 hours ago", "none", "passed 12 days ago", "Set up a copy elsewhere"]);
+    fireEvent.click(screen.getByRole("button", { name: "Set up a copy elsewhere: Jellyfin" }));
+    expect(screen.getByRole("tab", { name: /^Off this server/ }).getAttribute("aria-selected")).toBe("true");
+    expect(new URLSearchParams(window.location.search).get("tab")).toBe("offbox");
+    // On another tab the header is the whole page's again.
+    expect(screen.getByText("1 app never backed up")).toBeTruthy();
+  });
+
+  it("is never green about rehearsals it could not read", async () => {
+    // The catalog does not answer: every proof is unread, and so is the one row that would be whole.
+    mockFetch({ ...lived, catalog: undefined, apps: [lived.apps[0]] });
+    render(<BackupsPage csrfToken="csrf-token" now={clock} />);
+    const chip = await screen.findByText("If the disk died tonight, what 1 app would get back is not known");
+    expect(chip.closest(".ui-chip")?.getAttribute("data-status")).toBe("unknown");
+    expect(cells("Jellyfin")).toEqual(["Jellyfin", "Back to yesterday; whether it restores was not read", "2/3", "24 hours ago", "6 hours ago", "not read", "nothing until it is read"]);
+    expect(screen.getByText("Jellyfin").closest("tr")?.getAttribute("data-status")).toBe("unknown");
+  });
+
+  it("says not read, with no rows, when the apps or their backup folder could not be read", async () => {
+    mockFetch({ ...lived, extra: (url) => (url.endsWith("/operations/app.backup.protection/inspect") ? json({ error: "The helper did not answer" }, 503) : null) });
+    const first = render(<BackupsPage csrfToken="csrf-token" now={clock} />);
+    expect((await screen.findByText("Not read")).closest(".ui-chip")?.getAttribute("data-status")).toBe("unknown");
+    expect(screen.getByText("App protection could not be read")).toBeTruthy();
+    expect(screen.getByText("What each app would get back could not be read.")).toBeTruthy();
+    expect(document.querySelector(".ui-page-header__meta")).toBeNull();
+    first.unmount();
+
+    mockFetch({ ...lived, extra: (url) => (url.endsWith("/operations/app.backup.protection/inspect") ? json({ result: { available: false, apps: lived.apps } }) : null) });
+    render(<BackupsPage csrfToken="csrf-token" now={clock} />);
+    expect(await screen.findByText("The backup folder could not be read")).toBeTruthy();
+    expect(screen.getByText("Not read").closest(".ui-chip")?.getAttribute("data-status")).toBe("unknown");
+    expect(screen.queryByText("Nextcloud")).toBeNull();
   });
 });

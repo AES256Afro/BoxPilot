@@ -358,18 +358,112 @@ describe("App catalog: installing", () => {
     expect(await screen.findByRole("dialog", { name: "Jellyfin" })).toBeTruthy();
   });
 
-  it("says what the precheck found, and stages nothing", async () => {
+  // The install form checks its ports as soon as it opens (2026-11-10, "Will it fit"). A default
+  // that is taken is moved to the next free one; a port the owner chose is theirs, and the precheck
+  // still refuses it at Install, as it always did.
+  const heldByEmby = (port: number, app: string | null = "emby") => json({ ok: false, errors: [], conflicts: [{ id: "web", label: "Web UI", port, protocol: "tcp", listeners: [`0.0.0.0:${port}`], containers: [{ name: "emby", app, composeProject: null }] }] });
+  const askedPort = (init?: RequestInit) => (JSON.parse(init?.body as string).values.ports?.web as number | undefined) ?? 8096;
+
+  it("says what the precheck found for a port the owner chose, and stages nothing", async () => {
     const staged = vi.fn();
-    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url) => {
-      if (url.endsWith("/catalog/jellyfin/precheck")) return json({ ok: false, errors: [], conflicts: [{ label: "Web UI", port: 8096, protocol: "tcp", listeners: ["0.0.0.0:8096"], containers: [{ name: "emby", app: "emby", composeProject: null }] }] });
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url, init) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) return askedPort(init) === 8920 ? heldByEmby(8920) : json({ ok: true, errors: [], conflicts: [] });
       if (url.endsWith("/jobs")) { staged(); return stagedJob("app.install"); }
       return undefined;
     });
     render(<CatalogPage csrfToken="csrf-token" />);
     const sheet = await openInstall("Jellyfin");
+    fireEvent.change(within(sheet).getByLabelText("Web UI port"), { target: { value: "8920" } });
     fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
-    expect(await within(sheet).findByText(/port 8096\/tcp is already in use on this server by emby/)).toBeTruthy();
+    expect(await within(sheet).findByText(/port 8920\/tcp is already in use on this server by emby/)).toBeTruthy();
+    expect((within(sheet).getByLabelText("Web UI port") as HTMLInputElement).value).toBe("8920"); // not moved for them
     expect(staged).not.toHaveBeenCalled();
+  });
+
+  it("moves a taken default port to the next free one before Install, stepping over installed apps, and stages the install on it", async () => {
+    let stagedBody: string | undefined;
+    // 8096 is taken by a container BoxPilot did not start; Dockge, installed here, holds 8097.
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }, { manifest: dockge, live: { ...running("dockge", 8097), published: [{ id: "web", host: 8097, protocol: "tcp", bind: "*", fixed: false, web: true }] } }]), (url, init) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) return askedPort(init) === 8096 ? heldByEmby(8096, null) : json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) { stagedBody = init?.body as string; return stagedJob("app.install"); }
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Jellyfin");
+    await waitFor(() => expect((within(sheet).getByLabelText("Web UI port") as HTMLInputElement).value).toBe("8098"));
+    const row = await within(sheet).findByRole("row", { name: /^Port/ });
+    await waitFor(() => expect([...row.querySelectorAll("td")].map((cell) => cell.textContent)).toEqual(["Port", "8096 is held by container emby", "takes 8098", "next free one", "no clash", "Pass"]));
+    // Where it will answer is the address it will really have.
+    expect(within(sheet).getByText("http://192.168.1.10:8098")).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(JSON.parse(stagedBody ?? "{}").parameters.values.ports).toEqual({ web: 8098 });
+  });
+
+  it("offers the nightly backup on the app's sheet once its install has finished, and schedules it only when pressed", async () => {
+    let installed = false;
+    let scheduled: string | undefined;
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url, init) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) return stagedJob("app.install");
+      if (url.endsWith("/jobs/job-app.install/approve")) return json({ job: { id: "job-app.install", state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/jobs/job-app.install")) { installed = true; return json({ job: { id: "job-app.install", type: "op:app.install", title: "Install Jellyfin", state: "completed", risk: "medium", error: null, result: {}, steps: [], approvals: [] } }); }
+      if (url === "/api/v1/schedules" && init?.method === "POST") { scheduled = init.body as string; return json({ schedule: { id: "s1" } }, 201); }
+      if (url === "/api/v1/schedules") return json({ schedules: scheduled ? [{ id: "s1", operationId: "app.backup", cadence: "daily at 02:00", parameters: { subject: "jellyfin" } }] : [] });
+      if (url === "/api/v1/catalog" && installed) return json(catalogOf([{ manifest, live: running("jellyfin") }]));
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openInstall("Jellyfin");
+    // Jellyfin keeps its configuration in a folder backups archive: the box is there, and ticked.
+    expect((within(sheet).getByLabelText("Back it up every night") as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+    const app = await screen.findByRole("dialog", { name: "Jellyfin" });
+    // Installing created no schedule: it is offered, as the Backups page offers "Schedule it".
+    expect(scheduled).toBeUndefined();
+    fireEvent.click(await within(app).findByRole("button", { name: "Schedule it: back up Jellyfin nightly" }));
+    await waitFor(() => expect(JSON.parse(scheduled ?? "{}")).toEqual({ operationId: "app.backup", frequency: "daily", hour: 2, minute: 0, parameters: { id: "jellyfin" } }));
+    expect(await within(app).findByText("Backed up every night")).toBeTruthy();
+    expect(within(app).getByText(/Jellyfin is backed up daily at 02:00\./)).toBeTruthy();
+    expect(within(app).queryByRole("button", { name: /Schedule it/ })).toBeNull();
+  });
+
+  it("offers no nightly backup after an install whose box was unticked, and says when the schedule was refused", async () => {
+    let installed = false;
+    let refuse = false;
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), (url, init) => {
+      if (url.endsWith("/catalog/jellyfin/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) return stagedJob("app.install");
+      if (url.endsWith("/jobs/job-app.install/approve")) return json({ job: { id: "job-app.install", state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/jobs/job-app.install")) { installed = true; return json({ job: { id: "job-app.install", type: "op:app.install", title: "Install Jellyfin", state: "completed", risk: "medium", error: null, result: {}, steps: [], approvals: [] } }); }
+      if (url === "/api/v1/schedules" && init?.method === "POST") return refuse ? json({ error: "Back up an application is already scheduled daily at 02:00.", code: "schedule_rejected" }, 400) : undefined;
+      if (url === "/api/v1/catalog" && installed) return json(catalogOf([{ manifest, live: running("jellyfin") }]));
+      return undefined;
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    let sheet = await openInstall("Jellyfin");
+    fireEvent.click(within(sheet).getByLabelText("Back it up every night"));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+    let app = await screen.findByRole("dialog", { name: "Jellyfin" });
+    expect(within(app).getByRole("tab", { name: "Overview" })).toBeTruthy();
+    expect(within(app).queryByRole("button", { name: /Schedule it/ })).toBeNull();
+    cleanup();
+    // Ticked, and the server refuses the schedule: its words are said, and the offer stays.
+    installed = false; refuse = true;
+    window.history.replaceState(null, "", "/");
+    render(<CatalogPage csrfToken="csrf-token" />);
+    sheet = await openInstall("Jellyfin");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+    app = await screen.findByRole("dialog", { name: "Jellyfin" });
+    fireEvent.click(await within(app).findByRole("button", { name: /Schedule it/ }));
+    expect(await within(app).findByText("Back up an application is already scheduled daily at 02:00.")).toBeTruthy();
+    expect(within(app).getByRole("button", { name: /Schedule it/ })).toBeTruthy();
   });
 
   it("contains the form's focus and returns to Install when Escape closes it", async () => {
@@ -481,12 +575,15 @@ describe("App catalog: installing", () => {
     render(<CatalogPage csrfToken="csrf-token" />);
     const sheet = await openInstall("Jellyfin");
     fireEvent.change(within(sheet).getByLabelText("Web UI port"), { target: { value: "8097" } });
+    fireEvent.click(within(sheet).getByLabelText("Back it up every night"));
     fireEvent.click(within(sheet).getByRole("button", { name: "Continue to install" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     const form = await screen.findByRole("dialog", { name: "Jellyfin" });
     expect(within(form).getByText("Install", { selector: ".ui-sheet__kicker" })).toBeTruthy();
     expect((within(form).getByLabelText("Web UI port") as HTMLInputElement).value).toBe("8097");
+    // The nightly backup's box comes back as it was left, too.
+    expect((within(form).getByLabelText("Back it up every night") as HTMLInputElement).checked).toBe(false);
   });
 
   it("puts the settings form back as it was when the job fails, and the app's sheet once one succeeds", async () => {

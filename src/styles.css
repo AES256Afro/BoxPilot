@@ -3686,6 +3686,8 @@ main { padding-bottom: env(safe-area-inset-bottom, 0px); }
    and Android's guidance), and text fields at 16 px so iOS does not zoom the page on focus. Only on
    a touch screen: a desktop keeps the console's density. */
 @media (pointer: coarse) {
+  .ui-notice__dismiss { width: 44px; height: 44px; }
+  .ui-search__clear { width: 44px; height: 44px; right: 0; }
   .view-switch__option,
   :root[data-shell="console"] .view-switch__option { min-height: 44px; }
   .command-trigger,

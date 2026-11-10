@@ -1,3 +1,4 @@
+import { formatBytes } from "../../formatBytes";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import type { PowerEvent } from "../../powerEvents";
 
@@ -97,12 +98,16 @@ export function gib(kib: number | null | undefined): string {
   return `${(kib / 1024 / 1024).toFixed(1)} GiB`;
 }
 
+/** Docker's own size for a log cap, "10m", in words: "10 MB". Left as it came when it is not one. */
+export function dockerSizeWords(size: string | null | undefined): string {
+  const match = /^(\d+(?:\.\d+)?)\s*([kmg])b?$/i.exec(String(size ?? "").trim());
+  return match ? `${match[1]} ${match[2].toUpperCase() === "K" ? "kB" : `${match[2].toUpperCase()}B`}` : String(size ?? "");
+}
+
 /** An IEC size from bytes, "nothing" for none. */
 export function bytesWords(bytes: number): string {
-  if (bytes <= 0) return "nothing";
-  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+  // The one formatter (src/formatBytes.ts), which picks the unit after rounding: this copy said "1024.0 MiB".
+  return bytes <= 0 ? "nothing" : formatBytes(bytes, "nothing");
 }
 
 /** The UPS's name as people know it: its maker and model, or its USB ids. */

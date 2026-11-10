@@ -34,5 +34,7 @@ describe("virtualization helpers", () => {
   it("formats managed ISO sizes", () => {
     expect(formatBytes(4.8 * 1024 * 1024 * 1024)).toBe("4.8 GiB");
     expect(formatBytes(700 * 1024 * 1024)).toBe("700 MiB");
+    // The unit is chosen after rounding: a byte under 1 GiB read "1024 MiB".
+    expect(formatBytes(1024 ** 3 - 1)).toBe("1.0 GiB");
   });
 });

@@ -1,7 +1,7 @@
 import { access, mkdir, readFile, realpath, rename, stat } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
-import { cleanServedPath, homeThroughLink, readLoginHomes } from "./served-folder.mjs";
+import { cleanServedPath, homeThroughLink, outsideThroughLink, readLoginHomes, systemStatePrefixes } from "./served-folder.mjs";
 
 /**
  * Root-side NFS server tasks executed by scripts/boxpilot-run.mjs.
@@ -18,7 +18,7 @@ export const nfsConfPath = "/etc/nfs.conf.d/boxpilot.conf";
 export const managedMarker = "# Managed by BoxPilot";
 export const tailscaleRange = "100.64.0.0/10";
 export const scopes = Object.freeze(["tailscale", "lan"]);
-export const exportPathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/nfs", "/mnt/boxpilot"]);
+export const exportPathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/nfs", "/mnt/boxpilot", ...systemStatePrefixes]);
 export const maxExports = 32;
 
 const binaries = {
@@ -30,7 +30,9 @@ const binaries = {
 
 function cleanPath(value) {
   // Quoted in the exports file, so no whitespace or quote inside it either.
-  return cleanServedPath(value, exportPathDenyPrefixes, { forbidden: /[\0\r\n\s"]/ });
+  // No backslash: the exports file reads \ooo as an octal escape, so "\056\056" is ".." to exportfs
+  // after every check here has passed it. No "%" either, to keep one rule for both servers.
+  return cleanServedPath(value, exportPathDenyPrefixes, { forbidden: /[\0\r\n\s"%\\]/ });
 }
 
 export function validateNfsConfig({ scope = "tailscale", exports = [] } = {}) {
@@ -107,7 +109,7 @@ export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run
     // The kernel exports what the path leads to, links and all.
     const real = typeof files.realpath === "function" ? await files.realpath(path) : path;
     if (cleanPath(real) !== real) throw new Error(`export ${path} leads to ${real}, a system location BoxPilot does not export`);
-    const linked = homeThroughLink(path, real, homes);
+    const linked = homeThroughLink(path, real, homes) ?? outsideThroughLink(path, real);
     if (linked) throw new Error(`export ${linked}`);
     const info = await files.stat(path);
     if (!info.isDirectory()) throw new Error(`${path} is not a folder`);

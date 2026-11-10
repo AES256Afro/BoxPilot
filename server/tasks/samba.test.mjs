@@ -72,6 +72,28 @@ describe("what a share may serve, and who may sign in", () => {
     expect(chown).not.toHaveBeenCalled();
   });
 
+  // An operator shared /var/lib/dpkg/info and made it writable: dpkg's maintainer scripts, which
+  // run as root at the next package change, then belonged to uid 1000 and to every guest.
+  it("refuses dpkg's, cron's and its own runner's state for everyone, and never hands over a folder outside the data roots", async () => {
+    for (const path of ["/var/lib/dpkg/info", "/var/lib/apt/lists", "/var/spool/cron/crontabs", "/var/lib/cloud/scripts/per-boot", "/var/lib/systemd", "/var/lib/boxpilot-agents", "/var/lib/boxpilot-model-gateway/x"]) {
+      expect(validateSambaConfig({ shares: [{ name: "x", path }] }), path).toMatch(/system location|not allowed|path/i);
+    }
+    // A path smb.conf would rewrite per connection, or join to the next line, is not a path.
+    for (const path of ["/mnt/data/pub/%m/%m", "/mnt/data/%U", "/mnt/data/pub\\"]) expect(validateSambaConfig({ shares: [{ name: "x", path }] }), path).toMatch(/may not contain % or a backslash/);
+    expect(validateSambaConfig({ shares: [{ name: "x", path: "/mnt/data", comment: "x\\" }] })).toMatch(/comment/);
+    // /var/www is not refused (the owner may share it, at high), but its owner is never changed here.
+    expect(validateSambaConfig({ shares: [{ name: "Web", path: "/var/www" }] })).toBeNull();
+    const conf = "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0\n[Web]\n   path = /var/www\n   read only = no\n";
+    const chown = vi.fn(async () => {});
+    const files = { ...fakeFiles({ existing: conf, ownerUid: 0 }), realpath: vi.fn(async (value) => value) };
+    await expect(sambaShareWritable({ share: "Web" }, { run: fakeRun({ users: { 1000: "homebox:x:1000:1000::/home/homebox:/bin/bash" } }), files, chown })).rejects.toThrow("is outside /mnt, /media, /srv, so BoxPilot does not change who owns it");
+    expect(chown).not.toHaveBeenCalled();
+    // A folder on a drive that is a link out to a service's state is refused as written.
+    const linked = { ...fakeFiles({ existing: conf.replace("/var/www", "/mnt/data/web"), ownerUid: 0 }), realpath: vi.fn(async () => "/var/www") };
+    await expect(sambaShareWritable({ share: "Web" }, { run: fakeRun({ users: { 1000: "homebox:x:1000:1000::/home/homebox:/bin/bash" } }), files: linked, chown })).rejects.toThrow("leads to /var/www, which is outside");
+    expect(chown).not.toHaveBeenCalled();
+  });
+
   it("gives root, and system accounts it did not make, no file-server password", async () => {
     const run = fakeRun({ users: { root: "root:x:0:0:root:/root:/bin/bash", "www-data": "www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin", backup: "backup:x:998:998:BoxPilot Samba user:/nonexistent:/usr/sbin/nologin" } });
     await expect(sambaUserSet({ username: "root", password: "long enough pw" }, { run })).rejects.toThrow(/system account/);

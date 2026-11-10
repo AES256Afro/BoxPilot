@@ -65,7 +65,7 @@ describe("the power overview route", () => {
   }
 
   it("answers the events, the policy and the guidance for this board", async () => {
-    const router = createPowerRouter({
+    const router = createPowerRouter({ auth: { requireCsrf: (_request, _response, next) => next() }, 
       events: async () => ({ available: "yes", events: [{ at: "2026-09-29T18:41:02.000Z", event: "on-battery", charge: 100 }] }),
       policy: async () => ({ shutdownAtLowBattery: true, lowBatteryPercent: 20, lowRuntimeSeconds: 300, preparationSeconds: 60, configuredAt: null }),
       boardVendor: async () => "Gigabyte Technology Co., Ltd.",
@@ -82,7 +82,7 @@ describe("the power overview route", () => {
   });
 
   it("still answers when nothing can be read", async () => {
-    const router = createPowerRouter({ events: async () => { throw new Error("x"); }, policy: async () => { throw new Error("y"); }, boardVendor: async () => { throw new Error("z"); }, ups: { inspect: async () => { throw new Error("w"); } } });
+    const router = createPowerRouter({ auth: { requireCsrf: (_request, _response, next) => next() },  events: async () => { throw new Error("x"); }, policy: async () => { throw new Error("y"); }, boardVendor: async () => { throw new Error("z"); }, ups: { inspect: async () => { throw new Error("w"); } } });
     const { status, body } = await get(router, "/api/v1/power/overview");
     expect(status).toBe(200);
     expect(body).toMatchObject({ ups: { configured: false, state: "unavailable" }, events: [], eventsAvailable: "unreadable", policy: null, guidance: { board: null } });

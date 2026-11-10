@@ -5,6 +5,15 @@ import { inspectOperation } from "../../operations";
 import { Button, Field, KeyValue, Notice, PageHeader, Panel, Sheet, Table, Tag, TextInput, Textarea, mayStart, riskOf, type TableColumn } from "../../ui";
 import "./users.css";
 
+/** sshd's PermitRootLogin in the page's words: "yes" alone does not say that it means a password. */
+export function rootLoginWords(value: string | null | undefined): string {
+  if (value === "yes") return "Allowed, with a password";
+  if (value === "prohibit-password" || value === "without-password") return "With a key only";
+  if (value === "forced-commands-only") return "With a key, for set commands only";
+  if (value === "no") return "Off";
+  return value ?? "Not read";
+}
+
 /*
  * Users & SSH (M33.10), rebuilt on the kit. Facts first: whether SSH takes passwords (the one
  * setting that decides how exposed this server is), then how SSH is set up, then the accounts with
@@ -164,7 +173,7 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
         title="Users & SSH"
         status={verdict}
         summary={rootWithPassword ? "Root can sign in over SSH with a password." : undefined}
-        meta={report ? <><b>{users.length}</b> {users.length === 1 ? "account" : "accounts"} · <b>{sudoCount}</b> with sudo · <b>{keyCount}</b> {keyCount === 1 ? "key" : "keys"}{sshd ? <> · port <b>{sshd.port}</b> · root login <b>{sshd.permitRootLogin ?? "unknown"}</b></> : null}</> : undefined}
+        meta={report ? <><b>{users.length}</b> {users.length === 1 ? "account" : "accounts"} · <b>{sudoCount}</b> with sudo · <b>{keyCount}</b> {keyCount === 1 ? "key" : "keys"}{sshd ? <> · port <b>{sshd.port}</b> · root login <b>{rootLoginWords(sshd.permitRootLogin).toLowerCase()}</b></> : null}</> : undefined}
         actions={canRead ? <>
           {canAdd && <Button onClick={() => setSheet("add")}>Add a user…</Button>}
           <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(report)}>Check again</Button>
@@ -201,7 +210,7 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
                   { id: "password", label: "Password login", value: sshd.passwordAuthentication ? "Allowed" : "Off", status: sshd.passwordAuthentication ? "warning" : "good" },
                   { id: "keys", label: "Key login", value: sshd.pubkeyAuthentication ? "Allowed" : "Off" },
                   { id: "interactive", label: "Keyboard-interactive", value: sshd.keyboardInteractive ? "On" : "Off" },
-                  { id: "root", label: "Root login", value: sshd.permitRootLogin ?? "unknown", mono: true, status: sshd.permitRootLogin === "yes" ? "warning" : undefined },
+                  { id: "root", label: "Root login", value: rootLoginWords(sshd.permitRootLogin), status: sshd.permitRootLogin === "yes" ? "warning" : undefined },
                 ]}
               />
             )}

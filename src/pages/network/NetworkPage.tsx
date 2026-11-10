@@ -137,7 +137,7 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
         title="Network and DNS"
         status={verdict}
         meta={topology ? <>
-          <b>{collectorsRead}</b> of <b>{collectorsTotal}</b> read · <b>{topology.devices?.length ?? 0}</b> on the LAN
+          {collectorsRead < collectorsTotal && <><b>{collectorsRead}</b> of <b>{collectorsTotal}</b> parts read · </>}<b>{topology.devices?.length ?? 0}</b> on the LAN
           {tailnet?.available ? <> · <b>{online}</b> of <b>{nodes.length}</b> on the tailnet</> : null}
         </> : undefined}
         actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(topology)}>Check again</Button>}
@@ -162,7 +162,7 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
             { id: "dns", label: "Resolvers", value: topology.defaultResolvers.join(" + ") || "None", mono: true, hint: "in use now" },
             { id: "tailscale", label: "Tailscale", value: tailscale?.connected ? "Connected" : "Not connected", status: tailscale?.connected ? "good" : "neutral", hint: tailscale?.dnsName ?? undefined },
             { id: "tsdns", label: "Tailnet DNS", value: !tailscale?.connected ? "—" : tailscale.defaultDnsObserved ? "Default resolver" : "Split only", hint: !tailscale?.connected ? undefined : tailscale.defaultDnsObserved ? "Tailscale's resolver is the default" : "for tailnet names only" },
-            ...(resilience ? [{ id: "survives", label: "House DNS", ...survivalWords[resilience.state], hint: "if this server is off" }] : []),
+            ...(resilience ? [{ id: "survives", label: "House DNS", ...survivalWords[resilience.state], hint: "what answers if this server is off" }] : []),
           ]}
         />
       )}

@@ -97,7 +97,7 @@ export function ReconnectSwitch({ drive, control, canChange }: { drive: string; 
         disabled={!canChange}
         onChange={(on) => void (on ? control.arm(drive) : control.disarm(drive))}
         label={<>Reconnect if it drops<span className="ui-visually-hidden">{`: ${mountpoint}`}</span></>}
-        description={armed ? (paused ? "Set, but paused on Automations." : `Reconnects automatically${armed.attempts ? `; ${armed.attempts} of ${status.limits.maxAttempts} used in the last ${period}` : ""}.`) : undefined}
+        description={armed ? (paused ? "Set, but paused on Automations." : `Reconnects by itself${armed.attempts ? ` · ${armed.attempts} of ${status.limits.maxAttempts} tries used in the last ${period}` : ""}`) : undefined}
       />
       {waiting && (
         <p className="storage-reconnect__waiting ui-marked" data-status="warning">

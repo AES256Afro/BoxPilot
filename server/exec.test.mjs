@@ -87,6 +87,26 @@ describe("streaming a command", () => {
     expect(result.ok).toBe(false);
     expect(Date.now() - started).toBeLessThan(10_000);
   });
+
+  // The docker CLI is killed at the step's limit, but the compose plugin under it lives on holding
+  // the pipe: 'close' never came, so the step did not fail at its limit and the app's lane stayed held.
+  it("returns at its limit even when a descendant outlives the child and keeps the pipes open", async () => {
+    const started = Date.now();
+    const result = await streamRun("/bin/sh", ["-c", "sleep 20 & echo started; sleep 30"], { timeout: 300, onLine: () => {} });
+    expect(result).toMatchObject({ ok: false, timedOut: true });
+    expect(result.stdout).toBe("started");
+    expect(Date.now() - started).toBeLessThan(8_000);
+  });
+
+  // A character cut by a read boundary came out as two U+FFFD in the job log and in the tail an
+  // operation parses.
+  it("keeps a character whole when it arrives in two reads", async () => {
+    const lines = [];
+    const script = "process.stdout.write(Buffer.from([0x6f,0x6b,0x20,0xe2,0x9c])); setTimeout(() => process.stdout.write(Buffer.from([0x94,0x20,0x64,0x6f,0x6e,0x65,0x0a])), 150);";
+    const result = await streamRun(process.execPath, ["-e", script], { onLine: (line) => lines.push(line) });
+    expect(lines).toEqual(["ok \u2714 done"]);
+    expect(result.stdout).toBe("ok \u2714 done");
+  });
 });
 
 // Linux only: runs /bin/sh.

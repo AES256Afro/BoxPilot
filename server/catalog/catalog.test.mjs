@@ -111,6 +111,22 @@ describe("manifest schema", () => {
     expect(stopBudgetMs(undefined)).toBe(120_000);
   });
 
+  it("lets a manifest state what it needs, in whole MB, and says nothing when it does not", () => {
+    // Optional: none of the shipped manifests states it, and "Will it fit" then says "not stated".
+    expect(validateManifest({ ...base }).manifest.needs).toBeNull();
+    expect(validateManifest({ ...base, needs: { memoryMb: 1200, diskMb: 1900 } }).manifest.needs).toEqual({ memoryMb: 1200, diskMb: 1900 });
+    // Either figure alone; the other stays unstated rather than becoming a zero.
+    expect(validateManifest({ ...base, needs: { memoryMb: 512 } }).manifest.needs).toEqual({ memoryMb: 512, diskMb: null });
+    expect(validateManifest({ ...base, needs: { diskMb: 1 } }).manifest.needs).toEqual({ memoryMb: null, diskMb: 1 });
+    expect(validateManifest({ ...base, needs: { memoryMb: 1_048_576 } }).errors).toEqual([]);
+    for (const bad of [{}, [], "1 GB", 512, null]) expect(validateManifest({ ...base, needs: bad }).errors, JSON.stringify(bad)).toContainEqual(expect.stringContaining("manifest.needs"));
+    for (const bad of [0, -1, 1.5, "512", 1_048_577, null, true]) {
+      expect(validateManifest({ ...base, needs: { memoryMb: bad } }).errors, String(bad)).toContainEqual(expect.stringContaining("manifest.needs.memoryMb"));
+      expect(validateManifest({ ...base, needs: { diskMb: bad } }).errors, String(bad)).toContainEqual(expect.stringContaining("manifest.needs.diskMb"));
+    }
+    expect(validateManifest({ ...base, needs: { memoryMb: 512, cpu: 2 } }).errors).toContainEqual("manifest.needs.cpu: is not a recognised field");
+  });
+
   it("resolves values with defaults and rejects bad input", () => {
     const { manifest } = validateManifest({ ...base, ports: [{ id: "web", container: 80, host: 8080 }, { id: "fixed", container: 53, host: 53, fixed: true }], volumes: [{ id: "media", container: "/media", hostPath: "/srv/media", configurable: true }], env: [{ name: "TZ", type: "timezone", default: "Etc/UTC" }, { name: "SECRET", type: "password", generate: true }, { name: "MODE", options: ["a", "b"], default: "a" }, { name: "NEEDED", required: true }] });
     expect(resolveValues(manifest, {}).errors).toContainEqual(expect.stringContaining("NEEDED"));
@@ -223,6 +239,12 @@ describe("catalog loader", () => {
     const { manifests, problems } = await loadCatalog();
     expect(problems).toEqual([]);
     expect(manifests.map((manifest) => manifest.id)).toEqual(expect.arrayContaining(["jellyfin", "homepage", "portainer"]));
+    // ADR-016, held here: the schema takes a plain tag and the registry check passes one that
+    // exists, so every reference was pinned only because everyone remembered to.
+    const referenceOf = (image) => (typeof image === "string" ? image : image?.reference);
+    const references = manifests.flatMap((manifest) => [manifest.image, ...(manifest.sidecars ?? []).map((sidecar) => sidecar.image)]).map(referenceOf).filter((image) => typeof image === "string");
+    expect(references.length).toBeGreaterThanOrEqual(manifests.length);
+    expect(references.filter((image) => !/@sha256:[a-f0-9]{64}$/.test(image))).toEqual([]);
     for (const manifest of manifests) {
       // Every shipped manifest installs with defaults, except fields it declares required (an agent key).
       const required = manifest.env.filter((entry) => entry.required).map((entry) => `values.env.${entry.name}: is required`);

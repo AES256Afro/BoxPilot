@@ -58,12 +58,17 @@ it("registers a passkey under the name given, or Passkey, and says why when the 
   render(<PasskeySettings csrfToken="csrf" />);
   await screen.findByRole("button", { name: "Rename" });
   fireEvent.change(screen.getByLabelText("Name for a new passkey"), { target: { value: "  YubiKey  " } });
+  // Adding one asks for the password first, as removing one does.
+  expect((screen.getByRole("button", { name: "Add a passkey" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("Your password, to add a passkey"), { target: { value: "the password" } });
   fireEvent.click(screen.getByRole("button", { name: "Add a passkey" }));
-  await waitFor(() => expect(registerPasskey).toHaveBeenCalledWith("csrf", "YubiKey"));
+  await waitFor(() => expect(registerPasskey).toHaveBeenCalledWith("csrf", "YubiKey", "the password"));
   expect(await screen.findByText("Passkey registered. Sign in with it next time.")).toBeTruthy();
   expect((screen.getByLabelText("Name for a new passkey") as HTMLInputElement).value).toBe("");
+  expect((screen.getByLabelText("Your password, to add a passkey") as HTMLInputElement).value).toBe("");
   vi.mocked(registerPasskey).mockRejectedValueOnce(new Error("The browser did not create a passkey"));
+  fireEvent.change(screen.getByLabelText("Your password, to add a passkey"), { target: { value: "the password" } });
   fireEvent.click(screen.getByRole("button", { name: "Add a passkey" }));
-  await waitFor(() => expect(registerPasskey).toHaveBeenLastCalledWith("csrf", "Passkey"));
+  await waitFor(() => expect(registerPasskey).toHaveBeenLastCalledWith("csrf", "Passkey", "the password"));
   expect(await screen.findByText("The browser did not create a passkey")).toBeTruthy();
 });

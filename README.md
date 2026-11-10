@@ -4,7 +4,7 @@ BoxPilot runs a home server from a web page. You install apps, keep them updated
 
 ![Home: what needs you, the system, backups and disks, and your apps with their health](docs/screenshots/overview.jpg)
 
-*See any page in all thirteen looks: open "in every look" under its picture. Home in every look is under [Looks](#looks).*
+*See any page in the first thirteen looks: open "in every look" under its picture (Field Manual and Workbook, the two newest, are not in the galleries yet). Home in every look is under [Looks](#looks).*
 
 ## What it is for
 
@@ -20,7 +20,7 @@ One computer at home can run your own versions of things you pay for or hand you
 
 Every change is a job you can watch while it runs and read back later. Small changes are one click. Bigger ones show exactly what will happen before anything does. Risky ones ask for your password. The web page never runs with admin rights: a separate, locked-down service does the admin work, and it only runs jobs BoxPilot defines.
 
-You pick how it looks: thirteen looks in Settings → Appearance, from frosted glass over a wallpaper to a green terminal, a rack of LEDs, or an e-paper screen. [See them all.](#looks)
+You pick how it looks: fifteen looks in Settings → Appearance, from frosted glass over a wallpaper to a green terminal, a rack of LEDs, an e-paper screen, a spreadsheet or an operator's manual. [See them all.](#looks)
 
 *Screenshots show the real interface with made-up data.*
 
@@ -60,7 +60,7 @@ When a new release is out, BoxPilot says so. Installing it takes one click and y
 | **Agents** | Helpers that run on this server and answer questions about it, write a morning digest, and suggest fixes. Nothing they suggest runs until you approve it. Off until you turn it on. |
 | **Users & SSH** | Accounts, admin rights, SSH keys (import from GitHub), whether passwords may log in over SSH. |
 | **GitHub** | Where this copy of BoxPilot came from: each release and the checksums of its files. Read-only. |
-| **Settings** | How much approval each kind of change needs, alerts, the heartbeat, sign-in, the phone app, and Appearance: thirteen looks, light or dark, accent colour, wallpaper and row size, kept per browser so a phone and a wall screen can differ. |
+| **Settings** | How much approval each kind of change needs, alerts, the heartbeat, sign-in, the phone app, and Appearance: fifteen looks, light or dark, accent colour, wallpaper and row size, kept per browser so a phone and a wall screen can differ. |
 
 Sign in with a password, a passkey, your Tailscale account, or GitHub.
 

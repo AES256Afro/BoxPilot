@@ -375,10 +375,12 @@ export function createMachineSnapshotHelper({
     return { domains, available: true };
   }
 
-  async function applyRetention() {
-    const names = (await readdir(resolvedSnapshotRoot).catch(() => [])).filter((entry) => snapshotNamePattern.test(entry)).sort().reverse();
+  // `keeping` is the archive just written: with the clock behind it sorts oldest, and the job said
+  // "created" for a snapshot retention had already deleted (as app backups did until 37b7796d).
+  async function applyRetention(keeping = null) {
+    const names = (await readdir(resolvedSnapshotRoot).catch(() => [])).filter((entry) => snapshotNamePattern.test(entry) && entry !== keeping).sort().reverse();
     const removed = [];
-    for (const name of names.slice(keep)) {
+    for (const name of names.slice(keeping ? Math.max(0, keep - 1) : keep)) {
       await rm(path.join(resolvedSnapshotRoot, name), { force: true });
       await rm(path.join(resolvedSnapshotRoot, `${name}.meta.json`), { force: true });
       removed.push(name);
@@ -434,7 +436,7 @@ export function createMachineSnapshotHelper({
       await writeFile(metaPath, `${JSON.stringify({ schemaVersion: 1, snapshotId, artifact: artifactName, createdAt: startedAt.toISOString(), sizeBytes: artifactInfo.size, checksumSha256, containsSecrets: true, contents: manifest.contents }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
       metaWritten = true;
       await rename(partial, artifactPath);
-      const removedByRetention = await applyRetention();
+      const removedByRetention = await applyRetention(artifactName);
 
       return {
         created: true,

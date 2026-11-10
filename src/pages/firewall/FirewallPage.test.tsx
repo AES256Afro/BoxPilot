@@ -59,7 +59,7 @@ describe("Firewall page", () => {
     expect(await screen.findByText("Off")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "Firewall" })).toBeTruthy();
     expect(screen.getByText("All incoming traffic is accepted.")).toBeTruthy();
-    await waitFor(() => expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("in drop · out accept · 3 rules · fail2ban on, 2 banned"));
+    await waitFor(() => expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("once on: in drop · out accept · 3 rules · fail2ban on, 2 banned"));
     const turnOn = screen.getByRole("button", { name: "Turn on" });
     expect(turnOn.getAttribute("data-risk")).toBe("high");
     fireEvent.click(turnOn);

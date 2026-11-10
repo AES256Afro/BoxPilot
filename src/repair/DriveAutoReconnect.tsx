@@ -23,7 +23,7 @@ export function DriveAutoReconnect({ drive, control }: { drive: string; control:
         {armed
           ? <Button variant="ghost" disabled={pending === drive} onClick={() => void control.disarm(drive)} aria-label={`Stop reconnecting automatically: ${mountpoint}`}>Stop reconnecting automatically</Button>
           : <Button disabled={pending === drive} onClick={() => void control.arm(drive)} aria-label={`Reconnect it automatically next time: ${mountpoint}`}>Reconnect it automatically next time</Button>}
-        {armed && <span>{`Reconnects automatically${armed.attempts ? `; ${armed.attempts} of ${status.limits.maxAttempts} used in the last ${period}` : ""}.`}</span>}
+        {armed && <span>{`Reconnects by itself${armed.attempts ? ` · ${armed.attempts} of ${status.limits.maxAttempts} tries used in the last ${period}` : ""}`}</span>}
         {waiting && <span className="rp-auto__waiting">{waiting}</span>}
       </div>
       <p className="rp-auto__rule">{autoReconnectRule(status.limits)}</p>

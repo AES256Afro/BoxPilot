@@ -150,10 +150,10 @@ export function NetworkRouter({ gateway, role, start, refreshKey }: NetworkRoute
           footer={<>
             {missing && <span className="network-dim network-sheet-hint">{missing}</span>}
             <Button variant="ghost" onClick={() => setConnecting(false)}>Cancel</Button>
-            <Button variant="primary" risk={riskOf("router.connect")} disabled={!ready} onClick={connect}>Connect</Button>
+            <Button variant="primary" risk={riskOf("router.connect")} type="submit" form="network-router-form" disabled={!ready}>Connect</Button>
           </>}
         >
-          <form className="network-form network-form--single" onSubmit={(event) => { event.preventDefault(); connect(); }}>
+          <form id="network-router-form" className="network-form network-form--single" onSubmit={(event) => { event.preventDefault(); if (ready) connect(); }}>
             <Field label="Router address">
               <TextInput mono placeholder="192.168.1.1" value={host} onValueChange={setHost} autoComplete="off" spellCheck={false} />
             </Field>

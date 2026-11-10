@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { loadCatalog } from "./catalog/index.mjs";
+import { registry } from "./ops/index.mjs";
 import { createSetupService, setupProfiles } from "./setup-profiles.mjs";
 
 function helperWith(state) {
@@ -6,13 +8,24 @@ function helperWith(state) {
 }
 
 describe("first-run setup profiles", () => {
-  it("only schedules low or medium operations and only catalog apps", () => {
-    for (const profile of setupProfiles) {
-      for (const step of profile.steps) {
-        if (step.kind === "schedule") expect(["host.snapshot.create", "controller.backup.create", "apt.refresh"]).toContain(step.schedule.operationId);
-        if (step.kind === "app") expect(step.appId).toMatch(/^[a-z0-9-]+$/);
-      }
+  // Held to the registry and the catalog themselves: against three literal ids and a pattern, a
+  // profile that scheduled a high operation or named an app that had gone still passed, and so did
+  // a list with no steps of either kind.
+  it("only schedules low or medium operations and only catalog apps", async () => {
+    const steps = setupProfiles.flatMap((profile) => profile.steps);
+    const scheduled = steps.filter((step) => step.kind === "schedule");
+    const apps = steps.filter((step) => step.kind === "app");
+    expect(setupProfiles.length).toBeGreaterThan(0);
+    expect(scheduled.length).toBeGreaterThan(0);
+    expect(apps.length).toBeGreaterThan(0);
+    for (const step of scheduled) {
+      const operation = registry.get(step.schedule.operationId);
+      expect(operation, step.schedule.operationId).toBeTruthy();
+      expect(operation.risk, step.schedule.operationId).not.toBe("high");
+      expect(operation.readOnly ?? false, step.schedule.operationId).toBe(false);
     }
+    const catalog = new Set((await loadCatalog()).manifests.map((manifest) => manifest.id));
+    for (const step of apps) expect(catalog.has(step.appId), step.appId).toBe(true);
   });
 
   it("resolves each step against live state: done, ready with the exact job, or blocked", async () => {

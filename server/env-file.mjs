@@ -136,6 +136,13 @@ export function webListenFromEnv(text) {
   return { webPort: webPortOf(values.get("BOXPILOT_PORT")), webHost: webHostOf(values.get("BOXPILOT_HOST")) };
 }
 
+/** The LAN HTTPS listener's port, when one was set up (tasks/web-tls.mjs writes BOXPILOT_TLS_PORT), or null. */
+export function tlsPortFromEnv(text) {
+  const value = parseEnvFile(text).get("BOXPILOT_TLS_PORT") ?? "";
+  const port = /^\d{1,5}$/.test(value) ? Number(value) : 0;
+  return port >= 1 && port <= 65_535 ? port : null;
+}
+
 /**
  * Set `key` to `value` in the file's text: every line for the key, however it is written, becomes
  * KEY=value (rewriting only the first of two left the other in force), and it is appended when there

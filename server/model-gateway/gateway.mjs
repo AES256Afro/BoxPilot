@@ -27,7 +27,10 @@ export { gatewayLimits, offeredModels };
 const unbilled = new Set(["auth", "forbidden", "rate-limited", "overloaded", "bad-request", "not-found", "unreachable"]);
 
 /** A tokens estimate that errs high: about three characters a token, where English runs nearer four. */
-const tokensIn = (params) => Math.ceil(JSON.stringify({ system: params.system, messages: params.messages, tools: params.tools }).length / 3);
+// Everything that is sent, by its bytes: a structured-output schema was left out of the count, and
+// counting characters read CJK text as a third of what it costs. `model` and `max_tokens` are a few
+// bytes more, on the safe side.
+const tokensIn = (params) => Math.ceil(Buffer.byteLength(JSON.stringify(params) ?? "", "utf8") / 3);
 
 const dearest = Object.values(anthropicPrices).reduce((top, card) => (card.output > top.output ? card : top));
 
@@ -90,6 +93,9 @@ export function createGateway({ provider, ledger, settings, check = null, log = 
     try { params = toAnthropicRequest(request); } catch (error) { return failed(id, "bad-request", String(error.message).slice(0, 200)); }
     const atMost = worstCaseUsd(params);
     if (atMost === null) return failed(id, "model", `${request.model} has no price, so it cannot be held to the monthly cap`);
+    // A call whose worst case cannot be worked out (max_tokens that is not a number) reserved
+    // nothing against the cap and was sent anyway.
+    if (!Number.isFinite(atMost) || atMost < 0) return failed(id, "bad-request", "The call's size could not be worked out, so it cannot be held to the monthly cap");
     if (running >= gatewayLimits.running) return failed(id, "busy", "The gateway is already making as many calls as it allows; try again shortly");
     running += 1;
     try {

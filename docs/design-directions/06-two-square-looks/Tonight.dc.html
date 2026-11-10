@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tonight: what homebox will do while you sleep (Workbook look)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=IBM+Plex+Sans+Condensed:wght@500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#1a56db}a:hover{color:#1f1f1f}
+table.wb{border-collapse:collapse;width:100%;font:400 13.5px/1.35 "PT Sans",Arial,sans-serif}
+table.wb td,table.wb th{border:1px solid #d4d4d4;padding:7px 10px;text-align:left;vertical-align:middle;font-weight:400;white-space:nowrap}
+table.wb .n{width:34px;padding:7px 0;text-align:center;background:#f1f1f1;color:#5c5c5c;font:500 11px "JetBrains Mono",monospace}
+table.wb .m{font-family:"JetBrains Mono",monospace;font-size:12.5px}
+table.wb td.c{padding:0;width:2.6%;height:34px}
+table.wb td.q{padding:0;background:#e9e9e9}
+table.wb td.on{padding:0;background:#1f1f1f}
+table.wb th.h{padding:5px 4px;font:500 11.5px "JetBrains Mono",monospace;color:#5c5c5c;background:#fafafa}
+</style>
+</helmet>
+<div style="min-height: 820px; box-sizing: border-box; background: #ffffff; color: #1f1f1f; font-family: 'PT Sans', Arial, sans-serif; font-size: 14px; line-height: 1.4; display: flex; flex-direction: column">
+
+  <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 16px; background: #1f1f1f; color: #ffffff; font-family: 'JetBrains Mono', monospace; font-size: 12.5px">
+    <span style="font-weight: 700">homebox.boxpilot</span>
+    <span style="color: #c9c9c9">Automations / Tonight</span>
+    <span style="flex-grow: 1"></span>
+    <span style="color: #c9c9c9">Tue 10 Nov 19:52 · saved</span>
+  </div>
+
+  <div style="display: flex; align-items: stretch; flex-wrap: wrap; border-bottom: 1px solid #b5b5b5; background: #f1f1f1; font-family: 'JetBrains Mono', monospace; font-size: 12.5px">
+    <span style="padding: 7px 14px; border-right: 1px solid #b5b5b5; background: #ffffff; font-weight: 700; min-width: 34px; text-align: center">R6</span>
+    <span style="padding: 7px 12px; border-right: 1px solid #b5b5b5; color: #5c5c5c; font-style: italic">fx</span>
+    <span style="flex: 1 1 320px; padding: 7px 12px; background: #ffffff; overflow-wrap: anywhere">=IF(AND(R5="ran long", R6="planned"), <b>"Two jobs in the same half hour"</b>, "")</span>
+  </div>
+
+  <div style="padding: 20px clamp(12px, 2.4vw, 28px) 28px; display: flex; flex-direction: column; gap: 16px; flex-grow: 1; background-image: linear-gradient(#ececec 1px, transparent 1px), linear-gradient(90deg, #ececec 1px, transparent 1px); background-size: 112px 28px">
+
+    <header style="display: flex; align-items: flex-end; gap: 10px 20px; flex-wrap: wrap; background: #ffffff; padding-bottom: 2px">
+      <h1 style="margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.01em; line-height: 1">Tonight</h1>
+      <span style="padding: 5px 10px; background: #fff3c4; color: #6b4e00; border: 1px solid #6b4e00; font-size: 13.5px; font-weight: 700">Two jobs will run into each other at 03:00</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #5c5c5c; background: #ffffff"><b style="color: #1f1f1f">6</b> jobs · first <b style="color: #1f1f1f">02:00</b> · last <b style="color: #1f1f1f">05:30</b> · quiet hours <b style="color: #1f1f1f">22:00 to 07:00</b></span>
+    </header>
+
+    <div style="overflow-x: auto; border: 1px solid #8f8f8f; background: #ffffff">
+      <table class="wb" style="min-width: 1180px">
+        <thead>
+          <tr style="background: #fafafa">
+            <td class="n">1</td>
+            <th scope="col" style="font: 600 12px 'IBM Plex Sans Condensed', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 2px solid #1f1f1f">Job</th>
+            <th scope="col" style="font: 600 12px 'IBM Plex Sans Condensed', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 2px solid #1f1f1f">Starts</th>
+            <th scope="col" style="font: 600 12px 'IBM Plex Sans Condensed', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 2px solid #1f1f1f">Last night</th>
+            <th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f">20</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f">21</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f">22</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f">23</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f">00</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f">01</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f; color: #1f1f1f; font-weight: 700">02</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f; background: #fff3c4; color: #6b4e00; font-weight: 700">03</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f">04</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f">05</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f">06</th><th scope="col" colspan="2" class="h" style="border-bottom: 2px solid #1f1f1f">07</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="n">2</td>
+            <th scope="row" style="color: #5c5c5c">Quiet hours</th><td class="m" style="color: #5c5c5c">22:00</td><td style="color: #5c5c5c; font-size: 12.5px">held 3 pushes</td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+            <td class="q" colspan="18" style="padding: 0 10px; font-size: 12.5px; color: #444444">Nothing is pushed to your phone unless it would be worse by morning</td>
+            <td class="c"></td><td class="c"></td>
+          </tr>
+          <tr>
+            <td class="n">3</td>
+            <th scope="row" style="font-weight: 700">App backups</th><td class="m">02:00</td><td class="m">14 min · 4 apps</td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+            <td class="on" role="img" aria-label="02:00 to 02:15"></td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+          </tr>
+          <tr>
+            <td class="n">4</td>
+            <th scope="row" style="font-weight: 700">Machine snapshot</th><td class="m">02:20</td><td class="m">5 min</td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+            <td class="c" role="img" aria-label="02:20 to 02:25" style="background: linear-gradient(90deg, transparent 0 62%, #1f1f1f 62% 84%, transparent 84%)"></td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+          </tr>
+          <tr style="background: #fffbe8">
+            <td class="n">5</td>
+            <th scope="row" style="font-weight: 700">Copy off this server</th><td class="m">02:30</td><td class="m" style="background: #fff3c4; color: #6b4e00; font-weight: 700">41 min · planned 10</td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+            <td class="on" role="img" aria-label="02:30, planned to 02:40"></td>
+            <td class="c" role="img" aria-label="ran until 03:11 last night" style="background: repeating-linear-gradient(135deg, #b77900 0 4px, #fff3c4 4px 8px) left / 38% 100% no-repeat; outline: 2px solid #8c1d18; outline-offset: -2px"></td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+          </tr>
+          <tr style="background: #fffbe8">
+            <td class="n" style="background: #dbe6fb; color: #1a56db; font-weight: 700">6</td>
+            <th scope="row" style="font-weight: 700">Security updates</th><td class="m">03:00</td><td class="m">18 min</td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+            <td class="on" role="img" aria-label="03:00 to 03:20, overlaps the copy" style="outline: 2px solid #1a56db; outline-offset: 1px; position: relative"><i aria-hidden="true" style="position: absolute; right: -5px; bottom: -5px; width: 7px; height: 7px; background: #1a56db; border: 1px solid #ffffff"></i></td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+          </tr>
+          <tr>
+            <td class="n">7</td>
+            <th scope="row" style="font-weight: 700">Restart, only if needed</th><td class="m">04:30</td><td class="m" style="color: #5c5c5c">not needed</td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+            <td class="c" role="img" aria-label="04:30, only if an update asks for it" style="outline: 2px dashed #5c5c5c; outline-offset: -4px"></td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+          </tr>
+          <tr>
+            <td class="n">8</td>
+            <th scope="row" style="font-weight: 700">Server Keeper's digest</th><td class="m">05:30</td><td class="m">9 min · agent</td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+            <td class="c" role="img" aria-label="05:30 to 05:40" style="background: #1a56db"></td>
+            <td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display: flex; gap: 8px 22px; flex-wrap: wrap; font-size: 12.5px; color: #444444; background: #ffffff; padding: 2px 0">
+      <span style="display: inline-flex; align-items: center; gap: 7px"><i aria-hidden="true" style="width: 20px; height: 11px; background: #1f1f1f"></i>Planned</span>
+      <span style="display: inline-flex; align-items: center; gap: 7px"><i aria-hidden="true" style="width: 20px; height: 11px; background: repeating-linear-gradient(135deg, #b77900 0 4px, #fff3c4 4px 8px)"></i>Ran past its plan last night</span>
+      <span style="display: inline-flex; align-items: center; gap: 7px"><i aria-hidden="true" style="width: 20px; height: 11px; outline: 2px dashed #5c5c5c; outline-offset: -2px"></i>Runs only if something asks for it</span>
+      <span style="display: inline-flex; align-items: center; gap: 7px"><i aria-hidden="true" style="width: 20px; height: 11px; background: #1a56db"></i>An agent, not a schedule</span>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: flex-start">
+      <section aria-label="The overlap" style="flex: 2 1 460px; min-width: 0; background: #fff8d6; border: 1px solid #8a6d00; box-shadow: 3px 3px 0 rgba(31, 31, 31, 0.18); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font: 600 12px 'IBM Plex Sans Condensed', 'Arial Narrow', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: #5a4700">Note on R6 · The overlap</h2>
+        <p style="margin: 0; font-size: 16px; font-weight: 700; line-height: 1.3; max-width: 62ch">The copy off this server has run long three nights in a row, and updates start while it is still going.</p>
+        <p style="margin: 0; font-size: 13.5px; max-width: 70ch">If an update restarts Docker at 03:00, the copy stops half sent and the morning has no copy anywhere but this disk. Moving updates an hour later costs nothing.</p>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px">
+          <button type="button" style="min-height: 44px; padding: 0 14px; border: 1px solid #1f1f1f; border-left: 6px solid #d99a00; background: #1f1f1f; color: #ffffff; font: 700 14px 'PT Sans', sans-serif">Move updates to 04:00</button>
+          <button type="button" style="min-height: 44px; padding: 0 14px; border: 1px solid #1f1f1f; background: #ffffff; color: #1f1f1f; font: 700 14px 'PT Sans', sans-serif">Make each job wait for the last</button>
+          <button type="button" style="min-height: 44px; padding: 0 10px; border: 0; background: transparent; color: #1f1f1f; font: 700 14px 'PT Sans', sans-serif; text-decoration: underline">Why the copy is slow</button>
+        </div>
+      </section>
+
+      <section aria-label="What would wake you" style="flex: 1 1 300px; min-width: 0; background: #ffffff; border: 1px solid #8f8f8f">
+        <table class="wb">
+          <thead><tr style="background: #fafafa"><th scope="col" style="font: 600 12px 'IBM Plex Sans Condensed', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 2px solid #1f1f1f">What would wake you</th></tr></thead>
+          <tbody>
+            <tr><td style="white-space: normal">The power goes and the battery is low</td></tr>
+            <tr><td style="white-space: normal">A drive fails its check</td></tr>
+            <tr><td style="white-space: normal">Pi-hole stops answering and the house loses the internet</td></tr>
+            <tr><td style="white-space: normal; color: #5c5c5c; font-size: 12.5px; background: #fafafa">Everything else, a failed backup included, waits on Today for 07:00.</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":820}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

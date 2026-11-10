@@ -29,7 +29,7 @@
         var look = 'blend';
         try {
           var stored = localStorage.getItem('boxpilot-look');
-          var looks = ['blend', 'launcher', 'console', 'aqua', 'blueprint', 'phosphor', 'rack', 'swiss', 'toybox', 'cockpit', 'eink', 'quest', 'transit'];
+          var looks = ['blend', 'launcher', 'console', 'aqua', 'blueprint', 'phosphor', 'rack', 'swiss', 'toybox', 'cockpit', 'eink', 'quest', 'transit', 'manual', 'workbook'];
           if (looks.indexOf(stored) >= 0) look = stored;
           var view = new URLSearchParams(location.search).get('view');
           var notHome = localStorage.getItem('boxpilot-look-scope') === 'not-home';

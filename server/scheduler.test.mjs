@@ -107,7 +107,18 @@ describe("operation scheduler", () => {
     expect(after.nextDueAt).toBe(new Date("2026-08-20T05:00:00").toISOString());
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "schedule.skipped" })]));
 
+    // Moved in place: the same schedule, its last result kept, due at the new minute next.
+    const moved = scheduler.setTime(schedule.id, { minute: 20 }, owner.id);
+    expect(moved).toMatchObject({ id: schedule.id, frequency: "hourly", minute: 20, hour: null, lastResult: "blocked-by-approval-mode" });
+    expect(moved.nextDueAt).toBe(new Date("2026-08-20T04:20:00").toISOString());
+    expect(() => scheduler.setTime(schedule.id, { minute: 75 }, owner.id)).toThrow("minute must be 0-59");
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "schedule.moved", subjectId: schedule.id })]));
+    scheduler.setTime(schedule.id, { minute: 0 }, owner.id);
+
     scheduler.setEnabled(schedule.id, false, owner.id);
+    // A paused schedule that is moved stays paused, with no due time made up for it.
+    expect(scheduler.setTime(schedule.id, { minute: 5 }, owner.id)).toMatchObject({ enabled: false, minute: 5 });
+    scheduler.setTime(schedule.id, { minute: 0 }, owner.id);
     clock = new Date("2026-08-20T09:00:30");
     expect(await scheduler.tick()).toBe(0); // disabled schedules never run
     scheduler.setEnabled(schedule.id, true, owner.id);
@@ -209,6 +220,8 @@ describe("schedules and secrets", () => {
     // Someone else's schedule is not theirs to pause or delete.
     const ownerSchedule = scheduler.list({ createdBy: owner.id })[0];
     expect(() => scheduler.setEnabled(ownerSchedule.id, false, helper.id)).toThrow("not found");
+    // Nor move it: whoever may not pause a schedule may not change when it runs.
+    expect(() => scheduler.setTime(ownerSchedule.id, { minute: 30 }, helper.id)).toThrow("not found");
     expect(() => scheduler.remove(ownerSchedule.id, helper.id)).toThrow("not found");
     expect(() => scheduler.setEnabled(ownerSchedule.id, false, owner.id)).not.toThrow();
     store.close();

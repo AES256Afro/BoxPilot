@@ -550,7 +550,7 @@ export const inspections = {
     connectedAt: ago(31), problem: null,
   },
   "cloudflare.tunnel.check": { status: "healthy", connectors: 1, routesAtCloudflare: ["share.example.com"], checkedAt: now().toISOString() },
-  "router.inspect": { configured: true, reachable: true, host: "192.168.1.1", username: "root", model: "GL-MT6000", firmware: "4.7.0", reason: null },
+  "router.inspect": { configured: true, reachable: true, host: "192.168.1.1", username: "root", model: "Example AX3000", firmware: "4.7.0", reason: null },
   "router.leases": { host: "192.168.1.1", leases: [
     { name: "homebox", address: host.lan, mac: "aa:bb:cc:dd:ee:02", online: true, reserved: true },
     { name: "alex-laptop", address: "192.168.1.26", mac: "aa:bb:cc:dd:ee:01", online: true, reserved: false },
@@ -680,6 +680,8 @@ api.get("/auth/sessions", (_request, response) => json(response, { currentId: "s
   { id: "sess-demo-phone", createdAt: ago(31), expiresAt: ago(-2), lastSeenAt: ago(3), address: host.tailscaleIp, userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Version/18.0 Mobile Safari/604.1", method: "tailscale", elevated: false },
 ] }));
 api.get("/inventory", (_request, response) => json(response, inventory()));
+// Today's app cards (M51). None of the demo's apps has a reader, which is an empty list, not a failed read.
+api.get("/apps/glances", (_request, response) => json(response, { glances: [], liveKnown: true }));
 api.get("/network/topology", (_request, response) => json(response, topology()));
 api.get("/network/tailnet", (_request, response) => json(response, { available: true, connected: true,
   self: { name: "homebox", dnsName: host.tailnet, address: host.tailscaleIp, os: "linux", online: true, lastSeen: null, exitNode: false, subnetRoutes: ["192.168.50.0/24"], direct: null, relay: null, isSelf: true },
@@ -1133,6 +1135,8 @@ api.get("/remediations", (request, response) => json(response, demoScan(scenario
 api.post("/remediations/dismissals", (request, response) => response.status(201).json({ dismissed: request.body?.id ?? `job:${request.body?.jobId}` }));
 api.delete("/remediations/dismissals/:id", (request, response) => response.json({ restored: request.params.id }));
 api.post("/remediations/attempts", (request, response) => response.status(201).json({ recorded: request.body?.jobId ?? null }));
+// The install form's port check (the "Will it fit" preflight): in the demo's world nothing else holds an app's ports.
+api.post("/catalog/:id/precheck", (_request, response) => json(response, { ok: true, errors: [], conflicts: [] }));
 api.post("/schedules", (request, response) => response.status(201).json({ schedule: { id: "demo-schedule", ...request.body, enabled: true, createdBy: "owner-demo", createdAt: now().toISOString() } }));
 api.get("/catalog", async (request, response) => {
   const { manifests, problems } = await loadCatalog();

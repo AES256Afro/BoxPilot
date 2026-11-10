@@ -83,9 +83,20 @@ describe("passkey routes", () => {
     expect(result.status).toBe(401);
   });
 
+  // A session and its token were enough: anything holding one for a moment could add a key of its
+  // own making and sign in with it from anywhere, for good.
+  it("will not start registration on a session alone, or with a wrong password", async () => {
+    const session = await signInWithPassword();
+    const bare = await api("POST", "/api/v1/auth/passkey/register/options", { session, body: { origin } });
+    expect(bare.status).toBe(401);
+    expect(bare.body.code).toBe("reauthentication_required");
+    expect(bare.body.challenge).toBeUndefined();
+    expect((await api("POST", "/api/v1/auth/passkey/register/options", { session, body: { origin, password: "not the password" } })).status).toBe(401);
+  });
+
   it("registers a passkey for the signed-in owner and then signs in with it", async () => {
     const session = await signInWithPassword();
-    const options = await api("POST", "/api/v1/auth/passkey/register/options", { session, body: { origin } });
+    const options = await api("POST", "/api/v1/auth/passkey/register/options", { session, body: { origin, password } });
     expect(options.status).toBe(200);
     expect(options.body.rp.id).toBe(rpId);
 
@@ -155,7 +166,7 @@ describe("an app on another port of the same name", () => {
 
   it("cannot start a passkey sign-in, or finish one it phished", async () => {
     const session = await signInWithPassword();
-    const options = await api("POST", "/api/v1/auth/passkey/register/options", { session, body: { origin } });
+    const options = await api("POST", "/api/v1/auth/passkey/register/options", { session, body: { origin, password } });
     expect((await api("POST", "/api/v1/auth/passkey/register/verify", { session, body: { origin, credential: phone.create(options.body.challenge, "Phone") } })).status).toBe(201);
 
     const phished = await api("POST", "/api/v1/auth/passkey/options", { body: { origin: appOrigin } });
@@ -170,7 +181,7 @@ describe("an app on another port of the same name", () => {
 
   it("cannot register one either", async () => {
     const session = await signInWithPassword();
-    expect((await api("POST", "/api/v1/auth/passkey/register/options", { session, body: { origin: appOrigin } })).status).toBe(400);
+    expect((await api("POST", "/api/v1/auth/passkey/register/options", { session, body: { origin: appOrigin, password } })).status).toBe(400);
   });
 
   it("is told apart from the address this listener answers at, from the request itself", async () => {

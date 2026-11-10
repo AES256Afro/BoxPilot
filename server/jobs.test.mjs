@@ -876,6 +876,27 @@ describe("staged secrets whose job is finished with them", () => {
   });
 });
 
+describe("a job staged with a secret, and then a restart", () => {
+  // The secrets live in memory. After a restart nothing held the job's, and nothing expired it:
+  // it stood on Home and in push approvals for seven days, and approving it could only fail.
+  it("is withdrawn by the first prune after the restart, saying why, and one without a secret is left alone", async () => {
+    const helper = { request: vi.fn(async () => ({ mounted: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    try {
+      const withSecret = await jobs.createOperationJob("share.mount", { kind: "smb", host: "nas", share: "Public", name: "nas-a", username: "jamie", password: "hunter2 hunter2" }, owner.id);
+      const plain = await jobs.createOperationJob("app.action", { id: "jellyfin", action: "restart" }, owner.id);
+      // The restart: a new service over the same database, with nothing staged in memory.
+      const restarted = createJobService(store, helper);
+      expect(restarted.holdsStagedSecrets(withSecret.id)).toBe(false);
+      expect(restarted.pruneStagedSecrets()).toBe(1);
+      expect(store.getJob(withSecret.id)).toMatchObject({ state: "cancelled", error: expect.stringMatching(/restarted before this was approved/) });
+      expect(store.getJob(plain.id).state).toBe("awaiting_approval");
+      expect(restarted.pruneStagedSecrets()).toBe(0);
+      expect(helper.request).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+});
+
 describe("an app secret typed as a number", () => {
   // values.env accepts numbers and the deployer turns them into text, so a PIN or a numeric token
   // can arrive as 918273645546372 rather than "918273645546372". Only strings were staged: the
@@ -1144,6 +1165,29 @@ describe("a tier that depends on what an operation acts on", () => {
       const other = await jobs.createOperationJob("app.install", { id: "jellyfin" }, operator.id, { role: "operator" });
       expect(other.risk).toBe("medium");
       expect(jobs.describeApproval(other.id, null)).toMatchObject({ tier: "medium", passwordRequired: false });
+    } finally { store.close(); }
+  });
+
+  // A job waits up to seven days for its approval. One staged by an operator while installing
+  // Portainer was medium was approved by that operator alone after the release that made it high.
+  it("approves a waiting job at the tier it has now, not the one it was staged at", async () => {
+    const helper = { request: vi.fn(async () => ({ installed: true })) };
+    const { store, owner } = await setup(helper);
+    try {
+      const operator = store.createOwnerAccount({ username: "sam", passwordHash: "x", role: "operator", createdBy: owner.id });
+      let tier = "medium";
+      const jobs = createJobService(store, helper, { operationRiskHooks: { "app.install": async () => tier } });
+      const job = await jobs.createOperationJob("app.install", { id: "portainer" }, operator.id, { role: "operator" });
+      expect(job.risk).toBe("medium");
+      tier = "high";
+      await expect(jobs.approveAndRun(job.id, operator.id, { session: { owner: { role: "operator" } } })).rejects.toThrow(/password|Only the owner/);
+      expect(helper.request).not.toHaveBeenCalled();
+      expect(store.getJob(job.id).state).toBe("awaiting_approval");
+      // A hook that now answers lower, or fails, never lowers the tier the job was staged at.
+      tier = "high";
+      const raised = await jobs.createOperationJob("app.install", { id: "pi-hole" }, owner.id, { role: "owner" });
+      tier = "low";
+      await expect(jobs.approveAndRun(raised.id, owner.id, {})).rejects.toThrow(/password/);
     } finally { store.close(); }
   });
 

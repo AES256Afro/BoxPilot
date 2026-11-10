@@ -92,6 +92,9 @@ export function isKnownTimeZone(value) {
  */
 export const envOptionSources = Object.freeze(["ollama-models"]);
 export const riskTiers = Object.freeze(["low", "medium", "high"]);
+/** What a manifest's `needs` may state, each in whole MB, and the most either may claim (1 TB). */
+const needFields = Object.freeze(["memoryMb", "diskMb"]);
+const largestNeedMb = 1_048_576;
 
 /** Seconds in a `30s` / `2m` stop grace period; NaN for anything else. */
 function stopGraceSeconds(text) {
@@ -163,7 +166,7 @@ export function keepsBackupData(manifest) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu", "defaultExposure", "actions", "publicHostname", "stopGracePeriod"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile", "gpu", "defaultExposure", "actions", "publicHostname", "stopGracePeriod", "needs"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // defaultExposure: who can reach the app when the owner installs it without choosing. "tailnet"
   // binds its web ports to 127.0.0.1 and publishes them with Tailscale Serve (HTTPS, a real
@@ -198,6 +201,20 @@ export function validateManifest(raw) {
   // or unload something large (a model engine freeing tens of GB) is killed mid-way at that
   // default, which looks like a crash on the next start. Up to 10 minutes.
   if (raw.stopGracePeriod !== undefined && !(typeof raw.stopGracePeriod === "string" && /^(?:[1-9][0-9]{0,2}s|[1-9]0?m)$/.test(raw.stopGracePeriod) && stopGraceSeconds(raw.stopGracePeriod) <= longestStopGraceSeconds)) fail(errors, "manifest.stopGracePeriod", "must look like 30s or 2m, at most 10m");
+  // needs: what the app takes from the server, when its manifest can say. Optional, and each figure
+  // optional: the install's "Will it fit" check adds what is stated to what is in use, and says "not
+  // stated" for the rest rather than guessing. Whole mebibytes (1024 = 1 GB as the pages write it).
+  //   memoryMb - memory the app and its sidecars settle at in ordinary use, once running.
+  //   diskMb   - what installing it puts on the disk Docker keeps images on: its images unpacked,
+  //              and what it writes at first start. Not what its data grows to.
+  if (raw.needs !== undefined) {
+    if (!isObject(raw.needs)) fail(errors, "manifest.needs", "must be a mapping of memoryMb, diskMb or both");
+    else {
+      checkKeys(errors, "manifest.needs", raw.needs, needFields);
+      if (!needFields.some((field) => raw.needs[field] !== undefined)) fail(errors, "manifest.needs", "must state memoryMb, diskMb or both");
+      for (const field of needFields) if (raw.needs[field] !== undefined && !(Number.isInteger(raw.needs[field]) && raw.needs[field] >= 1 && raw.needs[field] <= largestNeedMb)) fail(errors, `manifest.needs.${field}`, `must be a whole number of MB from 1 to ${largestNeedMb}`);
+    }
+  }
   // usesVpnProfile: the app can be routed through the one shared VPN profile instead of its own
   // connection. It needs a networkVia sidecar (a Gluetun container) for the profile to configure.
   if (raw.usesVpnProfile !== undefined && typeof raw.usesVpnProfile !== "boolean") fail(errors, "manifest.usesVpnProfile", "must be boolean");
@@ -566,6 +583,7 @@ export function validateManifest(raw) {
     sysctls: raw.sysctls ?? [],
     shmSize: raw.shmSize ?? null,
     stopGracePeriod: raw.stopGracePeriod ?? null,
+    needs: raw.needs ? Object.freeze({ memoryMb: raw.needs.memoryMb ?? null, diskMb: raw.needs.diskMb ?? null }) : null,
     gpu: raw.gpu ?? null,
     sidecars: sidecars.map((sidecar) => ({
       id: sidecar.id,

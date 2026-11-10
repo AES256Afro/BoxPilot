@@ -250,6 +250,28 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
     return store.setScheduleEnabled(id, enabled, { actorId, nextDueAt });
   }
 
+  /**
+   * Move a schedule to another time: the same job, the same frequency, a different minute, hour or
+   * (weekly) day. Changing when it runs used to mean deleting it and adding it again, which lost its
+   * last result and asked for its parameters a second time. Whoever may pause it may move it; what
+   * it runs and at which tier are not touched, and are read again at each run as before.
+   */
+  function setTime(id, time, actorId) {
+    const schedule = store.getSchedule(id);
+    assertMayManage(schedule, actorId);
+    const cadence = {
+      frequency: schedule.frequency,
+      minute: time?.minute ?? schedule.minute,
+      hour: schedule.frequency === "hourly" ? null : time?.hour ?? schedule.hour,
+      weekday: schedule.frequency === "weekly" ? time?.weekday ?? schedule.weekday : null,
+    };
+    const cadenceError = validateCadence(cadence);
+    if (cadenceError) throw new Error(cadenceError);
+    // A paused schedule keeps no due time; an enabled one starts from the next occurrence of the new time.
+    const nextDueAt = schedule.enabled ? computeNextRun(cadence, now()).toISOString() : null;
+    return store.setScheduleTime(id, cadence, { actorId, nextDueAt });
+  }
+
   function remove(id, actorId) {
     assertMayManage(store.getSchedule(id), actorId);
     const removed = store.deleteSchedule(id, { actorId });
@@ -380,5 +402,5 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
     return () => { clearInterval(timer); unsubscribe(); };
   }
 
-  return { create, list, setEnabled, remove, tick, start, onJob, owns, recover };
+  return { create, list, setEnabled, setTime, remove, tick, start, onJob, owns, recover };
 }

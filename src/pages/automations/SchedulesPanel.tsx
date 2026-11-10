@@ -32,6 +32,9 @@ const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frida
 export function useSchedules(enabled = true) {
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Whether the last read failed. `error` is also what a refused change says, and a failed read
+  // leaves an empty list behind, so neither tells Tonight that the list on screen is not the truth.
+  const [unread, setUnread] = useState(false);
   const refresh = useCallback(async () => {
     try {
       const response = await fetch("/api/v1/schedules");
@@ -39,13 +42,15 @@ export function useSchedules(enabled = true) {
       if (!response.ok) throw new Error(body.error ?? "Could not load schedules");
       setSchedules(body.schedules ?? []);
       setError(null);
+      setUnread(false);
     } catch (requestError) {
       setSchedules((current) => current ?? []);
       setError(requestError instanceof Error ? requestError.message : "Could not load schedules");
+      setUnread(true);
     }
   }, []);
   useEffect(() => { if (enabled) void refresh(); }, [enabled, refresh]);
-  return { schedules, error, setError, refresh };
+  return { schedules, error, setError, refresh, unread };
 }
 export type SchedulesSource = ReturnType<typeof useSchedules>;
 

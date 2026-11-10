@@ -16,6 +16,7 @@
  * nightly. Each preview names what it will stop, disconnect and restart, because the owner reads it
  * before approving and a fix that surprises them is one they stop halfway.
  */
+import { insideDataRoots } from "./tasks/served-folder.mjs";
 import { createHash } from "node:crypto";
 import { backupMountpoint, legacyBackupMountpoint, mountpointFor } from "./backup-mount.mjs";
 import { coversEveryAddress, findPortConflicts, freePortNear, holderWords, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
@@ -442,9 +443,11 @@ export function unwritableShares(facts = {}) {
         title: `Nobody can write to the ${share.name} share`,
         detail: drive
           ? `${share.path} is on ${drive.target}, a ${drive.fstype} drive mounted without an owner, so everything on it belongs to root and everyone connecting is read-only there however the share is configured. Opening it works, saving into it does not.`
-          : `${share.path} is owned by root, so everyone connecting is read-only there however the share is configured. Opening it works, saving into it does not.`,
+          : `${share.path} is owned by root, so everyone connecting is read-only there however the share is configured. Opening it works, saving into it does not.${insideDataRoots(share.path) ? "" : ` It is outside /mnt, /media and /srv, so BoxPilot does not change who owns it: run "sudo chown ${appUser}: ${share.path}" on the server if people should write there.`}`,
         evidence: [`${share.path} is owned by root`, "the share is set read-write", ...(drive ? [`${drive.target} is ${drive.fstype}, mounted without uid=`] : [])],
-        fixes: [drive ? writableFix(drive, facts) : {
+        // Outside the data roots the task does not change a folder's owner (M57.6), so the button
+        // would fail every time: the finding says what to do by hand instead.
+        fixes: !drive && !insideDataRoots(share.path) ? [] : [drive ? writableFix(drive, facts) : {
           operationId: "samba.share.writable",
           parameters: { share: share.name },
           label: "Let people write to it",

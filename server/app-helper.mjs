@@ -976,7 +976,7 @@ export function createAppHelper({
       // what Repair's port check compares with the host's listeners and with Tailscale Serve.
       published: state?.installed ? await publishedFor(manifest, state) : [],
       dataPresent: Boolean(state),
-      state: state ? { installedAt: state.installedAt, updatedAt: state.updatedAt, manifestSha256: state.manifestSha256, image: state.image, values: { ports: state.values?.ports ?? {}, env: state.values?.env ?? {}, volumes: state.values?.volumes ?? {}, setup: Array.isArray(state.values?.setup) ? state.values.setup : [], ...(state.values?.exposure ? { exposure: state.values.exposure } : {}) }, pinnedRollback: state.pinnedRollback ?? false, uninstalledAt: state.uninstalledAt ?? null, secretsSaved } : null,
+      state: state ? { installedAt: state.installedAt, updatedAt: state.updatedAt, manifestSha256: state.manifestSha256, image: state.image, values: { ports: state.values?.ports ?? {}, env: state.values?.env ?? {}, volumes: state.values?.volumes ?? {}, setup: Array.isArray(state.values?.setup) ? state.values.setup : [], ...(state.values?.exposure ? { exposure: state.values.exposure } : {}), ...(state.values?.networkMode ? { networkMode: state.values.networkMode } : {}) }, pinnedRollback: state.pinnedRollback ?? false, uninstalledAt: state.uninstalledAt ?? null, secretsSaved } : null,
       container: status,
       // Only the ports that speak HTTP get an "Open" link. Listing every TCP port offered to open
       // Pi-hole's DNS on 53 and Forgejo's SSH on 2222 in a browser tab, and made the Overview's
@@ -1470,6 +1470,11 @@ export function createAppHelper({
     let project = null;
     let ports = null;
     if (verb === "start" || verb === "restart") {
+      // Docker resolves each bind source again at every start. A data folder checked when the app was
+      // deployed and swapped for a link since (through a share, an export, or another app that mounts
+      // its parent) was mounted wherever the link pointed, on a low-risk restart. Checked again here,
+      // and the app is left as it is when a folder is no longer where it says.
+      try { await checkedDataFolders(manifest, state.values ?? {}); } catch (error) { throw new Error(`${manifest.name} was not ${verb === "start" ? "started" : "restarted"}: ${error.message}`); }
       const before = await containerStatus(id);
       project = (await readProjectFiles(id)).compose;
       const refused = `${manifest.name} was not ${verb === "start" ? "started" : "restarted"}.`;

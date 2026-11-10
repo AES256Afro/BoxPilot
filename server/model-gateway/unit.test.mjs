@@ -31,7 +31,7 @@ describe("the model gateway's unit", () => {
     for (const [name, value] of [["NoNewPrivileges", "true"], ["ProtectSystem", "strict"], ["ProtectHome", "true"], ["PrivateDevices", "true"], ["PrivateTmp", "true"], ["CapabilityBoundingSet", ""], ["AmbientCapabilities", ""], ["RestrictSUIDSGID", "true"], ["ProtectProc", "invisible"], ["UMask", "0077"]]) {
       expect(directives(name), name).toEqual([value]);
     }
-    expect(directives("InaccessiblePaths")[0].split(" ")).toEqual(["-/var/lib/boxpilot", "-/var/lib/boxpilot-managed", "-/etc/boxpilot/secrets"]);
+    expect(directives("InaccessiblePaths")[0].split(" ")).toEqual(["-/var/lib/boxpilot", "-/var/lib/boxpilot-managed", "-/etc/boxpilot/secrets", "-/run/boxpilot"]);
     expect(unit).not.toMatch(/^ReadWritePaths=/m);
   });
 

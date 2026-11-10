@@ -592,7 +592,7 @@ Use libvirt's default NAT network for the first VMs. Do not convert the physical
 
 ### Hand off virtualization to BoxPilot
 
-After the final server acceptance test passes, follow [BoxPilot QEMU/KVM setup and operation](docs/VIRTUALIZATION.md) to install the native service. Run `sudo -u boxpilot npm run doctor`, open **Virtual Machines**, and confirm every host preflight item before enabling lifecycle controls. BoxPilot can create a reviewed VM plan, but `0.3.0` intentionally cannot apply that plan or create a guest.
+After the final server acceptance test passes, follow [BoxPilot QEMU/KVM setup and operation](docs/VIRTUALIZATION.md) to install the native service. Run `sudo -u boxpilot npm run doctor`, open **Virtual Machines**, and confirm every host preflight item before enabling lifecycle controls.
 
 ### Optional: Create the first VM in Cockpit
 

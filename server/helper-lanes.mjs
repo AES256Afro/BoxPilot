@@ -100,6 +100,10 @@ export function laneFor(operation, parameters = {}) {
     // VM creation and media import write to shared pools and libvirt config: those stay on the host lane.
     if (vm && !["vm.create", "vm.cloud.create", "vm.media.import", "vm.foundation.initialize"].includes(id)) lanes.push(`vm:${vm}`);
   }
+  // "Update every app that has one" names no app, so it had no app's lane: the nightly run pulled
+  // and recreated Jellyfin while apt restarted Docker, a drive check unmounted its drive, or someone
+  // pressed Stop on it. It works through every app, so it holds the lane that stands for all of them.
+  if (id === "app.update.available") lanes.push(dockerLane);
   if (homepageOperations.has(id)) lanes.push(homepageLane);
   if (backupTreeOperations.has(id)) lanes.push(backupTreeLane);
   if (hostBackupOperations.has(id)) lanes.push(hostLane);

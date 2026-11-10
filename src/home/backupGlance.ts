@@ -40,7 +40,7 @@ export function backupGlance(
   const databaseAge = database?.lastBackupAt ? Math.floor((clock - Date.parse(database.lastBackupAt)) / 86_400_000) : null;
   return {
     apps: {
-      value: verdicts ? `${recent} of ${verdicts.length}` : "—",
+      value: verdicts ? (verdicts.length ? `${recent} of ${verdicts.length}` : "None yet") : "—",
       caption: !verdicts ? notRead(states.protection) : never ? `${never} never backed up` : stale ? `${stale} not backed up lately` : verdicts.length ? "Each has a recent backup" : "No app holds data to back up",
       status: !verdicts ? "unknown" : never || stale ? "warning" : "good",
       ...(verdicts && verdicts.length ? { bar: { value: recent, max: verdicts.length } } : {}),

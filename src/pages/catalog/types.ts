@@ -18,7 +18,9 @@ export interface Manifest {
   networkModes?: string[];
   networkVia?: string | null;
   usesVpnProfile?: boolean;
-  sidecars?: Array<{ id: string }>;
+  sidecars?: Array<{ id: string; volumes?: Array<{ path: string | null; backup: boolean }> }>;
+  /** What the app takes from the server, in whole MB, when its manifest states it; either figure may be unstated. */
+  needs?: { memoryMb: number | null; diskMb: number | null } | null;
   modelRunner?: { kind: string; service: string } | null;
   /** Who can reach it when installed without choosing: "tailnet" publishes it with Tailscale Serve only (M38). */
   defaultExposure?: "lan" | "tailnet";
@@ -75,6 +77,10 @@ export interface CatalogContext {
   killswitch: Record<string, KillswitchSchedule>;
   /** The weekly restore rehearsal per app, when there is one. */
   rehearsal: Record<string, { id: string; cadence: string }>;
+  /** The nightly backup per app, when one is scheduled. */
+  nightly?: Record<string, { id: string; cadence: string }>;
+  /** The app whose install just finished with "Back it up every night" ticked: its sheet offers the schedule. */
+  nightlyOffer?: string | null;
   /** A schedule change is out: its buttons wait for it. */
   scheduling: boolean;
   /** What the last schedule change was refused with. */
@@ -84,6 +90,10 @@ export interface CatalogContext {
     stopRehearsal: (scheduleId: string) => Promise<void>;
     killswitch: (appId: string) => Promise<void>;
     stopKillswitch: (scheduleId: string) => Promise<void>;
+    /** Creates the nightly backup the Backups page's "Schedule it" creates, for one app. */
+    backupNightly?: (appId: string) => Promise<void>;
+    /** Takes the offer away without scheduling anything. */
+    declineNightly?: () => void;
   };
   /**
    * Closes the sheet, then stages the operation through the approval dialog. `keep` is the edited

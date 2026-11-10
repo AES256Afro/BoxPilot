@@ -1,8 +1,10 @@
 /*
  * The approval dialog (src/shell/ApproveDialog.tsx, M33.13), in the console's look wherever it
  * opens (look.css). The tier leads: a band in the tier's colour, with its name in words and what
- * approving asks, under the operation's name. Then what it will do, what approving needs, the run
- * as it happens and how it ended. Tokens only; every selector starts with .approve-.
+ * approving asks, under the operation's name. Then what it will do, when it was asked and when the
+ * approval lapses, what approving needs, the run as it happens and how it ended. On a phone it is a
+ * sheet that fills the screen, its actions at the bottom edge (the last block here). Tokens only;
+ * every selector starts with .approve-.
  */
 
 .approve-backdrop {
@@ -97,24 +99,77 @@
 .approve-note { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.45; }
 .approve-form .ui-field__hint code { color: var(--text-strong); font-size: 12.5px; font-weight: 600; }
 
+/* When it was asked and when the approval lapses: one line of facts in mono, under what it will do. */
+.approve-when { display: flex; flex-wrap: wrap; gap: 2px 0; min-width: 0; margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
+.approve-when__item + .approve-when__item::before { margin: 0 8px; content: "·"; }
+.approve-when time { color: var(--text); }
+.approve-when__item[data-lapsed] time { color: var(--status-danger-text); }
+
+/* "You can put the phone down" is said where it is a phone; the rest of the sentence everywhere. */
+.approve-away__phone { display: none; }
+
+/* How it ended: one plain line with the status's mark and edge, then how long it ran once approved. */
+.approve-result { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 2px 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-muted); box-shadow: inset 4px 0 0 var(--mark); }
+.approve-result__mark { margin-top: 7px; }
+.approve-result__line { grid-column: 2; margin: 0; color: var(--text); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.approve-result__line strong { color: var(--text-strong); font-size: 15px; font-weight: 650; }
+.approve-result__took { grid-column: 2; margin: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
+.approve-result__took b { color: var(--text-strong); font-weight: 600; }
+
 .approve-foot { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--surface); }
 .approve-foot .ui-button { min-height: 32px; padding: 0 14px; border-radius: 3px; font-size: 13.5px; }
 /* The button that approves a high-risk job carries the tier's edge as well as the band above. */
 .approve-go[data-tier="high"] { box-shadow: inset 3px 0 0 var(--risk-high); }
 
-@media (max-width: 640px) {
-  .approve-backdrop { align-items: flex-end; padding: 0; }
-  .approve-dialog { width: 100%; max-height: 94vh; border-width: 1px 0 0; border-radius: 8px 8px 0 0; }
-  .approve-title { font-size: 18px; }
-  .approve-foot .ui-button { flex: 1 1 auto; }
-  /* On a phone it rises from the bottom edge (M25): the buttons stay above the home indicator. */
-  .approve-foot { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
-}
-
 /* A finger, not a pointer (M25): Close, Cancel and Approve at least 44 px to tap, and the password
-   and typed confirmation fields as tall. */
+   and typed confirmation fields as tall. [data-phase] is always there: it puts these above a look's
+   own rule for the dialog's buttons, which would otherwise shrink them again. */
 @media (pointer: coarse) {
   .approve-close { width: 44px; height: 44px; }
-  .approve-foot .ui-button { min-height: 44px; }
+  .approve-dialog[data-phase] .approve-foot .approve-act.ui-button { min-height: 44px; }
   .approve-form .ui-input { min-height: 44px; }
+  .approve-form .ui-secret__toggle { min-height: 44px; }
+}
+
+/*
+ * A phone held in one hand (the shell's 760 px, and a phone on its side): the dialog is a sheet that
+ * fills the screen. The operation and its tier stay at the top, the body scrolls between, and the
+ * actions stay at the bottom edge above the home indicator: the one that approves across the whole
+ * width and 52 px tall, the way out under it. The dialog sizes the sheet to what an on-screen
+ * keyboard leaves visible (--approve-visible-*, set by ApproveDialog.tsx), so the actions sit on
+ * top of the keys instead of under them.
+ */
+@media (max-width: 760px), (pointer: coarse) and (max-height: 520px) {
+  .approve-backdrop { top: var(--approve-visible-top, 0px); bottom: auto; height: var(--approve-visible-height, 100%); align-items: stretch; padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
+  .approve-dialog { width: 100%; max-height: none; }
+  /* Heavier than a look's own rule for the dialog (three classes): the sheet is the screen, with no frame. */
+  .approve-backdrop .approve-dialog.approve-dialog[data-phase] { border-width: 0; border-radius: 0; box-shadow: none; }
+  .approve-head { padding-top: calc(14px + env(safe-area-inset-top, 0px)); }
+  .approve-title { font-size: 18px; }
+  .approve-dialog.approve-dialog[data-phase] .approve-close { width: 44px; height: 44px; }
+  .approve-body { overscroll-behavior: contain; }
+  .approve-away__phone { display: inline; }
+
+  /* Drawn approve-first; the keyboard still reaches Cancel first, as it does on a desktop. */
+  .approve-foot { flex-direction: column-reverse; flex-wrap: nowrap; align-items: stretch; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--shell-bottom-inset, 0px)); }
+  .approve-dialog[data-phase] .approve-foot .approve-act.ui-button { min-height: 44px; padding: 8px 16px; font-size: var(--font-size-md); line-height: 1.25; white-space: normal; }
+  .approve-dialog[data-phase] .approve-foot .approve-act--primary.ui-button { min-height: 52px; font-size: var(--font-size-lg); }
+
+  /* Everything else a thumb presses, 44 px: the fields (16 px type, or iOS zooms the page into
+     them), Show, the folded parameters, the output's toggle and Copy, the job log's buttons. */
+  .approve-dialog.approve-dialog[data-phase] .approve-form .ui-input { min-height: 44px; font-size: var(--font-size-lg); }
+  .approve-dialog.approve-dialog[data-phase] .approve-form .ui-secret__toggle { min-width: 64px; min-height: 44px; }
+  .approve-more summary { padding: 14px 0; }
+  .approve-more[open] summary { margin-bottom: 0; }
+  .approve-dialog.approve-dialog[data-phase] .approve-body .ui-button { min-height: 44px; }
+  .approve-dialog.approve-dialog[data-phase] .approve-body .ui-job__toggle { min-height: 44px; }
+  .approve-dialog.approve-dialog[data-phase] .approve-body .ui-code__copy { min-width: 44px; min-height: 44px; }
+
+  /* Little height left (a keyboard is up, or the phone is on its side): the whole sheet scrolls,
+     so the field being typed in has the room, and the actions stay in one row at the bottom.
+     scroll-padding keeps a focused field clear of them. */
+  .approve-dialog[data-compact] { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+  .approve-dialog[data-compact] .approve-body { flex: none; overflow: visible; }
+  .approve-dialog[data-compact][data-phase] .approve-foot { position: sticky; bottom: 0; flex-direction: row; margin-top: auto; background: inherit; }
+  .approve-dialog[data-compact] .approve-foot .approve-act--primary.ui-button { flex: 1 1 auto; }
 }

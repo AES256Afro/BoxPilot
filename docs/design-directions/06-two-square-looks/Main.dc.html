@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Backups: what you'd get back (Workbook look)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=IBM+Plex+Sans+Condensed:wght@500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#1a56db}a:hover{color:#1f1f1f}
+table.wb{border-collapse:collapse;width:100%;min-width:1040px;font:400 13.5px/1.35 "PT Sans",Arial,sans-serif}
+table.wb td,table.wb th{border:1px solid #d4d4d4;padding:7px 10px;text-align:left;vertical-align:middle;font-weight:400}
+table.wb .n{width:34px;padding:7px 0;text-align:center;background:#f1f1f1;color:#5c5c5c;font:500 11px "JetBrains Mono",monospace}
+table.wb .m{font-family:"JetBrains Mono",monospace;font-size:12.5px}
+</style>
+</helmet>
+<div style="min-height: 1000px; box-sizing: border-box; background: #ffffff; color: #1f1f1f; font-family: 'PT Sans', Arial, sans-serif; font-size: 14px; line-height: 1.4; display: flex; flex-direction: column">
+
+  <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 16px; background: #1f1f1f; color: #ffffff; font-family: 'JetBrains Mono', monospace; font-size: 12.5px">
+    <span style="font-weight: 700">homebox.boxpilot</span>
+    <span style="color: #c9c9c9">Backups</span>
+    <span style="flex-grow: 1"></span>
+    <span style="color: #c9c9c9">Tue 10 Nov 19:52 · saved</span>
+  </div>
+
+  <div style="display: flex; align-items: stretch; flex-wrap: wrap; border-bottom: 1px solid #b5b5b5; background: #f1f1f1; font-family: 'JetBrains Mono', monospace; font-size: 12.5px">
+    <span style="padding: 7px 14px; border-right: 1px solid #b5b5b5; background: #ffffff; font-weight: 700; min-width: 34px; text-align: center">F4</span>
+    <span style="padding: 7px 12px; border-right: 1px solid #b5b5b5; color: #5c5c5c; font-style: italic">fx</span>
+    <span style="flex: 1 1 320px; padding: 7px 12px; background: #ffffff; overflow-wrap: anywhere">=IF(on_this_server="none", "Comes back installed and empty", IF(off_this_server="none", <b>"Gone: its only copy is on that disk"</b>, "Back to " &amp; newest_copy))</span>
+  </div>
+
+  <div style="padding: 20px clamp(12px, 2.4vw, 28px) 28px; display: flex; flex-direction: column; gap: 16px; flex-grow: 1; background-image: linear-gradient(#ececec 1px, transparent 1px), linear-gradient(90deg, #ececec 1px, transparent 1px); background-size: 112px 28px">
+
+    <header style="display: flex; align-items: flex-end; gap: 10px 20px; flex-wrap: wrap; background: #ffffff; padding-bottom: 2px">
+      <h1 style="margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.01em; line-height: 1">Backups</h1>
+      <span style="padding: 5px 10px; background: #fde0dd; color: #8c1d18; border: 1px solid #8c1d18; font-size: 13.5px; font-weight: 700">If the disk died tonight, 3 apps come back empty</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #5c5c5c; background: #ffffff">7 apps · <b style="color: #1f1f1f">1</b> fully recoverable · <b style="color: #1f1f1f">3</b> partly · <b style="color: #1f1f1f">3</b> not at all</span>
+    </header>
+
+    <div style="overflow-x: auto; border: 1px solid #8f8f8f; background: #ffffff">
+      <table class="wb">
+        <thead>
+          <tr style="background: #f1f1f1; color: #5c5c5c; font: 500 11px 'JetBrains Mono', monospace">
+            <th class="n"></th>
+            <th scope="col" style="text-align: center; padding: 3px">A</th><th scope="col" style="text-align: center; padding: 3px">B</th><th scope="col" style="text-align: center; padding: 3px">C</th><th scope="col" style="text-align: center; padding: 3px">D</th><th scope="col" style="text-align: center; padding: 3px">E</th><th scope="col" style="text-align: center; padding: 3px; background: #dbe6fb; color: #1a56db; font-weight: 700">F</th><th scope="col" style="text-align: center; padding: 3px">G</th>
+          </tr>
+          <tr style="background: #fafafa; font: 600 12px 'IBM Plex Sans Condensed', 'Arial Narrow', sans-serif; letter-spacing: 0.06em; text-transform: uppercase">
+            <td class="n">1</td>
+            <th scope="col" style="font-weight: 600; border-bottom: 2px solid #1f1f1f">App</th>
+            <th scope="col" style="font-weight: 600; border-bottom: 2px solid #1f1f1f">Depth</th>
+            <th scope="col" style="font-weight: 600; border-bottom: 2px solid #1f1f1f">On this server</th>
+            <th scope="col" style="font-weight: 600; border-bottom: 2px solid #1f1f1f">Off this server</th>
+            <th scope="col" style="font-weight: 600; border-bottom: 2px solid #1f1f1f">Restore proven</th>
+            <th scope="col" style="font-weight: 600; border-bottom: 2px solid #1f1f1f">If the disk died tonight</th>
+            <th scope="col" style="font-weight: 600; border-bottom: 2px solid #1f1f1f">Next step</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="n">2</td>
+            <th scope="row" style="font-weight: 700; font-size: 14.5px">Nextcloud</th>
+            <td><span role="img" aria-label="0 of 3" style="display: inline-flex; border: 1px solid #5c5c5c"><i style="width: 16px; height: 10px; border-right: 1px solid #5c5c5c"></i><i style="width: 16px; height: 10px; border-right: 1px solid #5c5c5c"></i><i style="width: 16px; height: 10px"></i></span> <span class="m">0/3</span></td>
+            <td class="m" style="background: #fde0dd; color: #8c1d18">never</td>
+            <td class="m" style="color: #5c5c5c">none</td>
+            <td class="m" style="color: #5c5c5c">none</td>
+            <td style="background: #fde0dd; color: #8c1d18; font-weight: 700">Comes back installed and empty</td>
+            <td style="padding: 4px 8px"><button type="button" style="min-height: 30px; padding: 0 11px; border: 1px solid #1f1f1f; border-left: 5px solid #d99a00; background: #1f1f1f; color: #ffffff; font: 700 13px 'PT Sans', sans-serif; white-space: nowrap">Back up now</button></td>
+          </tr>
+          <tr>
+            <td class="n">3</td>
+            <th scope="row" style="font-weight: 700; font-size: 14.5px">Vaultwarden</th>
+            <td><span role="img" aria-label="0 of 3" style="display: inline-flex; border: 1px solid #5c5c5c"><i style="width: 16px; height: 10px; border-right: 1px solid #5c5c5c"></i><i style="width: 16px; height: 10px; border-right: 1px solid #5c5c5c"></i><i style="width: 16px; height: 10px"></i></span> <span class="m">0/3</span></td>
+            <td class="m" style="background: #fde0dd; color: #8c1d18">never</td>
+            <td class="m" style="color: #5c5c5c">none</td>
+            <td class="m" style="color: #5c5c5c">none</td>
+            <td style="background: #fde0dd; color: #8c1d18; font-weight: 700">Every saved password is gone</td>
+            <td style="padding: 4px 8px"><button type="button" style="min-height: 30px; padding: 0 11px; border: 1px solid #1f1f1f; border-left: 5px solid #d99a00; background: #1f1f1f; color: #ffffff; font: 700 13px 'PT Sans', sans-serif; white-space: nowrap">Back up now</button></td>
+          </tr>
+          <tr>
+            <td class="n" style="background: #dbe6fb; color: #1a56db; font-weight: 700">4</td>
+            <th scope="row" style="font-weight: 700; font-size: 14.5px">Open WebUI + Ollama</th>
+            <td><span role="img" aria-label="1 of 3" style="display: inline-flex; border: 1px solid #1f1f1f"><i style="width: 16px; height: 10px; background: #1f1f1f"></i><i style="width: 16px; height: 10px; border-left: 1px solid #5c5c5c; border-right: 1px solid #5c5c5c"></i><i style="width: 16px; height: 10px"></i></span> <span class="m">1/3</span></td>
+            <td class="m">today 02:04</td>
+            <td class="m" style="background: #fde0dd; color: #8c1d18">none</td>
+            <td class="m" style="color: #5c5c5c">none</td>
+            <td style="background: #fde0dd; color: #8c1d18; font-weight: 700; outline: 2px solid #1a56db; outline-offset: -1px; position: relative">Gone: its only copy is on that disk<i aria-hidden="true" style="position: absolute; right: -4px; bottom: -4px; width: 7px; height: 7px; background: #1a56db; border: 1px solid #ffffff"></i></td>
+            <td style="padding: 4px 8px"><button type="button" style="min-height: 30px; padding: 0 11px; border: 1px solid #1f1f1f; border-left: 5px solid #d99a00; background: #1f1f1f; color: #ffffff; font: 700 13px 'PT Sans', sans-serif; white-space: nowrap">Copy it off</button></td>
+          </tr>
+          <tr>
+            <td class="n">5</td>
+            <th scope="row" style="font-weight: 700; font-size: 14.5px">Immich</th>
+            <td><span role="img" aria-label="2 of 3" style="display: inline-flex; border: 1px solid #1f1f1f"><i style="width: 16px; height: 10px; background: #1f1f1f; border-right: 1px solid #ffffff"></i><i style="width: 16px; height: 10px; background: #1f1f1f"></i><i style="width: 16px; height: 10px; border-left: 1px solid #5c5c5c"></i></span> <span class="m">2/3</span></td>
+            <td class="m" style="background: #fff3c4; color: #6b4e00">63 d ago</td>
+            <td class="m" style="background: #fff3c4; color: #6b4e00">63 d ago</td>
+            <td class="m" style="color: #5c5c5c">none</td>
+            <td style="background: #fff3c4; color: #6b4e00; font-weight: 700">Back to 8 September: 63 days of photos gone</td>
+            <td style="padding: 4px 8px"><button type="button" style="min-height: 30px; padding: 0 11px; border: 1px solid #1f1f1f; border-left: 5px solid #d99a00; background: #1f1f1f; color: #ffffff; font: 700 13px 'PT Sans', sans-serif; white-space: nowrap">Back up nightly</button></td>
+          </tr>
+          <tr>
+            <td class="n">6</td>
+            <th scope="row" style="font-weight: 700; font-size: 14.5px">Pi-hole</th>
+            <td><span role="img" aria-label="2 of 3" style="display: inline-flex; border: 1px solid #1f1f1f"><i style="width: 16px; height: 10px; background: #1f1f1f; border-right: 1px solid #ffffff"></i><i style="width: 16px; height: 10px; background: #1f1f1f"></i><i style="width: 16px; height: 10px; border-left: 1px solid #5c5c5c"></i></span> <span class="m">2/3</span></td>
+            <td class="m">yesterday</td>
+            <td class="m">yesterday</td>
+            <td class="m" style="background: #fff3c4; color: #6b4e00">never tried</td>
+            <td style="font-weight: 700">Back to yesterday, if the copy restores</td>
+            <td style="padding: 4px 8px"><button type="button" style="min-height: 30px; padding: 0 11px; border: 1px solid #1f1f1f; border-left: 5px solid #d99a00; background: #ffffff; color: #1f1f1f; font: 700 13px 'PT Sans', sans-serif; white-space: nowrap">Rehearse</button></td>
+          </tr>
+          <tr>
+            <td class="n">7</td>
+            <th scope="row" style="font-weight: 700; font-size: 14.5px">Homepage</th>
+            <td><span role="img" aria-label="2 of 3" style="display: inline-flex; border: 1px solid #1f1f1f"><i style="width: 16px; height: 10px; background: #1f1f1f; border-right: 1px solid #ffffff"></i><i style="width: 16px; height: 10px; background: #1f1f1f"></i><i style="width: 16px; height: 10px; border-left: 1px solid #5c5c5c"></i></span> <span class="m">2/3</span></td>
+            <td class="m">in the snapshot</td>
+            <td class="m">in the snapshot</td>
+            <td class="m" style="color: #5c5c5c">none</td>
+            <td style="font-weight: 700">Its settings come back; it keeps nothing else</td>
+            <td class="m" style="color: #5c5c5c">nothing to do</td>
+          </tr>
+          <tr>
+            <td class="n">8</td>
+            <th scope="row" style="font-weight: 700; font-size: 14.5px">Jellyfin</th>
+            <td><span role="img" aria-label="3 of 3" style="display: inline-flex; border: 1px solid #14532d"><i style="width: 16px; height: 10px; background: #14532d; border-right: 1px solid #ffffff"></i><i style="width: 16px; height: 10px; background: #14532d; border-right: 1px solid #ffffff"></i><i style="width: 16px; height: 10px; background: #14532d"></i></span> <span class="m">3/3</span></td>
+            <td class="m">today 02:06</td>
+            <td class="m">today 02:14</td>
+            <td class="m" style="background: #dff2e1; color: #14532d">passed 12 d ago</td>
+            <td style="background: #dff2e1; color: #14532d; font-weight: 700">Back to last night</td>
+            <td class="m" style="color: #5c5c5c">nothing to do</td>
+          </tr>
+          <tr style="background: #fafafa">
+            <td class="n">9</td>
+            <td colspan="6" style="color: #5c5c5c; font-size: 13px">Films and photos on the media drive are not in these copies. Jellyfin's library is 1.8 TB and has one home.</td>
+            <td style="padding: 4px 8px"><button type="button" style="min-height: 30px; padding: 0 11px; border: 1px solid #1f1f1f; border-left: 5px solid #d99a00; background: #1f1f1f; color: #ffffff; font: 700 13px 'PT Sans', sans-serif; white-space: nowrap">Fix rows 2 to 4</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: flex-start">
+      <section aria-label="Rehearse a restore" style="flex: 2 1 420px; min-width: 0; background: #fff8d6; border: 1px solid #8a6d00; box-shadow: 3px 3px 0 rgba(31, 31, 31, 0.18); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font: 600 12px 'IBM Plex Sans Condensed', 'Arial Narrow', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: #5a4700">Note on E6 · Rehearse a restore</h2>
+        <p style="margin: 0; font-size: 14.5px; font-weight: 700">A copy nobody has restored is a hope. A rehearsal proves one without touching the app that is running.</p>
+        <ol style="margin: 0; padding-left: 22px; font-size: 13.5px; display: flex; flex-direction: column; gap: 3px">
+          <li>Unpacks last night's copy into a scratch folder</li>
+          <li>Starts it on a spare port, off the network</li>
+          <li>Asks it the same health question the real one answers</li>
+          <li>Throws the scratch copy away and writes the result in column E</li>
+        </ol>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #5a4700">about 4 min · needs 310 MB free · medium</span>
+      </section>
+
+      <section aria-label="The server itself" style="flex: 1 1 300px; min-width: 0; background: #ffffff; border: 1px solid #8f8f8f">
+        <table class="wb" style="min-width: 0">
+          <thead><tr style="background: #fafafa"><th scope="col" colspan="2" style="font: 600 12px 'IBM Plex Sans Condensed', 'Arial Narrow', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 2px solid #1f1f1f">The server itself</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Machine snapshot</th><td class="m" style="text-align: right">today 02:20</td></tr>
+            <tr><th scope="row">Off this server</th><td class="m" style="text-align: right">today 02:31</td></tr>
+            <tr><th scope="row">BoxPilot's database</th><td class="m" style="text-align: right; background: #dff2e1; color: #14532d">drilled, passed</td></tr>
+            <tr><th scope="row">Redeploy on a new disk</th><td class="m" style="text-align: right; background: #fff3c4; color: #6b4e00">never tried</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+
+  <nav aria-label="Areas" style="display: flex; align-items: stretch; overflow-x: auto; border-top: 1px solid #8f8f8f; background: #e9e9e9; font-size: 13px; white-space: nowrap">
+    <a href="#" style="padding: 8px 14px; border-right: 1px solid #b5b5b5; color: #1f1f1f; text-decoration: none">Home</a>
+    <a href="#" style="padding: 8px 14px; border-right: 1px solid #b5b5b5; color: #1f1f1f; text-decoration: none">Today</a>
+    <a href="#" style="padding: 8px 14px; border-right: 1px solid #b5b5b5; color: #1f1f1f; text-decoration: none">Apps</a>
+    <a href="#" style="padding: 8px 14px; border-right: 1px solid #b5b5b5; color: #1f1f1f; text-decoration: none">Storage</a>
+    <a href="#" aria-current="page" style="padding: 8px 14px; border-right: 1px solid #b5b5b5; background: #ffffff; color: #1f1f1f; font-weight: 700; text-decoration: none; box-shadow: inset 0 3px 0 #1a56db">Backups</a>
+    <a href="#" style="padding: 8px 14px; border-right: 1px solid #b5b5b5; color: #1f1f1f; text-decoration: none">Updates <b style="color: #8c1d18">4</b></a>
+    <a href="#" style="padding: 8px 14px; border-right: 1px solid #b5b5b5; color: #1f1f1f; text-decoration: none">Repair <b style="color: #8c1d18">2</b></a>
+    <a href="#" style="padding: 8px 14px; border-right: 1px solid #b5b5b5; color: #1f1f1f; text-decoration: none">Automations</a>
+    <a href="#" style="padding: 8px 14px; color: #1f1f1f; text-decoration: none">12 more</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

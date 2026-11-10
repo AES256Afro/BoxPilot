@@ -58,7 +58,7 @@
 .system-ups .system-form > .ui-button { margin-top: 0; }
 .system-ups__form.system-form { align-items: flex-start; }
 .system-ups__form > .ui-field { flex: 1 1 11rem; max-width: 16rem; }
-.system-ups__form > .ui-checkbox, .system-ups__form > .ui-switch { flex-basis: 100%; }
+.system-ups__form > .ui-check, .system-ups__form > .ui-switch { flex-basis: 100%; }
 .system-ups__form > .ui-button { margin-top: 23px; }
 .system-sentence { margin: 0; font-family: var(--font-sans); font-size: 13.5px; line-height: 1.45; color: var(--text); }
 .system-event { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; white-space: normal; }

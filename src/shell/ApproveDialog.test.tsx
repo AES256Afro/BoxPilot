@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApproveDialog, useOperation, type PendingOperation } from "./ApproveDialog";
+import approveCss from "./approve.css?raw";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -499,3 +500,268 @@ describe("an operation with a next step", () => {
   });
 });
 
+// The dialog on a phone held in one hand, and a clearer ending. What is asserted here is what the
+// markup says; how it is drawn at 375 px is approve.css's, checked by its rules below and in a browser.
+describe("the approval dialog on a phone, and how it ends", () => {
+  // Local times, so "21:16" is 21:16 in whatever zone the tests run in; the clock is passed in.
+  const at = (hour: number, minute: number, second = 0, day = 10) => new Date(2026, 10, day, hour, minute, second).toISOString();
+  const clock = (hour: number, minute: number) => () => new Date(2026, 10, 10, hour, minute).getTime();
+  const asked = { ...stagedJob, type: "op:app.restart", title: "Restart Immich", risk: "medium", parameters: { id: "immich" }, createdAt: at(21, 16), updatedAt: at(21, 16) };
+
+  /** The dialog's endpoints for one job: how it is staged, what approving needs, and how it ends. */
+  function stubPhone({ job = asked as Record<string, unknown>, approval = {} as Record<string, unknown>, ended = { state: "completed" } as Record<string, unknown> } = {}) {
+    const calls: Array<{ url: string; method: string }> = [];
+    const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+    const policy = { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk", confirmText: null, expiresAt: null, expired: false, ...approval };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString(); const method = init?.method ?? "GET";
+      calls.push({ url, method });
+      if (method === "POST" && url.endsWith("/jobs")) return json({ job, approval: policy }, 201);
+      if (url.endsWith("/approval")) return json({ jobId: "job-1", ...policy });
+      if (url.endsWith("/approve")) return json({ job: { ...job, state: "applying" }, elevatedUntil: null }, 202);
+      if (url.endsWith("/output")) return json({ output: "" });
+      // Read before it is approved (a job someone else staged), it still waits.
+      return json({ job: calls.some((call) => call.url.endsWith("/approve")) ? { ...job, ...ended } : job });
+    }));
+    return calls;
+  }
+  const open = (props: Partial<Parameters<typeof ApproveDialog>[0]> = {}) => render(<ApproveDialog operationId="app.restart" title="Restart Immich" parameters={{ id: "immich" }} csrfToken="csrf" onClose={() => {}} now={clock(21, 17)} {...props} />);
+
+  it("says when it was asked, and when the approval lapses only where the job says it does", async () => {
+    stubPhone();
+    const first = open();
+    await screen.findByRole("button", { name: "Confirm and run" });
+    const when = screen.getByText("Asked", { exact: false, selector: ".approve-when__item" });
+    expect(when.textContent).toBe("Asked 21:16");
+    expect(when.querySelector("time")?.getAttribute("datetime")).toBe(asked.createdAt);
+    // No approvalExpiresAt on the job, so nothing is said about lapsing: not a guess at seven days.
+    expect(screen.queryByText(/Laps/)).toBeNull();
+    // Under what it will do and above what approving needs, in the part that scrolls.
+    const body = screen.getByRole("dialog").querySelector(".approve-body")!;
+    expect([...body.children].map((child) => child.className.split(" ").at(-1))).toEqual(["approve-section", "approve-when", "approve-form"]);
+    first.unmount();
+
+    stubPhone({ approval: { expiresAt: at(21, 30) } });
+    open();
+    await screen.findByRole("button", { name: "Confirm and run" });
+    const lapses = screen.getByText("Lapses", { exact: false, selector: ".approve-when__item" });
+    expect(lapses.textContent).toBe("Lapses 21:30");
+    expect(lapses.querySelector("time")?.getAttribute("datetime")).toBe(at(21, 30));
+    expect(screen.getByText("Credentials are held temporarily. Approve before 21:30, or stage the operation again.")).toBeTruthy();
+  });
+
+  it("says it lapsed once that time has passed, and gives the day when it was not asked today", async () => {
+    stubPhone({ job: { ...asked, createdAt: at(21, 16, 0, 7) }, approval: { expiresAt: at(21, 30) } });
+    open({ now: clock(21, 31) });
+    expect(await screen.findByText(/This approval expired/)).toBeTruthy();
+    expect(screen.getByText("Lapsed", { exact: false, selector: ".approve-when__item" }).textContent).toBe("Lapsed 21:30");
+    // Three days ago: the time alone would read as this evening.
+    expect(screen.getByText("Asked", { exact: false, selector: ".approve-when__item" }).textContent).toMatch(/^Asked \S.*7.* 21:16$/);
+  });
+
+  it("names the agent that asks, from the page or from the job's own record", async () => {
+    stubPhone();
+    const plain = open();
+    await screen.findByRole("button", { name: "Confirm and run" });
+    expect(screen.getByRole("dialog").querySelector(".approve-kicker")?.textContent).toBe("Approval");
+    plain.unmount();
+
+    // Opened from a push or from Activity: no page to say who staged it, but the job does.
+    stubPhone({ job: { ...asked, recovery: { reason: "Stops the app's containers and starts them again.", agent: { agentId: "keeper", agentName: "Server Keeper", runId: "run-1" } } } });
+    open({ existingJobId: "job-1", parameters: {} });
+    await screen.findByRole("button", { name: "Confirm and run" });
+    expect(screen.getByRole("dialog").querySelector(".approve-kicker")?.textContent).toBe("Server Keeper asks");
+    expect(screen.getByText("What it was staged with")).toBeTruthy();
+    expect(screen.getByText("Asked", { exact: false, selector: ".approve-when__item" }).textContent).toBe("Asked 21:16");
+  });
+
+  it("says the phone can be put down only while the job runs", async () => {
+    stubPhone({ ended: { state: "applying" } });
+    const running = open();
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    expect(screen.queryByText(/It finishes either way/)).toBeNull();
+    fireEvent.click(run);
+    await screen.findByRole("progressbar", { name: /Restart Immich/ });
+    const away = screen.getByText(/It finishes either way, and Activity will say how it went\./);
+    expect(away.textContent).toBe("You can put the phone down. It finishes either way, and Activity will say how it went.");
+    // "The phone" is its own span, which the stylesheet shows only on a phone.
+    expect(away.querySelector(".approve-away__phone")?.textContent).toBe("You can put the phone down. ");
+    expect(screen.getByRole("dialog").querySelector(".approve-kicker")?.textContent).toBe("Running");
+    running.unmount();
+
+    stubPhone();
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await screen.findByText("Completed.");
+    expect(screen.queryByText(/It finishes either way/)).toBeNull();
+  });
+
+  it("ends with a plain result line, then how long it took counted from the approval", async () => {
+    // Staged at 15:16 by an agent, approved at 21:16:10, finished 38 seconds later: 38s, not six hours.
+    const ended = { state: "completed", createdAt: at(15, 16), updatedAt: at(21, 16, 48), approvals: [{ ownerId: "owner", createdAt: at(21, 16, 10) }], steps: [{ name: "verify", state: "completed", detail: "Immich answers its health check.", createdAt: at(21, 16, 48) }] };
+    stubPhone({ job: { ...asked, createdAt: at(15, 16) }, ended });
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    const line = (await screen.findByText("Completed.")).closest(".approve-result")!;
+    expect(line.getAttribute("data-status")).toBe("good");
+    expect(line.querySelector(".approve-result__line")?.textContent).toBe("Completed. Immich answers its health check.");
+    expect(line.querySelector(".approve-result__took")?.textContent).toBe("Took 38s, from your approval");
+    // First in the ending, above the job log.
+    const section = line.closest(".approve-section")!;
+    expect([...section.children].map((child) => child.className.split(" ")[0])).toEqual(["approve-section__title", "approve-result", "jobs-log"]);
+  });
+
+  it("says nothing about how long it took without the approval's own time", async () => {
+    stubPhone({ ended: { state: "completed", updatedAt: at(21, 17), approvals: [] } });
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await screen.findByText("Completed.");
+    expect(screen.queryByText(/Took/)).toBeNull();
+  });
+
+  it("says what did not complete first, and leaves the reason to the job log, said once", async () => {
+    stubPhone({ ended: { state: "failed", error: "docker compose up failed: port is already allocated", updatedAt: at(21, 16, 15), approvals: [{ ownerId: "owner", createdAt: at(21, 16, 10) }] } });
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    const line = (await screen.findByText("Restart Immich did not complete.")).closest(".approve-result")!;
+    expect(line.getAttribute("data-status")).toBe("danger");
+    expect(line.querySelector(".approve-result__took")?.textContent).toBe("Took 5s, from your approval");
+    expect(screen.getAllByText("docker compose up failed: port is already allocated")).toHaveLength(1);
+    // The polite region says that it failed; the reason is the job log's alert, not said twice.
+    expect(within(screen.getByRole("dialog")).getByRole("status").textContent).toBe("Restart Immich did not complete. Took 5s, from your approval. The job log says why.");
+    expect(screen.getByRole("alert").textContent).toBe("docker compose up failed: port is already allocated");
+    expect(screen.queryByText("Completed.")).toBeNull();
+  });
+
+  it("announces each change of state from one live region", async () => {
+    stubPhone({ approval: { expiresAt: at(21, 30) }, ended: { state: "completed", updatedAt: at(21, 16, 48), approvals: [{ ownerId: "owner", createdAt: at(21, 16, 10) }] } });
+    open();
+    const dialog = screen.getByRole("dialog");
+    // There from the start and empty, so what it comes to say is a change and is read out.
+    const status = within(dialog).getByRole("status");
+    expect(status.textContent).toBe("");
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    expect(status.textContent).toBe("Waiting for your approval: medium risk.");
+    expect(within(dialog).getAllByRole("status")).toHaveLength(1);
+    fireEvent.click(run);
+    await waitFor(() => expect(status.textContent).toBe("Restart Immich finished. Took 38s, from your approval."));
+    expect(within(dialog).getAllByRole("status")).toHaveLength(1);
+    expect(dialog.getAttribute("aria-labelledby")).toBe(screen.getByRole("heading", { name: "Restart Immich" }).id);
+  });
+
+  it("says it is running in that same region", async () => {
+    stubPhone({ ended: { state: "applying" } });
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await screen.findByRole("progressbar", { name: /Restart Immich/ });
+    expect(within(screen.getByRole("dialog")).getByRole("status").textContent).toBe("Approved. It is running.");
+  });
+
+  it("keeps the actions out of the part that scrolls, and the fields before them for the keyboard", async () => {
+    stubPhone({ approval: { tier: "high", passwordRequired: true, confirmText: "immich" } });
+    open();
+    await screen.findByLabelText("Approval password");
+    const dialog = screen.getByRole("dialog");
+    // Head, tier, the live region, the scrolling body, then the footer: a sibling of the body, so
+    // it cannot lie over a field inside it.
+    expect([...dialog.children].map((child) => child.className.split(" ").at(-1))).toEqual(["approve-head", "approve-tier", "approve-status", "approve-body", "approve-foot"]);
+    const foot = dialog.querySelector(".approve-foot")!;
+    expect(dialog.querySelector(".approve-body")!.contains(screen.getByLabelText("Approval password"))).toBe(true);
+    expect(foot.contains(screen.getByLabelText("Typed confirmation"))).toBe(false);
+    // Both actions carry the class the phone rules size; only the one that approves is primary.
+    const approve = screen.getByRole("button", { name: "Approve and run" });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect([...foot.querySelectorAll(".approve-act")]).toEqual([cancel, approve]);
+    expect(approve.classList.contains("approve-act--primary")).toBe(true);
+    expect(cancel.classList.contains("approve-act--primary")).toBe(false);
+    // The order the keyboard meets them in: close, what is typed, then the actions.
+    const order = [...dialog.querySelectorAll<HTMLElement>("button, input, summary")].map((element) => element.getAttribute("aria-label") ?? (element instanceof HTMLInputElement ? element.labels?.[0]?.textContent : element.textContent));
+    expect(order).toEqual(["Close dialog", "Exactly what it is given (1)", "Typed confirmation", "Approval password", "Show", "Cancel", expect.stringContaining("Approve and run")]);
+  });
+
+  it("sends the approval from the keyboard, and keeps focus in the dialog once the fields are gone", async () => {
+    const calls = stubPhone({ approval: { tier: "high", passwordRequired: true, confirmText: null }, ended: { state: "applying" } });
+    open();
+    const password = await screen.findByLabelText("Approval password");
+    password.focus();
+    fireEvent.change(password, { target: { value: "correct horse battery" } });
+    // Enter in the field: the form's own submit, which is also the phone keyboard's Go.
+    fireEvent.submit(password.closest("form")!);
+    await screen.findByRole("progressbar", { name: /Restart Immich/ });
+    expect(calls.some((call) => call.url.endsWith("/approve"))).toBe(true);
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+  });
+
+  it("sizes the sheet to what an on-screen keyboard leaves, and says when that is short", async () => {
+    stubPhone();
+    const listeners = new Map<string, () => void>();
+    const viewport = { height: 760, offsetTop: 0, scale: 1, addEventListener: (type: string, listener: () => void) => { listeners.set(type, listener); }, removeEventListener: (type: string) => { listeners.delete(type); } };
+    vi.stubGlobal("visualViewport", viewport);
+    const { unmount } = open();
+    await screen.findByRole("button", { name: "Confirm and run" });
+    const dialog = screen.getByRole("dialog");
+    const backdrop = dialog.parentElement!;
+    expect(backdrop.style.getPropertyValue("--approve-visible-height")).toBe("760px");
+    expect(dialog.hasAttribute("data-compact")).toBe(false);
+    // The keyboard opens: 336 px of the screen are under it, and the browser scrolled the page 12 px.
+    Object.assign(viewport, { height: 424, offsetTop: 12 });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() => expect(dialog.hasAttribute("data-compact")).toBe(true));
+    expect(backdrop.style.getPropertyValue("--approve-visible-height")).toBe("424px");
+    expect(backdrop.style.getPropertyValue("--approve-visible-top")).toBe("12px");
+    // Pinched in, the visual viewport is the magnified page, not what a keyboard left: full height again.
+    Object.assign(viewport, { height: 300, offsetTop: 40, scale: 2 });
+    listeners.get("resize")?.();
+    await waitFor(() => expect(backdrop.style.getPropertyValue("--approve-visible-height")).toBe(""));
+    expect(listeners.has("resize") && listeners.has("scroll")).toBe(true);
+    unmount();
+    expect(listeners.size).toBe(0);
+  });
+
+  describe("its stylesheet", () => {
+    const css = approveCss.replace(/\/\*[\s\S]*?\*\//g, "");
+    /** The body of the first @media block whose query starts with this. */
+    const media = (query: string) => {
+      const start = css.indexOf(`@media ${query}`);
+      const open = css.indexOf("{", start);
+      let depth = 1; let close = open + 1;
+      for (; close < css.length && depth; close += 1) depth += css[close] === "{" ? 1 : css[close] === "}" ? -1 : 0;
+      return start < 0 ? "" : css.slice(open + 1, close - 1);
+    };
+    const rule = (block: string, selector: string) => block.split("}").find((part) => part.trim().startsWith(`${selector} {`))?.split("{")[1] ?? "";
+    const phone = media("(max-width: 760px)");
+
+    it("makes it a sheet at the shell's phone width: the whole screen, the actions above the home indicator", () => {
+      expect(css).not.toContain("640px");
+      expect(rule(phone, ".approve-backdrop")).toMatch(/height: var\(--approve-visible-height, 100%\)/);
+      expect(rule(phone, ".approve-backdrop")).toMatch(/padding: 0 env\(safe-area-inset-right, 0px\) 0 env\(safe-area-inset-left, 0px\)/);
+      expect(rule(phone, ".approve-dialog")).toMatch(/width: 100%; max-height: none;/);
+      expect(rule(phone, ".approve-head")).toContain("env(safe-area-inset-top, 0px)");
+      // Above the home indicator, and above what the shell keeps along the bottom edge (the demo's bar covered Cancel).
+      expect(rule(phone, ".approve-foot")).toMatch(/flex-direction: column-reverse;.*padding-bottom: calc\(10px \+ env\(safe-area-inset-bottom, 0px\) \+ var\(--shell-bottom-inset, 0px\)\)/);
+      // The body is the only part that scrolls, in the base rules; the footer never shrinks.
+      expect(rule(css, ".approve-body")).toMatch(/flex: 1 1 auto;.*min-height: 0;.*overflow-y: auto/);
+      expect(rule(css, ".approve-foot")).toMatch(/flex: none/);
+    });
+
+    it("gives a thumb 52 px to approve with and 44 px for everything else", () => {
+      expect(rule(phone, ".approve-dialog[data-phase] .approve-foot .approve-act--primary.ui-button")).toContain("min-height: 52px");
+      expect(rule(phone, ".approve-dialog[data-phase] .approve-foot .approve-act.ui-button")).toMatch(/min-height: 44px;.*white-space: normal/);
+      expect(rule(phone, ".approve-dialog.approve-dialog[data-phase] .approve-close")).toBe(" width: 44px; height: 44px; ");
+      // 16 px type in the fields: iOS zooms the page into anything smaller.
+      expect(rule(phone, ".approve-dialog.approve-dialog[data-phase] .approve-form .ui-input")).toBe(" min-height: 44px; font-size: var(--font-size-lg); ");
+      for (const selector of [".approve-form .ui-secret__toggle", ".approve-body .ui-button", ".approve-body .ui-job__toggle", ".approve-body .ui-code__copy"]) expect(rule(phone, `.approve-dialog.approve-dialog[data-phase] ${selector}`), selector).toContain("min-height: 44px");
+    });
+
+    it("lets the whole sheet scroll when little height is left, the actions still at the bottom", () => {
+      expect(rule(phone, ".approve-dialog[data-compact]")).toMatch(/overflow-y: auto;.*scroll-padding-bottom: calc\(84px \+ env\(safe-area-inset-bottom, 0px\)\)/);
+      expect(rule(phone, ".approve-dialog[data-compact][data-phase] .approve-foot")).toMatch(/position: sticky; bottom: 0; flex-direction: row;/);
+    });
+
+    it("says \"the phone\" only on a phone, and takes its new radii from the look", () => {
+      expect(rule(css, ".approve-away__phone")).toBe(" display: none; ");
+      expect(rule(phone, ".approve-away__phone")).toBe(" display: inline; ");
+      expect(rule(css, ".approve-result")).toContain("border-radius: var(--radius-control)");
+    });
+  });
+});

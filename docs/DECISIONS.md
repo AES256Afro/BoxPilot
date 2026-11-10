@@ -1231,11 +1231,11 @@ the root-side operations found medium operations that reach what a high one guar
 
 ## ADR-016: catalog images are pinned by digest, and rollback goes back to the digest that ran
 
-**Date:** 2026-10-18 · **Status:** Proposed (needs the owner's decision)
+**Date:** 2026-10-18 · **Status:** Accepted and shipped (as of 2026-11-10 every one of the catalog's 212 image references carries a digest, and `server/catalog/catalog.test.mjs` holds the next one to it)
 
 ### Context
 
-A catalog manifest names an image by tag (`vaultwarden/server:1.37.1-alpine`). 2 of 170 manifests
+A catalog manifest names an image by tag (`vaultwarden/server:1.37.1-alpine`). When this was written 2 of 170 manifests
 also pin a digest; the schema already accepts `repo:tag@sha256:…` and the App sheet shows "digest
 pinned". A tag is a pointer the publisher can move:
 

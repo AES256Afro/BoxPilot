@@ -35,7 +35,7 @@ describe("Users & SSH page", () => {
     render(<UsersPage csrfToken="csrf" />);
     expect(await screen.findByText("Password login on")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "Users & SSH" })).toBeTruthy();
-    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("3 accounts · 2 with sudo · 2 keys · port 22 · root login prohibit-password");
+    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("3 accounts · 2 with sudo · 2 keys · port 22 · root login with a key only");
     const table = screen.getByRole("table", { name: "Accounts that can sign in" });
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows.map((row) => row.querySelector("code")?.textContent)).toEqual(["root", "alex", "pat"]);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useOperation } from "./shell/ApproveDialog";
 import { inspectOperation } from "./operations";
-import { Button, Panel, riskOf, type Status } from "./ui";
+import { Button, Panel, mayStart, riskOf, type Status } from "./ui";
 
 interface Report {
   checkedAt: string;
@@ -15,7 +15,7 @@ const titles = { healthy: "Package state is healthy", "needs-repair": "Package c
 const tones: Record<Report["status"], Status> = { healthy: "good", "needs-repair": "warning", busy: "warning", unknown: "unknown" };
 
 /** Packages left half-installed by an interrupted update, checked and repaired from Repair's console. */
-export default function PackageRecovery({ csrfToken }: { csrfToken: string }) {
+export default function PackageRecovery({ csrfToken, role = "owner" }: { csrfToken: string; role?: string }) {
   const [report, setReport] = useState<Report | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export default function PackageRecovery({ csrfToken }: { csrfToken: string }) {
               {report.status === "unknown" && <p className="rp-row__text">{report.locks.available ? "Review the check details, then try again." : "Kernel lock ownership could not be read. Restore access to the host diagnostics, then check again."}</p>}
               {(report.audit?.detail || report.simulation?.detail) && <details className="rp-more"><summary>Package check details</summary>{report.audit?.detail && <pre className="rp-pre">{report.audit.detail}</pre>}{report.simulation?.detail && <pre className="rp-pre">{report.simulation.detail}</pre>}</details>}
             </div>
-            {report.repairAvailable && (
+            {report.repairAvailable && mayStart(role, "apt.repair") && (
               <div className="rp-row__act">
                 <Button variant="primary" risk={riskOf("apt.repair")} onClick={() => start({ operationId: "apt.repair", title: "Repair interrupted packages", parameters: {}, preview: <span>Finishes pending package configuration and installs missing dependencies. Package scripts may restart services. The repair stops if APT needs to remove packages, then checks the final package state. Existing package-manager locks remain in place.</span> })}>Review package repair</Button>
               </div>

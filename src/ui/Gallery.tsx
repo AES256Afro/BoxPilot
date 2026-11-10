@@ -136,7 +136,7 @@ function DensityShowcase({ density, title, summary }: { density: Density; title:
           title="Upgradable packages"
           status={{ status: "warning", label: "3 security updates" }}
           summary="A section puts its status first, then one sentence, then the rows."
-          actions={<><Button risk="low">Refresh lists</Button><Button variant="primary" risk="medium">Install all updates</Button></>}
+          actions={<><Button risk="low">Look for new updates</Button><Button variant="primary" risk="medium">Install all updates</Button></>}
         >
           <Card flush>
             <Table

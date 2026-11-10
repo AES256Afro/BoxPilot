@@ -9,7 +9,7 @@ import { listListeners } from "../ports.mjs";
 import { adviseFirewall, buildPlan, profiles, protectedRules, riskyPorts, services } from "../firewall-profiles.mjs";
 import { withOwnActors } from "./access.mjs";
 
-export function createFirewallRouter({ state, helper, catalogService, webPort, webHost, listeners = listListeners }) {
+export function createFirewallRouter({ state, helper, catalogService, webPort, webHost, tlsPort = null, listeners = listListeners }) {
   const router = Router();
   const lanExposed = webHost === "0.0.0.0" || webHost === "::";
 
@@ -37,9 +37,9 @@ export function createFirewallRouter({ state, helper, catalogService, webPort, w
     response.json({
       report, reportError,
       web: { port: webPort, lanExposed },
-      protected: protectedRules({ webPort, webHost }),
+      protected: protectedRules({ webPort, webHost, tlsPort }),
       profiles, services, riskyPorts, current,
-      advice: adviseFirewall({ report, listeners: listening, apps, current, fail2ban, webPort, webHost }),
+      advice: adviseFirewall({ report, listeners: listening, apps, current, fail2ban, webPort, webHost, tlsPort }),
     });
   });
 

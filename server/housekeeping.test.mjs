@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { onWindows } from "../test/platform.mjs";
-import { createHousekeepingService } from "./housekeeping.mjs";
+import { createHousekeepingService, humanBytes } from "./housekeeping.mjs";
 import { housekeepingRemoveTrees } from "./tasks/housekeeping.mjs";
 
 const directories = [];
@@ -97,6 +97,18 @@ async function fixture({ runUnitFails = false, treeScanLimits = {}, snapshotArch
   });
   return { service, root, installRoot, catalogRoot, applicationBackupRoot, jobLogDirectory, run };
 }
+
+describe("a size in words", () => {
+  // The unit is chosen after rounding, as the page's formatter does: a job's result and an agent's
+  // tool text said "1024.0 MiB" for a byte under a gibibyte.
+  it("never prints 1024 of the smaller unit", () => {
+    expect(humanBytes(1024 ** 3 - 1)).toBe("1.0 GiB");
+    expect(humanBytes(1024 ** 2 - 1)).toBe("1.0 MiB");
+    expect(humanBytes(1023.9 * 1024 ** 2)).toBe("1023.9 MiB");
+    expect(humanBytes(1536)).toBe("1.5 KiB");
+    expect(humanBytes(0)).toBe("0 B");
+  });
+});
 
 describe("finding what can be reclaimed", () => {
   it("retains useful categories when filesystem work exceeds its shared budget", async () => {

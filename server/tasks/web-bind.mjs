@@ -43,8 +43,10 @@ export async function webBindSet({ scope } = {}, { run = fixedRun, log = null, f
 
   // Open (or close) the web port for the network, so binding it is not undone by the firewall.
   // Idempotent: ufw allow twice is a no-op, and delete of an absent rule is harmless.
-  if (scope === "lan") await run(ufw, ["allow", `${port}/tcp`], { timeout: 30_000 }).catch(() => {});
-  else await run(ufw, ["--force", "delete", "allow", `${port}/tcp`], { timeout: 30_000 }).catch(() => {});
+  // Not fatal (ufw may not be installed), but said: run() never throws, so a refused rule used to
+  // pass in silence and the page said "listening on the LAN" with the port still closed.
+  const rule = scope === "lan" ? await run(ufw, ["allow", `${port}/tcp`], { timeout: 30_000 }) : await run(ufw, ["--force", "delete", "allow", `${port}/tcp`], { timeout: 30_000 });
+  if (!rule.ok) log?.(`ufw did not ${scope === "lan" ? "open" : "close"} ${port}/tcp: ${String(rule.stderr ?? "").trim().split("\n").at(-1) || "no reason given"}. Check the Firewall page.`, "stderr");
 
   // Restart a few seconds out so the response returns first; 0.0.0.0 keeps loopback, so even if the
   // restart hiccups the Serve/tailnet path is unaffected.

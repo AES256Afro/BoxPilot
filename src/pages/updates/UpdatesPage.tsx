@@ -234,9 +234,9 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
                   className="updates-toolbar"
                   filters={may("apt.upgrade") ? <Checkbox label={<>Select all<span className="ui-visually-hidden"> packages</span></>} checked={allSelected} indeterminate={someSelected} disabled={packages.length === 0} onChange={toggleAll} /> : undefined}
                   actions={<>
-                    {may("apt.refresh") && <Button risk={riskOf("apt.refresh")} disabled={loading} onClick={() => start({ operationId: "apt.refresh", title: "Refresh package lists", parameters: {}, preview: <span>Asks Ubuntu's mirrors what is new. Installs nothing.</span> })}>Refresh lists</Button>}
+                    {may("apt.refresh") && <Button risk={riskOf("apt.refresh")} disabled={loading} onClick={() => start({ operationId: "apt.refresh", title: "Look for new updates", parameters: {}, preview: <span>Asks Ubuntu's mirrors what is new. Installs nothing.</span> })}>Look for new updates</Button>}
                     {may("storage.lvm.snapshot.create") && <SnapshotFirstButton start={start} />}
-                    {may("apt.upgrade") && <Button risk={riskOf("apt.upgrade")} disabled={selectedList.length === 0} onClick={() => start({ operationId: "apt.upgrade", title: `Upgrade ${countOf(selectedList.length, "selected package")}`, parameters: { packages: selectedList }, preview: <span>{selectedList.join(", ")}</span> })}>Upgrade selected ({selectedList.length})</Button>}
+                    {may("apt.upgrade") && <Button risk={riskOf("apt.upgrade")} disabled={selectedList.length === 0} onClick={() => start({ operationId: "apt.upgrade", title: `Install ${countOf(selectedList.length, "selected update")}`, parameters: { packages: selectedList }, preview: <span>{selectedList.join(", ")}</span> })}>Install selected ({selectedList.length})</Button>}
                     {may("apt.upgrade") && <Button variant="primary" risk={riskOf("apt.upgrade")} disabled={loading || !report?.count} onClick={() => start({ operationId: "apt.upgrade", title: "Install all updates", parameters: {}, preview: <span>Installs {report?.count === 1 ? "the 1 waiting update" : `all ${report?.count ?? 0} waiting updates`}, after asking Ubuntu for the newest list.</span> })}>Install all updates</Button>}
                   </>}
                 />
@@ -249,7 +249,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
                 rowStatus={(item) => (isSecurity(item) ? "warning" : undefined)}
                 empty={!report
                   ? (loading ? "Checking for updates…" : "The updates could not be read.")
-                  : <EmptyState title="Everything is up to date.">Refresh lists asks Ubuntu's mirrors again.</EmptyState>}
+                  : <EmptyState title="Everything is up to date.">Look for new updates asks Ubuntu's mirrors again.</EmptyState>}
               />
             </Panel>
           ) : tab === "tools" ? (

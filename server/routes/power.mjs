@@ -28,6 +28,10 @@ export function createPowerRouter({
   alerts = null,
   auth = null,
 } = {}) {
+  // No pass-through when it is missing: a router built without its guard would take the one change
+  // this router makes (acknowledging an outage) with no token. index.mjs always passes auth.
+  if (typeof auth?.requireCsrf !== "function") throw new Error("createPowerRouter needs auth.requireCsrf");
+  const requireCsrf = auth.requireCsrf;
   const router = Router();
   router.get("/power/ups/detect", async (_request, response) => {
     const [devices, nutInstalled] = await Promise.all([detect().catch(() => []), exists("/usr/bin/upsc")]);
@@ -56,7 +60,7 @@ export function createPowerRouter({
   });
 
   // "Got it" on Home: the outage stays on record and stops being said. Viewers are refused by the role policy.
-  router.post("/power/outages/:id/acknowledge", auth?.requireCsrf ?? ((_request, _response, next) => next()), async (request, response) => {
+  router.post("/power/outages/:id/acknowledge", requireCsrf, async (request, response) => {
     const id = String(request.params.id ?? "");
     if (!outageIdPattern.test(id)) return response.status(400).json({ error: "Name the outage", code: "outage_rejected" });
     const outage = await acknowledgeOutage({ store: state, alerts, id, by: callerId(request) });

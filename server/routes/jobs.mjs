@@ -413,6 +413,13 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
 
   router.put("/schedules/:id", auth.requireCsrf, (request, response) => {
     try {
+      // `time` moves it (minute, hour, weekday: whichever its frequency has); otherwise it is paused or resumed.
+      const time = request.body?.time;
+      if (time !== undefined) {
+        if (!time || typeof time !== "object" || Array.isArray(time)) throw new Error("time is { minute, hour, weekday }");
+        response.json({ schedule: scheduler.setTime(request.params.id, { minute: time.minute, hour: time.hour, weekday: time.weekday }, request.boxpilotSession.owner.id) });
+        return;
+      }
       response.json({ schedule: scheduler.setEnabled(request.params.id, Boolean(request.body?.enabled), request.boxpilotSession.owner.id) });
     } catch (error) {
       response.status(error.message.includes("not found") ? 404 : 400).json({ error: error.message, code: "schedule_update_failed" });

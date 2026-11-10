@@ -23,6 +23,18 @@ export interface NetworkOverviewProps {
 }
 
 /** How to trust BoxPilot's own certificate authority on each kind of device. */
+/**
+ * The certificate's last day as a date. The server hands on what the certificate says, in its own
+ * form ("Sep 29 12:00:00 2027 GMT"); a date nobody can misread is "29 Sep 2027". Left as it came
+ * when it is not a date.
+ */
+export function certificateDay(notAfter: string): string {
+  const at = Date.parse(notAfter);
+  if (!Number.isFinite(at)) return notAfter;
+  const date = new Date(at);
+  return `${date.getUTCDate()} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+}
+
 const trustSteps = [
   { id: "windows", label: "Windows", value: <>Double-click the file, Install Certificate, Local Machine, &ldquo;Place all certificates in the following store&rdquo;, Browse, <em>Trusted Root Certification Authorities</em>. Restart the browser.</> },
   { id: "macos", label: "macOS", value: <>Double-click to open Keychain Access, add it to the <em>System</em> keychain, then open it there and set &ldquo;When using this certificate&rdquo; to <em>Always Trust</em>.</> },
@@ -151,7 +163,7 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
               <KeyValue items={[
                 { id: "open", label: "Open", value: <code>{`https://${reachName}:${tlsCap.port}`}</code>, hint: "after installing the certificate on the device" },
                 { id: "covers", label: "Covers", value: <span className="network-list">{covers.map((entry) => <code key={entry}>{entry}</code>)}</span> },
-                ...(tlsCap.notAfter ? [{ id: "until", label: "Valid until", value: tlsCap.notAfter, mono: true, hint: "Reissued automatically before then, from the same authority, so devices stay trusting." }] : []),
+                ...(tlsCap.notAfter ? [{ id: "until", label: "Valid until", value: certificateDay(tlsCap.notAfter), mono: true, hint: "Reissued automatically before then, from the same authority, so devices stay trusting." }] : []),
                 ...(tlsCap.caFingerprint ? [{ id: "ca", label: "Authority SHA-256", value: <code className="network-fingerprint">{tlsCap.caFingerprint}</code>, hint: "Check that this matches when a device asks." }] : []),
               ]} />
             ) : (

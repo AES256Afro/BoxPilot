@@ -52,6 +52,16 @@ export function createScheduleFlowStore({ database, timestamp, recordAudit }) {
     return getSchedule(id);
   }
 
+  /** Move a schedule to another time of day (and day, for a weekly one). Its frequency stays. */
+  function setScheduleTime(id, { minute, hour = null, weekday = null }, { actorId = null, nextDueAt = null } = {}) {
+    const changes = nextDueAt
+      ? database.prepare("UPDATE schedules SET minute = ?, hour = ?, weekday = ?, next_due_at = ? WHERE id = ?").run(minute, hour, weekday, nextDueAt, id).changes
+      : database.prepare("UPDATE schedules SET minute = ?, hour = ?, weekday = ? WHERE id = ?").run(minute, hour, weekday, id).changes;
+    if (!Number(changes)) throw new Error("Schedule not found");
+    recordAudit("schedule.moved", { actorId, subjectId: id, details: { minute, hour, weekday } });
+    return getSchedule(id);
+  }
+
   /** Record a run. `nextDueAt: null` leaves the due time alone (used when a schedule is paused). */
   function markScheduleRun(id, { jobId = null, result = null, nextDueAt }) {
     if (nextDueAt === null || nextDueAt === undefined) {
@@ -180,6 +190,7 @@ export function createScheduleFlowStore({ database, timestamp, recordAudit }) {
     listSchedules,
     listDueSchedules,
     setScheduleEnabled,
+    setScheduleTime,
     markScheduleRun,
     settleScheduleRun,
     deleteSchedule,

@@ -410,3 +410,12 @@ describe("words", () => {
     expect(formatBytes(15e9)).toBe("15 GB");
   });
 });
+
+describe("a size in the runbook", () => {
+  it("never prints 1000 of the smaller unit", () => {
+    expect(formatBytes(999_960_000)).toBe("1.0 GB");
+    expect(formatBytes(999_400_000)).toBe("999 MB");
+    expect(formatBytes(1500)).toBe("1.5 KB");
+    expect(formatBytes(-1)).toBeNull();
+  });
+});

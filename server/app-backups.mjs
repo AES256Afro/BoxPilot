@@ -324,7 +324,12 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
       if (wasRunning) {
         progress?.(`Stopping ${manifest.name} for a consistent backup...`, "stdout");
         const stop = await compose(id, ["stop"], { timeout: stopBudgetMs(manifest, backupLimitsMs.stop), progress });
-        if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
+        if (!stop.ok) {
+          // A stop that failed or ran out of time may have stopped some of it: start it again before
+          // failing, or the app stayed down all night behind a job that said only "stop failed".
+          const back = await compose(id, ["start"], { timeout: backupLimitsMs.stop, progress }).catch(() => ({ ok: false }));
+          throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}. ${back.ok ? `${manifest.name} was started again; nothing was backed up.` : `${manifest.name} could not be started again either: start it from its page.`}`);
+        }
       }
       try {
         await mkdir(backupDirectory, { recursive: true, mode: 0o700 });

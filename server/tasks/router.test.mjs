@@ -18,7 +18,7 @@ function harness({ loginFails = false, denyAt = null } = {}) {
     if (body.method === "challenge") return denyAt === "challenge" ? { error: { message: "Access denied", code: -32000 } } : { result: CHALLENGE };
     if (body.method === "login" && denyAt === "login") return { error: { message: "Access denied", code: -32000 } };
     if (body.method === "login") return loginFails ? { error: { message: "Invalid username or password" } } : { result: { sid: "session-1" } };
-    if (body.method === "call" && body.params[1] === "system") return { result: { model: "GL-MT6000", firmware_version: "4.7.0" } };
+    if (body.method === "call" && body.params[1] === "system") return { result: { model: "Example AX3000", firmware_version: "4.7.0" } };
     if (body.method === "call" && body.params[1] === "clients") {
       return { result: { clients: [
         { name: "alex-laptop", ip: "192.168.1.26", mac: "aa:bb:cc:dd:ee:01", online: true, is_static: false },

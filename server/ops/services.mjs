@@ -20,7 +20,8 @@ export const guardedUnits = Object.freeze({
 });
 
 export const criticalUnitPatterns = Object.freeze([
-  /^boxpilot(-helper)?\.service$/, /^ssh(d)?\.service$/, /^ssh\.socket$/, /^systemd-/, /^dbus(-broker)?\.(service|socket)$/,
+  // dbus-org.freedesktop.* are aliases of systemd's own services (resolve1 is systemd-resolved).
+  /^boxpilot(-helper)?\.service$/, /^ssh(d)?\.service$/, /^ssh\.socket$/, /^systemd-/, /^dbus(-broker)?\.(service|socket)$/, /^dbus-org\.freedesktop\./,
   /^tailscaled\.service$/, /^NetworkManager\.service$/, /^networkd-dispatcher\.service$/, /^getty@/, /^serial-getty@/, /^user@/, /^init\.scope$/, /^-\.mount$/,
 ]);
 
@@ -42,10 +43,12 @@ export function restartsBoxPilot(operationId, parameters) {
  * poweroff.target or systemd-reboot.service is system.reboot, which is high risk; stopping
  * sysinit.target, or starting shutdown.target, stops SSH, BoxPilot and Tailscale with everything
  * else, which the protected-unit guard refuses one unit at a time. debug-shell, emergency and rescue
- * put a root shell on the console with no password, and modprobe@ loads a kernel module. No page
- * controls any of them, so none is accepted here, whatever the action.
+ * put a root shell on the console with no password, and modprobe@ loads a kernel module.
+ * systemd-exit pulls in shutdown.target (a power-off by another name), and systemd-storagetm hands
+ * every disk to the network with no sign-in. No page controls any of them, so none is accepted
+ * here, whatever the action.
  */
-const machineStateUnit = /\.target$|^systemd-(poweroff|reboot|halt|kexec|soft-reboot|suspend|hibernate|hybrid-sleep|suspend-then-hibernate)\.service$|^(debug-shell|emergency|rescue)\.service$|^modprobe@/;
+const machineStateUnit = /\.target$|^systemd-(poweroff|reboot|halt|kexec|soft-reboot|suspend|hibernate|hybrid-sleep|suspend-then-hibernate|exit|storagetm)\.service$|^(debug-shell|emergency|rescue)\.service$|^modprobe@/;
 
 export function changesWholeMachine(unit) {
   return typeof unit === "string" && machineStateUnit.test(unit);

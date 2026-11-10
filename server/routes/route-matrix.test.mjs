@@ -632,7 +632,7 @@ beforeAll(async () => {
     run: async () => ({ ok: true, stdout: "[]", stderr: "" }), probe: async () => false, reverse: async () => [],
     collect: async () => ({ devices: [], mounts: [], fstab: [], snapshots: [{ path: "/dev/vg0/data-snap", name: "data-snap" }] }),
   });
-  routers.createPowerRouter = createPowerRouter({ detect: async () => [], exists: async () => false, events: async () => ({ available: "none", events: [] }), policy: async () => null, boardVendor: async () => null, ups: { inspect: async () => ({ configured: false, state: "unavailable" }) }, state, auth });
+  routers.createPowerRouter = createPowerRouter({  detect: async () => [], exists: async () => false, events: async () => ({ available: "none", events: [] }), policy: async () => null, boardVendor: async () => null, ups: { inspect: async () => ({ configured: false, state: "unavailable" }) }, state, auth });
   routers.createChecklistRouter = createChecklistRouter({ state, helper, notifications, inventory, network, driveChecks: async () => null });
   routers.createHostRouter = createHostRouter({
     state, helper, catalogService, inventory, network, notifications,

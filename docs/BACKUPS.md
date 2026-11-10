@@ -81,5 +81,6 @@ All of it is root-only. Nothing is world-readable, and no archive is served over
 - It does not prune a `restic` repository or reclaim space automatically.
 - It does not back up the operating system. Reinstall Ubuntu, install BoxPilot, restore a machine
   snapshot.
-- It does not encrypt the plain mirrors: an SSH or cloud destination holds the same bytes as the
-  local copy. Use the encrypted independent copy when the destination is not somewhere you trust.
+- It does not encrypt the copy on the backup drive or the SSH destination: they hold the same bytes
+  as the local copy. A cloud copy is sealed with your passphrase before it leaves, and is refused
+  without one. Use the encrypted independent copy when an SSH destination is not somewhere you trust.

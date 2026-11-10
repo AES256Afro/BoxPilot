@@ -121,7 +121,7 @@ describe("a rule left holding a port open for nothing", () => {
       ...base,
       report: { ...base.report, rules: [{ action: "allow", port: 9999, protocol: "tcp", direction: "in", comment: "something old" }] },
     });
-    expect(orphans(advice)[0].title).toBe("Nothing is listening on port 9999");
+    expect(orphans(advice)[0].title).toBe("Nothing is listening on 9999/tcp");
   });
 
   it("stays quiet when something is actually listening", () => {

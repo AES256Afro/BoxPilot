@@ -58,8 +58,11 @@ export const categoryIds = Object.freeze([
 export const humanBytes = (bytes) => {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+  let index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  let size = bytes / 1024 ** index;
+  // The unit is chosen after rounding, as the page's formatter does: 1 GiB less a byte read "1024.0 MiB".
+  if (index > 0 && index < units.length - 1 && size >= 1023.95) { size = 1; index += 1; }
+  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 };
 
 /** How many of each kind of application backup "Older application backups" always keeps. */

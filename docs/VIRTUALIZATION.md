@@ -110,22 +110,8 @@ sudo npm prune --omit=dev
 sudo install -d -m 0755 /etc/boxpilot
 sudo install -m 0600 deploy/boxpilot.env.example /etc/boxpilot/boxpilot.env
 sudo install -m 0640 -o root -g boxpilot deploy/redaction.example.json /etc/boxpilot/redaction.json
-sudo install -m 0644 deploy/boxpilot-helper.service /etc/systemd/system/boxpilot-helper.service
-sudo install -m 0644 deploy/boxpilot.service /etc/systemd/system/boxpilot.service
-sudo install -m 0644 deploy/boxpilot-storage-scan.service /etc/systemd/system/boxpilot-storage-scan.service
-sudo install -m 0644 deploy/boxpilot-storage-scan.timer /etc/systemd/system/boxpilot-storage-scan.timer
-sudo install -m 0644 deploy/boxpilot-smartmontools-install.service /etc/systemd/system/boxpilot-smartmontools-install.service
-sudo install -m 0644 deploy/boxpilot-restic-install.service /etc/systemd/system/boxpilot-restic-install.service
-sudo install -m 0644 deploy/boxpilot-docker-install.service /etc/systemd/system/boxpilot-docker-install.service
-sudo install -m 0644 deploy/boxpilot-virtualization-install.service /etc/systemd/system/boxpilot-virtualization-install.service
-sudo install -m 0644 deploy/boxpilot-libvirt-foundation.service /etc/systemd/system/boxpilot-libvirt-foundation.service
-sudo install -m 0644 deploy/boxpilot-apt-refresh.service /etc/systemd/system/boxpilot-apt-refresh.service
-sudo install -m 0644 deploy/boxpilot-keel-artifact.service /etc/systemd/system/boxpilot-keel-artifact.service
-sudo install -m 0644 deploy/boxpilot-keel-install.service /etc/systemd/system/boxpilot-keel-install.service
-sudo install -m 0644 deploy/boxpilot-keel-backup.service /etc/systemd/system/boxpilot-keel-backup.service
-sudo install -m 0644 deploy/boxpilot-keel-recovery-drill.service /etc/systemd/system/boxpilot-keel-recovery-drill.service
-sudo install -m 0644 deploy/boxpilot-keel-promotion.service /etc/systemd/system/boxpilot-keel-promotion.service
-sudo install -m 0644 deploy/boxpilot-keel-rollback.service /etc/systemd/system/boxpilot-keel-rollback.service
+# Every unit and timer BoxPilot ships, as scripts/boxpilot-upgrade.sh installs them.
+for unit in deploy/*.service deploy/*.timer; do sudo install -m 0644 "$unit" "/etc/systemd/system/$(basename "$unit")"; done
 sudo systemctl daemon-reload
 sudo systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer
 ```

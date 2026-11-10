@@ -380,6 +380,8 @@ export function formatMemory(memoryKiB: number): string {
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "Unknown";
   const gib = bytes / 1024 / 1024 / 1024;
-  if (gib >= 1) return `${gib.toFixed(gib >= 10 ? 0 : 1)} GiB`;
-  return `${(bytes / 1024 / 1024).toFixed(0)} MiB`;
+  const mib = Math.round(bytes / 1024 / 1024);
+  // The unit is chosen after rounding: a byte under 1 GiB read "1024 MiB".
+  if (gib >= 1 || mib >= 1024) return `${Math.max(gib, 1).toFixed(gib >= 10 ? 0 : 1)} GiB`;
+  return `${mib} MiB`;
 }

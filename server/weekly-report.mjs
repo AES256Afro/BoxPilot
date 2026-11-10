@@ -66,7 +66,8 @@ export function uncovered({ checklist = null, protection = null, schedules = [] 
     gaps.push(gapPhrases[item.id] ?? item.title);
   }
   if (protection?.available && Array.isArray(protection.apps)) {
-    const scheduled = new Set(schedules.filter((schedule) => schedule.operationId === "app.backup" && schedule.enabled !== false).map((schedule) => schedule.parameters?.id));
+    // As Repair, Backups and Hosted domains count it: a nightly job for several apps schedules each.
+    const scheduled = new Set(schedules.filter((schedule) => schedule && schedule.enabled !== false).flatMap((schedule) => (schedule.operationId === "app.backup" ? [schedule.parameters?.id ?? schedule.parameters?.subject] : schedule.operationId === "app.backup.many" && Array.isArray(schedule.parameters?.ids) ? schedule.parameters.ids : [])));
     const bare = protection.apps.filter((app) => app.protectable && !scheduled.has(app.id)).map((app) => app.name ?? app.id);
     if (bare.length) gaps.push(`no backup schedule for ${some(bare)}`);
   }

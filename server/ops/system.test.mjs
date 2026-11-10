@@ -73,6 +73,9 @@ describe("system operations", () => {
     expect(dockerSize(1_900_000_000)).toBe("1.9GB");
     expect(dockerSize(0)).toBe("0B");
     expect(dockerSize(1_250_000)).toBe("1.3MB");
+    // The step is taken where the smaller unit would round up into it: this read "1000MB".
+    expect(dockerSize(999_960_000)).toBe("1GB");
+    expect(dockerSize(999_940_000)).toBe("999.9MB");
   });
 
   it("rejects malformed parameters at the registry boundary", () => {

@@ -1,7 +1,7 @@
 import { copyFile, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
-import { webListenFromEnv } from "../env-file.mjs";
+import { tlsPortFromEnv, webListenFromEnv } from "../env-file.mjs";
 import { buildPlan, isProtected, protectedRules } from "../firewall-profiles.mjs";
 import { syncDockerRules } from "./firewall-docker.mjs";
 
@@ -41,6 +41,13 @@ export async function readWebEnv({ envPath = defaultEnvPath, read = (file) => re
   return webListenFromEnv(content);
 }
 
+/** The same, with the LAN HTTPS port beside it: every port of BoxPilot's own that the rules must keep. */
+async function readOwnPorts({ envPath = defaultEnvPath, read = (file) => readFile(file, "utf8") } = {}) {
+  let content = "";
+  try { content = await read(envPath); } catch { /* defaults below */ }
+  return { ...webListenFromEnv(content), tlsPort: tlsPortFromEnv(content) };
+}
+
 function ruleSpec({ port, protocol }) {
   return protocol === "any" ? String(port) : `${port}/${protocol}`;
 }
@@ -61,8 +68,8 @@ function tail(text) {
 }
 
 /** Add every protected allow rule; SSH failing aborts, the rest are best-effort. */
-async function ensureProtected(run, log, { webPort, webHost }) {
-  for (const entry of protectedRules({ webPort, webHost })) {
+async function ensureProtected(run, log, { webPort, webHost, tlsPort = null }) {
+  for (const entry of protectedRules({ webPort, webHost, tlsPort })) {
     if (!entry.allow) continue;
     const result = await run(ufw, ["allow", ruleSpec(entry), "comment", `BoxPilot keeps ${entry.label} reachable`], { timeout: 30_000 });
     if (!result.ok && entry.port === 22) throw new Error(`Could not add the SSH rule: ${tail(result.stderr)}`);
@@ -80,7 +87,7 @@ export async function firewallSet({ enabled } = {}, { run = fixedRun, log = null
   if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
   if (enabled) {
     log?.("Ensuring SSH, Tailscale, BoxPilot, and tailscale0 stay reachable before enabling", "stdout");
-    await ensureProtected(run, log, await readWebEnv({ envPath }));
+    await ensureProtected(run, log, await readOwnPorts({ envPath }));
   }
   log?.(`$ ufw --force ${enabled ? "enable" : "disable"}`, "stdout");
   const result = await run(ufw, ["--force", enabled ? "enable" : "disable"], { timeout: 60_000 });
@@ -93,10 +100,13 @@ export async function firewallSet({ enabled } = {}, { run = fixedRun, log = null
 export async function firewallRuleAdd({ action, port, protocol, comment = null } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, dockerSync = syncDockerRules } = {}) {
   const problem = validateRule({ action, port, protocol, comment });
   if (problem) throw new Error(`Invalid rule: ${problem}`);
-  if (action === "deny") {
-    const protectedList = protectedRules(await readWebEnv({ envPath }));
+  if (action === "deny" || action === "limit") {
+    const protectedList = protectedRules(await readOwnPorts({ envPath }));
     const hit = protectedList.find((entry) => isProtected({ port, protocol }, [entry]));
-    if (hit) throw new Error(`Port ${port} stays open: it is ${hit.label}. ${hit.reason} Denying it could lock you out.`);
+    if (hit && action === "deny") throw new Error(`Port ${port} stays open: it is ${hit.label}. ${hit.reason} Denying it could lock you out.`);
+    // ufw's limit replaces the allow with six connections in thirty seconds: right for SSH, and a
+    // page that opens a dozen at once stops loading under it.
+    if (hit?.own) throw new Error(`Port ${port} is ${hit.label}, which opens several connections at once: a rate limit there would stop this page loading. Nothing was changed.`);
   }
   const args = [action, ruleSpec({ port, protocol }), ...(comment ? ["comment", comment] : [])];
   log?.(`$ ufw ${args.join(" ")}`, "stdout");
@@ -112,7 +122,7 @@ export async function firewallRuleDelete({ action, port, protocol } = {}, { run 
   const problem = validateRule({ action, port, protocol });
   if (problem) throw new Error(`Invalid rule: ${problem}`);
   if (action !== "deny") {
-    const protectedList = protectedRules(await readWebEnv({ envPath }));
+    const protectedList = protectedRules(await readOwnPorts({ envPath }));
     const hit = protectedList.find((entry) => isProtected({ port, protocol }, [entry]));
     if (hit) throw new Error(`The ${hit.label} rule stays; removing it from here could lock you out`);
   }
@@ -149,7 +159,7 @@ const keptThroughReset = new Set(["before.rules", "before6.rules", "after.rules"
 export async function firewallProfileApply({ profile, services = [], replace = false, sshRateLimit = false } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, now = () => new Date(), dockerSync = syncDockerRules, ufwDirectory: rulesDirectory = ufwDirectory, readEnv = undefined } = {}) {
   if (!Array.isArray(services) || services.some((id) => typeof id !== "string")) throw new Error("services must be a list of service ids");
   if (typeof replace !== "boolean" || typeof sshRateLimit !== "boolean") throw new Error("replace and sshRateLimit must be true or false");
-  const env = await readWebEnv({ envPath, ...(readEnv ? { read: readEnv } : {}) });
+  const env = await readOwnPorts({ envPath, ...(readEnv ? { read: readEnv } : {}) });
   const plan = buildPlan({ profileId: profile, serviceIds: services, replace, sshRateLimit, ...env });
   log?.(`Applying firewall profile "${plan.profile.name}" (${plan.steps.length} steps)`, "stdout");
   const completed = [];

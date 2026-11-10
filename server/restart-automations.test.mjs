@@ -165,7 +165,7 @@ describe("an automation BoxPilot restarts under (sweep 5)", () => {
    * The night's run in one web process, stopped by a restart of both units the moment its backup
    * step ended; then the next web process starting on the same database. `steps` after the backup.
    */
-  async function stoppedBetweenSteps(steps) {
+  async function stoppedBetweenSteps(steps, { first = backUp, copyAt = 1 } = {}) {
     const databasePath = await databaseFile();
     const socket = helperSocket();
     const counts = { copies: 0, tidied: 0, upgrades: 0 };
@@ -183,7 +183,7 @@ describe("an automation BoxPilot restarts under (sweep 5)", () => {
     // A restart of both units: systemd stops the web side, then the helper. The web side had
     // recorded the copy as waiting for BoxPilot to come back; it never heard more.
     const restart = async () => {
-      await vi.waitFor(() => { copyJobId = before.store.getFlow(flow.id).lastJobIds[1]; expect(queueSteps(before.store, copyJobId)).toHaveLength(1); });
+      await vi.waitFor(() => { copyJobId = before.store.getFlow(flow.id).lastJobIds[copyAt]; expect(queueSteps(before.store, copyJobId)).toHaveLength(1); });
       before.stop();
       client.stop();
       socket.listen(null);
@@ -191,7 +191,7 @@ describe("an automation BoxPilot restarts under (sweep 5)", () => {
     };
     socket.listen(helperProcess({ ops, restart }));
     const night = webProcess(before.store, client);
-    const flow = await night.flows.create({ name: "Belt and braces", steps: [backUp, ...steps], createdBy: owner.id });
+    const flow = await night.flows.create({ name: "Belt and braces", steps: [first, ...steps], createdBy: owner.id });
     const after = await night.flows.create({ name: "Tidy up after", steps: [{ operationId: "apt.refresh", parameters: {} }], createdBy: owner.id, triggerFlowId: flow.id });
     void night.flows.run(flow.id, owner.id, { role: "owner" }).catch(() => {});
     await vi.waitFor(() => expect(releaseBackup).toBeTypeOf("function"));
@@ -227,6 +227,23 @@ describe("an automation BoxPilot restarts under (sweep 5)", () => {
     expect(store.getFlow(after.id).lastResult).toBe("completed");
     expect(counts.tidied).toBe(1);
     expect(store.listAudit().some((event) => event.type === "flow.resumed" && event.subjectId === flow.id)).toBe(true);
+  });
+
+  // A run writes null for a step skipped by its condition and for a keep-going step that could not
+  // start. Resumed, every null was counted as a skip: the run ended "completed", the automation's
+  // alert was cleared, and nobody was told a step had not run.
+  it("says a keep-going step could not start when the run is resumed past it, instead of calling it skipped", async () => {
+    const cannotStart = { operationId: "app.action", parameters: { id: "{{ steps.saved.nothere }}", action: "restart" }, onFailure: "continue" };
+    const { store, flow, counts, interrupted, morning } = await stoppedBetweenSteps([cannotStart, copyOff], { first: { ...backUp, name: "saved" }, copyAt: 2 });
+    expect(store.getFlow(flow.id).lastJobIds[1]).toBeNull();
+    expect(morning.flows.recover(interrupted)).toBe(1);
+    await morning.flows.resumed();
+    const result = store.getFlow(flow.id).lastResult;
+    expect(result).toMatch(/^completed with problems/);
+    expect(result).toContain("step 2");
+    expect(result).toContain("could not start");
+    expect(result).not.toContain("skipped by condition");
+    expect(counts.copies).toBe(1);
   });
 
   it("is resumed only once: a second restart in the resumed run leaves it interrupted", async () => {

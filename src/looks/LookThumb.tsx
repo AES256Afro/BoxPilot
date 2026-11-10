@@ -92,6 +92,20 @@ function picture(look: LookId, dark: boolean): { background: string; rects: Rect
       [33, 18, 5, 58, "#ffffff", { border: "2px solid #1d1d1f", borderRadius: "8px" }],
       ...range(4).map((i): Rect => [74, 10 + i * 20, 22, 3, "#ffffff", { opacity: 0.8 }]),
     ] };
+    case "manual": return { background: "#ffffff", rects: [
+      [0, 0, 100, 11, "#111111"], [6, 18, 46, 7, "#111111"], [6, 29, 88, 1.6, "#111111"],
+      [6, 36, 88, 22, "#ffd400", { outline: "1.5px solid #111111" }], [6, 36, 88, 6, "repeating-linear-gradient(135deg,#111111 0 3px,#ffd400 3px 6px)"],
+      [10, 47, 40, 3.5, "#111111"], [72, 45, 18, 8, "#111111"],
+      [6, 65, 88, 28, "none", { outline: "1.5px solid #111111" }], [6, 65, 88, 6, "#111111"],
+      ...range(2).map((i): Rect => [6, 78 + i * 7.5, 88, 0.8, "#111111"]), [40, 65, 0.8, 28, "#111111"],
+    ] };
+    case "workbook": return { background: "#ffffff linear-gradient(#dcdcdc 1px, transparent 1px) 0 0/100% 12.5%", rects: [
+      [0, 0, 100, 10, "#1f1f1f"], [0, 10, 100, 9, "#f1f1f1", { outline: "1px solid #b5b5b5" }], [12, 12, 60, 5, "#ffffff", { outline: "1px solid #b5b5b5" }],
+      [0, 19, 9, 70, "#f1f1f1"], ...range(3).map((i): Rect => [9 + (i + 1) * 22.75, 19, 0.6, 70, "#dcdcdc"]),
+      [9, 31.5, 45.5, 12.5, "#fde0dd"], [9, 44, 45.5, 12.5, "#fff3c4"], [54.5, 56.5, 22.75, 12.5, "#dff2e1"],
+      [54.5, 31.5, 22.75, 12.5, "none", { outline: "2px solid #1a56db", outlineOffset: "-1px" }], [14, 23, 30, 4, "#1f1f1f"],
+      [0, 89, 100, 11, "#e9e9e9", { outline: "1px solid #8f8f8f" }], [18, 89, 20, 11, "#ffffff", { boxShadow: "inset 0 2px 0 #1a56db" }],
+    ] };
   }
 }
 

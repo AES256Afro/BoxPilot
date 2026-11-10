@@ -8,6 +8,7 @@ import { AppIcon, Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, Sear
 import { AppSheet, type SheetTab } from "./AppSheet";
 import { ConfigSheet } from "./ConfigSheet";
 import { appStatus, installTier, isRunning, runRead, shortImage, tileDetail } from "./appState";
+import { heldPorts, nightlyBackup } from "./preflight";
 import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, TunnelDraft, Values } from "./types";
 import "./catalog.css";
 
@@ -36,7 +37,7 @@ export interface CatalogPageProps {
 }
 
 /** The install or settings form, the sheet it came from, and (put back after a job that did not complete) what it held. */
-interface ConfigForm { entry: Entry; mode: "install" | "reconfigure"; back: { id: string; tab?: SheetTab } | null; seed?: Values }
+interface ConfigForm { entry: Entry; mode: "install" | "reconfigure"; back: { id: string; tab?: SheetTab } | null; seed?: Values; /** How "Back it up every night" stood. */ nightly?: boolean }
 
 const sheetTabs: readonly SheetTab[] = ["overview", "tunnel", "reach", "backups", "vpn", "logs", "config", "models", "signin", "secrets"];
 
@@ -66,6 +67,10 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   const [tunnels, setTunnels] = useState<Record<string, Tunnel>>({});
   const [killswitch, setKillswitch] = useState<Record<string, KillswitchSchedule>>({});
   const [rehearsal, setRehearsal] = useState<Record<string, { id: string; cadence: string }>>({});
+  // Each app's backup schedule, and the app whose install just finished asking for a nightly one.
+  const [nightly, setNightly] = useState<Record<string, { id: string; cadence: string }>>({});
+  const [nightlyOffer, setNightlyOffer] = useState<string | null>(null);
+  const nightlyWanted = useRef<string | null>(null);
   const [foreign, setForeign] = useState<ForeignStack[] | null>(null);
   const [foreignLogs, setForeignLogs] = useState<{ name: string; lines: string[] | null; error: string | null } | null>(null);
   const [scheduling, setScheduling] = useState(false);
@@ -84,13 +89,16 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
       const body = (await fetch("/api/v1/schedules").then((response) => (response.ok ? response.json() : { schedules: [] }))) as { schedules?: Array<{ id: string; operationId: string; cadence: string; parameters?: { subject?: string }; overdue?: boolean; lastRunAt?: string | null; lastResult?: string | null }> };
       const drills: Record<string, KillswitchSchedule> = {};
       const rehearsals: Record<string, { id: string; cadence: string }> = {};
+      const backups: Record<string, { id: string; cadence: string }> = {};
       for (const schedule of body.schedules ?? []) {
         const subject = schedule.parameters?.subject;
         if (schedule.operationId === "app.vpn.killswitch.drill" && subject) drills[subject] = { id: schedule.id, overdue: Boolean(schedule.overdue), lastRunAt: schedule.lastRunAt ?? null, lastResult: schedule.lastResult ?? null };
         if (schedule.operationId === "app.backup.verify" && subject) rehearsals[subject] = { id: schedule.id, cadence: schedule.cadence };
+        if (schedule.operationId === "app.backup" && subject) backups[subject] = { id: schedule.id, cadence: schedule.cadence };
       }
       setKillswitch(drills);
       setRehearsal(rehearsals);
+      setNightly(backups);
     } catch { /* the manual buttons still work without this */ }
   }, []);
 
@@ -155,6 +163,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     returnTo.current = sheet ?? (config ? config.back ?? { id: config.entry.manifest.id } : null);
     ended.current = null;
     keptForm.current = keep ?? null;
+    nightlyWanted.current = null;
     closeSheet(); setConfig(null); start(operation);
   }, [closeSheet, config, sheet, start]);
   const takeComposeDraft = useCallback((appId: string) => {
@@ -176,14 +185,16 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     const back = returnTo.current;
     const job = ended.current;
     const form = keptForm.current;
-    returnTo.current = null; ended.current = null; keptForm.current = null;
+    const wanted = nightlyWanted.current;
+    returnTo.current = null; ended.current = null; keptForm.current = null; nightlyWanted.current = null;
     const completed = job?.state === "completed";
     if (!completed && form?.config) { setConfig(form.config); return; }
     if (!back) return;
     if (!completed && form?.composeDraft !== undefined) keptCompose.current = { id: back.id, draft: form.composeDraft };
     keptTunnel.current = !completed && form?.tunnelDraft ? form.tunnelDraft : null;
     // Installed: it is on the Installed tab now; its sheet opens at Overview, with its address.
-    if (job?.type === "op:app.install" && completed) { setTab("installed"); openSheet(back.id); return; }
+    // With "Back it up every night" ticked, that sheet offers the schedule: nothing is created until it is pressed.
+    if (job?.type === "op:app.install" && completed) { setTab("installed"); setNightlyOffer(wanted === back.id ? back.id : null); openSheet(back.id); return; }
     openSheet(back.id, back.tab);
   }, [approving, openSheet, setTab]);
 
@@ -275,13 +286,16 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     appUrl(port, { lanAddress: data?.host.lanAddress ?? null, serves: serves ?? [], https: manifest.id === "portainer" }), [data, serves]);
 
   const ctx: CatalogContext | null = data ? {
-    csrfToken, role, data, serves, stats, tunnels, killswitch, rehearsal, scheduling, scheduleError,
+    csrfToken, role, data, serves, stats, tunnels, killswitch, rehearsal, nightly, nightlyOffer, scheduling, scheduleError,
     schedules: {
       // spread: one server can have twenty of these, and twenty archives decompressing in the same
       // minute is not a rehearsal, it is an outage. The server puts each somewhere quiet near here.
       rehearse: (appId) => changeSchedule(createSchedule({ operationId: "app.backup.verify", parameters: { id: appId }, frequency: "weekly", minute: 30, hour: 3, weekday: 1, spread: true }), "Could not schedule the rehearsal"),
       stopRehearsal: (scheduleId) => changeSchedule(deleteSchedule(scheduleId), "Could not stop the rehearsal"),
       killswitch: (appId) => changeSchedule(createSchedule({ operationId: "app.vpn.killswitch.drill", parameters: { id: appId }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, spread: true }), "Could not schedule the kill-switch check"),
+      // The schedule the Backups page's "Schedule it" creates for one app: app.backup, daily, in its 02:00 slot.
+      backupNightly: (appId) => changeSchedule(createSchedule({ ...nightlyBackup, parameters: { id: appId } }), "Could not schedule the nightly backup"),
+      declineNightly: () => setNightlyOffer(null),
       stopKillswitch: (scheduleId) => changeSchedule(deleteSchedule(scheduleId), "Could not stop the kill-switch check"),
     },
     act,
@@ -463,11 +477,16 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
           seed={config.seed}
           appNameFor={(id) => applications.find((entry) => entry.manifest.id === id)?.manifest.name ?? null}
           modelRunnerApps={installedAll.filter((entry) => entry.manifest.modelRunner).map((entry) => entry.manifest.id)}
+          host={data?.host}
+          heldPorts={heldPorts(applications, config.entry.manifest.id)}
+          nightly={{ may: mayStart(role, "app.backup"), already: nightly[config.entry.manifest.id]?.cadence ?? null, seed: config.nightly }}
           onCancel={() => { const back = config.back; setConfig(null); if (back) setSheet(back); }}
-          onSubmit={(values: Values, form: Values) => {
+          onSubmit={(values: Values, form: Values, options: { backupNightly: boolean }) => {
             const { entry: { manifest }, mode } = config;
             act({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${shortImage(manifest.image.reference)}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> },
-              { config: { ...config, seed: form } });
+              { config: { ...config, seed: form, nightly: options.backupNightly } });
+            // Set after act, which clears what the last action left: this install's own wish.
+            nightlyWanted.current = mode === "install" && options.backupNightly ? manifest.id : null;
           }}
         />
       )}

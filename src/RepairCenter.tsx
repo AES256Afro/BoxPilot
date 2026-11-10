@@ -526,7 +526,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       <div className="rp-grid rp-grid--three">
         <RuntimeHealth />
         <ControllerDoctor onOpenBackups={() => onNavigate("backups")} />
-        <PackageRecovery csrfToken={csrfToken} />
+        <PackageRecovery csrfToken={csrfToken} role={role} />
       </div>
 
       {actionError && <p className="rp-note" data-tone="warning" role="status"><strong>Protection checks incomplete</strong><span>{actionError}. Press Check again to retry.</span></p>}

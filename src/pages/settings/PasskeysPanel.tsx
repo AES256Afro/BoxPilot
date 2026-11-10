@@ -24,6 +24,8 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
   // people to a field under Recovery codes, after which Remove went with no confirmation.
   const [removing, setRemoving] = useState<{ id: string; label: string } | null>(null);
   const [removePassword, setRemovePassword] = useState("");
+  // Adding asks for the password too: a passkey signs in from anywhere, for good.
+  const [addPassword, setAddPassword] = useState("");
   const renameOpener = useRef<HTMLButtonElement | null>(null);
   const returnRenameFocus = useRef(false);
   const cancelRename = () => { returnRenameFocus.current = true; setRenaming(null); };
@@ -49,8 +51,10 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
   };
 
   const addPasskey = () => act("Passkey registered. Sign in with it next time.", async () => {
-    await registerPasskey(csrfToken, label.trim() || "Passkey");
+    if (!addPassword) throw new Error("Enter your password to add a passkey");
+    await registerPasskey(csrfToken, label.trim() || "Passkey", addPassword);
     setLabel("");
+    setAddPassword("");
   });
   const saveRename = () => {
     if (!renaming?.label.trim()) return;
@@ -138,7 +142,10 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
           <Field label="Name for a new passkey" hint={<>It will work when you reach BoxPilot at <code>{host}</code>. Register another for a different address, such as your Tailscale name.</>}>
             <TextInput placeholder="e.g. My phone, YubiKey" maxLength={48} value={label} onValueChange={setLabel} />
           </Field>
-          <Button variant="primary" type="submit" disabled={busy}>Add a passkey</Button>
+          <Field label="Your password, to add a passkey" hint="A passkey signs you in from any device that holds it, so adding one asks for your password.">
+            <SecretInput autoComplete="current-password" value={addPassword} onValueChange={setAddPassword} />
+          </Field>
+          <Button variant="primary" type="submit" disabled={busy || !addPassword}>Add a passkey</Button>
         </form>
 
         <section className="settings-sub" aria-labelledby="settings-recovery-title">

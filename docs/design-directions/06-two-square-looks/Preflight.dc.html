@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Install Paperless-ngx: preflight check (Field Manual look)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&display=swap">
+<style>
+body{margin:0}
+a{color:#111111}a:hover{color:#b00d1a}
+table.fm{border-collapse:collapse;width:100%;min-width:640px;font:400 13.5px/1.35 "B612",Arial,sans-serif}
+table.fm td,table.fm th{border:1.5px solid #111111;padding:8px 10px;text-align:left;vertical-align:middle}
+table.fm thead th{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:#111111;color:#ffffff}
+table.fm .m{font-family:"B612 Mono",monospace;font-size:12.5px}
+</style>
+</helmet>
+<div style="min-height: 1000px; box-sizing: border-box; background: #ffffff; color: #111111; font-family: 'B612', Arial, sans-serif; font-size: 14px; line-height: 1.45; display: flex; flex-direction: column">
+
+  <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px clamp(16px, 4vw, 40px); background: #111111; color: #ffffff; font-size: 11.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase">
+    <span>homebox · operator's manual</span>
+    <span>BoxPilot 1.239.0</span>
+  </div>
+
+  <div style="padding: 26px clamp(16px, 4vw, 40px) 22px; display: flex; flex-direction: column; gap: 22px; flex-grow: 1">
+
+    <header style="display: flex; align-items: flex-end; justify-content: space-between; gap: 14px 24px; flex-wrap: wrap; border-bottom: 4px solid #111111; padding-bottom: 14px">
+      <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+        <span style="font-size: 11.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase">Preflight check 4-2 · Apps</span>
+        <h1 style="margin: 0; font-size: 30px; font-weight: 700; letter-spacing: 0.01em; text-transform: uppercase; line-height: 1.1">Install Paperless-ngx</h1>
+        <span style="font-size: 14px; color: #444444">Scans, reads and files your paper documents so you can search them.</span>
+      </div>
+      <div style="border: 2.5px solid #111111; padding: 7px 12px; display: flex; flex-direction: column; gap: 1px; transform: rotate(-1.5deg)">
+        <span style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase">Result</span>
+        <span style="font-size: 17px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase">Fits · 1 caution</span>
+      </div>
+    </header>
+
+    <section aria-label="What it takes from homebox" style="display: flex; flex-direction: column; gap: 10px">
+      <h2 style="margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase">1. What it takes from homebox</h2>
+      <div style="overflow-x: auto">
+        <table class="fm">
+          <thead><tr><th scope="col">Item</th><th scope="col">In use now</th><th scope="col">This adds</th><th scope="col" style="width: 26%">Scale</th><th scope="col">Left after</th><th scope="col">Check</th></tr></thead>
+          <tbody>
+            <tr>
+              <th scope="row" style="font-weight: 700">Memory</th>
+              <td class="m">11.0 GB</td><td class="m">+ 1.2 GB</td>
+              <td><div role="img" aria-label="38 percent of 32 GB after install" style="height: 14px; border: 1.5px solid #111111; display: flex; background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), #111111 calc(10% - 1px) 10%)"><i style="width: 34.4%; background: #111111"></i><i style="width: 3.8%; background: repeating-linear-gradient(135deg, #111111 0 2px, #ffffff 2px 4px)"></i></div></td>
+              <td class="m">19.8 of 32 GB</td>
+              <td style="font-weight: 700; letter-spacing: 0.06em">PASS</td>
+            </tr>
+            <tr>
+              <th scope="row" style="font-weight: 700">System disk</th>
+              <td class="m">27 GB</td><td class="m">+ 1.9 GB</td>
+              <td><div role="img" aria-label="29 percent of 100 GB after install" style="height: 14px; border: 1.5px solid #111111; display: flex; background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), #111111 calc(10% - 1px) 10%)"><i style="width: 27%; background: #111111"></i><i style="width: 2.4%; background: repeating-linear-gradient(135deg, #111111 0 2px, #ffffff 2px 4px)"></i></div></td>
+              <td class="m">71 of 100 GB</td>
+              <td style="font-weight: 700; letter-spacing: 0.06em">PASS</td>
+            </tr>
+            <tr style="background: #fff4b8">
+              <th scope="row" style="font-weight: 700">Media drive</th>
+              <td class="m">68% full</td><td class="m">1 GB per 2,000 pages</td>
+              <td><div role="img" aria-label="68 percent full, growing" style="height: 14px; border: 1.5px solid #111111; display: flex; background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), #111111 calc(10% - 1px) 10%)"><i style="width: 68%; background: #111111"></i><i style="width: 12%; background: repeating-linear-gradient(135deg, #111111 0 2px, #ffd400 2px 4px)"></i></div></td>
+              <td class="m">full in 11 weeks</td>
+              <td style="font-weight: 700; letter-spacing: 0.06em">CAUTION</td>
+            </tr>
+            <tr>
+              <th scope="row" style="font-weight: 700">Port</th>
+              <td class="m">8000 is Portainer's</td><td class="m">takes 8011</td>
+              <td style="color: #444444; font-size: 12.5px">next free one</td>
+              <td class="m">no clash</td>
+              <td style="font-weight: 700; letter-spacing: 0.06em">PASS</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div role="note" style="border: 2.5px solid #111111">
+        <div style="height: 12px; background: repeating-linear-gradient(135deg, #111111 0 8px, #ffd400 8px 16px)"></div>
+        <div style="padding: 10px 14px 12px; background: #ffd400; display: flex; align-items: center; justify-content: space-between; gap: 10px 18px; flex-wrap: wrap">
+          <p style="margin: 0; flex: 1 1 320px; font-size: 14px"><b style="letter-spacing: 0.1em">CAUTION</b><br>The media drive is the tight one, and it was before this. Documents kept there make it fill sooner.</p>
+          <button type="button" style="min-height: 44px; padding: 0 14px; border: 2px solid #111111; background: #ffffff; color: #111111; font: 700 12.5px 'B612', sans-serif; letter-spacing: 0.06em; text-transform: uppercase">Use the system disk instead</button>
+        </div>
+      </div>
+    </section>
+
+    <section aria-label="Where it will answer" style="display: flex; flex-direction: column; gap: 8px">
+      <h2 style="margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase">2. Where it will answer</h2>
+      <ol type="a" style="margin: 0; padding-left: 26px; display: flex; flex-direction: column; gap: 7px">
+        <li><b>On your network.</b> <span style="font-family: 'B612 Mono', monospace; font-size: 13px">http://homebox:8011</span></li>
+        <li><b>Away from home, over Tailscale.</b> <span style="font-family: 'B612 Mono', monospace; font-size: 13px">homebox.[your-tailnet].ts.net:8011</span>, for devices signed in to your tailnet only.</li>
+        <li><b>On the internet: not published.</b> Your documents stay inside. Domains can publish it later.</li>
+      </ol>
+    </section>
+
+    <section aria-label="From the first night" style="display: flex; flex-direction: column; gap: 6px">
+      <h2 style="margin: 0 0 2px; font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase">3. From the first night</h2>
+      <label style="display: flex; gap: 12px; align-items: flex-start; min-height: 44px; cursor: pointer">
+        <input type="checkbox" checked style="width: 22px; height: 22px; margin: 1px 0 0; accent-color: #111111; flex: none">
+        <span><b>Back it up every night at 02:00, keep 7.</b><br><span style="font-size: 13px; color: #444444">Three of your seven apps have never been backed up. This one starts with a copy.</span></span>
+      </label>
+      <label style="display: flex; gap: 12px; align-items: flex-start; min-height: 44px; cursor: pointer">
+        <input type="checkbox" checked style="width: 22px; height: 22px; margin: 1px 0 0; accent-color: #111111; flex: none">
+        <span><b>Send each copy off this server too.</b><br><span style="font-size: 13px; color: #444444">To the cloud mirror you already set up. Sealed before it leaves.</span></span>
+      </label>
+    </section>
+
+    <footer style="margin-top: auto; border-top: 4px solid #111111; padding-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px 20px; flex-wrap: wrap">
+      <p style="margin: 0; flex: 1 1 280px; font-size: 13px; color: #444444">Starts 3 containers and adds 1 schedule. Nothing that is running now is stopped or changed. Uninstall takes it all back out.</p>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap">
+        <button type="button" style="min-height: 46px; padding: 0 18px; border: 2px solid #111111; background: #ffffff; color: #111111; font: 700 13px 'B612', sans-serif; letter-spacing: 0.08em; text-transform: uppercase">Not now</button>
+        <button type="button" style="min-height: 46px; padding: 0 18px 0 0; border: 2px solid #111111; background: #111111; color: #ffffff; font: 700 13px 'B612', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 14px"><span aria-hidden="true" style="align-self: stretch; width: 12px; background: repeating-linear-gradient(135deg, #111111 0 4px, #ffd400 4px 8px)"></span>Install · medium · about 3 min</button>
+      </div>
+    </footer>
+  </div>
+
+  <div style="display: flex; justify-content: space-between; gap: 12px; padding: 8px clamp(16px, 4vw, 40px) 12px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #444444">
+    <span>Change 239 · 10 Nov 2026</span>
+    <span>4-2</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":920,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

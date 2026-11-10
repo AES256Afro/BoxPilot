@@ -175,6 +175,9 @@ it("holds every app a several-app backup touches, and the shared dashboard when 
   expect(laneFor("app.backup.many", { ids: ["audhdmap", "protec"] })).toEqual(["app:audhdmap", "app:protec", "backup-tree", "host"]);
   // Each update writes its app's checkpoint into the backup tree, as one update does.
   expect(laneFor("app.update.many", { ids: ["jellyfin", "plex"] })).toEqual(["app:jellyfin", "app:plex", "backup-tree"]);
+  // The one that names no app holds the lane every app operation, and everything that restarts
+  // Docker or takes a drive away, waits on.
+  expect(laneFor("app.update.available", {})).toEqual(["docker", "backup-tree"]);
   expect(laneFor("app.reinstall", { id: "homepage" })).toEqual(["app:homepage"]);
   expect(laneFor("app.reinstall", { id: "it-tools" })).toEqual(["app:it-tools", "app:homepage"]);
 });

@@ -127,8 +127,7 @@ must have Wake-on-LAN enabled in its own firmware; BoxPilot cannot turn it on re
 ## Running DNS for your LAN
 
 Install Pi-hole, AdGuard Home or Technitium from the catalog. Pi-hole ships a bundled Unbound recursive resolver and uses it by default; AdGuard Home ships one you point it at during setup; Technitium resolves recursively on its own. Either way queries are answered from the root servers rather than forwarded to a public service.
-Unbound resolver, so queries are resolved directly rather than forwarded to a public service, and
-Pi-hole's manifest offers a blocklist picker at install time.
+Pi-hole offers a blocklist picker at install time.
 
 Once one is running, point your router's DHCP settings at this server's LAN address. BoxPilot does
 not change your router. That step is yours, and it is the one to undo first if the network

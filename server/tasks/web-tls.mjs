@@ -155,7 +155,8 @@ export async function webTlsProvision(
   await files.writeFile(envPath, env);
 
   // Open the HTTPS port for the network; harmless if it is already open.
-  await run(ufw, ["allow", `${tlsPort}/tcp`], { timeout: 30_000 }).catch(() => {});
+  const opened = await run(ufw, ["allow", `${tlsPort}/tcp`], { timeout: 30_000 });
+  if (!opened.ok) log?.(`ufw did not open ${tlsPort}/tcp: ${String(opened.stderr ?? "").trim().split("\n").at(-1) || "no reason given"}. Check the Firewall page.`, "stderr");
 
   // Restart a few seconds out so the response returns first. The plain HTTP path is untouched, so a
   // hiccup here cannot lock the owner out.

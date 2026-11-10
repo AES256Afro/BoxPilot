@@ -1,0 +1,477 @@
+/*
+ * The Workbook look (M57): the server as a spreadsheet. White cells on a faint grid, square corners,
+ * PT Sans for words and JetBrains Mono for figures; a panel is a range with a heading row, a table
+ * is the grid itself with its rows numbered down the left, a state is a cell filled the way
+ * conditional formatting fills one (green, yellow, red, each with its own dark ink), the search is
+ * the formula bar, and the areas are sheet tabs along the bottom. What is focused wears the
+ * selection rectangle. Light only: the same values whatever the device prefers. Every selector
+ * starts with :root[data-look="workbook"]. The drawing is docs/design-directions/06-two-square-looks.md.
+ */
+
+/* Every rule of the skin sits in @media (min-width: 0), which a browser matches at every width and
+   jsdom skips (see src/looks/swiss/skin.css for why). */
+@media (min-width: 0) {
+  :root[data-look="workbook"] {
+    color-scheme: light;
+    --workbook-bar: 38px;
+    --workbook-tabs: 34px;
+
+    --font-condensed: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+    --font-sans: "PT Sans", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --font-display: "PT Sans", "Helvetica Neue", Arial, sans-serif;
+
+    --cc-canvas: #ffffff;
+    --cc-topbar: #1f1f1f;
+    --cc-rail: #e9e9e9;
+    --cc-panel: #ffffff;
+    --cc-raised: #f1f1f1;
+    --cc-inset: #fafafa;
+    --cc-line: #d4d4d4;
+    --cc-hairline: #e4e4e4;
+    --cc-line-strong: #8f8f8f;
+    --cc-text: #1f1f1f;
+    --cc-text-strong: #1f1f1f;
+    --cc-muted: #5c5c5c;
+    --cc-icon: #5c5c5c;
+    /* The console's accent is the selection: blue buttons would shout, so it is the ink, and the
+       blue is kept for what is selected, focused or measured. */
+    --cc-amber: #1f1f1f;
+    --cc-amber-ink: #ffffff;
+    --cc-amber-bg: #dbe6fb;
+    --cc-amber-border: #1a56db;
+    --cc-cyan: #1a56db;
+    --cc-cyan-fill: rgba(26, 86, 219, 0.12);
+    --cc-green: #14532d;
+    --cc-green-bg: #dff2e1;
+    --cc-green-border: #14532d;
+    --cc-red: #8c1d18;
+    --cc-red-text: #8c1d18;
+    --cc-red-bg: #fde0dd;
+    --cc-red-border: #8c1d18;
+    --cc-track: #e4e4e4;
+
+    --radius-sm: 0;
+    --radius-md: 0;
+    --radius-lg: 0;
+    --radius-card: 0;
+    --radius-control: 0;
+    --radius-pill: 0;
+    --elevation-1: none;
+    --elevation-2: none;
+    --elevation-3: none;
+    --shadow-lg: none;
+    --shadow-xl: none;
+    --modal-bg: rgba(255, 255, 255, 0.92);
+    --backdrop-bg: rgba(31, 31, 31, 0.45);
+    --text-on-emphasis: #ffffff;
+    --lx-avatar: #ffffff;
+    --lx-avatar-ink: #1f1f1f;
+    --lx-focus: #1a56db;
+  }
+
+  /* The three fills of conditional formatting, each with an ink that reads on it and on white.
+     Set again on what opens over a page (.look-console). */
+  :root[data-look="workbook"],
+  :root[data-look="workbook"] .look-console {
+    --status-good: #14532d;
+    --status-good-text: #14532d;
+    --status-good-bg: #dff2e1;
+    --status-good-border: #14532d;
+    --status-warning: #8a6d00;
+    --status-warning-text: #6b4e00;
+    --status-warning-bg: #fff3c4;
+    --status-warning-border: #6b4e00;
+    --status-danger: #8c1d18;
+    --status-danger-text: #8c1d18;
+    --status-danger-bg: #fde0dd;
+    --status-danger-border: #8c1d18;
+    --status-neutral: #5c5c5c;
+    --status-neutral-text: #5c5c5c;
+    --status-neutral-bg: #f1f1f1;
+    --status-neutral-border: #8f8f8f;
+    --status-unknown: #5c5c5c;
+    --status-unknown-text: #5c5c5c;
+    --status-unknown-border: #8f8f8f;
+    --risk-low: #5c5c5c;
+    --risk-low-text: #5c5c5c;
+    --risk-low-bg: #f1f1f1;
+    --risk-low-border: #8f8f8f;
+    --risk-medium: #b77900;
+    --risk-medium-text: #6b4e00;
+    --risk-medium-bg: #fff3c4;
+    --risk-medium-border: #6b4e00;
+    --risk-high: #8c1d18;
+    --risk-high-text: #8c1d18;
+    --risk-high-bg: #fde0dd;
+    --risk-high-border: #8c1d18;
+    --warn: #8a6d00;
+    --warn-text: #6b4e00;
+    --danger: #8c1d18;
+    --danger-text: #8c1d18;
+    --success: #14532d;
+  }
+
+  /* ── Every page: white cells on the grid, square corners, the selection rectangle for focus ── */
+  :root[data-look="workbook"] body { background: #ffffff; }
+  :root[data-look="workbook"] .app-shell { color: #1f1f1f; background: #ffffff; }
+  :root[data-look="workbook"] *,
+  :root[data-look="workbook"] *::before,
+  :root[data-look="workbook"] *::after { border-radius: 0 !important; }
+  :root[data-look="workbook"] ::selection { color: #1f1f1f; background: #dbe6fb; }
+  :root[data-look="workbook"] :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid #1a56db; outline-offset: 1px; }
+  :root[data-look="workbook"] :is(.ui-table td, .ui-metric__value, .ui-kv__value, .ui-facts) { font-variant-numeric: tabular-nums; }
+
+  /* ── The bar: the title strip, and in it the formula bar ── */
+  :root[data-look="workbook"] .topbar {
+    position: sticky;
+    top: 0;
+    align-items: center;
+    gap: 0 18px;
+    height: var(--workbook-bar);
+    min-height: var(--workbook-bar);
+    padding: 0 16px;
+    border-bottom: 1px solid #8f8f8f;
+    color: #ffffff;
+    background: #1f1f1f;
+    backdrop-filter: none;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+  }
+  :root[data-look="workbook"] :is(.topbar-left, .topbar-slot) { display: contents; }
+  :root[data-look="workbook"] .topbar-slot:empty { display: none; }
+  :root[data-look="workbook"] .brand { display: flex; order: -2; font-family: "JetBrains Mono", monospace; font-size: 12.5px; font-weight: 700; letter-spacing: 0; }
+  :root[data-look="workbook"] .brand > span,
+  :root[data-look="workbook"] .brand small { display: none; }
+  :root[data-look="workbook"] .brand div { display: block; color: #ffffff; font-size: inherit; }
+  :root[data-look="workbook"] .cc-crumb { gap: 18px; font-size: 12.5px; }
+  :root[data-look="workbook"] .cc-crumb h1 { order: -1; color: #ffffff; font-family: "JetBrains Mono", monospace; font-size: 12.5px; font-weight: 700; text-transform: none; }
+  :root[data-look="workbook"] .cc-crumb__host { color: #c9c9c9; font-size: 12.5px; font-weight: 500; }
+  :root[data-look="workbook"] .cc-crumb__sep { display: none; }
+  :root[data-look="workbook"] .cc-kv { margin-left: 0; color: #c9c9c9; font-family: "JetBrains Mono", monospace; font-size: 12px; }
+  :root[data-look="workbook"] .cc-kv b { color: #ffffff; font-weight: 700; }
+
+  :root[data-look="workbook"] .command-trigger {
+    flex: 1 1 14rem;
+    max-width: 30rem;
+    min-height: 26px;
+    margin-left: auto;
+    padding: 0 9px;
+    border: 1px solid #8f8f8f;
+    color: #1f1f1f;
+    background: #ffffff;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+  }
+  :root[data-look="workbook"] .command-trigger::before { margin-right: 9px; padding-right: 9px; border-right: 1px solid #d4d4d4; color: #5c5c5c; font: italic 500 12px "JetBrains Mono", monospace; content: "fx"; }
+  :root[data-look="workbook"] .command-trigger svg { display: none; }
+  :root[data-look="workbook"] .command-trigger__label { color: #5c5c5c; }
+  :root[data-look="workbook"] .command-trigger__keys { padding: 0 4px; border: 1px solid #d4d4d4; color: #5c5c5c; background: #f1f1f1; font: 500 10.5px/1.5 "JetBrains Mono", monospace; }
+  :root[data-look="workbook"] .command-trigger:hover { border-color: #1a56db; box-shadow: inset 0 0 0 1px #1a56db; }
+  :root[data-look="workbook"] .topbar :is(button, a):focus-visible { outline-color: #8fb4ff; }
+  :root[data-look="workbook"] .topbar-right { gap: 16px; margin-left: 0; }
+  :root[data-look="workbook"] .ui-theme-switch { display: none; }
+  :root[data-look="workbook"] .connection-pill { padding: 0; border: 0; color: #c9c9c9; background: none; font: 400 12px "JetBrains Mono", monospace; }
+  :root[data-look="workbook"] .connection-pill::before { display: none; }
+  :root[data-look="workbook"] .bar-button { min-height: 0; padding: 0; color: #ffffff; font-family: "PT Sans", sans-serif; font-size: 13.5px; font-weight: 700; }
+  :root[data-look="workbook"] .bar-button:hover { text-decoration: underline; }
+  :root[data-look="workbook"] .bar-button[data-live] { color: #ffffff; }
+  :root[data-look="workbook"] .bar-badge { min-width: 0; height: auto; padding: 0 5px; color: #6b4e00; background: #fff3c4; font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 700; }
+  :root[data-look="workbook"] .bar-label { padding: 0; border: 0; color: #c9c9c9; font-family: "JetBrains Mono", monospace; font-size: 11.5px; }
+  :root[data-look="workbook"] .bar-lock { color: #ffd76a; }
+  :root[data-look="workbook"] .signed-in-user { color: #ffffff; font-family: "PT Sans", sans-serif; font-size: 13.5px; font-weight: 700; }
+  :root[data-look="workbook"] .signed-in-user__avatar { display: none; }
+
+  /* ── The areas: sheet tabs along the bottom, Home and Ops first ── */
+  @media (min-width: 761px) {
+    :root[data-look="workbook"] .view-switch {
+      position: fixed;
+      z-index: 11;
+      bottom: var(--shell-bottom-inset, 0px);
+      left: 0;
+      display: flex;
+      gap: 0;
+      width: 112px;
+      height: var(--workbook-tabs);
+      align-items: stretch;
+      padding: 0;
+      border: 0;
+      border-top: 1px solid #8f8f8f;
+      background: #e9e9e9;
+    }
+    :root[data-look="workbook"] .view-switch__option {
+      min-height: 0;
+      flex: 1 1 0;
+      justify-content: center;
+      padding: 0 6px;
+      border: 0;
+      border-right: 1px solid #b5b5b5;
+      color: #1f1f1f;
+      background: #e9e9e9;
+      font: 400 13px/1 "PT Sans", sans-serif;
+      box-shadow: none;
+    }
+    :root[data-look="workbook"] .view-switch__option svg { display: none; }
+    :root[data-look="workbook"] .view-switch__option:hover { background: #f6f6f6; }
+    :root[data-look="workbook"] .view-switch__option[aria-current="page"] { background: #ffffff; font-weight: 700; box-shadow: inset 0 3px 0 #1a56db; }
+
+    :root[data-look="workbook"] .shell-dock.shell-dock--top {
+      position: fixed;
+      z-index: 10;
+      top: auto;
+      right: 0;
+      bottom: var(--shell-bottom-inset, 0px);
+      left: 112px;
+      display: block;
+      height: var(--workbook-tabs);
+      padding: 0;
+      border-top: 1px solid #8f8f8f;
+      background: #e9e9e9;
+      pointer-events: auto;
+    }
+    :root[data-look="workbook"] .ui-dock.shell-dock--top ul {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: stretch;
+      gap: 0;
+      height: calc(var(--workbook-tabs) - 1px);
+      padding: 0;
+      overflow: hidden;
+      border: 0;
+      background: none;
+      box-shadow: none;
+      backdrop-filter: none;
+    }
+    :root[data-look="workbook"] .shell-dock--top .ui-dock__separator { width: 0; margin: 0; border-left: 2px solid #8f8f8f; background: none; }
+    :root[data-look="workbook"] .shell-dock--top .ui-dock__item { display: flex; height: 100%; align-items: center; gap: 6px; width: auto; padding: 0 13px; border-right: 1px solid #b5b5b5; }
+    :root[data-look="workbook"] .shell-dock--top .ui-dock__icon { display: contents; }
+    :root[data-look="workbook"] .shell-dock--top .ui-dock__icon svg { display: none; }
+    :root[data-look="workbook"] .shell-dock--top .ui-dock__label { order: -1; max-width: none; overflow: visible; color: #1f1f1f; font: 400 13px/1 "PT Sans", sans-serif; }
+    :root[data-look="workbook"] .shell-dock--top .ui-dock__badge { position: static; min-width: 0; height: auto; padding: 1px 4px; color: #8c1d18; background: #fde0dd; box-shadow: none; font: 700 10.5px/1 "JetBrains Mono", monospace; }
+    :root[data-look="workbook"] .shell-dock--top .ui-dock__item:hover { background: #f6f6f6; }
+    :root[data-look="workbook"] .shell-dock--top .ui-dock__item[aria-current="page"] { background: #ffffff; box-shadow: inset 0 3px 0 #1a56db; }
+    :root[data-look="workbook"] .shell-dock--top .ui-dock__item[aria-current="page"] .ui-dock__label { font-weight: 700; }
+    :root[data-look="workbook"] .shell-dock--top .ui-dock__item:focus-visible { outline-offset: -3px; }
+  }
+
+  /* ── The page: the sheet, its grid showing between the ranges ── */
+  :root[data-look="workbook"] .content {
+    max-width: none;
+    padding: 18px 22px calc(var(--shell-bottom-inset, 0px) + var(--workbook-tabs) + 34px);
+    background-image: linear-gradient(#ececec 1px, transparent 1px), linear-gradient(90deg, #ececec 1px, transparent 1px);
+    background-size: 112px 28px;
+  }
+  :root[data-look="workbook"] .content--console { gap: 16px; }
+
+  :root[data-look="workbook"] .ui-page-header { gap: 8px 18px; padding: 0 0 2px; background: #ffffff; }
+  :root[data-look="workbook"] .ui-page-header__summary { color: #1f1f1f; font-size: 16px; line-height: 1.4; }
+  :root[data-look="workbook"] .ui-facts { color: #5c5c5c; font-family: "JetBrains Mono", monospace; font-size: 12.5px; }
+  :root[data-look="workbook"] .ui-facts b { color: #1f1f1f; font-weight: 700; }
+  :root[data-look="workbook"] .ui-info-toggle { border: 1px solid #8f8f8f; color: #1f1f1f; background: #ffffff; }
+
+  /* A panel is a range: a framed block of cells under a heading row. */
+  :root[data-look="workbook"] .ui-panel { overflow: visible; border: 1px solid #8f8f8f; background: #ffffff; }
+  :root[data-look="workbook"] .ui-panel__head { min-height: 0; padding: 6px 10px; border-bottom: 2px solid #1f1f1f; background: #fafafa; }
+  :root[data-look="workbook"] .ui-panel__title { color: #1f1f1f; font-family: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  :root[data-look="workbook"] .ui-panel__count { color: #1f1f1f; font-family: "JetBrains Mono", monospace; }
+  :root[data-look="workbook"] .ui-panel__count[data-status="warning"] { padding: 0 5px; color: #6b4e00; background: #fff3c4; }
+  :root[data-look="workbook"] .ui-panel__count[data-status="danger"] { padding: 0 5px; color: #8c1d18; background: #fde0dd; }
+  :root[data-look="workbook"] .ui-panel__meta { color: #5c5c5c; font-family: "JetBrains Mono", monospace; font-size: 12px; }
+  :root[data-look="workbook"] .ui-panel__meta b { color: #1f1f1f; font-weight: 700; }
+  :root[data-look="workbook"] .ui-panel--padded > .ui-panel__body { padding: 10px; }
+  :root[data-look="workbook"] .ui-panel__foot { padding: 6px 10px; border-top: 1px solid #d4d4d4; color: #5c5c5c; background: #fafafa; font-family: "PT Sans", sans-serif; font-size: 13px; }
+  :root[data-look="workbook"] .cc .ops-quiet,
+  :root[data-look="workbook"] .ops-quiet { padding: 8px 10px; color: #5c5c5c; }
+  :root[data-look="workbook"] .ui-card { border: 1px solid #8f8f8f; background: #ffffff; box-shadow: none; }
+
+  /* Figures: one cell each, its name in the heading fill, its bar drawn in the cell. */
+  :root[data-look="workbook"] .ui-metric,
+  :root[data-look="workbook"] .ui-metric[data-status] { min-height: 0; padding: 7px 10px 8px; border: 1px solid #8f8f8f; background: #ffffff; box-shadow: none; }
+  :root[data-look="workbook"] .ui-metric[data-status="good"] { background: #ffffff; }
+  :root[data-look="workbook"] .ui-metric[data-status="warning"] { background: #fff3c4; }
+  :root[data-look="workbook"] .ui-metric[data-status="danger"] { background: #fde0dd; }
+  :root[data-look="workbook"] .ui-metric--link:hover { box-shadow: inset 0 0 0 2px #1a56db; }
+  :root[data-look="workbook"] .ui-metric__value { margin-top: 2px; color: #1f1f1f; font: 700 25px/1.1 "JetBrains Mono", monospace; letter-spacing: -0.02em; }
+  :root[data-look="workbook"] .ui-metric__value small { color: #1f1f1f; font-size: 13px; font-weight: 500; }
+  :root[data-look="workbook"] .ui-metric__label { color: #5c5c5c; font-family: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  :root[data-look="workbook"] .ui-metric__caption { color: #5c5c5c; font-size: 12.5px; }
+  :root[data-look="workbook"] .ui-metric[data-status="warning"] :is(.ui-metric__label, .ui-metric__caption) { color: #6b4e00; }
+  :root[data-look="workbook"] .ui-metric[data-status="danger"] :is(.ui-metric__label, .ui-metric__caption) { color: #8c1d18; }
+  :root[data-look="workbook"] .ui-metric__bar { height: 6px; background: #e4e4e4; }
+  :root[data-look="workbook"] .ui-metric__bar > i,
+  :root[data-look="workbook"] .ui-metric[data-status] .ui-metric__bar > i { background: #1a56db; }
+  :root[data-look="workbook"] .ui-metric[data-status="warning"] .ui-metric__bar > i { background: #8a6d00; }
+  :root[data-look="workbook"] .ui-metric[data-status="danger"] .ui-metric__bar > i { background: #8c1d18; }
+  :root[data-look="workbook"] .ui-spark__line { stroke: #1a56db; }
+  :root[data-look="workbook"] .ui-spark__area { fill: rgba(26, 86, 219, 0.1); }
+  :root[data-look="workbook"] .ui-kv--strip { border: 1px solid #8f8f8f; background: #ffffff; }
+  :root[data-look="workbook"] .ui-kv--strip .ui-kv__item { padding: 7px 12px; border-right: 1px solid #d4d4d4; box-shadow: none; }
+  :root[data-look="workbook"] .ui-kv--strip .ui-kv__value { font: 700 17px/1.2 "JetBrains Mono", monospace; }
+  :root[data-look="workbook"] .ui-kv__label,
+  :root[data-look="workbook"] .ui-kv--columns .ui-kv__label,
+  :root[data-look="workbook"] .ui-kv--strip .ui-kv__label { color: #5c5c5c; font-family: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  :root[data-look="workbook"] .ui-kv--rows .ui-kv__item { border-top-color: #d4d4d4; }
+
+  /* Tables are the grid: every cell ruled, the heading row filled. */
+  :root[data-look="workbook"] .ui-table { font-size: 13.5px; }
+  :root[data-look="workbook"] .ui-table th { height: 28px; border-bottom: 2px solid #1f1f1f; color: #1f1f1f; background: #f1f1f1; font-family: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; }
+  :root[data-look="workbook"] .ui-table td { height: 30px; border-bottom: 1px solid #d4d4d4; color: #1f1f1f; font-family: "JetBrains Mono", monospace; font-size: 12.5px; }
+  :root[data-look="workbook"] .ui-table :is(th, td) + :is(th, td) { border-left: 1px solid #d4d4d4; }
+  :root[data-look="workbook"] .ui-table tbody tr:hover td { background: #eef3fd; }
+  /* Rows numbered down the left, the heading row being 1, while the table is still a table. */
+  @media (min-width: 761px) {
+    :root[data-look="workbook"] .ui-table tbody { counter-reset: workbook-row 1; }
+    :root[data-look="workbook"] .ui-table tbody tr { counter-increment: workbook-row; }
+    :root[data-look="workbook"] .ui-table :is(thead, tbody) tr > :first-child { padding-left: 0; }
+    :root[data-look="workbook"] .ui-table :is(thead, tbody) tr > :first-child::before { display: inline-block; width: 30px; margin-right: 9px; border-right: 1px solid #d4d4d4; color: #5c5c5c; background: #f1f1f1; font: 500 11px/29px "JetBrains Mono", monospace; text-align: center; vertical-align: middle; content: counter(workbook-row); }
+    :root[data-look="workbook"] .ui-table thead tr > :first-child::before { line-height: 27px; content: "1"; }
+  }
+  :root[data-look="workbook"] .ui-table .ops-link { color: #1f1f1f; font-family: "PT Sans", sans-serif; font-size: 14px; font-weight: 700; }
+  :root[data-look="workbook"] .ui-table__caption { padding: 6px 10px; color: #5c5c5c; }
+  :root[data-look="workbook"] .ui-table__sort { color: inherit; font: inherit; letter-spacing: inherit; }
+  :root[data-look="workbook"] .ui-table th[aria-sort="ascending"],
+  :root[data-look="workbook"] .ui-table th[aria-sort="descending"] { color: #1a56db; background: #dbe6fb; }
+  :root[data-look="workbook"] .cc-tag,
+  :root[data-look="workbook"] .ui-tag { padding: 0 5px; border: 1px solid #8f8f8f; color: #1f1f1f; background: #f1f1f1; font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 500; }
+  :root[data-look="workbook"] :is(.cc-tag[data-reach="LAN"], .ui-tag--accent, .ui-tag--warning, .ui-tag[data-reach="lan"]) { border-color: #6b4e00; color: #6b4e00; background: #fff3c4; }
+  :root[data-look="workbook"] :is(.ui-tag--danger, .ui-tag[data-reach="public"]) { border-color: #8c1d18; color: #8c1d18; background: #fde0dd; }
+  :root[data-look="workbook"] .ui-tag--good { border-color: #14532d; color: #14532d; background: #dff2e1; }
+  :root[data-look="workbook"] .ui-tag--info { border-color: #1a56db; color: #1a3fa0; background: #dbe6fb; }
+  :root[data-look="workbook"] .ops-bar,
+  :root[data-look="workbook"] .cc .ops-bar { background: #e4e4e4; }
+  :root[data-look="workbook"] :is(.ops-bar, .cc .ops-bar) > i { background: #1a56db; }
+
+  /* A state is a filled cell. */
+  :root[data-look="workbook"] .ui-chip { padding: 1px 6px; border: 0; background: #f1f1f1; font-family: "PT Sans", sans-serif; font-size: 12.5px; font-weight: 700; }
+  :root[data-look="workbook"] .ui-chip--good { color: #14532d; background: #dff2e1; }
+  :root[data-look="workbook"] .ui-chip--warning { color: #6b4e00; background: #fff3c4; }
+  :root[data-look="workbook"] .ui-chip--danger { color: #8c1d18; background: #fde0dd; }
+  :root[data-look="workbook"] .ui-chip--unknown { border: 1px dashed #8f8f8f; background: #ffffff; }
+  :root[data-look="workbook"] .ui-page-header__verdict { padding: 4px 10px; border: 1px solid currentColor; font-size: 13.5px; }
+  :root[data-look="workbook"] .ui-risk { padding: 0 5px; border: 1px solid currentColor; font-family: "JetBrains Mono", monospace; font-size: 10.5px; font-weight: 700; }
+
+  /* Buttons: plain ruled rectangles; the one that leads is filled with ink. A medium job's has a
+     yellow edge, a high one's a red. */
+  :root[data-look="workbook"] .ui-button { min-height: 30px; padding: 0 11px; border: 1px solid #1f1f1f; color: #1f1f1f; background: #ffffff; font-family: "PT Sans", sans-serif; font-size: 13.5px; font-weight: 700; }
+  :root[data-look="workbook"] .ui-button:hover:not(:disabled) { border-color: #1a56db; color: #1f1f1f; background: #dbe6fb; }
+  :root[data-look="workbook"] .ui-button--primary { border-color: #1f1f1f; color: #ffffff; background: #1f1f1f; }
+  :root[data-look="workbook"] .ui-button--primary:hover:not(:disabled) { border-color: #1a56db; color: #ffffff; background: #1a56db; }
+  :root[data-look="workbook"] .ui-button--ghost { border-color: transparent; color: #1f1f1f; background: none; text-decoration: underline; text-underline-offset: 3px; }
+  :root[data-look="workbook"] .ui-button--ghost:hover:not(:disabled) { border-color: transparent; background: #dbe6fb; }
+  :root[data-look="workbook"] :is(.ui-button--risk-medium, .ui-button--risk-high) { padding-left: 17px; }
+  :root[data-look="workbook"] .ui-button--risk-medium::before { top: 0; bottom: 0; left: 0; width: 6px; height: auto; background: #d99a00; }
+  :root[data-look="workbook"] .ui-button--risk-high::before { top: 0; bottom: 0; left: 0; width: 6px; height: auto; background: #c5281f; }
+  :root[data-look="workbook"] .ui-button__tier,
+  :root[data-look="workbook"] .ui-button .ui-button__tier { padding: 0 4px; border: 1px solid currentColor; color: inherit; background: none; font-size: 10.5px; }
+  :root[data-look="workbook"] .ui-button__lock { color: inherit; }
+
+  /* Tabs inside a page: a smaller row of sheet tabs. */
+  :root[data-look="workbook"] .ui-tabs__list { gap: 0; border-bottom: 1px solid #8f8f8f; background: #ffffff; }
+  :root[data-look="workbook"] .ui-tabs__tab { min-height: 32px; margin-bottom: -1px; padding: 0 13px; border: 1px solid transparent; border-bottom: 0; color: #1f1f1f; font-family: "PT Sans", sans-serif; font-size: 14px; font-weight: 400; }
+  :root[data-look="workbook"] .ui-tabs__tab:hover { background: #f1f1f1; }
+  :root[data-look="workbook"] .ui-tabs__tab[aria-selected="true"] { border-color: #8f8f8f; background: #ffffff; font-weight: 700; box-shadow: inset 0 3px 0 #1a56db, 0 1px 0 #ffffff; }
+  :root[data-look="workbook"] .ui-tabs__count,
+  :root[data-look="workbook"] .ui-tabs__tab[aria-selected="true"] .ui-tabs__count { color: #5c5c5c; font-family: "JetBrains Mono", monospace; font-size: 11.5px; }
+
+  /* Forms: a cell you can type in. */
+  :root[data-look="workbook"] :is(.ui-input, .ui-textarea, .ui-select__control) { border: 1px solid #8f8f8f; color: #1f1f1f; background: #ffffff; font-family: "PT Sans", sans-serif; }
+  :root[data-look="workbook"] :is(.ui-input, .ui-textarea, .ui-select__control):focus-visible { border-color: #1a56db; outline: 2px solid #1a56db; outline-offset: 0; }
+  :root[data-look="workbook"] .ui-field__label { color: #1f1f1f; font-weight: 700; }
+  :root[data-look="workbook"] .ui-secret__toggle { border: 1px solid #8f8f8f; color: #1f1f1f; background: #f1f1f1; }
+  :root[data-look="workbook"] .ui-switch__track { border: 1px solid #1f1f1f; background: #ffffff; }
+  :root[data-look="workbook"] .ui-switch__thumb { top: 2px; left: 2px; width: 12px; height: 12px; background: #5c5c5c; }
+  :root[data-look="workbook"] .ui-switch__control[aria-checked="true"] .ui-switch__track { border-color: #1a56db; background: #1a56db; }
+  :root[data-look="workbook"] .ui-switch__control[aria-checked="true"] .ui-switch__thumb { background: #ffffff; }
+  :root[data-look="workbook"] .ui-switch__state { color: #1f1f1f; font-family: "JetBrains Mono", monospace; font-size: 11.5px; font-weight: 700; text-transform: uppercase; }
+  :root[data-look="workbook"] .ui-check__mark { border: 1px solid #1f1f1f; background: #ffffff; }
+  :root[data-look="workbook"] :is(.ui-check__input:checked, .ui-check__input:indeterminate) + .ui-check__mark { border-color: #1a56db; background: #1a56db; }
+  :root[data-look="workbook"] .ui-check__mark::after { border-color: #ffffff; }
+  :root[data-look="workbook"] .ui-segmented { gap: 0; padding: 0; border: 1px solid #1f1f1f; background: #ffffff; }
+  :root[data-look="workbook"] .ui-segmented__option { min-height: 28px; color: #1f1f1f; font-family: "PT Sans", sans-serif; font-weight: 700; }
+  :root[data-look="workbook"] .ui-segmented__option + .ui-segmented__option { border-left: 1px solid #1f1f1f; }
+  :root[data-look="workbook"] .ui-segmented__option[aria-checked="true"] { color: #ffffff; background: #1f1f1f; box-shadow: none; }
+  :root[data-look="workbook"] .ui-search__icon { color: #5c5c5c; }
+
+  /* A notice is a comment on the sheet: the yellow note pinned beside its cell. */
+  :root[data-look="workbook"] .ui-notice { padding: 9px 12px; border: 1px solid #8f8f8f; background: #fafafa; box-shadow: none; }
+  :root[data-look="workbook"] .ui-notice--warning { border-color: #8a6d00; background: #fff8d6; box-shadow: 3px 3px 0 rgba(31, 31, 31, 0.16); }
+  :root[data-look="workbook"] .ui-notice--danger { border-color: #8c1d18; background: #fde0dd; box-shadow: 3px 3px 0 rgba(31, 31, 31, 0.16); }
+  :root[data-look="workbook"] .ui-notice__title { font-weight: 700; }
+  :root[data-look="workbook"] .need,
+  :root[data-look="workbook"] .need[data-severity],
+  :root[data-look="workbook"] .need.need--lead { padding: 8px 10px; border-top: 1px solid #d4d4d4; box-shadow: none; }
+  :root[data-look="workbook"] .need:first-child { border-top: 0; }
+  :root[data-look="workbook"] .need[data-severity="warning"] { background: #fffbe8; }
+  :root[data-look="workbook"] .need[data-severity="danger"] { background: #fff1ef; }
+  :root[data-look="workbook"] .need__title { color: #1f1f1f; font-weight: 700; }
+  :root[data-look="workbook"] .need__title:hover { color: #1a56db; }
+  :root[data-look="workbook"] .ui-empty__icon { border: 1px solid #8f8f8f; color: #5c5c5c; }
+  :root[data-look="workbook"] .ui-code { border: 1px solid #8f8f8f; background: #fafafa; }
+  :root[data-look="workbook"] .ui-code__bar { border-bottom: 1px solid #d4d4d4; background: #f1f1f1; }
+  :root[data-look="workbook"] .ui-job { border: 1px solid #8f8f8f; background: #ffffff; }
+  :root[data-look="workbook"] .ui-progress__track { height: 6px; background: #e4e4e4; }
+  :root[data-look="workbook"] .ui-progress__fill { background: #1a56db; }
+
+  :root[data-look="workbook"] :is(.ui-app-icon, .ui-tile__icon) { box-shadow: none; }
+  :root[data-look="workbook"] .ui-tile:hover { border-color: transparent; background: #eef3fd; box-shadow: inset 0 0 0 2px #1a56db; }
+  :root[data-look="workbook"] .ui-tile__name { color: #1f1f1f; font-weight: 700; }
+  :root[data-look="workbook"] .ui-tile__mark { box-shadow: 0 0 0 2px #ffffff; }
+
+  /* Sheets and dialogs: a window with a grey title row. */
+  :root[data-look="workbook"] :is(.ui-sheet, .approve-dialog, .command-dialog) { border: 1px solid #1f1f1f; background: #ffffff; box-shadow: 6px 6px 0 rgba(31, 31, 31, 0.2); }
+  :root[data-look="workbook"] .ui-sheet--right { border-width: 0 0 0 1px; box-shadow: none; }
+  :root[data-look="workbook"] :is(.ui-sheet__head, .approve-head) { border-bottom: 1px solid #8f8f8f; background: #f1f1f1; }
+  :root[data-look="workbook"] :is(.ui-sheet__title, .approve-title) { color: #1f1f1f; font-family: "PT Sans", sans-serif; font-weight: 700; }
+  :root[data-look="workbook"] :is(.ui-sheet__close, .approve-close) { border: 1px solid #8f8f8f; color: #1f1f1f; background: #ffffff; }
+  :root[data-look="workbook"] .approve-tier,
+  :root[data-look="workbook"] .approve-tier[data-tier] { border: 1px solid #8f8f8f; background: #f1f1f1; box-shadow: none; }
+  :root[data-look="workbook"] .approve-tier[data-tier="medium"] { border-color: #6b4e00; background: #fff3c4; }
+  :root[data-look="workbook"] .approve-tier[data-tier="high"] { border-color: #8c1d18; background: #fde0dd; }
+  :root[data-look="workbook"] :is(.approve-preview, .approve-staged, .approve-once) { border: 1px solid #d4d4d4; background: #fafafa; }
+  :root[data-look="workbook"] .approve-foot { border-top: 1px solid #8f8f8f; background: #fafafa; }
+  :root[data-look="workbook"] .command-input:focus-within { box-shadow: inset 0 0 0 2px #1a56db; }
+  :root[data-look="workbook"] .command-option[aria-selected="true"] { color: #1f1f1f; background: #dbe6fb; box-shadow: inset 0 0 0 2px #1a56db; }
+  :root[data-look="workbook"] .command-group { color: #5c5c5c; font-family: "IBM Plex Sans Condensed", sans-serif; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  :root[data-look="workbook"] .command-close { border: 1px solid #8f8f8f; color: #1f1f1f; background: #ffffff; }
+
+  :root[data-look="workbook"] .settings-appearance { padding: 12px; border: 1px solid #8f8f8f; background: #ffffff; box-shadow: none; }
+  :root[data-look="workbook"] .settings-appearance__title { font-weight: 700; }
+  :root[data-look="workbook"] .settings-appearance__now { border: 2px solid #1a56db; background: #ffffff; }
+
+  /* ── A narrower window: the formula bar keeps its fx and gives up its words ── */
+  @media (max-width: 1100px) {
+    :root[data-look="workbook"] .command-trigger { flex: 0 0 auto; }
+    :root[data-look="workbook"] .command-trigger__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
+
+  /* ── A phone: the strip wraps, and the sheet tabs along the bottom carry their icons ── */
+  @media (max-width: 760px) {
+    :root[data-look="workbook"] .topbar { position: static; flex-wrap: wrap; height: auto; min-height: 0; gap: 8px 12px; padding: 9px 14px; }
+    :root[data-look="workbook"] .cc-crumb { gap: 10px; }
+    :root[data-look="workbook"] .brand { display: none; }
+    :root[data-look="workbook"] .view-switch { gap: 0; padding: 0; border: 1px solid #8f8f8f; background: none; }
+    :root[data-look="workbook"] .view-switch__option { min-height: 28px; padding: 0 10px; border: 0; color: #ffffff; background: none; font: 400 13px/1 "PT Sans", sans-serif; box-shadow: none; }
+    :root[data-look="workbook"] .view-switch__option svg { display: none; }
+    :root[data-look="workbook"] .view-switch__option[aria-current="page"] { color: #1f1f1f; background: #ffffff; font-weight: 700; }
+    :root[data-look="workbook"] .command-trigger { flex: 0 0 auto; width: auto; min-width: 0; }
+    :root[data-look="workbook"] .topbar-right { gap: 12px; }
+    :root[data-look="workbook"] .content { padding: 12px 12px calc(var(--shell-bottom-inset, 0px) + 96px); }
+    :root[data-look="workbook"] .shell-dock { right: 0; bottom: var(--shell-bottom-inset, 0px); left: 0; }
+    :root[data-look="workbook"] .ui-dock.shell-dock ul { width: 100%; justify-content: space-around; gap: 0; padding: 0; border: 0; border-top: 1px solid #8f8f8f; background: #e9e9e9; box-shadow: none; backdrop-filter: none; }
+    :root[data-look="workbook"] .shell-dock .ui-dock__item { flex: 1 1 0; width: auto; padding: 6px 2px 7px; border-right: 1px solid #b5b5b5; }
+    :root[data-look="workbook"] .shell-dock .ui-dock__icon { width: 30px; height: 24px; border: 0; color: #1f1f1f; background: none; }
+    :root[data-look="workbook"] .shell-dock .ui-dock__icon svg { width: 18px; height: 18px; }
+    :root[data-look="workbook"] .shell-dock .ui-dock__label { color: #1f1f1f; font: 400 11px/1.2 "PT Sans", sans-serif; }
+    :root[data-look="workbook"] .shell-dock .ui-dock__item:hover .ui-dock__icon { border-color: transparent; color: #1f1f1f; background: none; }
+    :root[data-look="workbook"] .shell-dock .ui-dock__item[aria-current="page"] { background: #ffffff; box-shadow: inset 0 3px 0 #1a56db; }
+    :root[data-look="workbook"] .shell-dock .ui-dock__item[aria-current="page"] .ui-dock__label { font-weight: 700; }
+    :root[data-look="workbook"] .shell-dock .ui-dock__badge { top: -3px; right: -8px; min-width: 16px; height: 16px; color: #8c1d18; background: #fde0dd; box-shadow: 0 0 0 1px #8c1d18; }
+    :root[data-look="workbook"] .shell-dock .ui-dock__separator { display: none; }
+  }
+
+  /* A finger, not a pointer: the kit's 44px targets, which this skin's own smaller sizes would undo. */
+  @media (pointer: coarse) {
+    :root[data-look="workbook"] :is(.ui-button, .ui-tabs__tab, .ui-segmented__option, .ui-select__control, .ui-input, .ui-textarea, .ui-switch__control, .ui-secret__toggle, .bar-button, .command-trigger, .view-switch__option) { min-height: 44px; }
+    :root[data-look="workbook"] :is(.ui-info-toggle, .ui-sheet__close, .approve-close) { width: 44px; height: 44px; }
+  }
+}

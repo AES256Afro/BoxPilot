@@ -16,6 +16,36 @@ export function cleanServedPath(value, denyPrefixes, { forbidden = /[\0\r\n]/ } 
   return trimmed;
 }
 
+/**
+ * Where data is expected to live: mounted drives and what the owner put under /srv. A share or an
+ * export of a folder anywhere else (/var/www, /var/log, a service's state under /var/lib) is the
+ * owner's call, with a password: Samba writes as the folder's owner and NFS squashes every client to
+ * it, so a served service folder is that service's account, and many of those run code as root.
+ */
+export const dataRoots = Object.freeze(["/mnt", "/media", "/srv"]);
+export const insideDataRoots = (path) => typeof path === "string" && dataRoots.some((root) => (path.replace(/\/+$/, "") || "/").startsWith(`${root}/`));
+
+/** Whether any served folder is outside the data roots. */
+export function servesOutsideDataRoots(paths) {
+  return (paths ?? []).some((path) => !insideDataRoots(path));
+}
+
+/**
+ * A folder under a data root that a link leads out of is refused, as one that reaches a home through
+ * a link is: the approval, and its tier, were given for the path as written.
+ */
+export function outsideThroughLink(path, real) {
+  return insideDataRoots(path) && !insideDataRoots(real) ? `${path} leads to ${real}, which is outside ${dataRoots.join(", ")}; share that folder by its own path` : null;
+}
+
+/**
+ * State no one needs served over the network, and that is root when it is: dpkg's maintainer
+ * scripts, apt's lists, the cron spool, cloud-init's boot scripts, systemd's state, and BoxPilot's
+ * own runner and gateway beside /var/lib/boxpilot. Added to both servers' refusals (and to the
+ * page's copy of them, src/servedFolder.ts).
+ */
+export const systemStatePrefixes = Object.freeze(["/var/lib/dpkg", "/var/lib/apt", "/var/spool", "/var/lib/cloud", "/var/lib/systemd", "/var/lib/boxpilot-agents", "/var/lib/boxpilot-model-gateway"]);
+
 /** Where the server's login accounts live. */
 export const homeRoot = "/home";
 

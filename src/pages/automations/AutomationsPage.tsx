@@ -3,23 +3,27 @@ import { JobLogView } from "../../JobLogView";
 import { countOf } from "../../data";
 import { mountpointFor } from "../../mountpoints";
 import { inspectOperation } from "../../operations";
-import { Button, CodeBlock, EmptyState, KeyValue, Notice, PageHeader, Panel, Sheet, StatusChip, Tabs, Tag, type KeyValueItem, type Status } from "../../ui";
+import { Button, CodeBlock, EmptyState, KeyValue, Notice, PageHeader, Panel, Sheet, StatusChip, Tabs, Tag, useUrlParam, type KeyValueItem, type Status } from "../../ui";
 import type { RiskTier } from "../../ui/types";
 import { FlowBuilder } from "./FlowBuilder";
 import SchedulesPanel, { lastRunOf, useSchedules } from "./SchedulesPanel";
+import TonightPanel from "./TonightPanel";
 import { cadenceLabel, flowFailed, flowTierWords, humanize, settingText, type Flow, type OwnerStepToKeep, type PaletteStep, type ShelfItem } from "./flows";
 import "./automations.css";
 
 /*
  * Automations (M13.2, ADR-002; rebuilt on the kit in M33.11): ordered lists of registered
  * operations, run as ordinary jobs, and the schedules that run single operations on a cadence.
- * Facts first: whether anything failed or fell behind, then the three jobs the page does, a tab
- * each: your automations, the schedules, and the shelf of ready-made flows that already know what
- * a home server gets wrong, added with one click and then editable like anything built by hand.
+ * Facts first: whether anything failed or fell behind, then the jobs the page does, a tab each:
+ * your automations, the schedules, tonight (what the server will do by itself over the coming
+ * night, on a time axis, with the jobs that will run into each other), and the shelf of ready-made
+ * flows that already know what a home server gets wrong, added with one click and then editable
+ * like anything built by hand.
  * Building one is a long form, so it opens in a sheet; so does what a run did, step by step.
  */
 
-type Tab = "flows" | "schedules" | "shelf";
+type Tab = "flows" | "schedules" | "tonight" | "shelf";
+const tabIds: readonly Tab[] = ["flows", "schedules", "tonight", "shelf"];
 const tiers: readonly RiskTier[] = ["low", "medium", "high"];
 const rank = (risk: string) => Math.max(0, tiers.indexOf(risk as RiskTier));
 
@@ -52,6 +56,8 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const schedules = useSchedules();
   const viewer = role === "viewer";
+  // The open tab, in the address as before (?tab=schedules); held here so Tonight can open Schedules.
+  const [tab, setTab] = useUrlParam<Tab>("tab", tabIds, "flows");
 
   const refresh = useCallback(async () => {
     try {
@@ -365,15 +371,20 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
 
       <Tabs<Tab>
         label="Automations"
-        urlParam="tab"
+        value={tab}
+        onChange={setTab}
         className="automations-tabs"
         tabs={[
           { id: "flows", label: "Automations", count: flows ? list.length : undefined, status: failedFlows ? "danger" : undefined, statusLabel: failedFlows ? `${failedFlows} failed` : undefined },
           { id: "schedules", label: "Schedules", count: schedules.schedules ? scheduleList.length : undefined, status: failedSchedules ? "danger" : behind ? "warning" : undefined, statusLabel: failedSchedules ? `${failedSchedules} failed` : behind ? `${behind} behind` : undefined },
+          { id: "tonight", label: "Tonight" },
           { id: "shelf", label: "Ready to use", count: shelf.length || undefined, status: suggestedShelf ? "neutral" : undefined, statusLabel: suggestedShelf ? `${countOf(suggestedShelf, "suggestion")}` : undefined },
         ]}
       >
-        {(current) => (current === "flows" ? flowPanel : current === "schedules" ? <SchedulesPanel csrfToken={csrfToken} role={role} serverTimezone={timezone} source={schedules} /> : shelfPanel)}
+        {(current) => (current === "flows" ? flowPanel
+          : current === "schedules" ? <SchedulesPanel csrfToken={csrfToken} role={role} serverTimezone={timezone} source={schedules} />
+            : current === "tonight" ? <TonightPanel csrfToken={csrfToken} role={role} flows={flows} flowsUnread={loadError !== null} schedules={schedules} serverTimezone={timezone} onFlowsChanged={refresh} onOpenSchedules={() => setTab("schedules")} />
+              : shelfPanel)}
       </Tabs>
 
       {building && <FlowBuilder palette={palette} flows={list} onClose={() => setBuilding(false)} onSave={saveDraft} />}

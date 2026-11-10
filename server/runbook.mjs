@@ -72,6 +72,8 @@ export function formatBytes(bytes) {
   let value = bytes;
   let index = 0;
   while (value >= 1000 && index < units.length - 1) { value /= 1000; index += 1; }
+  // The unit is chosen after rounding: 999,960,000 bytes read "1000 MB".
+  if (index < units.length - 1 && Math.round(value) >= 1000) { value = 1; index += 1; }
   return `${index === 0 || value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
 }
 

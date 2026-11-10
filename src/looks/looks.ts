@@ -1,5 +1,5 @@
 /*
- * The looks (M41, ADR-010): thirteen ways the whole interface can be drawn, chosen in Settings →
+ * The looks (M41, ADR-010; two more in M57): fifteen ways the whole interface can be drawn, chosen in Settings →
  * Appearance and kept per browser like light and dark. A look is a skin and a Home:
  *
  *   - the skin is one set of values for the tokens every page already draws from (the console's
@@ -8,10 +8,11 @@
  *   - the Home is src/looks/<id>/Home.tsx, reading the same facts as every other Home.
  *
  * The drawings each look is built to match are docs/design-directions/05-looks.html, with a
- * reference picture of every one in docs/design-directions/05-looks/.
+ * reference picture of every one in docs/design-directions/05-looks/. The Field Manual and the
+ * Workbook came later, from the mockups described in docs/design-directions/06-two-square-looks.md.
  */
 
-export const LOOK_IDS = ["blend", "launcher", "console", "aqua", "blueprint", "phosphor", "rack", "swiss", "toybox", "cockpit", "eink", "quest", "transit"] as const;
+export const LOOK_IDS = ["blend", "launcher", "console", "aqua", "blueprint", "phosphor", "rack", "swiss", "toybox", "cockpit", "eink", "quest", "transit", "manual", "workbook"] as const;
 export type LookId = (typeof LOOK_IDS)[number];
 
 /** Which of light and dark a look has. A look with one draws it whatever the device prefers. */
@@ -50,6 +51,8 @@ export const LOOKS: readonly Look[] = [
   { id: "eink", name: "E-Ink", caption: "No color", modes: "light", nav: "top", personal: false, about: "Black on e-paper grey: serif text, dithered bars, shapes and words for status." },
   { id: "quest", name: "Quest", caption: "Dark only", modes: "dark", nav: "rail", personal: false, about: "An RPG party screen: apps are party members, problems are quests." },
   { id: "transit", name: "Transit Map", caption: "Light only", modes: "light", nav: "rail", personal: false, about: "The box as a subway map, with a line status board." },
+  { id: "manual", name: "Field Manual", caption: "Light only", modes: "light", nav: "top", personal: false, about: "An operator's manual: numbered sections, ruled tables, and a NOTE, CAUTION or WARNING block for each tier." },
+  { id: "workbook", name: "Workbook", caption: "Light only", modes: "light", nav: "top", personal: false, about: "A spreadsheet: ruled cells, filled states, a formula bar for search and sheet tabs along the bottom." },
 ];
 
 export const DEFAULT_LOOK: LookId = "blend";

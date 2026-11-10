@@ -9,9 +9,9 @@
  */
 
 /** What Samba refuses to share (server/tasks/samba.mjs). */
-export const sharePathDenyPrefixes: readonly string[] = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/samba", "/mnt/boxpilot"]);
+export const sharePathDenyPrefixes: readonly string[] = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/samba", "/mnt/boxpilot", "/var/lib/dpkg", "/var/lib/apt", "/var/spool", "/var/lib/cloud", "/var/lib/systemd", "/var/lib/boxpilot-agents", "/var/lib/boxpilot-model-gateway"]);
 /** What the NFS server refuses to export (server/tasks/nfs.mjs). */
-export const exportPathDenyPrefixes: readonly string[] = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/nfs", "/mnt/boxpilot"]);
+export const exportPathDenyPrefixes: readonly string[] = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/nfs", "/mnt/boxpilot", "/var/lib/dpkg", "/var/lib/apt", "/var/spool", "/var/lib/cloud", "/var/lib/systemd", "/var/lib/boxpilot-agents", "/var/lib/boxpilot-model-gateway"]);
 
 /** The server's rule: one spelling only, nothing inside a protected folder, and nothing that holds one. */
 function served(path: string, denyPrefixes: readonly string[], forbidden: RegExp): boolean {
@@ -25,5 +25,5 @@ function served(path: string, denyPrefixes: readonly string[], forbidden: RegExp
 
 /** Whether both Samba and the NFS server would take this folder, so it is worth offering for either. */
 export function mayServe(path: string): boolean {
-  return served(path, sharePathDenyPrefixes, /[\0\r\n]/) && served(path, exportPathDenyPrefixes, /[\0\r\n\s"]/);
+  return served(path, sharePathDenyPrefixes, /[\0\r\n%\\]/) && served(path, exportPathDenyPrefixes, /[\0\r\n\s"%\\]/);
 }

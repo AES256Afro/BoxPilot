@@ -40,7 +40,8 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 # ---- Sandbox ----
 # Nothing of the web service's, the helper's or the root secrets but its own key, given above.
-InaccessiblePaths=-/var/lib/boxpilot -/var/lib/boxpilot-managed -/etc/boxpilot/secrets
+# /run/boxpilot holds the root helper's socket, which its group could otherwise open.
+InaccessiblePaths=-/var/lib/boxpilot -/var/lib/boxpilot-managed -/etc/boxpilot/secrets -/run/boxpilot
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

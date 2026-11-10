@@ -149,7 +149,7 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
         title="Storage"
         status={verdict}
         meta={report ? <>
-          <b>{disks.length}</b> {disks.length === 1 ? "disk" : "disks"} · <b>{disks.filter((disk) => disk.removable).length}</b> removable · <b>{mounts.length}</b> mounted · <b>{shares.length}</b> {shares.length === 1 ? "network share" : "network shares"} (<b>{shares.filter((entry) => entry.mounted).length}</b> connected) · <b>{gib(unallocated)}</b> unallocated
+          <b>{disks.length}</b> {disks.length === 1 ? "disk" : "disks"} · <b>{disks.filter((disk) => disk.removable).length}</b> removable · <b>{mounts.length}</b> mounted · <b>{shares.length}</b> {shares.length === 1 ? "network share" : "network shares"} (<b>{shares.filter((entry) => entry.mounted).length}</b> connected) · <b>{gib(unallocated)}</b> not in use
         </> : undefined}
         actions={<Button variant="ghost" busy={loading && Boolean(report)} onClick={refreshAll}>Check again</Button>}
         about={<>

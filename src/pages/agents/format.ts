@@ -128,7 +128,10 @@ export function bytes(value: number | null | undefined): string {
 export function gibibytes(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   const gib = value / 1024 ** 3;
-  return gib >= 1 ? `${Number.isInteger(gib) ? gib : gib.toFixed(1)} GiB` : `${Math.round(value / 1024 ** 2)} MiB`;
+  const mib = Math.round(value / 1024 ** 2);
+  // The unit is chosen after rounding: a byte under 1 GiB read "1024 MiB".
+  if (gib < 1 && mib >= 1024) return "1 GiB";
+  return gib >= 1 ? `${Number.isInteger(gib) ? gib : gib.toFixed(1)} GiB` : `${mib} MiB`;
 }
 
 /** What a run cost on Claude: "$0.0042" under a dime, "$1.25" above (M45.4). */

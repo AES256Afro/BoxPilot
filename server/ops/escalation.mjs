@@ -8,8 +8,8 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import { backupMountName, backupMountParent, legacyBackupMountpoint } from "../backup-mount.mjs";
-import { loginHomesFrom, servesHome } from "../tasks/served-folder.mjs";
-export { loginHomesFrom };
+import { dataRoots, loginHomesFrom, servesHome, servesOutsideDataRoots } from "../tasks/served-folder.mjs";
+export { dataRoots, loginHomesFrom };
 import { packageBase, protectedPackages } from "../tasks/apt.mjs";
 export { protectedPackages };
 import { tunnelAppId } from "../cloudflare-tunnel.mjs";
@@ -36,7 +36,6 @@ async function servesLoginHome(paths, readPasswd = () => readFile("/etc/passwd",
  * is the owner's, with a password; the deny list in schema.mjs still refuses system locations
  * for everyone.
  */
-export const dataRoots = Object.freeze(["/mnt", "/media", "/srv"]);
 export function foldersOutsideDataRoots(values) {
   const chosen = Object.values(values?.volumes && typeof values.volumes === "object" ? values.volumes : {});
   return chosen.filter((folder) => typeof folder !== "string" || !dataRoots.some((root) => folder.replace(/\/+$/, "").startsWith(`${root}/`)));
@@ -70,14 +69,35 @@ export function higherOf(...hooks) {
   };
 }
 
+/**
+ * The operations that act on one installed app in a way its manifest's own tier covers: an app whose
+ * install is high (it holds the Docker socket, the backups, or the house's DNS) is as much the
+ * owner's when its admin password is set, its settings are changed or it is opened to the network.
+ * Held to app.install alone, an operator could take over Duplicati's or Portainer's sign-in with one
+ * medium job and reach what the install was raised to guard.
+ */
+export const manifestTierOperations = Object.freeze(["app.install", "app.reconfigure", "app.password.set", "app.exposure.set", "app.serve.set"]);
+
+/** The hooks with the manifest's tier joined to each of those operations (server/index.mjs). */
+export function withManifestTier(hooks, manifestTier) {
+  const joined = { ...hooks };
+  for (const id of manifestTierOperations) joined[id] = typeof hooks[id] === "function" ? higherOf(hooks[id], manifestTier) : manifestTier;
+  return joined;
+}
+
 export const escalationRiskHooks = Object.freeze({
-  // A share or export of a login account's home writes as that account: its ~/.ssh is a shell.
-  "samba.apply": async (parameters) => high(await servesLoginHome((parameters?.shares ?? []).map((share) => share?.path))),
-  "nfs.apply": async (parameters) => high(await servesLoginHome((parameters?.exports ?? []).map((entry) => entry?.path))),
+  // A share or export of a login account's home writes as that account: its ~/.ssh is a shell. One
+  // of a folder outside the data roots writes as whatever service owns it (served-folder.mjs).
+  "samba.apply": async (parameters) => { const paths = (parameters?.shares ?? []).map((share) => share?.path); return high(servesOutsideDataRoots(paths) || await servesLoginHome(paths)); },
+  "nfs.apply": async (parameters) => { const paths = (parameters?.exports ?? []).map((entry) => entry?.path); return high(servesOutsideDataRoots(paths) || await servesLoginHome(paths)); },
   // Importing keys is users.keys.import, which is high; creating the account with them is the same.
   "users.add": (parameters) => high(Boolean(parameters?.githubUser)),
   "apt.remove": (parameters) => high((parameters?.packages ?? []).some((name) => protectedPackages.includes(packageBase(name)))),
-  "service.action": (parameters) => high(packetFilterUnit.test(String(parameters?.unit ?? ""))),
+  // systemd's own services (resolved, networkd, journald, logind, timesyncd) carry the whole server:
+  // a restart of one is the owner's, as the firewall's units are.
+  "service.action": (parameters) => high(packetFilterUnit.test(String(parameters?.unit ?? "")) || /^(systemd-|dbus-org\.freedesktop\.)/.test(String(parameters?.unit ?? ""))),
+  // A PAM or NSS module is enabled the moment it is installed, and decides who may sign in.
+  "apt.install": (parameters) => high((parameters?.packages ?? []).some((name) => /^lib(pam|nss)-/.test(packageBase(name)))),
   // Whatever is mounted at the backup destination is where backup.sync copies every app's secrets
   // and the database: choosing it is choosing where data leaves the box.
   "share.mount": (parameters) => high(parameters?.name === backupMountName),
@@ -97,7 +117,11 @@ export const escalationRiskHooks = Object.freeze({
     || ((parameters?.categories ?? []).includes("job-logs") && below(parameters?.jobLogRetentionDays, historyFloor.days))),
   // A recycle bin is the share's undo: emptying what was recycled this week is deleting it for good.
   "samba.recycle.empty": (parameters) => high(!(Number(parameters?.olderThanDays ?? 0) >= historyFloor.days)),
-  // index.mjs combines this with the manifest's own tier (installRiskLookup) through higherOf.
+  // index.mjs joins the manifest's own tier (installRiskLookup) to this one and to the three below
+  // through withManifestTier; by themselves they raise nothing.
+  "app.password.set": () => null,
+  "app.exposure.set": () => null,
+  "app.serve.set": () => null,
   // A folder that holds the backups is inside the data roots, and is the owner's all the same.
   "app.install": (parameters) => high(foldersOutsideDataRoots(parameters?.values).length > 0 || chosenFolders(parameters?.values).some(reachesBackupDestination)),
   // Each backup prunes all but the newest `keep`: a few runs with keep 1 delete what
