@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { openView } from "../../activityEvents";
 import { JobLogView } from "../../JobLogView";
 import { Button, EmptyState, Field, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, type Status, type TableColumn } from "../../ui";
 import "./automations.css";
@@ -59,7 +60,7 @@ export function lastRunOf(schedule: Schedule): { status: Status; label: string; 
     case "running": return { status: "neutral", label: "running", failed: false };
     case "unknown": return { status: "unknown", label: `started${when}`, failed: false };
     case "did-not-run": return schedule.lastResult === "blocked-by-approval-mode"
-      ? { status: "warning", label: "did not run: Always-ask approvals", failed: true }
+      ? { status: "warning", label: "did not run: approvals always ask for the password", failed: true }
       : { status: "warning", label: `did not run${when}`, failed: true };
     case "failed": return { status: "danger", label: `failed${when}`, failed: true };
     default: return schedule.lastResult ? { status: "danger", label: "failed", failed: true } : { status: "neutral", label: "not yet run", failed: false };
@@ -81,6 +82,12 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
   const { schedules, error, setError, refresh } = source ?? own;
   const canChange = role !== "viewer";
   const [installedApps, setInstalledApps] = useState<Array<{ id: string; name: string }>>([]);
+  // The catalog's names, for "Back up Jellyfin" in the sheet and the app a row is for; a failed read
+  // is said in the sheet, where it used to leave every app's backup out of the list without a word.
+  const [appNames, setAppNames] = useState<Record<string, string>>({});
+  const [appsUnread, setAppsUnread] = useState(false);
+  // The schedule being paused, resumed or deleted: its buttons are busy, so a second click cannot toggle it back.
+  const [changing, setChanging] = useState<string | null>(null);
   const [log, setLog] = useState<Schedule | null>(null);
   // Deleting asks first (M49): it sat beside Pause and went on one tap, and a nightly backup stopped for good.
   const [removing, setRemoving] = useState<Schedule | null>(null);
@@ -92,15 +99,21 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const formId = useId();
+  const readOnce = useRef(false);
 
+  // Read with the panel, and again each time the sheet opens, so "close and open this again" is true.
   useEffect(() => {
+    if (!adding && readOnce.current) return;
+    readOnce.current = true;
     fetch("/api/v1/catalog?view=summary")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("catalog unavailable"))))
       .then((data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean } | null }> }) => {
         setInstalledApps(data.applications.filter((entry) => entry.live?.installed).map((entry) => ({ id: entry.manifest.id, name: entry.manifest.name })));
+        setAppNames(Object.fromEntries(data.applications.map((entry) => [entry.manifest.id, entry.manifest.name])));
+        setAppsUnread(false);
       })
-      .catch(() => {});
-  }, []);
+      .catch(() => setAppsUnread(true));
+  }, [adding]);
 
   const templates = useMemo<Template[]>(() => [
     ...installedApps.map((app) => ({ key: `backup:${app.id}`, label: `Back up ${app.name}`, operationId: "app.backup", parameters: { id: app.id } })),
@@ -144,17 +157,34 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
   };
 
   const toggle = async (schedule: Schedule) => {
-    const response = await fetch(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ enabled: !schedule.enabled }) });
-    if (!response.ok) { setError(((await response.json().catch(() => ({}))) as { error?: string }).error ?? "Could not change the schedule"); return; }
-    setError(null);
-    await refresh();
+    if (changing) return;
+    setChanging(schedule.id);
+    try {
+      const response = await fetch(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ enabled: !schedule.enabled }) });
+      if (!response.ok) { setError(((await response.json().catch(() => ({}))) as { error?: string }).error ?? "Could not change the schedule"); return; }
+      setError(null);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not change the schedule");
+    } finally {
+      setChanging(null);
+    }
   };
 
   const remove = async (schedule: Schedule) => {
-    const response = await fetch(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
-    if (!response.ok) { setError(((await response.json().catch(() => ({}))) as { error?: string }).error ?? "Could not remove the schedule"); return; }
-    setError(null);
-    await refresh();
+    if (changing) return;
+    setChanging(schedule.id);
+    try {
+      const response = await fetch(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
+      if (!response.ok) { setError(((await response.json().catch(() => ({}))) as { error?: string }).error ?? "Could not remove the schedule"); return; }
+      setError(null);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not remove the schedule");
+    } finally {
+      setChanging(null);
+      setRemoving(null);
+    }
   };
 
   const list = schedules ?? [];
@@ -164,7 +194,10 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
       id: "what", header: "What", sortValue: (schedule) => schedule.title, cell: (schedule) => (
         <span className="automations-what">
           <span className="automations-what__title">{schedule.title}</span>
-          {typeof schedule.parameters.subject === "string" ? <code>{schedule.parameters.subject}</code> : typeof schedule.parameters.id === "string" ? <code>{schedule.parameters.id}</code> : null}
+          {/* The app by its name, as the sheet that made the schedule offered it; its id only where the catalog no longer knows it. */}
+          {typeof schedule.parameters.subject === "string" ? <code>{schedule.parameters.subject}</code>
+            : typeof schedule.parameters.id !== "string" ? null
+              : appNames[schedule.parameters.id] ? <span className="automations-what__for">{appNames[schedule.parameters.id]}</span> : <code>{schedule.parameters.id}</code>}
         </span>
       ),
     },
@@ -185,7 +218,9 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
             <StatusChip status={last.status} title={schedule.lastReason ?? schedule.lastResult ?? undefined}>{last.label}</StatusChip>
             {/* Always-ask approvals stop every schedule, so say where that is changed. */}
             {schedule.lastResult === "blocked-by-approval-mode"
-              ? <span className="automations-reason">Schedules are skipped while approvals always ask for the password. Change that in Settings, under Approvals.</span>
+              ? <span className="automations-reason">Schedules are skipped while approvals always ask for the password. {role === "owner"
+                ? <Button variant="ghost" onClick={() => openView("settings", { tab: "approvals" })}>Open Approvals</Button>
+                : "The owner changes that in Settings."}</span>
               : (schedule.lastOutcome === "failed" || schedule.lastOutcome === "did-not-run") && schedule.lastReason
                 ? <span className="automations-reason">{schedule.lastReason}</span>
                 : null}
@@ -197,8 +232,8 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "automations-actions-cell", cell: (schedule) => (
         <span className="automations-actions">
           {schedule.lastJobId && <Button variant="ghost" aria-label={`View log: ${schedule.title}`} onClick={() => setLog(schedule)}>Log</Button>}
-          {canChange && <Button aria-label={`${schedule.enabled ? "Pause" : "Resume"} ${schedule.title}`} onClick={() => void toggle(schedule)}>{schedule.enabled ? "Pause" : "Resume"}</Button>}
-          {canChange && <Button aria-label={`Delete the schedule: ${schedule.title}`} onClick={() => setRemoving(schedule)}>Delete</Button>}
+          {canChange && <Button aria-label={`${schedule.enabled ? "Pause" : "Resume"} ${schedule.title}`} busy={changing === schedule.id} disabled={Boolean(changing)} onClick={() => void toggle(schedule)}>{schedule.enabled ? "Pause" : "Resume"}</Button>}
+          {canChange && <Button aria-label={`Delete the schedule: ${schedule.title}`} disabled={Boolean(changing)} onClick={() => setRemoving(schedule)}>Delete</Button>}
         </span>
       ),
     },
@@ -223,8 +258,8 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
       />
 
       {removing && (
-        <Sheet side="center" size="sm" kicker="Schedules" title={`Delete the schedule: ${removing.title}?`} onClose={() => setRemoving(null)}
-          footer={<><Button variant="ghost" onClick={() => setRemoving(null)}>Keep it</Button><Button variant="primary" onClick={() => void remove(removing).then(() => setRemoving(null))}>Delete</Button></>}>
+        <Sheet side="center" size="sm" kicker="Schedules" title={`Delete the schedule: ${removing.title}?`} onClose={() => { if (!changing) setRemoving(null); }}
+          footer={<><Button variant="ghost" disabled={Boolean(changing)} onClick={() => setRemoving(null)}>Keep it</Button><Button variant="primary" busy={changing === removing.id} onClick={() => void remove(removing)}>Delete</Button></>}>
           <p>It stops running for good: nothing does this on its own any more, and the schedule's own history goes with it. What it already did is not undone. To stop it for a while instead, pause it.</p>
         </Sheet>
       )}
@@ -246,7 +281,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
         >
           <form id={formId} className="automations-form" onSubmit={(event) => { event.preventDefault(); void create(); }}>
             {formError && <Notice tone="danger" live title="The schedule was not added">{formError}</Notice>}
-            <Field label="What to run" hint="Runs as you, approved like any schedule. A high-risk operation cannot run unattended.">
+            <Field label="What to run" hint={appsUnread ? "The installed apps could not be listed, so their backups are not offered. Close and open this again." : "Runs as you, approved like any schedule. A high-risk operation cannot run unattended."}>
               <Select value={templateKey} onValueChange={setTemplateKey} placeholder="Choose an action…" options={templates.map((template) => ({ value: template.key, label: template.label }))} />
             </Field>
             <Field label="How often">

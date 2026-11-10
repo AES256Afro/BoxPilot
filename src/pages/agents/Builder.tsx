@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { relativeTime } from "../../home/format";
 import { Button, Checkbox, CodeBlock, CopyButton, Facts, Field, Notice, Panel, Segmented, Select, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
 import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type ChatKind, type ChatOutput, type ChatOutputs, type GrantLevel, type ModelRoute, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
+import { ConfirmSheet } from "./Confirm";
 import { duration, errorText, scheduleWords, triggerWords } from "./format";
 
 /*
@@ -36,6 +37,8 @@ export interface BuilderProps {
   /** M48.7: another agent to open here, and the templates again for a new one; the tab used to lose both once an agent was open. */
   onPick?: (agentId: string) => void;
   onNew?: () => void;
+  /** Told whether the form holds changes that are not saved, so the page can ask before another tab drops them. */
+  onDirty?: (dirty: boolean) => void;
 }
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -573,7 +576,10 @@ function Webhook({ agent, csrfToken, onChanged }: { agent: AgentDetail; csrfToke
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Replacing or removing the URL breaks whatever calls it, at once: both ask first.
+  const [asking, setAsking] = useState<"replace" | "remove" | null>(null);
   const act = async (work: () => Promise<void>) => { setBusy(true); try { await work(); setError(null); onChanged(); } catch (requestError) { setError(errorText(requestError, "That did not work")); } finally { setBusy(false); } };
+  const mint = async () => { const made = await agentsApi.mintWebhook(csrfToken, agent.id); setUrl(`${window.location.origin}${made.path}`); };
   if (!agent.webhook.enabled) return null;
   return (
     <Panel className="agents-webhook" title="Webhook" count={agent.webhook.minted ? { status: "good", label: "set" } : { status: "neutral", label: "none" }} padded>
@@ -585,9 +591,26 @@ function Webhook({ agent, csrfToken, onChanged }: { agent: AgentDetail; csrfToke
       {error && <Notice tone="danger" live>{error}</Notice>}
       {agent.canEdit && (
         <div className="agents-editor__foot">
-          {agent.webhook.minted && <Button variant="ghost" busy={busy} onClick={() => void act(async () => { await agentsApi.clearWebhook(csrfToken, agent.id); setUrl(null); })}>Take it away</Button>}
-          <Button busy={busy} onClick={() => void act(async () => { const made = await agentsApi.mintWebhook(csrfToken, agent.id); setUrl(`${window.location.origin}${made.path}`); })}>{agent.webhook.minted ? "Make a new URL" : "Make its URL"}</Button>
+          {agent.webhook.minted && <Button variant="ghost" busy={busy} onClick={() => setAsking("remove")}>Take it away</Button>}
+          <Button busy={busy} onClick={() => (agent.webhook.minted ? setAsking("replace") : void act(mint))}>{agent.webhook.minted ? "Make a new URL" : "Make its URL"}</Button>
         </div>
+      )}
+      {asking === "replace" && (
+        <ConfirmSheet onClose={() => setAsking(null)} failed="The new URL could not be made" confirmation={{
+          title: "Make a new URL?",
+          body: "The old one stops working at once; whatever calls it has to be given the new one.",
+          confirmLabel: "Make a new URL",
+          cancelLabel: "Keep the old one",
+          onConfirm: async () => { await mint(); setError(null); onChanged(); },
+        }} />
+      )}
+      {asking === "remove" && (
+        <ConfirmSheet onClose={() => setAsking(null)} failed="The URL could not be taken away" confirmation={{
+          title: "Take the URL away?",
+          body: `Nothing can start ${agent.name} from outside until you make a new one.`,
+          confirmLabel: "Take it away",
+          onConfirm: async () => { await agentsApi.clearWebhook(csrfToken, agent.id); setUrl(null); setError(null); onChanged(); },
+        }} />
       )}
     </Panel>
   );
@@ -595,11 +618,13 @@ function Webhook({ agent, csrfToken, onChanged }: { agent: AgentDetail; csrfToke
 
 // ---- the builder ----
 
-export function Builder({ agentId, agents, catalog, canCreate, canGrant = false, csrfToken, now, onCreated, onChanged, onDeleted, onTest, onPick, onNew }: BuilderProps) {
+export function Builder({ agentId, agents, catalog, canCreate, canGrant = false, csrfToken, now, onCreated, onChanged, onDeleted, onTest, onPick, onNew, onDirty }: BuilderProps) {
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [draft, setDraftState] = useState<AgentSpec | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Why the last save failed, said beside the Save button at the foot of the form, as "Saved" is.
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState<{ tone: "success" | "info"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
@@ -622,10 +647,24 @@ export function Builder({ agentId, agents, catalog, canCreate, canGrant = false,
       if (shown.current === id) setError(errorText(requestError, "The agent could not be read"));
     }
   }, []);
-  useEffect(() => { shown.current = agentId; setAgent(null); setDraftState(null); setSaved(null); if (agentId) void load(agentId); }, [agentId, load]);
+  useEffect(() => { shown.current = agentId; setAgent(null); setDraftState(null); setSaved(null); setSaveError(null); if (agentId) void load(agentId); }, [agentId, load]);
 
   const setDraft = useCallback((update: (draft: AgentSpec) => AgentSpec) => { setDraftState((current) => (current ? update(current) : current)); setSaved(null); }, []);
   const dirty = useMemo(() => Boolean(agent && draft && JSON.stringify(agent.spec) !== JSON.stringify(draft)), [agent, draft]);
+  // Unsaved changes are guarded wherever they can be lost: the browser asks before the page closes
+  // or reloads, and the page is told, so another tab of Agents asks too.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  const reportDirty = useRef(onDirty);
+  reportDirty.current = onDirty;
+  useEffect(() => {
+    reportDirty.current?.(dirty);
+    return () => { if (dirty) reportDirty.current?.(false); };
+  }, [dirty]);
 
   if (!agentId) return <TemplatePicker catalog={catalog} canCreate={canCreate} csrfToken={csrfToken} onCreated={onCreated} />;
   if (error && !agent) return <Notice tone="danger" live title="The agent could not be read" action={<Button onClick={() => void load(agentId)}>Try again</Button>}>{error}</Notice>;
@@ -639,11 +678,12 @@ export function Builder({ agentId, agents, catalog, canCreate, canGrant = false,
       setDraftState(clone(result.spec));
       setNote("");
       setError(null);
+      setSaveError(null);
       setSaved(result.unchanged ? { tone: "info", text: "Nothing changed, so no new version." } : { tone: "success", text: `Saved as version ${result.version}.` });
       onChanged();
       return true;
     } catch (requestError) {
-      setError(errorText(requestError, "The agent could not be saved"));
+      setSaveError(errorText(requestError, "The agent could not be saved"));
       return false;
     } finally {
       setBusy(false);
@@ -685,8 +725,15 @@ export function Builder({ agentId, agents, catalog, canCreate, canGrant = false,
         padded
         footer={agent.canEdit ? (
           <div className="agents-editor__foot">
+            {/* How the save went, beside the button that did it: the form above is long, and its top is out of sight from here. */}
+            {(saveError || saved) && (
+              <div className="agents-editor__result">
+                {saveError && <Notice tone="danger" live title="Not saved">{saveError}</Notice>}
+                {saved && <Notice tone={saved.tone} live>{saved.text}</Notice>}
+              </div>
+            )}
             <Field label="What changed" optional className="agents-editor__note"><TextInput value={note} maxLength={200} placeholder="For the version list" onValueChange={setNote} /></Field>
-            <Button variant="ghost" disabled={!dirty} onClick={() => { setDraftState(clone(agent.spec)); setSaved(null); }}>Undo changes</Button>
+            <Button variant="ghost" disabled={!dirty} onClick={() => { setDraftState(clone(agent.spec)); setSaved(null); setSaveError(null); }}>Undo changes</Button>
             <Button variant="primary" busy={busy} disabled={!dirty} onClick={() => void save()}>Save as version {agent.version + 1}</Button>
           </div>
         ) : undefined}
@@ -703,8 +750,7 @@ export function Builder({ agentId, agents, catalog, canCreate, canGrant = false,
             {leaving.label === "Save, then test" ? `Testing runs the saved version, v${agent.version}, and leaving this tab drops the changes.` : `Leaving drops the changes; the saved version, v${agent.version}, stays as it is.`}
           </Notice>
         )}
-        {error && <Notice tone="danger" live title="Not saved">{error}</Notice>}
-        {saved && <Notice tone={saved.tone} live>{saved.text}</Notice>}
+        {error && <Notice tone="danger" live>{error}</Notice>}
         <SpecForm draft={draft} setDraft={setDraft} catalog={catalog} disabled={!agent.canEdit} others={others} template={agent.template} canGrant={canGrant} />
       </Panel>
 

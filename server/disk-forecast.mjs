@@ -6,6 +6,7 @@
  * fits a line through it, so "at this rate, /mnt/media fills in about nine days" can be said before
  * it is urgent. Pure and clock-injected; a background sampler feeds it.
  */
+import { logged } from "./logged-loop.mjs";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -44,9 +45,9 @@ function dropStaleKeys(history, cutoff) {
  * there is not enough spread of data to say). A least-squares line through free-space over time.
  *
  * @param {{ at: string, availableBytes: number }[]} samples
- * @param {{ now?: Date | number, minSamples?: number, minSpanDays?: number, windowDays?: number }} [options]
+ * @param {{ now?: Date | number, minSamples?: number, minSpanDays?: number, windowDays?: number, staleAfterDays?: number }} [options]
  */
-export function projectDaysToFull(samples, { now, minSamples = 3, minSpanDays = 2, windowDays = 21 } = {}) {
+export function projectDaysToFull(samples, { now, minSamples = 3, minSpanDays = 2, windowDays = 21, staleAfterDays = 2 } = {}) {
   const at = now instanceof Date ? now.getTime() : Number(now);
   const recent = (Array.isArray(samples) ? samples : [])
     .filter((sample) => Number.isFinite(Date.parse(sample?.at)) && Number.isFinite(sample?.availableBytes) && at - Date.parse(sample.at) <= windowDays * DAY_MS)
@@ -55,6 +56,10 @@ export function projectDaysToFull(samples, { now, minSamples = 3, minSpanDays = 
   const first = Date.parse(recent[0].at);
   const last = Date.parse(recent[recent.length - 1].at);
   if ((last - first) / DAY_MS < minSpanDays) return null;
+  // A filesystem nobody has measured for two days is gone or unreadable (unplugged, read-only, the
+  // sampler failing): its old slope carried to today announced "will fill in 14 days" for a drive
+  // unplugged seventeen days before.
+  if ((at - last) / DAY_MS > staleAfterDays) return null;
   const xs = recent.map((sample) => (Date.parse(sample.at) - first) / DAY_MS);
   const ys = recent.map((sample) => sample.availableBytes);
   const n = xs.length;
@@ -128,7 +133,7 @@ export function createDiskSampler({ inventory, store, now = () => new Date(), in
     return { sampled: entries.length };
   }
   function start() {
-    const safeSample = () => sample().catch(() => {});
+    const safeSample = () => sample().catch(logged("disk space sample"));
     const first = delay(safeSample, initialDelayMs);
     first.unref?.();
     const timer = schedule(safeSample, intervalMs);

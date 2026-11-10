@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { openView } from "../../activityEvents";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
-import { Button, EmptyState, KeyValue, Notice, Panel, Sheet, StatusChip, Table, mayStart, riskOf, type KeyValueItem, type NoticeTone, type Status, type TableColumn } from "../../ui";
+import { Button, EmptyState, KeyValue, Notice, Panel, RelativeTime, Sheet, StatusChip, Table, mayStart, riskOf, type KeyValueItem, type NoticeTone, type Status, type TableColumn } from "../../ui";
 import { RouterSteps } from "./RouterSteps";
 import type { Resilience, ResilienceServer } from "./types";
 
@@ -111,7 +112,10 @@ export function NetworkResilience({ resilience, checking, error, onCheck, role, 
         </>}
         footer={resilience ? <>{resilience.source === "dhcp" ? <>Read from this server&apos;s DHCP lease ({resilience.via ?? "its network manager"})</>
           : resilience.source === "pihole-log" && resilience.askers ? <>This server&apos;s address is set by hand, so read from Pi-hole&apos;s query log: {resilience.askers.lanClients > 0 ? `${resilience.askers.lanClients} ${resilience.askers.lanClients === 1 ? "device" : "devices"} asked it directly` : "only the router asked it"} in the last {resilience.askers.window}</>
-            : "No DHCP lease to read"} · checked {relativeTime(resilience.checkedAt, now) ?? "just now"}. To hear when this server goes down, turn on the heartbeat in Settings, Notifications.</> : undefined}
+            : "No DHCP lease to read"} · checked <RelativeTime at={resilience.checkedAt} now={now} fallback="just now" />. {role === "owner"
+            // Notifications is the owner's: a button for who can open it, the words for who cannot.
+            ? <>To hear when this server goes down, turn on the heartbeat. <Button variant="ghost" onClick={() => openView("settings", { tab: "notifications" })}>Open Notifications</Button></>
+            : "The owner can turn on a heartbeat, to hear when this server goes down."}</> : undefined}
       >
         {error && <div className="network-pad"><Notice tone="danger" live title="The DNS check could not run" action={<Button onClick={onCheck}>Try again</Button>}>{error}</Notice></div>}
         {!resilience ? (

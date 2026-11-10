@@ -5,7 +5,7 @@ export interface ManifestPort { id: string; label: string; container: number; ho
 export interface ManifestVolume { id: string; label: string; container: string; path: string | null; hostPath: string | null; readOnly: boolean; backup: boolean; configurable: boolean; description: string | null }
 export interface SetupChoice { id: string; label: string; description: string | null; website: string | null; recommended: boolean; exec: string[] }
 export interface ManifestSetup { title: string; note: string | null; finalize: string[] | null; finalizeLabel: string | null; choices: SetupChoice[] }
-export interface ManifestEnv { name: string; label: string; description: string | null; type: "string" | "password" | "number" | "boolean" | "timezone" | "path"; default: string | number | boolean | null; required: boolean; secret: boolean; generate: boolean; options: string[] | null; optionsFrom?: "ollama-models" | null; fixed: boolean; fromVpnProfile?: boolean }
+export interface ManifestEnv { name: string; label: string; description: string | null; type: "string" | "password" | "number" | "boolean" | "timezone" | "path"; default: string | number | boolean | null; required: boolean; secret: boolean; generate: boolean; options: string[] | null; /** What to call each of `options`, when the manifest names them: the value stays what is stored. */ optionLabels?: Array<{ value: string; label: string; hint: string | null }> | null; optionsFrom?: "ollama-models" | null; fixed: boolean; fromVpnProfile?: boolean }
 export interface Manifest {
   id: string; name: string; category: string; description: string; website: string | null; icon: string | null; risk: "low" | "medium" | "high"; notes: string | null;
   connections?: Array<{ app: string; role: string; where: string; note: string | null }>;
@@ -56,6 +56,8 @@ export interface CatalogResponse {
 }
 
 export type Values = { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; networkMode?: string; clearSecrets?: string[] };
+/** The Tunnel tab's publish form as it was filled in. Never the API token. */
+export interface TunnelDraft { appId: string; portId: string; name: string; domain: string; https: boolean }
 export interface Serve { dnsName: string; port: number; target: string | null }
 export interface AppStats { cpuPercent: number; memBytes: number; containers: number }
 export interface Tunnel { running: boolean; exit: { ip: string; location: string | null } | null; forwardedPort: number | null }
@@ -85,11 +87,14 @@ export interface CatalogContext {
   };
   /**
    * Closes the sheet, then stages the operation through the approval dialog. `keep` is the edited
-   * Compose file the action came from, handed back by takeComposeDraft when the job did not complete.
+   * Compose file the action came from, handed back by takeComposeDraft when the job did not complete;
+   * or the Tunnel tab's publish form, handed back by takeTunnelDraft the same way.
    */
-  act: (operation: PendingOperation, keep?: { composeDraft: string }) => void;
+  act: (operation: PendingOperation, keep?: { composeDraft?: string; tunnelDraft?: TunnelDraft }) => void;
   /** An app's edited Compose file whose Apply was cancelled or failed, once; null when there is none. */
   takeComposeDraft: (appId: string) => string | null;
+  /** The publish form whose approval was cancelled or whose job failed, once; null when there is none. */
+  takeTunnelDraft?: () => TunnelDraft | null;
   /** The address to open one of an app's ports at, from wherever this browser is. */
   openUrl: (port: { host: number; exposure: string; path?: string | null }, manifest: Manifest) => string;
   /** Opens the install or settings form in place of the sheet. */

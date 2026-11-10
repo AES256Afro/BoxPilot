@@ -23,7 +23,7 @@ const reviewed = {
   "compose.project.action": "strict project-name pattern, fixed actions",
   "app.serve.set": "refuses a tailnet port whose Serve entry is not this app's (servesThisApp)",
   "app.rollback": "the version comes from the app's own recorded history, limited to its catalog image",
-  "homepage.sync": "host is a strict hostname pattern written into the dashboard's links",
+  "homepage.sync": "host is a strict hostname pattern, and one that is not this server's own name or address is high (homepageHostRisk)",
   "app.backup.verify": "backup name pattern; reads an archive BoxPilot wrote",
   "app.backup.restore-path": "relative-path validation, staged extraction, links refused, compose and boxpilot.json reviewed",
   "app.uninstall": "keeps the app's data folder",

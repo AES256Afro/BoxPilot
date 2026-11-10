@@ -7,7 +7,7 @@
  */
 import { readFile } from "node:fs/promises";
 import os from "node:os";
-import { backupMountName } from "../backup-mount.mjs";
+import { backupMountName, backupMountParent, legacyBackupMountpoint } from "../backup-mount.mjs";
 import { loginHomesFrom, servesHome } from "../tasks/served-folder.mjs";
 export { loginHomesFrom };
 import { packageBase, protectedPackages } from "../tasks/apt.mjs";
@@ -42,6 +42,18 @@ export function foldersOutsideDataRoots(values) {
   return chosen.filter((folder) => typeof folder !== "string" || !dataRoots.some((root) => folder.replace(/\/+$/, "").startsWith(`${root}/`)));
 }
 
+/**
+ * Does this folder hold, or sit inside, where the backups are kept? Every app's secrets and the
+ * database are in there, and backup.remote.sync and backup.cloud.* keep sending them anywhere for
+ * the owner: an app handed the folder (or /mnt above it) reads them, ships them or deletes them.
+ */
+export function reachesBackupDestination(folder) {
+  if (typeof folder !== "string") return false;
+  const normalized = folder.replace(/\/+$/, "") || "/";
+  return [backupMountParent, legacyBackupMountpoint].some((kept) => normalized === kept || normalized.startsWith(`${kept}/`) || kept.startsWith(normalized === "/" ? "/" : `${normalized}/`));
+}
+const chosenFolders = (values) => Object.values(values?.volumes && typeof values.volumes === "object" ? values.volumes : {});
+
 /** This server's own IPv4 addresses, the ones local names may point at. */
 const ownAddresses = () => Object.values(os.networkInterfaces()).flat().filter((entry) => entry?.family === "IPv4").map((entry) => entry.address);
 
@@ -73,7 +85,7 @@ export const escalationRiskHooks = Object.freeze({
   // The tunnel runs on the host's network with whatever token it is given: a token for someone's
   // own Cloudflare account can route the internet to any port on 127.0.0.1, BoxPilot's included.
   // Installing it is high in its manifest; handing it a new token is the same.
-  "app.reconfigure": (parameters) => high((parameters?.id === tunnelAppId && Object.hasOwn(parameters?.values?.env ?? {}, "TUNNEL_TOKEN")) || foldersOutsideDataRoots(parameters?.values).length > 0),
+  "app.reconfigure": (parameters) => high((parameters?.id === tunnelAppId && Object.hasOwn(parameters?.values?.env ?? {}, "TUNNEL_TOKEN")) || foldersOutsideDataRoots(parameters?.values).length > 0 || chosenFolders(parameters?.values).some(reachesBackupDestination)),
   // Every app's name pointed at another machine is every app's sign-in page served from there.
   "dns.names.apply": (parameters) => high(!ownAddresses().includes(String(parameters?.address ?? ""))),
   // Offering an exit node or routes opens the LAN (or Docker's and libvirt's networks) to the tailnet,
@@ -86,12 +98,30 @@ export const escalationRiskHooks = Object.freeze({
   // A recycle bin is the share's undo: emptying what was recycled this week is deleting it for good.
   "samba.recycle.empty": (parameters) => high(!(Number(parameters?.olderThanDays ?? 0) >= historyFloor.days)),
   // index.mjs combines this with the manifest's own tier (installRiskLookup) through higherOf.
-  "app.install": (parameters) => high(foldersOutsideDataRoots(parameters?.values).length > 0),
+  // A folder that holds the backups is inside the data roots, and is the owner's all the same.
+  "app.install": (parameters) => high(foldersOutsideDataRoots(parameters?.values).length > 0 || chosenFolders(parameters?.values).some(reachesBackupDestination)),
   // Each backup prunes all but the newest `keep`: a few runs with keep 1 delete what
   // app.backup.delete (owner only) guards. Keeping fewer than housekeeping always keeps is the owner's call.
   "app.backup": (parameters) => high(parameters?.keep !== undefined && parameters?.keep !== null && Number(parameters.keep) < defaultKeepBackupsPerApp),
   "app.backup.many": (parameters) => high(parameters?.keep !== undefined && parameters?.keep !== null && Number(parameters.keep) < defaultKeepBackupsPerApp),
 });
+
+/**
+ * Homepage's BoxPilot group links every app at one host. Given another machine's name, every link
+ * on the dashboard leads there, sign-in pages and all (what dns.names.apply is raised for). The
+ * names this server answers to stay one click: its own addresses and name, and where BoxPilot is
+ * served (`servedOrigins`, its tailnet name among them).
+ */
+export function homepageHostRisk(servedOrigins) {
+  return async (parameters) => {
+    const host = String(parameters?.host ?? "").toLowerCase().replace(/\.$/, "");
+    if (!host) return null;
+    const origins = await Promise.resolve(servedOrigins()).catch(() => []);
+    const served = origins.flatMap((origin) => { try { return [new URL(origin).hostname.toLowerCase()]; } catch { return []; } });
+    const name = os.hostname().toLowerCase();
+    return high(![...ownAddresses(), "127.0.0.1", "localhost", name, name.split(".")[0], `${name.split(".")[0]}.local`, ...served].includes(host));
+  };
+}
 
 /**
  * Withdrawing the tailnet address BoxPilot itself is served at cuts off every tailnet browser and

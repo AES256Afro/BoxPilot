@@ -7,7 +7,7 @@ description: "The message bus for smart-home gear: Zigbee2MQTT, Z-Wave JS UI, Ta
 website: https://mosquitto.org
 risk: low
 image:
-  reference: eclipse-mosquitto:2.0.22@sha256:09b62ff32c2e7b64d4b431b9a89236073289b68db273de2b089edeb9b0d92b5c
+  reference: eclipse-mosquitto:2.0.22@sha256:81a6193ae693942a3231cd3ac52875b02b7e3a19da671b2fb4b55cc874c5b279
   version: "2.0.22"
 command: ["mosquitto", "-c", "/mosquitto-no-auth.conf"]
 user: "1883:1883"
@@ -32,4 +32,4 @@ health:
   kind: running
   stableSeconds: 10
   timeoutSeconds: 120
-notes: "Other apps connect to mqtt://<this server>:1883 with no username. That is fine behind the Firewall page's deny-by-default profile (only this machine and your tailnet reach it). To require passwords, replace the command with a custom mosquitto.conf via Config."
+notes: "Other apps connect to mqtt://<this server>:1883 with no username. That is fine behind the Firewall page's deny-by-default profile (only this machine and your tailnet reach it). To require passwords, replace the command with a custom mosquitto.conf on its Compose tab."

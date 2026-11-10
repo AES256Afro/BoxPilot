@@ -5,7 +5,9 @@ category: Developer
 icon: "🧩"
 description: Friendly web UI for writing and running your own docker-compose stacks, from the maker of Uptime Kuma.
 website: https://dockge.kuma.pet
-risk: medium
+# High (ADR-015): it is handed the Docker socket to write to and serves a page that starts compose stacks,
+# which is root on this server for whoever reaches that page.
+risk: high
 image:
   reference: louislam/dockge:1.5.0@sha256:335c6368b880ecc203236ed89e6e5232e0d6578e8ef5920e4a502390451502bf
   version: 1.5.0

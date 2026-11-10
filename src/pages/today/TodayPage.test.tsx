@@ -131,7 +131,8 @@ describe("Today (M25.3)", () => {
     expect(kev.textContent).toContain("4");
     fireEvent.click(kev);
     expect(opened).toHaveBeenCalledWith("http://192.0.2.10:8790/wire?kind=kev", "_blank", "noopener");
-    expect(within(card).getByText(/Digest written 2 hours ago/)).toBeTruthy();
+    expect(card.querySelector(".today-glance__meta")?.textContent).toBe("Digest written 2 hours ago.");
+    expect(card.querySelector(".today-glance__meta time")?.getAttribute("title")).toBe(new Date(glance.digest.generatedAt).toLocaleString());
     // The card says why when the app could not be read, and the page has no such card when no installed app has a reader.
     cleanup();
     vi.stubGlobal("fetch", stubFetch({ ...ran, "/api/v1/apps/glances": { glances: [{ ...glance, available: false, reason: "BaselineWatch is not running.", metrics: [] }], liveKnown: true } }));
@@ -142,6 +143,35 @@ describe("Today (M25.3)", () => {
     renderToday();
     await screen.findByRole("region", { name: /What ran/ });
     expect(screen.queryByRole("region", { name: /^Baselines and threats/ })).toBeNull();
+  });
+
+  it("keeps the apps' cards when a later read fails, and says so with Try again", async () => {
+    const glance = {
+      app: "baselinewatch", name: "BaselineWatch", title: "Baselines and threats", window: "since yesterday", url: null,
+      running: true, available: true, reason: null, since: ago(24), readAt: ago(0), digest: null,
+      metrics: [{ id: "kev", label: "KEV additions", value: 4, caption: "known exploited", status: "danger", path: null }],
+    };
+    let answer: () => Response = () => new Response(JSON.stringify({ glances: [glance], liveKnown: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const rest = stubFetch({ ...ran });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => (input.toString() === "/api/v1/apps/glances" ? answer() : rest(input, init))));
+    renderToday();
+    await screen.findByRole("region", { name: /^Baselines and threats/ });
+    expect(screen.queryByText("The apps' figures could not be read")).toBeNull();
+    // The read fails: the card stays, and the page says the figures are the last ones read.
+    answer = () => new Response(JSON.stringify({ error: "BoxPilot is not answering" }), { status: 503, headers: { "Content-Type": "application/json" } });
+    requestRefresh({ reload: vi.fn() });
+    expect(await screen.findByText("The apps' figures could not be read")).toBeTruthy();
+    expect(screen.getByRole("region", { name: /^Baselines and threats/ })).toBeTruthy();
+    // The server not knowing which apps are installed is the same thing said, not "no apps".
+    answer = () => new Response(JSON.stringify({ glances: [], liveKnown: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const notice = screen.getByText("The apps' figures could not be read").closest(".ui-notice") as HTMLElement;
+    fireEvent.click(within(notice).getByRole("button", { name: "Try again" }));
+    await vi.waitFor(() => expect(screen.getByText("The apps' figures could not be read")).toBeTruthy());
+    expect(screen.getByRole("region", { name: /^Baselines and threats/ })).toBeTruthy();
+    // Read again, the notice goes.
+    answer = () => new Response(JSON.stringify({ glances: [glance], liveKnown: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+    fireEvent.click(within(screen.getByText("The apps' figures could not be read").closest(".ui-notice") as HTMLElement).getByRole("button", { name: "Try again" }));
+    await vi.waitFor(() => expect(screen.queryByText("The apps' figures could not be read")).toBeNull());
   });
 
   it("reads everything again from the bar's Refresh, in place", async () => {

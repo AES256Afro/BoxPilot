@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { openView } from "../../activityEvents";
 import { countOf, sentenceList } from "../../data";
 import { Button, CodeBlock, EmptyState, Field, KeyValue, Notice, Panel, Sheet, StatusChip, Table, Tag, TextInput, mayStart, riskOf, type Status } from "../../ui";
 import { formatBytes, type VmExportArtifact, type VmProtectedBackup, type VmProtectionDestination, type VmRecoveryRecord, type VmRetentionStatus } from "../../virtualization";
@@ -84,7 +85,7 @@ export function VmBackups({ data, role, start }: { data: VmBackupData; role: str
         { id: "recoveries", label: "Recovery clones", value: unread.includes("recoveries") ? "—" : String(recoveries.length) },
       ]} />
 
-      {unread.length > 0 && <Notice tone="warning" title="Not everything here could be read">BoxPilot could not read {sentenceList(unread)} just now, so what is shown for those is not the whole picture. Read again in a moment.</Notice>}
+      {unread.length > 0 && <Notice tone="warning" title="Not everything here could be read">BoxPilot could not read {sentenceList(unread)} just now, so what is shown for those is not the whole picture. Check again in a moment.</Notice>}
 
       <Panel padded title="Encrypted store" count={destination ? { status: ready ? "good" : "warning", label: ready ? "ready" : "setup required" } : { status: "unknown", label: "not read" }}>
         {destination && ready && (
@@ -101,7 +102,7 @@ export function VmBackups({ data, role, start }: { data: VmBackupData; role: str
             <p className="vms-note">Keep a recovery copy of the repository password outside this server.</p>
           </>
         )}
-        {!destination && <p className="vms-note">{unread.includes("the encrypted destination") ? "The destination could not be read just now." : "Set it up on the Backups page to keep second copies."}</p>}
+        {!destination && <p className="vms-note">{unread.includes("the encrypted destination") ? "The destination could not be read just now." : <>No encrypted store is set up yet, so there are no second copies. <Button variant="ghost" onClick={() => openView("backups")}>Open Backups</Button></>}</p>}
       </Panel>
 
       <Panel title="Local exports" count={exports.length} meta="copies on this server only">

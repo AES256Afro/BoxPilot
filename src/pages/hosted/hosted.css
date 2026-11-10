@@ -23,6 +23,8 @@
 .hosted-actions-cell { width: 1%; }
 .hosted-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
 .hosted-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
+/* "Open Notifications" under the Alerts fact: a button the size of the hint it replaces. */
+.hosted-strip .ui-button { min-height: 24px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
 
 /* The owner's cadence, inline at the panel's head. */
 .hosted-interval { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-family: var(--font-condensed); font-size: 12.5px; }

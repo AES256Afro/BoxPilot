@@ -87,6 +87,34 @@ describe("the glances", () => {
     expect(await createAppGlances({ helper: null }).list()).toEqual({ glances: [], liveKnown: false });
     expect(await harness([jellyfin]).glances.list()).toEqual({ glances: [], liveKnown: true });
   });
+
+  it("are read once for callers asking together and held half a minute, but never held when they could not say", async () => {
+    // Every viewer's Today page asked, and each asking was a helper round trip and five requests to the app.
+    let at = now.getTime();
+    let inspected = 0;
+    let state = { helperFails: false, running: true };
+    const asked = [];
+    const helper = { request: async () => { inspected += 1; if (state.helperFails) throw new Error("helper down"); return { applications: [app(state.running ? {} : { container: { exists: true, running: false, status: "exited" } })] }; } };
+    const fetcher = async (url) => { const parsed = new URL(String(url)); asked.push(parsed.pathname); return new Response(JSON.stringify(answers[parsed.pathname] ?? {}), { status: 200, headers: { "Content-Type": "application/json" } }); };
+    const glances = createAppGlances({ helper, fetcher, now: () => new Date(at) });
+    const [first, second] = await Promise.all([glances.list(), glances.list()]);
+    expect(second).toBe(first);
+    expect([inspected, asked.length]).toEqual([1, 5]);
+    at += 29_000;
+    expect(await glances.list()).toBe(first);
+    expect([inspected, asked.length]).toEqual([1, 5]);
+    at += 2_000;
+    expect((await glances.list()).glances[0].readAt).toBe(new Date(at).toISOString());
+    expect([inspected, asked.length]).toEqual([2, 10]);
+    // A stopped app, then a helper that does not answer: each is said once and asked again at the next call.
+    at += 31_000; state = { helperFails: false, running: false };
+    expect((await glances.list()).glances[0]).toMatchObject({ available: false, reason: "BaselineWatch is not running." });
+    state = { helperFails: true, running: true };
+    expect(await glances.list()).toEqual({ glances: [], liveKnown: false });
+    state = { helperFails: false, running: true };
+    expect((await glances.list()).glances[0]).toMatchObject({ available: true });
+    expect(inspected).toBe(5);
+  });
 });
 
 describe("the digest for the agents", () => {
