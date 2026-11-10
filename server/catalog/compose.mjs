@@ -212,6 +212,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   if (manifest.extraHosts.length) service.extra_hosts = [...manifest.extraHosts];
   if ((manifest.sysctls ?? []).length) service.sysctls = Object.fromEntries(manifest.sysctls.map((entry) => entry.split("=")));
   if (manifest.shmSize) service.shm_size = manifest.shmSize;
+  if (manifest.stopGracePeriod) service.stop_grace_period = manifest.stopGracePeriod;
   if (gpu && manifest.gpu) service.deploy = nvidiaGpuReservation();
   service.security_opt = securityOptFor(manifest, hostNetwork);
   /** @type {{ name: string, services: Record<string, object> }} */

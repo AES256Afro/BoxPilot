@@ -212,7 +212,7 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
               </>}
               actions={<>
                 <Switch label="Follow" checked={follow} onChange={setFollow} />
-                <Button onClick={() => void read()} busy={loading}>Read again</Button>
+                <Button onClick={() => void read()} busy={loading}>Check again</Button>
                 <Button onClick={download} disabled={entries.length === 0}>Download</Button>
               </>}
             >

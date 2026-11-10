@@ -84,7 +84,6 @@
     "server/assistant/index.mjs: readQuestion": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/assistant/index.mjs: statusMessages": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/assistant/knowledge.mjs: catalogChunks": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
-    "server/backup-cloud.mjs: sealedFolder": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/catalog/compose.mjs: composeLiteral": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/catalog/compose.mjs: generateSecret": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/catalog/compose.mjs: nvidiaGpuReservation": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",

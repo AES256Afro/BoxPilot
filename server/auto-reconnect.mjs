@@ -183,9 +183,16 @@ export function createAutoReconnect({ store, flows, alerts = null, now = () => n
    * not remount at once.
    */
   async function onRound({ active = [] } = {}) {
-    const armed = new Map(armedFlows().filter((flow) => flow.enabled !== false).map((flow) => [flow.triggerDrive, flow]));
+    const everyArmed = armedFlows();
+    const armed = new Map(everyArmed.filter((flow) => flow.enabled !== false).map((flow) => [flow.triggerDrive, flow]));
+    const lost = lostDrives(active);
+    // A drive this round found well has nothing left to answer for: it came back some way other
+    // than a reconnect job here (a restart, a mount by hand), and "Did not reconnect" would
+    // otherwise stand on Home for as long as nobody pressed Reconnect on a drive that is fine.
+    // Quietly: nothing "ran and succeeded" to announce. A hold stays until a reconnect lifts it.
+    for (const flow of everyArmed) if (!lost.has(flow.triggerDrive) && !inFlight.has(flow.triggerDrive)) await quietly(() => alerts?.clear(alertKey(flow), { quietly: true }));
     const outcomes = [];
-    for (const [name, loss] of lostDrives(active)) {
+    for (const [name, loss] of lost) {
       const flow = armed.get(name);
       if (!flow || inFlight.has(name)) continue;
       outcomes.push(await consider(name, loss, flow));

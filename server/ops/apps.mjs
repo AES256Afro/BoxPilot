@@ -139,12 +139,13 @@ export function archivedComposeRisk(parameters) {
 }
 /**
  * A checkpoint is a whole app backup taken before the change (app-helper.mjs checkpointCeilingMs:
- * stopping the app, up to an hour of archive, starting it again), with room for its checksum. The
+ * stopping the app, for as long as the longest stop grace period a manifest may set, up to an hour
+ * of archive, starting it again), with room for its checksum. The
  * operations that take one budget this on top of their own steps: on their old budgets the archive
  * alone could outlast the job, which was recorded failed while the helper carried on unwatched.
  * apps.test.mjs keeps it at or above the helper's ceiling.
  */
-const checkpointMs = minutes(70);
+const checkpointMs = minutes(80);
 const tailscaleBinary = () => process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale";
 
 /** Parse one-JSON-per-line `docker stats --no-stream --format json` output. */
@@ -505,7 +506,7 @@ export function appOperations() {
       // first, which the update refuses to go on without, the new image, and the previous one put
       // back if the app does not come up healthy. Nothing to update is a quiet success.
       id: "app.update.available", title: "Update every app that has an update", risk: "medium", timeoutMs: moreTimeCeilingMs,
-      description: "Backs up each app that has a newer image in the catalog, then updates it exactly as Update application does, one at a time; an app that does not become healthy is put back on its previous image. Apps that are up to date are left alone, and so are any listed in exclude.",
+      description: "Backs up each app that has a newer image in the catalog, then updates it exactly as Update application does, one at a time; an app that does not become healthy is put back on its previous image. Apps that are up to date are left alone, and so are any listed in exclude. Twenty apps a run: any more are named and left for the next one.",
       parameters: { fields: {
         exclude: { type: "array", optional: true, validate: (value) => (value.length <= 50 && value.every((entry) => typeof entry === "string" && idField.pattern.test(entry)) ? null : "must list up to 50 app ids") },
         // Found by the web process for every app that globs for a device (index.mjs prepare hook).
@@ -514,13 +515,17 @@ export function appOperations() {
       run: async (parameters, context) => {
         const { applications } = await context.apps.inspect({});
         const skip = new Set(parameters.exclude ?? []);
-        const ids = applications.filter((app) => app.installed && app.updateAvailable && !skip.has(app.id)).map((app) => app.id).slice(0, 20);
+        const due = applications.filter((app) => app.installed && app.updateAvailable && !skip.has(app.id)).map((app) => app.id);
+        // Twenty a run, as Update several takes: the rest are named, not dropped, and the next run finds them still due.
+        const ids = due.slice(0, 20); const left = due.slice(20);
         if (!ids.length) {
           context.progress?.("Every app is up to date.", "stdout");
           return { updated: false, apps: [] };
         }
         context.progress?.(`Updating ${ids.join(", ")}, each backed up first.`, "stdout");
-        return updateEach(ids, parameters.devicesByApp, context);
+        if (left.length) context.progress?.(`Left for the next run, which takes twenty apps at a time: ${left.join(", ")}`, "stdout");
+        const result = await updateEach(ids, parameters.devicesByApp, context);
+        return left.length ? { ...result, left } : result;
       },
     }),
     defineOperation({

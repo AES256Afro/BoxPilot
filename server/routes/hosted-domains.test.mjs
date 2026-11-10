@@ -39,6 +39,25 @@ describe("GET /hosted-domains", () => {
     const plain = await (await call("GET", "/hosted-domains")).json();
     expect(plain.fresh).toBe(false);
   });
+  it("keeps the local addresses and the tunnel's log line to operators, and who added a name to the owner and that account", async () => {
+    const full = { domains: [{ hostname: "share.example.com", state: "down", service: "http://127.0.0.1:3022", advice: "BoxPilot asked http://127.0.0.1:3022 on this server itself, where the tunnel sends visitors, and got no answer." }, { hostname: "up.example.com", state: "up", service: null, advice: null }], tunnel: { installed: true, running: true, connections: 0, lastProblem: "Unauthorized: Invalid tunnel secret token=abc" }, checkedAt: "2026-10-24T12:00:00.000Z", manual: [{ hostname: "a.example.com", service: "http://127.0.0.1:3001", addedBy: "operator-1" }, { hostname: "b.example.com", service: null, addedBy: "owner-1" }, { hostname: "c.example.com", service: null, addedBy: "viewer-1" }] };
+    const as = async (role) => { hostedDomains.status.mockResolvedValueOnce(structuredClone(full)); return (await call("GET", "/hosted-domains", { role })).json(); };
+    expect(await as("owner")).toEqual(full);
+    const operator = await as("operator");
+    expect(operator).toMatchObject({ domains: full.domains, tunnel: full.tunnel });
+    expect(operator.manual.map((entry) => entry.addedBy)).toEqual(["operator-1", null, null]);
+    expect(operator.manual[0].service).toBe("http://127.0.0.1:3001");
+    const viewer = await as("viewer");
+    expect(viewer.domains).toEqual([{ hostname: "share.example.com", state: "down", service: null, advice: "BoxPilot asked the app's own address on this server itself, where the tunnel sends visitors, and got no answer." }, { hostname: "up.example.com", state: "up", service: null, advice: null }]);
+    expect(viewer.tunnel).toEqual({ installed: true, running: true, connections: 0, lastProblem: null });
+    expect(viewer.manual).toEqual([{ hostname: "a.example.com", service: null, addedBy: null }, { hostname: "b.example.com", service: null, addedBy: null }, { hostname: "c.example.com", service: null, addedBy: "viewer-1" }]);
+    expect(JSON.stringify(viewer)).not.toMatch(/127\.0\.0\.1|tunnel secret|operator-1|owner-1/);
+    // No role at all reads as a viewer does.
+    hostedDomains.status.mockResolvedValueOnce(structuredClone(full));
+    const nobody = await (await fetch(`${base}/api/v1/hosted-domains`, { headers: { "x-test-role": "disabled" } })).json();
+    expect(JSON.stringify(nobody)).not.toMatch(/127\.0\.0\.1|tunnel secret|operator-1|owner-1/);
+  });
+
   it("says when the check could not run", async () => {
     hostedDomains.status.mockRejectedValueOnce(new Error("the helper did not answer"));
     const response = await call("GET", "/hosted-domains");
@@ -71,6 +90,15 @@ describe("the names added by hand", () => {
     expect(refused.status).toBe(400);
     expect(await refused.json()).toEqual({ error: "Say which name to watch", code: "invalid_domain" });
   });
+  it("does not tell an operator who else added the names that come back with a change", async () => {
+    hostedDomains.addManual.mockReturnValueOnce({ added: "status.example.com", manual: [{ hostname: "old.example.com", addedBy: "owner-1" }, { hostname: "status.example.com", addedBy: "operator-1" }] });
+    expect((await (await call("POST", "/hosted-domains/manual", { role: "operator", body: { hostname: "status.example.com" } })).json()).manual.map((entry) => entry.addedBy)).toEqual([null, "operator-1"]);
+    hostedDomains.removeManual.mockResolvedValueOnce({ removed: "status.example.com", manual: [{ hostname: "old.example.com", addedBy: "owner-1" }] });
+    expect((await (await call("DELETE", "/hosted-domains/manual/status.example.com", { role: "operator" })).json()).manual).toEqual([{ hostname: "old.example.com", addedBy: null }]);
+    hostedDomains.removeManual.mockResolvedValueOnce({ removed: "status.example.com", manual: [{ hostname: "old.example.com", addedBy: "operator-1" }] });
+    expect((await (await call("DELETE", "/hosted-domains/manual/status.example.com", { role: "owner" })).json()).manual).toEqual([{ hostname: "old.example.com", addedBy: "operator-1" }]);
+  });
+
   it("removes one, and says when it was never there", async () => {
     const removed = await call("DELETE", "/hosted-domains/manual/status.example.com", { role: "operator" });
     expect(removed.status).toBe(200);

@@ -12,7 +12,7 @@ import { productVersion } from "./version.mjs";
 import { webHostOf, webPortOf } from "./env-file.mjs";
 import { createCatalogService, installRiskLookup, secretEnvNamesLookup } from "./catalog/index.mjs";
 import { archivedComposeRisk } from "./ops/apps.mjs";
-import { escalationRiskHooks, higherOf, serveWithdrawRisk } from "./ops/escalation.mjs";
+import { escalationRiskHooks, higherOf, homepageHostRisk, serveWithdrawRisk } from "./ops/escalation.mjs";
 import { createJobLogReader } from "./job-log.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
@@ -182,7 +182,7 @@ const secretEnvNamesFor = secretEnvNamesLookup(catalogService);
 // A restore that allows a backup's own compose file to start as archived is high, owner only, typed
 // out (sweep 4): both already are, and stay so whatever their own tier becomes.
 // identity is made further down; the hook reads it only when a job is staged.
-const operationRiskHooks = { ...escalationRiskHooks, "app.serve.withdraw": serveWithdrawRisk(() => identity.servedOrigins()), "app.install": higherOf(escalationRiskHooks["app.install"], installRiskLookup(catalogService)), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk };
+const operationRiskHooks = { ...escalationRiskHooks, "app.serve.withdraw": serveWithdrawRisk(() => identity.servedOrigins()), "homepage.sync": homepageHostRisk(() => identity.servedOrigins()), "app.install": higherOf(escalationRiskHooks["app.install"], installRiskLookup(catalogService)), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk };
 registry.useRiskHooks(operationRiskHooks);
 // Where alerts go, and the one ledger of what was announced and what could not be (M27.2). A failed
 // scheduled run, an automation's step, or a result that could not be saved is announced through the
@@ -231,7 +231,7 @@ const jobs = createJobService(state, helper, {
     "app.backup.verify": (job, result) => state.updateSetting("appBackupVerifications", {}, (entries) => ({ value: foldVerdict(entries, result.id, verdictFrom(result, job.createdBy)) }), job.createdBy),
     // Apps the owner stopped on purpose, so Home says "Stopped" rather than "not running"; anything
     // that brings the app back or replaces it clears it (server/app-stops.mjs).
-    ...Object.fromEntries(["app.action", ...appStopClearingOperations].map((operation) => [operation, (job) => state.updateSetting("appStops", {}, (entries) => ({ value: foldAppStop(entries, job) }), job.createdBy)])),
+    ...Object.fromEntries(["app.action", ...appStopClearingOperations].map((operation) => [operation, (job, result) => state.updateSetting("appStops", {}, (entries) => ({ value: foldAppStop(entries, { ...job, result }) }), job.createdBy)])),
     // Snapshot metadata (origin, size, time) lives here because lvs needs root; the Storage page merges it with lsblk.
     "storage.lvm.snapshot.create": (job, result) => state.updateSetting("lvmSnapshots", [], (entries) => ({ value: [...(entries ?? []).filter((entry) => entry.path !== result.path), { path: result.path, name: result.name, origin: result.origin, volumeGroup: result.volumeGroup, sizeGiB: result.sizeGiB, createdAt: result.createdAt, createdBy: job.createdBy, suffix: job.parameters?.suffix ?? null }] }), job.createdBy),
     // Read and write in one transaction rather than two statements that happen not to interleave.

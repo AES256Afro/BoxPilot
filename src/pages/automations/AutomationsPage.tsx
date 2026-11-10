@@ -352,7 +352,7 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
         title="Automations"
         status={verdict}
         meta={flows ? <><b>{list.length}</b> {list.length === 1 ? "automation" : "automations"} · <b>{running}</b> running · <b>{scheduleList.length}</b> {scheduleList.length === 1 ? "schedule" : "schedules"}{webhooks ? <> · <b>{webhooks}</b> {webhooks === 1 ? "webhook" : "webhooks"}</> : null}</> : undefined}
-        actions={<Button variant="ghost" onClick={() => { void refresh(); void schedules.refresh(); }}>Read again</Button>}
+        actions={<Button variant="ghost" onClick={() => { void refresh(); void schedules.refresh(); }}>Check again</Button>}
         about={<>
           <p>Chains of the operations you already trust, run in order as ordinary jobs under your account, with every step recorded. A step that fails stops the run; what already ran stands.</p>
           <p>Ready to use holds flows that already know what a home server gets wrong: add one and it is yours to edit. Schedules run a single operation hourly, daily or weekly, each run a job in Activity.</p>

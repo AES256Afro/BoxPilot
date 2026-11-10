@@ -28,11 +28,17 @@ const sharableReads = new Set([
  * filesystem state, which Home's five-minute loop asked the helper for every time. They move slower
  * than that, and diagnostic-invalidation.mjs drops them after any storage, share or system change;
  * the Repair page asks for a fresh scan (routes/host.mjs).
+ *
+ * Live performance is held for less than the shortest poll of it (3 to 5 seconds, Home and the
+ * Performance page): two tabs, or two people, asking a moment apart share one `docker stats`
+ * rather than each starting another before the first is a second old, and nobody is shown a figure
+ * older than the one their own next poll would have replaced.
  */
 export const heldReadMs = Object.freeze({
   "storage.usb.events": 15 * 60_000,
   "storage.unclean.events": 10 * 60_000,
   "storage.volumes.state": 10 * 60_000,
+  "system.performance.inspect": 2_500,
 });
 
 /**

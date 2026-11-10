@@ -40,28 +40,46 @@ env:
     default: Etc/UTC
   - name: FTLCONF_webserver_api_password
     label: Admin password
-    description: The only thing the admin page asks for. Leave it empty to have one generated; you can see or change it from the app's card afterwards.
+    description: The only thing the admin page asks for. Leave it empty to have one generated; you can see or change it from the app's sheet afterwards.
     type: password
     generate: true
   - name: FTLCONF_dns_upstreams
     label: Upstream DNS
-    description: Where Pi-hole sends the queries it does not block. Quad9 and Cloudflare are fast public resolvers. "unbound#53" is the bundled recursive resolver, which asks the root servers directly so no third party sees your lookups. It only works in Bridge network mode.
+    description: Where Pi-hole sends the queries it does not block.
     default: 9.9.9.9;149.112.112.112
     options:
-      - 9.9.9.9;149.112.112.112
-      - 1.1.1.1;1.0.0.1
-      - 8.8.8.8;8.8.4.4
-      - 94.140.14.14;94.140.15.15
-      - unbound#53
+      - value: 9.9.9.9;149.112.112.112
+        label: Quad9
+        hint: A fast public resolver, at 9.9.9.9 and 149.112.112.112.
+      - value: 1.1.1.1;1.0.0.1
+        label: Cloudflare
+        hint: A fast public resolver, at 1.1.1.1 and 1.0.0.1.
+      - value: 8.8.8.8;8.8.4.4
+        label: Google
+        hint: Google's public resolver, at 8.8.8.8 and 8.8.4.4.
+      - value: 94.140.14.14;94.140.15.15
+        label: AdGuard
+        hint: AdGuard's public resolver, at 94.140.14.14 and 94.140.15.15.
+      - value: "unbound#53"
+        label: The bundled resolver (Unbound)
+        hint: Asks the root servers directly, so no third party sees your lookups. It only works in Bridge network mode.
   - name: FTLCONF_dns_listeningMode
     label: Listening mode
-    description: Which addresses Pi-hole answers DNS on. all answers on every address for anyone who asks. local answers on every address, but only devices on this machine's own subnets. single answers only what arrives on the main network interface, yet still holds port 53 on every address. bind holds port 53 on the main interface alone and leaves the other addresses free. Pick bind when another DNS server runs on this machine, such as libvirt's default VM network, whose gateway address needs port 53 of its own. The main interface is the one with the default route, so Pi-hole keeps answering your network and the admin page is unaffected. In Bridge network mode leave it on all, as Pi-hole's own Docker image recommends.
+    description: Which addresses Pi-hole answers DNS on. In Bridge network mode leave it on Everyone who asks, as Pi-hole's own Docker image recommends.
     default: all
     options:
-      - all
-      - local
-      - single
-      - bind
+      - value: all
+        label: Everyone who asks
+        hint: Answers on every address, for anyone who asks.
+      - value: local
+        label: Only this network
+        hint: Answers on every address, but only devices on this machine's own subnets.
+      - value: single
+        label: The main connection only
+        hint: Answers only what arrives on the main network interface, yet still holds port 53 on every address.
+      - value: bind
+        label: The main connection, leaving other addresses free
+        hint: Holds port 53 on the main interface alone. Pick this when another DNS server runs on this machine, such as libvirt's default VM network, whose gateway address needs port 53 of its own. Pi-hole keeps answering your network.
   - name: FTLCONF_webserver_port
     default: "80o"
     fixed: true
@@ -127,4 +145,4 @@ setup:
       description: Blocks phone-home and ad domains used by Samsung, LG, Roku, and other TVs.
       website: https://github.com/Perflyst/PiHoleBlocklist
       exec: [pihole-FTL, sqlite3, /etc/pihole/gravity.db, "INSERT INTO adlist (address, enabled, comment) SELECT 'https://raw.githubusercontent.com/Perflyst/PiHoleBlocklist/master/SmartTV.txt', 1, 'BoxPilot: Smart TV telemetry' WHERE NOT EXISTS (SELECT 1 FROM adlist WHERE address = 'https://raw.githubusercontent.com/Perflyst/PiHoleBlocklist/master/SmartTV.txt')"]
-notes: "Network mode (in Settings): **Bridge** keeps Pi-hole isolated behind Docker, but every device on your network reaches it through one address, so the client list shows a single client. Fine for blocking, not for per-device rules. **Host** puts Pi-hole directly on your network so it sees each computer by address and name (turn on Conditional Forwarding to your router for names); its admin UI then answers on port 80 rather than 8084. Runs with Docker's default capabilities (its start script needs to set file capabilities on pihole-FTL). To use Pi-hole as your DHCP server too, add CAP_NET_ADMIN via Config. Finish the setup in two steps: (1) on the Firewall page tick the DNS server service so other devices can reach port 53; (2) in your router's DHCP settings set the DNS server to this machine's LAN address. On Ubuntu Server systemd-resolved holds port 53 by default: set DNSStubListener=no in /etc/systemd/resolved.conf and restart systemd-resolved before installing, or port 53 will already be in use. In Host mode the Listening mode setting decides which addresses Pi-hole holds port 53 on: pick bind if another DNS server on this machine, such as libvirt's default VM network, needs port 53 on an address of its own."
+notes: "Network mode (in Settings): **Bridge** keeps Pi-hole isolated behind Docker, but every device on your network reaches it through one address, so the client list shows a single client. Fine for blocking, not for per-device rules. **Host** puts Pi-hole directly on your network so it sees each computer by address and name (turn on Conditional Forwarding to your router for names); its admin UI then answers on port 80 rather than 8084. Runs with Docker's default capabilities (its start script needs to set file capabilities on pihole-FTL). To use Pi-hole as your DHCP server too, add CAP_NET_ADMIN on its Compose tab. Finish the setup in two steps: (1) on the Firewall page tick the DNS server service so other devices can reach port 53; (2) in your router's DHCP settings set the DNS server to this machine's LAN address. On Ubuntu Server systemd-resolved holds port 53 by default: set DNSStubListener=no in /etc/systemd/resolved.conf and restart systemd-resolved before installing, or port 53 will already be in use. In Host mode the Listening mode setting decides which addresses Pi-hole holds port 53 on: pick \"The main connection, leaving other addresses free\" if another DNS server on this machine, such as libvirt's default VM network, needs port 53 on an address of its own."

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RepairCenter from "./RepairCenter";
 
@@ -235,6 +235,26 @@ describe("Repair Center", () => {
     render(<RepairCenter csrfToken="csrf-token" />);
     expect(await screen.findByText("Mount a network share")).toBeTruthy();
     expect(screen.getByText(/The share does not exist on that host/)).toBeTruthy();
+  });
+
+  it("says a job's tier, steps and state in Activity's words, not the server's", async () => {
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const job = { id: "job-words", title: "Reconnect a drive", type: "op:storage.remount", state: "awaiting_approval", risk: "medium", error: null, result: null, approvals: [], steps: [
+      { name: "preflight", state: "completed", detail: "The request is in order", createdAt: "2026-11-10T10:00:00.000Z" },
+      { name: "approval", state: "awaiting_approval", detail: "Waiting for a person", createdAt: "2026-11-10T10:00:01.000Z" },
+    ] };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("prerequisites")) return json({ checks: [] });
+      if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
+      return json({ jobs: [job] });
+    }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    const row = (await screen.findByText("Reconnect a drive", { selector: ".rp-job strong" })).closest(".rp-job") as HTMLElement;
+    expect(row.querySelector(".rp-job__meta")?.textContent).toMatch(/^medium risk · 2 steps/);
+    expect(within(row).getByText("Awaiting approval")).toBeTruthy();
+    expect([...row.querySelectorAll(".rp-job__steps li")].map((step) => `${step.querySelector("strong")?.textContent} · ${step.querySelector("span")?.textContent}`)).toEqual(["Checked the request · done", "Approval · waiting for approval"]);
+    expect(row.textContent).not.toMatch(/preflight|awaiting_approval/);
   });
 
   it("keeps prerequisites and jobs available when recovery-kit collection fails", async () => {
