@@ -292,7 +292,6 @@ const dataRoutes = {
   "GET /api/v1/auth/passkey": [open],
   "GET /api/v1/auth/identity/links": [operatorUp],
   "GET /api/v1/people": [ownerOnly],
-  "GET /api/v1/operations": [open],
   "GET /api/v1/operations/:id/inspect": [{ ...operatorUp, params: () => ({ id: "samba.inspect" }) }, { ...open, params: () => ({ id: "app.inspect" }) }],
   "GET /api/v1/operations/prerequisites": [open],
   "GET /api/v1/operations/recovery-kit": [ownerOnly],
@@ -454,7 +453,7 @@ const dataRoutes = {
       const operatorReads = role !== "viewer";
       expect(calls.includes("samba.inspect") && calls.includes("storage.usb.events") && calls.includes("storage.unclean.events") && calls.includes("storage.volumes.state"), role).toBe(operatorReads);
       expect(body.findings.some((finding) => finding.id === "flaky-drive:2-1"), role).toBe(operatorReads);
-      expect(body.unavailableChecks, role).toEqual(operatorReads ? [] : ["File sharing (needs an operator)", "USB history (needs an operator)", "Unclean unmounts (needs an operator)", "Drive filesystems (needs an operator)"]);
+      expect(body.unavailableChecks, role).toEqual(operatorReads ? [] : ["File sharing (needs an operator)", "USB history (needs an operator)", "Unclean unmounts (needs an operator)", "Drive filesystems (needs an operator)", "Signed releases (needs an operator)"]);
     },
   }],
   "GET /api/v1/tls/ca.crt": [open],

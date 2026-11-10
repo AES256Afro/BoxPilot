@@ -5,7 +5,7 @@ import type { CatalogContext, Entry } from "./types";
 
 const helperNames: Record<string, string> = { vpn: "VPN", redis: "Redis", mongo: "MongoDB", rabbitmq: "RabbitMQ", ollama: "Ollama", unbound: "Unbound", memcached: "Memcached", meilisearch: "Meilisearch", cadvisor: "cAdvisor", chrome: "Chrome" };
 /** What to call a helper container: a manifest gives it an id ("node-exporter", "vpn"), not a name. */
-export const helperLabel = (id: string) => helperNames[id] ?? id.replace(/[-_]+/g, " ");
+const helperLabel = (id: string) => helperNames[id] ?? id.replace(/[-_]+/g, " ");
 
 /** An app's newest log lines, from its own container or, for an app with helpers, from one of theirs. */
 export function LogsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) {

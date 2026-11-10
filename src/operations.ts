@@ -3,16 +3,6 @@ import { readJson } from "./http";
 
 export type RiskTier = "low" | "medium" | "high";
 
-export interface OperationDescription {
-  id: string;
-  title: string;
-  description: string;
-  risk: RiskTier;
-  readOnly: boolean;
-  timeoutMs: number;
-  parameterNames: string[];
-}
-
 export interface ApprovalPolicy { expiresAt?: string | null; expired?: boolean; confirmText?: string | null; minimumRole?: string | null;
   jobId?: string;
   tier: RiskTier;
@@ -60,10 +50,6 @@ export interface Job {
   updatedAt?: string;
   steps: JobStep[];
   approvals: Array<{ ownerId: string; method?: string; tier?: string; createdAt: string }>;
-}
-
-export function listOperations(): Promise<{ operations: OperationDescription[] }> {
-  return fetch("/api/v1/operations").then((response) => readJson(response));
 }
 
 /** Run a parameter-free read-only operation immediately. */

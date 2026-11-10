@@ -159,7 +159,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
       // The time is in the words: a push kept until a target answers can arrive hours later. A passkey
       // or recovery codes made from that session survive a new password and the session ending, so
       // the advice names them too (sweep 3).
-      message: `${owner.username} signed in from ${address} via ${method} at ${new Date().toLocaleString()}. If this wasn't you, change your password, then in Settings, Account & sign-in, review Where you're signed in and Passkeys, and make new recovery codes: a passkey or recovery code made from a stolen session still works after the password changes.`,
+      message: `${owner.username} signed in from ${address} via ${method} at ${new Date(now()).toLocaleString()}. If this wasn't you, change your password, then in Settings, Account & sign-in, review Where you're signed in and Passkeys, and make new recovery codes: a passkey or recovery code made from a stolen session still works after the password changes.`,
       priority: "high",
     })).catch(() => {});
   }
@@ -176,14 +176,14 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
   function rememberEndedForAddress(token) {
     const key = tokenDigest(token);
     endedForAddress.delete(key);
-    endedForAddress.set(key, Date.now() + sessionTtlMs);
+    endedForAddress.set(key, now() + sessionTtlMs);
     while (endedForAddress.size > endedLimit) endedForAddress.delete(endedForAddress.keys().next().value);
   }
   function endedForAddressBefore(token) {
     const key = tokenDigest(token);
     const until = endedForAddress.get(key);
-    if (until !== undefined && until <= Date.now()) endedForAddress.delete(key);
-    return until !== undefined && until > Date.now();
+    if (until !== undefined && until <= now()) endedForAddress.delete(key);
+    return until !== undefined && until > now();
   }
 
   /**
@@ -392,7 +392,9 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
    * every tailnet user as one caller — which is exactly the lock-out this key exists to avoid.
    */
   async function clientKeyFor(request) {
-    const peer = resolveClientAddress ? await resolveClientAddress(request).catch(() => null) : tailnetClientAddress(request);
+    // Called the same way as in clientDescriptor: a resolver that answers without a promise, or
+    // throws, must not turn a rate-limit key into a 500 (M53.1).
+    const peer = resolveClientAddress ? await Promise.resolve().then(() => resolveClientAddress(request)).catch(() => null) : tailnetClientAddress(request);
     return `ip:${peer ?? request.socket?.remoteAddress ?? request.ip ?? "unknown"}`;
   }
 
@@ -492,7 +494,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
     const { address } = await clientDescriptor(request);
     const token = randomBytes(32).toString("base64url");
     const devices = (store.getSetting("trustedDevices", []) ?? []).filter((entry) => entry && typeof entry.hash === "string").slice(-49);
-    devices.push({ hash: deviceDigest(token), ownerId: owner.id, address, createdAt: new Date().toISOString() });
+    devices.push({ hash: deviceDigest(token), ownerId: owner.id, address, createdAt: new Date(now()).toISOString() });
     store.setSetting("trustedDevices", devices, { updatedBy: owner.id });
     store.recordAudit("session.device-trusted", { actorId: owner.id, subjectId: owner.id });
     const secure = cookieSecure(request);
@@ -528,7 +530,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
       response.status(401).json({ error: "Invalid password", code: "invalid_credentials" });
       return;
     }
-    const elevatedUntil = store.elevateSession(session.tokenHash, new Date(Date.now() + elevationTtlMs));
+    const elevatedUntil = store.elevateSession(session.tokenHash, new Date(now() + elevationTtlMs));
     store.recordAudit("session.elevated", { actorId: owner.id, subjectId: owner.id });
     response.json({ elevatedUntil });
   }

@@ -192,7 +192,7 @@ export function partitionRows(report: StorageReport): PartitionRow[] {
 const snapshotReserveBytes = 32 * GiB;
 
 /** Volumes that can grow into their group's free space, with the words for where that space is. */
-export function growableVolumes(report: StorageReport): Array<{ group: VolumeGroup; volume: VolumeGroup["logicalVolumes"][number]; where: string }> {
+function growableVolumes(report: StorageReport): Array<{ group: VolumeGroup; volume: VolumeGroup["logicalVolumes"][number]; where: string }> {
   // The system disk and everything on it, as the device list nests them.
   const system = new Set<string | null>();
   let inSystem = false;

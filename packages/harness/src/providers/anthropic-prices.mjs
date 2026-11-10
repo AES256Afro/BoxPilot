@@ -1,5 +1,6 @@
 /**
- * What Claude costs, in US dollars per million tokens, as Anthropic lists it. One file, so a price
+ * What Claude costs, in US dollars per million tokens, as Anthropic listed it on 2026-10-08. One
+ * file, so a price
  * change is one edit. A model that is not listed has no price: its cost is null, and a host that
  * holds runs to a dollar cap (BoxPilot's gateway, M45.3) refuses to start a run on it.
  *
@@ -8,8 +9,6 @@
  *
  * Cache writes here are the five-minute kind (1.25 times input); an hour's cache costs twice input.
  */
-export const pricesListedOn = "2026-10-08";
-
 export const anthropicPrices = Object.freeze({
   "claude-opus-5-5": Object.freeze({ input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 }),
   "claude-sonnet-5-5": Object.freeze({ input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 }),
