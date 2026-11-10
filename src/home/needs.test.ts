@@ -102,6 +102,24 @@ describe("what needs you", () => {
     expect(flaky[0].action).toMatchObject({ operationId: "app.backup", parameters: { id: "immich" }, label: "Back up again" });
   });
 
+  it("keeps a failed backup on Home while a retry is only staged, or was opened and cancelled", () => {
+    const failed = job({ id: "b2", type: "op:app.backup", state: "failed", parameters: { id: "immich" }, error: "tar failed: No space left on device", createdAt: hoursAgo(16) });
+    const listed = (jobs: Job[]) => ids(buildNeeds(facts({ catalog: { apps: [app({ id: "immich", name: "Immich" })], total: 1, liveKnown: true }, jobs }), { now, role: "owner" }));
+    expect(listed([failed])).toContain("backup-failed:immich");
+    // "Back up again" opened and then closed leaves a cancelled job newer than the failure.
+    expect(listed([job({ id: "b3", type: "op:app.backup", state: "cancelled", parameters: { id: "immich" }, createdAt: hoursAgo(1) }), failed])).toContain("backup-failed:immich");
+    expect(listed([job({ id: "b4", type: "op:app.backup", state: "awaiting_approval", parameters: { id: "immich" }, createdAt: hoursAgo(1) }), failed])).toContain("backup-failed:immich");
+    // One that ran and finished is the newest word.
+    expect(listed([job({ id: "b5", type: "op:app.backup", state: "completed", parameters: { id: "immich" }, createdAt: hoursAgo(1) }), failed])).not.toContain("backup-failed:immich");
+  });
+
+  it("writes a size in the next unit where the smaller one would round up into it", () => {
+    expect(size(1024 ** 3 - 1)).toBe("1.0 GB");
+    expect(size(999.96 * 1024 ** 3)).toBe("1.0 TB");
+    expect(size(412 * 1024 ** 2)).toBe("412 MB");
+    expect(size(11 * 1024 ** 3)).toBe("11.0 GB");
+  });
+
   it("lets a failed backup go once the app has been backed up since, however that happened", () => {
     const failed = job({ id: "b2", type: "op:app.backup", state: "failed", parameters: { id: "immich" }, error: "tar failed: No space left on device", createdAt: hoursAgo(16) });
     const schedule = { id: "s1", operationId: "app.backup", title: "Back up application data", parameters: { subject: "immich" }, enabled: true, overdue: false, cadence: "daily at 03:00", lastRunAt: hoursAgo(16), lastOutcome: "failed", lastReason: "tar failed" };
@@ -419,12 +437,21 @@ describe("a power cut, said once (2026-09-29)", () => {
     const [need] = needs;
     expect(need).toMatchObject({ kind: "alert", severity: "warning", view: "system", action: null });
     expect(need.title).toMatch(/^homebox lost power \(or froze\) at .+ and was off for 3 h 37 min\.$/);
-    expect(need.detail).toBe("Pi-hole was down with it, so devices using it had no DNS. Next time: set “Restore on AC power loss” to Power On in its BIOS, add a UPS and give your router a second DNS server.");
-    expect(need.actions).toEqual([{ kind: "acknowledge", operationId: "", label: "Got it", title: `Got it: ${need.title}`, parameters: { id: cut.id }, preview: "", risk: "low" }]);
+    // The one thing only a person at the machine can do stays in words; the rest is a button each.
+    expect(need.detail).toBe("Pi-hole was down with it, so devices using it had no DNS. To have it start by itself when power returns, set “Restore on AC power loss” to Power On in its BIOS.");
+    const opens = [
+      { kind: "open", open: { view: "system", tab: "power" }, operationId: "", label: "Power settings", title: "Power settings", parameters: {}, preview: "", risk: "low" },
+      { kind: "open", open: { view: "network", tab: "dns" }, operationId: "", label: "Second DNS steps", title: "Second DNS steps", parameters: {}, preview: "", risk: "low" },
+    ];
+    expect(need.actions).toEqual([{ kind: "acknowledge", operationId: "", label: "Got it", title: `Got it: ${need.title}`, parameters: { id: cut.id }, preview: "", risk: "low" }, ...opens]);
+    // No DNS app went down with it: nothing to say about the router. Overheated: the power settings would not have helped.
+    expect(buildNeeds(facts({ outages: [{ ...cut, dnsApps: [] }], inventory: host }), { now, role: "owner" })[0].actions?.map((action) => action.label)).toEqual(["Got it", "Power settings"]);
+    expect(buildNeeds(facts({ outages: [{ ...cut, dnsApps: [], cause: "overheated" }], inventory: host }), { now, role: "owner" })[0].actions?.map((action) => action.label)).toEqual(["Got it"]);
     // Not a fix: Ops lists it with what is only looked at.
     expect(groupByTier(needs).look).toEqual(needs);
     const [viewed] = buildNeeds(facts({ outages: [cut], inventory: host }), { now, role: "viewer" });
-    expect(viewed.actions).toBeUndefined();
+    // A viewer cannot say Got it, and can still open the two pages.
+    expect(viewed.actions).toEqual(opens);
     // First among the warnings: it explains what else came back broken.
     const unheard = { ...watched, targetConfigured: false, alerts: [{ ...watched.alerts[0], announced: false }, { family: "flow.failed", title: "Automation stopped: Update night", since: null, announced: false }] };
     expect(ids(buildNeeds(facts({ outages: [cut], inventory: host, watch: unheard }), { now, role: "owner" }))).toEqual([`outage:${cut.id}`, "unannounced", "alert:flow.failed:1"]);
@@ -440,7 +467,7 @@ describe("a power cut, said once (2026-09-29)", () => {
     const clock = { now: Date.parse("2026-09-29T22:40:00Z"), locale: "en-US", timeZone: "America/Chicago" };
     expect(outageTitle(cut, "homebox", clock)).toBe("homebox lost power (or froze) at 1:41 PM and was off for 3 h 37 min.");
     expect(outageTitle(cut, "homebox", { ...clock, now: Date.parse("2026-09-30T20:00:00Z") })).toBe("homebox lost power (or froze) at 1:41 PM on Tue 29 Sep and was off for 3 h 37 min.");
-    expect(outageDetail({ ...cut, dnsApps: [], ups: true })).toBe("Next time: set “Restore on AC power loss” to Power On in its BIOS and check the UPS, which did not shut it down cleanly.");
+    expect(outageDetail({ ...cut, dnsApps: [], ups: true })).toBe("The UPS did not shut it down cleanly. To have it start by itself when power returns, set “Restore on AC power loss” to Power On in its BIOS.");
     expect(outageDetail({ ...cut, cause: "overheated" })).toBe("Pi-hole was down with it, so devices using it had no DNS. Check that its fans turn and its vents are free of dust.");
   });
 

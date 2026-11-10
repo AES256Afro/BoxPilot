@@ -8,7 +8,7 @@ import { AppIcon, Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, Sear
 import { AppSheet, type SheetTab } from "./AppSheet";
 import { ConfigSheet } from "./ConfigSheet";
 import { appStatus, installTier, isRunning, runRead, shortImage, tileDetail } from "./appState";
-import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, Values } from "./types";
+import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, TunnelDraft, Values } from "./types";
 import "./catalog.css";
 
 /** The most apps one app.update.many job takes (server/ops/apps.mjs). */
@@ -145,12 +145,13 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   // What the form an action came from held, put back when its approval is cancelled or its job does
   // not complete, as Users does: the form closed before the approval opened, and everything typed
   // into it (the install form, the settings, an edited Compose file) was gone.
-  const keptForm = useRef<{ config?: ConfigForm; composeDraft?: string } | null>(null);
+  const keptForm = useRef<{ config?: ConfigForm; composeDraft?: string; tunnelDraft?: TunnelDraft } | null>(null);
   const keptCompose = useRef<{ id: string; draft: string } | null>(null);
+  const keptTunnel = useRef<TunnelDraft | null>(null);
   const { start, dialog } = useOperation(csrfToken, (job) => { ended.current = job; void refresh(); });
   const openSheet = useCallback((id: string, sheetTab?: SheetTab) => { setSheet({ id, tab: sheetTab }); rememberApp(id); }, []);
   const closeSheet = useCallback(() => { setSheet(null); rememberApp(null); }, []);
-  const act = useCallback((operation: PendingOperation, keep?: { config?: ConfigForm; composeDraft?: string }) => {
+  const act = useCallback((operation: PendingOperation, keep?: { config?: ConfigForm; composeDraft?: string; tunnelDraft?: TunnelDraft }) => {
     returnTo.current = sheet ?? (config ? config.back ?? { id: config.entry.manifest.id } : null);
     ended.current = null;
     keptForm.current = keep ?? null;
@@ -159,6 +160,11 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   const takeComposeDraft = useCallback((appId: string) => {
     const kept = keptCompose.current?.id === appId ? keptCompose.current.draft : null;
     keptCompose.current = null;
+    return kept;
+  }, []);
+  const takeTunnelDraft = useCallback(() => {
+    const kept = keptTunnel.current;
+    keptTunnel.current = null;
     return kept;
   }, []);
   const approving = Boolean(dialog);
@@ -175,6 +181,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     if (!completed && form?.config) { setConfig(form.config); return; }
     if (!back) return;
     if (!completed && form?.composeDraft !== undefined) keptCompose.current = { id: back.id, draft: form.composeDraft };
+    keptTunnel.current = !completed && form?.tunnelDraft ? form.tunnelDraft : null;
     // Installed: it is on the Installed tab now; its sheet opens at Overview, with its address.
     if (job?.type === "op:app.install" && completed) { setTab("installed"); openSheet(back.id); return; }
     openSheet(back.id, back.tab);
@@ -279,6 +286,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     },
     act,
     takeComposeDraft,
+    takeTunnelDraft,
     openUrl,
     configure: (entry, mode) => { const back = sheet; setSheet(null); setScheduleError(null); setConfig({ entry, mode, back }); },
   } : null;
@@ -300,17 +308,17 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     { id: "target", header: "Forwards to", cell: (serve) => <code>{serve.target ?? `port ${serve.port}`}</code> },
     ...(mayStart(role, "app.serve.withdraw") ? [{
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "catalog-actions-cell",
-      cell: (serve: Serve) => <span className="catalog-actions"><Button risk={riskOf("app.serve.withdraw")} aria-label={`Stop publishing port ${serve.port}`} onClick={() => act({ operationId: "app.serve.withdraw", title: `Stop publishing port ${serve.port} on the tailnet`, parameters: { port: serve.port }, preview: <span>Runs <code>tailscale serve --https={serve.port} off</code>. Nothing else about your tailnet or any app changes.</span> })}>Stop publishing</Button></span>,
+      cell: (serve: Serve) => <span className="catalog-actions"><Button risk={riskOf("app.serve.withdraw")} aria-label={`Stop publishing port ${serve.port}`} onClick={() => act({ operationId: "app.serve.withdraw", title: `Stop publishing port ${serve.port} on the tailnet`, parameters: { port: serve.port }, preview: <span>Takes <code>https://{serve.dnsName}:{serve.port}</code> off your tailnet. No app changes.</span> })}>Stop publishing</Button></span>,
     }] : []),
   ];
 
   const stackColumns: Array<TableColumn<ForeignStack>> = [
     { id: "name", header: "Stack", sortValue: (stack) => stack.name, cell: (stack) => <code className="catalog-strong">{stack.name}</code> },
-    { id: "status", header: "State", cell: (stack) => <StatusChip status={stackRunning(stack) ? "good" : /running|up/i.test(stack.status) ? "warning" : "neutral"}>{stack.status}</StatusChip> },
+    { id: "status", header: "State", cell: (stack) => <StatusChip status={stackRunning(stack) ? "good" : /running|up/i.test(stack.status) ? "warning" : "neutral"}>{stackStateWords(stack.status)}</StatusChip> },
     { id: "file", header: "Compose file", hideOnPhone: true, cell: (stack) => <code className="catalog-dim">{stack.configFiles[0] ?? ""}</code> },
     {
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "catalog-actions-cell", cell: (stack) => {
-        const stackAct = (action: "start" | "stop" | "restart") => act({ operationId: "compose.project.action", title: `${action[0].toUpperCase()}${action.slice(1)} ${stack.name}`, parameters: { name: stack.name, action }, preview: <span>Runs <code>docker compose {action}</code> on {stack.name} using its own compose files. BoxPilot does not change or adopt the stack.</span> });
+        const stackAct = (action: "start" | "stop" | "restart") => act({ operationId: "compose.project.action", title: `${action[0].toUpperCase()}${action.slice(1)} ${stack.name}`, parameters: { name: stack.name, action }, preview: <span>{stackActionWords[action]} every container in {stack.name}. Its files stay as they are; BoxPilot does not take it over.</span> });
         const may = mayStart(role, "compose.project.action");
         const risk = riskOf("compose.project.action");
         return (
@@ -342,7 +350,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
               preview: <span>Updates {batch.map((entry) => entry.manifest.name).join(", ")}, one at a time. Each gets a data checkpoint first, then the catalog's current image; one that does not become healthy goes back to its previous image. One that fails does not stop the others.{updatable.length > batch.length ? ` The other ${updatable.length - batch.length} wait for the next run: one job updates at most ${updateBatchLimit}.` : ""}</span>,
             })}>{updatable.length > batch.length ? `Update ${batch.length} of ${updatable.length}` : `Update all (${updatable.length})`}</Button>
           )}
-          <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Read again</Button>
+          <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Check again</Button>
         </>}
         about={<>
           <p>Install, update, configure and remove applications. Each one is a Compose project BoxPilot deploys from the catalog, and each opens a sheet with its state, who can reach it, its backups and restore drills, its logs and its configuration.</p>
@@ -465,7 +473,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
       )}
 
       {foreignLogs && (
-        <Sheet kicker="Logs" title={foreignLogs.name} size="lg" onClose={() => setForeignLogs(null)} footer={<Button onClick={() => void showForeignLogs(foreignLogs.name)} busy={foreignLogs.lines === null && !foreignLogs.error}>Read again</Button>}>
+        <Sheet kicker="Logs" title={foreignLogs.name} size="lg" onClose={() => setForeignLogs(null)} footer={<Button onClick={() => void showForeignLogs(foreignLogs.name)} busy={foreignLogs.lines === null && !foreignLogs.error}>Check again</Button>}>
           {foreignLogs.error
             ? <Notice tone="danger" live title="The logs could not be read">{foreignLogs.error}</Notice>
             : <CodeBlock label={`Logs for ${foreignLogs.name}`} meta={foreignLogs.lines ? `last ${foreignLogs.lines.length} lines` : undefined} follow empty={foreignLogs.lines === null ? "Reading…" : "(no output)"} maxHeight="calc(100vh - 220px)">{(foreignLogs.lines ?? []).join("\n")}</CodeBlock>}
@@ -476,6 +484,23 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
 }
 
 /** Compose reports a compound status ("running(1), exited(1)"): a stack is running only when it is up with nothing stopped. */
+const stackActionWords = { start: "Starts", stop: "Stops", restart: "Stops and starts" } as const;
+
+/**
+ * Docker's summary of a stack, "running(1), exited(1)", in words: Running, Partly running (1 of 2),
+ * Stopped. A state it does not count that way is shown as Docker wrote it.
+ */
+export function stackStateWords(status: string): string {
+  const counts = [...status.matchAll(/([a-z]+)\((\d+)\)/gi)].map((match) => ({ state: match[1].toLowerCase(), count: Number(match[2]) }));
+  if (!counts.length) return /^(running|up)\b/i.test(status.trim()) ? "Running" : /^(exited|stopped|created|dead)\b/i.test(status.trim()) ? "Stopped" : status;
+  const total = counts.reduce((sum, entry) => sum + entry.count, 0);
+  const running = counts.filter((entry) => entry.state === "running").reduce((sum, entry) => sum + entry.count, 0);
+  if (running === total) return "Running";
+  if (running > 0) return `Partly running (${running} of ${total})`;
+  if (counts.every((entry) => ["exited", "created", "dead"].includes(entry.state))) return "Stopped";
+  return counts.map((entry) => `${entry.count} ${entry.state}`).join(", ");
+}
+
 function stackRunning(stack: ForeignStack): boolean {
   return /running|up/i.test(stack.status) && !/exited|stopped/i.test(stack.status);
 }

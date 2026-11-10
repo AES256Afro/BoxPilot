@@ -92,6 +92,14 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
   const [domain, setDomain] = useState("");
   const [name, setName] = useState("");
   const [https, setHttps] = useState(false);
+  // A publish whose approval was cancelled, or whose job failed, comes back as it was filled in
+  // rather than as an empty form (the sheet closes for the approval).
+  const { takeTunnelDraft } = ctx;
+  useEffect(() => {
+    const kept = takeTunnelDraft?.();
+    if (!kept) return;
+    setAppId(kept.appId); setPortId(kept.portId); setName(kept.name); setDomain(kept.domain); setHttps(kept.https);
+  }, [takeTunnelDraft]);
 
   const read = useCallback(async () => {
     try {
@@ -167,7 +175,7 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
           {choice.entry.manifest.id === "pingvin-share" && <> For {appName}: set <strong>Behind a reverse proxy</strong> to Yes in its Settings here, and its <strong>App URL</strong> to <code>https://{fqdn}</code> in {appName}&apos;s own configuration, so the links it hands out use the new address.</>}
         </span>
       ),
-    });
+    }, { tunnelDraft: { appId: choice.entry.manifest.id, portId: chosenPort.port.id, name, domain: chosenDomain, https } });
   };
 
   const unpublish = (route: TunnelRoute) => act({

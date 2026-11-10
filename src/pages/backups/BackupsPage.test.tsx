@@ -95,7 +95,7 @@ describe("Backups page", () => {
     expect(await screen.findByText("Protected")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "Backups" })).toBeTruthy();
     expect(screen.getByText("Protected").closest(".ui-chip")?.getAttribute("data-status")).toBe("good");
-    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("1 apps with data · 1 nightly · 1 database backups · 1 machine snapshots · off-box today");
+    expect(document.querySelector(".ui-page-header__meta")?.textContent).toBe("1 apps with data · 1 nightly · 1 database backups · 1 machine snapshots · off this server today");
     expect(screen.getAllByRole("tab").map((tab) => /^[A-Za-z -]+/.exec(tab.textContent ?? "")?.[0].trim())).toEqual(["Apps", "This server", "Off this server", "Restore"]);
     fireEvent.click(screen.getByRole("button", { name: "About Backups" }));
     expect(screen.getByText(/an app with no backup comes back installed and empty/).closest("[hidden]")).toBeNull();
@@ -262,9 +262,21 @@ describe("Backups page", () => {
       fireEvent.change(within(sheet).getByLabelText("Host"), { target: { value: "nas.local" } });
       fireEvent.change(within(sheet).getByLabelText("User"), { target: { value: "backup" } });
       fireEvent.change(within(sheet).getByLabelText("Path"), { target: { value: "/srv/boxpilot" } });
+      // A greyed-out Save says what it waits for.
       expect(within(sheet).getByRole("button", { name: "Save destination" })).toHaveProperty("disabled", true);
+      expect(within(sheet).getByText("Still needed: Owner password.")).toBeTruthy();
       fireEvent.change(within(sheet).getByLabelText("Owner password"), { target: { value: "correct horse battery" } });
-      fireEvent.click(within(sheet).getByRole("button", { name: "Save destination" }));
+      // The port can be emptied to retype it; nothing is saved without one.
+      const port = within(sheet).getByLabelText("Port") as HTMLInputElement;
+      fireEvent.change(port, { target: { value: "" } });
+      expect(port.value).toBe("");
+      expect(within(sheet).getByText("Still needed: a port from 1 to 65535.")).toBeTruthy();
+      fireEvent.submit(sheet.querySelector("form")!);
+      expect(saved).toBeUndefined();
+      fireEvent.change(port, { target: { value: "22" } });
+      expect(within(sheet).queryByText(/Still needed/)).toBeNull();
+      // Enter in a field saves, as the button does.
+      fireEvent.submit(sheet.querySelector("form")!);
       expect(await screen.findByText("backup@nas.local:/srv/boxpilot")).toBeTruthy();
       expect(JSON.parse(saved ?? "{}")).toEqual({ password: "correct horse battery", destination: { host: "nas.local", port: 22, user: "backup", path: "/srv/boxpilot" } });
       const ssh = screen.getByRole("region", { name: "Another machine over SSH" });
@@ -272,7 +284,9 @@ describe("Backups page", () => {
       expect(await screen.findByText(/pins the destination's host key/)).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
       fireEvent.click(within(ssh).getByRole("button", { name: "Mirror now" }));
-      expect(await screen.findByText(/Nothing on the destination is deleted/)).toBeTruthy();
+      const mirror = await screen.findByRole("dialog", { name: "Mirror backups to nas.local" });
+      expect(mirror.textContent).toContain("Copies the database backups, app backups and machine snapshots to nas.local. Files already there are not sent again; nothing there is ever deleted.");
+      expect(mirror.textContent).not.toMatch(/rsync|checksum|System page/);
       expect(staged).toEqual(["backup.remote.test", "backup.remote.sync"]);
     });
 
@@ -316,6 +330,52 @@ describe("Backups page", () => {
       expect((within(sheet).getByLabelText("Key ID") as HTMLInputElement).value).toBe("0012abc");
       expect((within(sheet).getByLabelText("Bucket") as HTMLInputElement).value).toBe("home-backups");
       expect((within(sheet).getByLabelText("Application key") as HTMLInputElement).value).toBe("K123");
+    });
+
+    // The passphrase was typed once, masked, with only "not empty" checked: a slip sealed every copy
+    // with a passphrase nobody knew.
+    it("asks for the encryption passphrase twice, and says what is wrong with it before Save is offered", async () => {
+      const sealedProviders = { ...providers, b2: { ...providers.b2, secrets: ["key", "passphrase"] } };
+      const { bodies } = mockFetch({ cloud: { rcloneInstalled: true, configured: false, provider: null, providers: sealedProviders }, extra: (url, init) => {
+        if (url.endsWith("/api/v1/jobs/job-backup.cloud.setup/approve") && init?.method === "POST") return json({ job: { id: "job-backup.cloud.setup", state: "running" } });
+        if (url.endsWith("/api/v1/jobs/job-backup.cloud.setup")) return json({ job: { id: "job-backup.cloud.setup", type: "op:backup.cloud.setup", title: "t", state: "failed", risk: "medium", error: "This folder is already sealed with another passphrase. Use that one, or choose an empty folder.", result: null, steps: [], approvals: [] } });
+        return null;
+      } });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      await screen.findByRole("tab", { name: /^Off this server/ });
+      openTab(/^Off this server/);
+      fireEvent.click(within(await screen.findByRole("region", { name: "Cloud bucket" })).getByRole("button", { name: "Set destination" }));
+      let sheet = screen.getByRole("dialog", { name: "Set the cloud destination" });
+      const save = () => within(sheet).getByRole("button", { name: "Save destination" }) as HTMLButtonElement;
+      fireEvent.change(within(sheet).getByLabelText("Key ID"), { target: { value: "0012abc" } });
+      fireEvent.change(within(sheet).getByLabelText("Bucket"), { target: { value: "home-backups" } });
+      fireEvent.change(within(sheet).getByLabelText("Application key"), { target: { value: "K123" } });
+      fireEvent.change(within(sheet).getByLabelText("Encryption passphrase"), { target: { value: "too short" } });
+      expect(within(sheet).getByText("At least 12 characters.")).toBeTruthy();
+      expect(save().disabled).toBe(true);
+      fireEvent.change(within(sheet).getByLabelText("Encryption passphrase"), { target: { value: "long enough to seal" } });
+      expect(within(sheet).queryByText("At least 12 characters.")).toBeNull();
+      expect(within(sheet).getByText("Still needed: the passphrase typed again.")).toBeTruthy();
+      fireEvent.change(within(sheet).getByLabelText("Type it again"), { target: { value: "long enough to seel" } });
+      expect(within(sheet).getByText("The two do not match.")).toBeTruthy();
+      expect(save().disabled).toBe(true);
+      fireEvent.change(within(sheet).getByLabelText("Type it again"), { target: { value: "long enough to seal" } });
+      expect(within(sheet).queryByText("The two do not match.")).toBeNull();
+      expect(save().disabled).toBe(false);
+      fireEvent.click(save());
+      const approval = await screen.findByRole("dialog", { name: "Save the Backblaze B2 backup destination" });
+      // The second typing is the form's own: only the passphrase is sent.
+      expect(JSON.parse(bodies["backup.cloud.setup"] ?? "{}")).toEqual({ parameters: { provider: "b2", account: "0012abc", bucket: "home-backups", key: "K123", passphrase: "long enough to seal" } });
+      expect(approval.textContent).not.toMatch(/rclone/);
+      // A save the server refuses is said in the sheet it came from, with everything still typed.
+      await waitFor(() => expect((approval.querySelector(".approve-go") as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(approval.querySelector(".approve-go") as HTMLButtonElement);
+      expect(await within(approval).findByText(/already sealed with another passphrase/)).toBeTruthy();
+      fireEvent.click(within(approval).getByRole("button", { name: "Close dialog" }));
+      sheet = await screen.findByRole("dialog", { name: "Set the cloud destination" });
+      expect(within(sheet).getByText("The destination was not saved")).toBeTruthy();
+      expect(within(sheet).getByText(/already sealed with another passphrase/)).toBeTruthy();
+      expect((within(sheet).getByLabelText("Bucket") as HTMLInputElement).value).toBe("home-backups");
     });
 
     it("tells a viewer a second copy is set without saying where", async () => {
@@ -386,6 +446,16 @@ describe("Backups page", () => {
       fireEvent.click(within(sheet).getByRole("button", { name: "Restore 2 apps" }));
       expect(await screen.findByText("High risk")).toBeTruthy();
       expect(JSON.parse(bodies["host.snapshot.restore"] ?? "{}")).toEqual({ parameters: { source: "local", artifact: "machine-snapshot-a.tar.gz", apps: ["immich", "jellyfin"], restoreData: true } });
+      // The snapshot by its date, not its file name.
+      const approval = screen.getByRole("dialog", { name: "Restore 2 apps from snapshot" });
+      expect(approval.textContent).toContain("from the snapshot of ");
+      expect(approval.textContent).not.toContain("machine-snapshot-a.tar.gz");
+      // Cancelling the approval puts the sheet back with the same apps ticked.
+      fireEvent.click(within(approval).getByRole("button", { name: "Cancel" }));
+      const again = await screen.findByRole("dialog", { name: /^Snapshot of/ });
+      expect((within(again).getByLabelText("Restore immich") as HTMLInputElement).checked).toBe(true);
+      expect((within(again).getByLabelText("Restore jellyfin") as HTMLInputElement).checked).toBe(true);
+      expect(within(again).getByRole("button", { name: "Restore 2 apps" })).toBeTruthy();
     });
 
     // Sweep 4: an app whose data archive would start its compose file as it was backed up, giving it

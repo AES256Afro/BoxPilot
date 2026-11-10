@@ -49,11 +49,15 @@ describe("Notification settings", () => {
 
     expect(await screen.findByText("Off")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "http://127.0.0.1:8093" } });
+    // The greyed Save says what it waits for, until the password is typed.
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Type your password to save.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Owner password"), { target: { value: "correct horse battery" } });
+    expect(screen.queryByText("Type your password to save.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText(/Saved\./)).toBeTruthy();
-    expect(screen.getByText("ntfy configured")).toBeTruthy();
+    expect(screen.getByText("On · ntfy")).toBeTruthy();
     expect(JSON.parse(saved ?? "{}")).toEqual({ target: { kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" }, password: "correct horse battery" });
   });
 
@@ -76,6 +80,12 @@ describe("Notification settings", () => {
     // Now it explains how the phone actually receives, which loopback does not answer on its own.
     expect(screen.getByText(/subscribe to/)).toBeTruthy();
     expect(screen.getByText(/homebox\.tail0a1b\.ts\.net/)).toBeTruthy();
+    // Publishing it on the tailnet is done on its catalog card: a button, not a pointer in prose.
+    const opened = vi.fn((event: Event) => (event as CustomEvent).detail);
+    window.addEventListener(openViewEvent, opened);
+    fireEvent.click(screen.getByRole("button", { name: "Open ntfy in the catalog" }));
+    window.removeEventListener(openViewEvent, opened);
+    expect(opened.mock.results[0].value).toEqual({ view: "catalog", options: { app: "ntfy" } });
 
     fireEvent.change(screen.getByLabelText("Owner password"), { target: { value: "correct horse battery" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -118,6 +128,36 @@ describe("Notification settings", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Send a test" }));
     expect(await screen.findByText(/Test sent/)).toBeTruthy();
+    // The service by its name, in the chip and in the facts.
+    const panel = screen.getByRole("region", { name: /Where alerts go/ });
+    expect(within(panel).getByText("On · Gotify")).toBeTruthy();
+    expect(within(panel).getByText("Gotify")).toBeTruthy();
+    expect(within(panel).queryByText("gotify")).toBeNull();
+  });
+
+  it("says when the settings or quiet hours could not be read, with Try again, rather than keeping the refusal as settings", async () => {
+    let failing = true;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/notifications")) return failing ? json({ error: "the settings store is locked" }, 500) : json({ configured: true, kind: "gotify", url: "http://127.0.0.1:8091", topic: null, hasToken: true });
+      if (url.endsWith("/settings/quiet-hours")) return failing ? json({ error: "no" }, 500) : json({ enabled: false, start: "22:00", end: "07:00", holdHigh: false, held: 0, quietNow: false });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    const alerts = await screen.findByRole("region", { name: /Where alerts go/ });
+    expect(await within(alerts).findByText("The notification settings could not be read")).toBeTruthy();
+    expect(within(alerts).getByText("the settings store is locked")).toBeTruthy();
+    // No form over settings that were never read.
+    expect(within(alerts).queryByLabelText("Server URL")).toBeNull();
+    expect(within(alerts).queryByText("Off")).toBeNull();
+    const quiet = await screen.findByRole("region", { name: "Quiet hours" });
+    expect(within(quiet).getByText("Quiet hours could not be read")).toBeTruthy();
+    failing = false;
+    fireEvent.click(within(alerts).getByRole("button", { name: "Try again" }));
+    expect(await within(alerts).findByText("On · Gotify")).toBeTruthy();
+    expect(within(alerts).queryByText("The notification settings could not be read")).toBeNull();
+    fireEvent.click(within(quiet).getByRole("button", { name: "Try again" }));
+    expect(await within(await screen.findByRole("region", { name: /Quiet hours/ })).findByRole("switch", { name: "Hold pushes overnight" })).toBeTruthy();
   });
 
   it("shows the weekly report's schedule, previews it, sends it now and turns it off (M30.4)", async () => {

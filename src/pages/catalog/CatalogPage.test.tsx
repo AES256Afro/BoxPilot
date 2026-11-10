@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import CatalogPage from "./CatalogPage";
+import CatalogPage, { stackStateWords } from "./CatalogPage";
 
 // The page's own address, put back after a test that serves it from another name. vitest exposes
 // the jsdom instance; reconfiguring it moves window.location, which cannot be redefined or spied on
@@ -136,6 +136,11 @@ describe("App catalog: the page", () => {
     expect(screen.getByRole("button", { name: "Start old-wordpress" }).getAttribute("data-risk")).toBe("medium");
     expect(screen.getByRole("button", { name: "Stop handmade" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Restart handmade" })).toBeTruthy();
+    // Docker's "running(3)" and "exited(2)" in words.
+    expect(screen.getByText("Running")).toBeTruthy();
+    expect(screen.getByText("Stopped")).toBeTruthy();
+    expect(stackStateWords("running(1), exited(1)")).toBe("Partly running (1 of 2)");
+    expect(stackStateWords("paused(1)")).toBe("1 paused");
     fireEvent.click(screen.getByRole("button", { name: "Logs of handmade" }));
     const sheet = await screen.findByRole("dialog", { name: "handmade" });
     expect(await within(sheet).findByText("stack says hello")).toBeTruthy();
@@ -596,7 +601,7 @@ describe("App catalog: an installed app's sheet", () => {
     expect(await screen.findByText("Update ready")).toBeTruthy();
     const sheet = await openApp("Jellyfin");
     expect(within(sheet).getByText(/update ready: jellyfin\/jellyfin:10.10.6 → jellyfin\/jellyfin:10.10.7/)).toBeTruthy();
-    fireEvent.click(within(sheet).getByRole("button", { name: "Update available" }));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Update now" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Jellyfin" })).toBeNull();
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { id: "jellyfin" } });
@@ -717,6 +722,16 @@ describe("App catalog: an installed app's sheet", () => {
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { id: "jellyfin", at: "2026-08-10T10:00:00.000Z" } });
   });
 
+  it("draws a manifest's note with its bold, not its stars", async () => {
+    serve(catalogOf([{ manifest: { ...manifest, notes: "Network mode: **Bridge** keeps it isolated. Set `PORT` on its Compose tab." }, live: running("jellyfin") }]));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openApp("Jellyfin");
+    const note = within(sheet).getByText(/keeps it isolated/);
+    expect(note.textContent).toBe("Network mode: Bridge keeps it isolated. Set PORT on its Compose tab.");
+    expect(within(note).getByText("Bridge").tagName).toBe("STRONG");
+    expect(within(note).getByText("PORT").tagName).toBe("CODE");
+  });
+
   it("reads an app's logs, and a helper container's", async () => {
     const bodies: unknown[] = [];
     serve(catalogOf([{ manifest: { ...manifest, sidecars: [{ id: "vpn" }] }, live: running("jellyfin") }]), (url, init) => {
@@ -727,7 +742,10 @@ describe("App catalog: an installed app's sheet", () => {
     const sheet = await openApp("Jellyfin");
     fireEvent.click(within(sheet).getByRole("tab", { name: "Logs" }));
     expect(await within(sheet).findByText("server started")).toBeTruthy();
-    fireEvent.click(within(sheet).getByRole("radio", { name: "vpn" }));
+    // The switch names the app and its helper, not their container ids.
+    expect(within(sheet).getByRole("radiogroup", { name: "Logs from" })).toBeTruthy();
+    expect(within(sheet).getByRole("radio", { name: "Jellyfin" })).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("radio", { name: "its VPN" }));
     expect(await within(sheet).findByText("tunnel up")).toBeTruthy();
     expect(bodies).toEqual([{ id: "jellyfin", lines: 200 }, { id: "jellyfin", lines: 200, container: "vpn" }]);
   });
@@ -845,6 +863,10 @@ describe("App catalog: reach", () => {
     expect(await screen.findByText("https://box.tail1234.ts.net:8084")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stop publishing port 8084" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
+    // What it does, not the command that does it.
+    const approval = screen.getByText("Medium risk").closest("[role=dialog]") as HTMLElement;
+    expect(approval.textContent).toContain("Takes https://box.tail1234.ts.net:8084 off your tailnet. No app changes.");
+    expect(approval.textContent).not.toContain("tailscale serve");
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { port: 8084 } });
   });
 });

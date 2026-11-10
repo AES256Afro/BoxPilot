@@ -167,7 +167,7 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
         meta={report ? <><b>{users.length}</b> {users.length === 1 ? "account" : "accounts"} · <b>{sudoCount}</b> with sudo · <b>{keyCount}</b> {keyCount === 1 ? "key" : "keys"}{sshd ? <> · port <b>{sshd.port}</b> · root login <b>{sshd.permitRootLogin ?? "unknown"}</b></> : null}</> : undefined}
         actions={canRead ? <>
           {canAdd && <Button onClick={() => setSheet("add")}>Add a user…</Button>}
-          <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(report)}>Read again</Button>
+          <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(report)}>Check again</Button>
         </> : undefined}
         about={<>
           <p>Add accounts, import SSH keys from GitHub, and control SSH password login.</p>

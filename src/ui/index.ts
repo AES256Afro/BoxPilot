@@ -26,6 +26,7 @@ export { EmptyState, Notice, type EmptyStateProps, type NoticeProps, type Notice
 export { PageHeader, type PageHeaderProps } from "./PageHeader";
 export { Panel, type PanelProps } from "./Panel";
 export { Progress, type ProgressProps } from "./Progress";
+export { RelativeTime, type RelativeTimeProps } from "./RelativeTime";
 export { Section, type SectionProps } from "./Section";
 export { Segmented, type SegmentedOption, type SegmentedProps } from "./Segmented";
 export { Select, type SelectOption, type SelectProps } from "./Select";
