@@ -108,6 +108,38 @@ describe("BoxPilot console", () => {
     expect(within(screen.getByRole("navigation", { name: "Areas" })).getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
   });
 
+  // The only history call was replaceState, so the browser's Back button left BoxPilot altogether.
+  it("goes back to the page before with the browser's Back button, and forward again", async () => {
+    chooseLook({ "boxpilot-look": "console", "boxpilot-look-scope": "not-home" });
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+    const entries = window.history.length;
+    fireEvent.click(within(dock()).getByRole("button", { name: "Backups" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Backups" })).toBeTruthy();
+    fireEvent.click(within(dock()).getByRole("button", { name: "Firewall" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Firewall" })).toBeTruthy();
+    expect(window.location.search).toBe("?view=firewall");
+    // Two changes of page, two steps to go back through.
+    expect(window.history.length).toBe(entries + 2);
+    // Choosing the page already showing is not another step.
+    fireEvent.click(within(dock()).getByRole("button", { name: "Firewall" }));
+    expect(window.history.length).toBe(entries + 2);
+    window.history.back();
+    expect(await screen.findByRole("heading", { level: 1, name: "Backups" })).toBeTruthy();
+    expect(window.location.search).toBe("?view=backups");
+    expect(within(dock()).getByRole("button", { name: "Backups" }).getAttribute("aria-current")).toBe("page");
+    // Going back pushed nothing: Forward is still there.
+    expect(window.history.length).toBe(entries + 2);
+    window.history.forward();
+    expect(await screen.findByRole("heading", { level: 1, name: "Firewall" })).toBeTruthy();
+    window.history.back();
+    await screen.findByRole("heading", { level: 1, name: "Backups" });
+    window.history.back();
+    expect(await screen.findByRole("heading", { level: 1, name: greeting })).toBeTruthy();
+    expect(window.location.search).toBe("");
+  });
+
   // Settings chosen again from Appearance dropped the section from the address but left Appearance on
   // show, until any later render jumped to Account, in the middle of trying a look.
   it("opens Settings at its first section when chosen again from another section", async () => {
@@ -133,8 +165,9 @@ describe("BoxPilot console", () => {
     await screen.findByRole("heading", { level: 1, name: greeting });
     for (const area of dockAreas) {
       fireEvent.click(within(dock()).getByRole("button", { name: new RegExp(`^${viewLabel(area.id).replace(/[&()]/g, "\\$&")}`) }));
-      // Every page's name is in the bar, Repair's too since M33.14 (it is called Repair there).
-      const title = area.id === "repairs" ? "Repair" : viewCopy[area.id].title;
+      // Every page's name is in the bar, and it is the word the navigation uses for the page.
+      const title = viewCopy[area.id].title;
+      expect(title).toBe(viewLabel(area.id).replace(/ & packages$/, ""));
       const heading = await screen.findByRole("heading", { level: 1, name: title });
       expect(heading.closest(".topbar")).not.toBeNull();
       expect(container.querySelector(".page-header, .feature-strip, [aria-label='Features']")).toBeNull();
@@ -244,7 +277,7 @@ describe("BoxPilot console", () => {
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
     window.history.replaceState(null, "", "/?view=catalog");
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "App catalog" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Apps" })).toBeTruthy();
     // The features the pages list are what the command bar finds (the strip that showed them is gone).
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     const input = within(screen.getByRole("dialog", { name: "Search BoxPilot" })).getByRole("combobox");

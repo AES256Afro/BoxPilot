@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, Checkbox, CodeBlock, EmptyState, KeyValue, Notice, Panel, Table, Tag, mayStart, riskOf, type TableColumn } from "../../ui";
+import { CopyValue } from "./parts";
 import type { Tailnet, TailnetNode, TailscaleFacts } from "./types";
 
 /*
@@ -64,7 +65,7 @@ export function NetworkTailnet({ tailscale, tailnet, tailnetError, role, start, 
         </span>
       ),
     },
-    { id: "address", header: "Address", sortValue: (node) => node.address, cell: (node) => (node.address ? <code>{node.address}</code> : <span className="network-dim">—</span>) },
+    { id: "address", header: "Address", sortValue: (node) => node.address, cell: (node) => (node.address ? <span className="network-value"><code>{node.address}</code><CopyValue value={node.address} label={`Copy ${node.name}'s tailnet address ${node.address}`} /></span> : <span className="network-dim">—</span>) },
     { id: "system", header: "System", hideOnPhone: true, sortValue: (node) => osLabel(node.os), cell: (node) => osLabel(node.os) },
     { id: "connection", header: "Connection", sortValue: (node) => (node.isSelf ? 0 : node.online ? 1 : 2), cell: connection },
     {

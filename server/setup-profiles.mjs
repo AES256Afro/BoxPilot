@@ -24,17 +24,17 @@ export const setupProfiles = Object.freeze([
     steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("homepage", "Homepage"), app("jellyfin", "Jellyfin"), app("uptime-kuma", "Uptime Kuma"), app("dockge", "Dockge"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
   },
   {
-    id: "dns-appliance", name: "DNS appliance", icon: "🛡️",
+    id: "dns-appliance", name: "Ad blocking", icon: "🛡️",
     description: "AdGuard Home for the whole network, with monitoring and backups.",
     steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("adguard-home", "AdGuard Home"), app("uptime-kuma", "Uptime Kuma"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
   },
   {
-    id: "hypervisor", name: "Hypervisor", icon: "🖥️",
-    description: "KVM/QEMU with the default network and storage pool ready for project VMs.",
+    id: "hypervisor", name: "Virtual machines", icon: "🖥️",
+    description: "Everything needed to create virtual machines.",
     steps: [prerequisite("virtualization", "Install KVM, QEMU, and libvirt"), foundation, prerequisite("smartmontools", "Install smartmontools for disk health"), unattended, schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
   },
   {
-    id: "dev-box", name: "Dev box", icon: "🧰",
+    id: "dev-box", name: "Development", icon: "🧰",
     description: "Git hosting, a browser IDE, and compose management.",
     steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("forgejo", "Forgejo"), app("code-server", "code-server"), app("dockge", "Dockge"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
   },
@@ -57,7 +57,7 @@ export const setupProfiles = Object.freeze([
     steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("home-assistant", "Home Assistant"), app("ntfy", "ntfy"), app("uptime-kuma", "Uptime Kuma"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
   },
   {
-    id: "observability", name: "Observability", icon: "📈",
+    id: "observability", name: "Monitoring", icon: "📈",
     description: "Grafana, uptime checks, and a notification relay for alerts.",
     steps: [prerequisite("docker", "Install Docker Engine"), prerequisite("smartmontools", "Install smartmontools for disk health"), unattended, app("grafana", "Grafana"), app("uptime-kuma", "Uptime Kuma"), app("ntfy", "ntfy"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
   },

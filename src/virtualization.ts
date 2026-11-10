@@ -377,9 +377,3 @@ export function formatMemory(memoryKiB: number): string {
   return `${Number.isInteger(gib) ? gib : gib.toFixed(1)} GiB`;
 }
 
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "Unknown";
-  const gib = bytes / 1024 / 1024 / 1024;
-  if (gib >= 1) return `${gib.toFixed(gib >= 10 ? 0 : 1)} GiB`;
-  return `${(bytes / 1024 / 1024).toFixed(0)} MiB`;
-}

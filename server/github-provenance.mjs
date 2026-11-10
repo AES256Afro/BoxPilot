@@ -164,9 +164,7 @@ export function createGithubProvenanceService({ requestJson = createGithubReques
         localDigestVerification: false,
       },
       limitations: [
-        "GitHub commit verification and asset digests are API-reported metadata; BoxPilot does not independently verify signatures or downloaded bytes.",
-        "A release asset is not installable until a future adapter downloads it to a confined staging path and verifies its exact digest locally.",
-        "No GitHub token, repository write, clone, download, webhook, workflow dispatch, or adapter installation exists in this release.",
+        "These figures are what GitHub reports. Updates are checked on this server when you install them (System, BoxPilot update).",
       ],
     };
   }

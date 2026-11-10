@@ -215,7 +215,13 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
         </span>
       ),
     },
-    { id: "state", header: "Status", sortValue: (domain) => stateRank[domain.state], cell: (domain) => <StatusChip status={stateWords[domain.state].status} title={domain.headline}>{stateWords[domain.state].label}</StatusChip> },
+    { id: "state", header: "Status", sortValue: (domain) => stateRank[domain.state], cell: (domain) => (
+      <span className="hosted-figure">
+        <span><StatusChip status={stateWords[domain.state].status} title={domain.headline}>{stateWords[domain.state].label}</StatusChip></span>
+        {/* What is behind the word, on the row: a tooltip never reaches a finger. */}
+        {domain.headline && domain.headline.toLowerCase() !== stateWords[domain.state].label.toLowerCase() && <span className="hosted-figure__hint">{domain.headline}</span>}
+      </span>
+    ) },
     { id: "dns", header: "DNS", hideOnPhone: true, cell: (domain) => <FigureCell figure={dnsWords(domain.dns, domain.expect)} /> },
     { id: "certificate", header: "Certificate", sortValue: (domain) => domain.certificate?.daysLeft ?? null, cell: (domain) => <FigureCell figure={certificateWords(domain.certificate, domain.outside)} /> },
     { id: "outside", header: "From the internet", sortValue: (domain) => domain.outside?.ms ?? null, cell: (domain) => <FigureCell figure={probeWords(domain.outside, "not asked")} /> },

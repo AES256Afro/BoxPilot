@@ -2,7 +2,24 @@ import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { finalRedaction } from "./assistant/prompt.mjs";
 import { loadCatalog } from "./catalog/index.mjs";
-import { createRedactor, loadRedactionPolicy, parseRedactionConfig, redactPrivateKeys, redactSecretBlocks } from "./redaction.mjs";
+import { createRedactor, loadRedactionPolicy, parseRedactionConfig, redactLine, redactPrivateKeys, redactSecretBlocks } from "./redaction.mjs";
+
+// The one rule the log reader, a service's journal and the tail of a failed Docker command share.
+describe("a quoted log line", () => {
+  it("loses an Authorization header's scheme and token together, and a Cookie header to the end of its line", () => {
+    expect(redactLine("GET /api Authorization: Bearer b3ar3rT0k3n")).toBe("GET /api Authorization=[REDACTED]");
+    expect(redactLine('headers={"authorization":"Basic dXNlcjpwYXNz"} done')).toBe('headers={"authorization=[REDACTED]"} done');
+    expect(redactLine("GET / Cookie: theme=dark; sid=c00k13")).toBe("GET / Cookie=[REDACTED]");
+    expect(redactLine("Set-Cookie: sid=c00k13; Path=/; HttpOnly")).toBe("Set-Cookie=[REDACTED]");
+    expect(redactLine("password=hunter2, api_key: k3y; token = t0k3n")).toBe("password=[REDACTED], api_key=[REDACTED]; token=[REDACTED]");
+    expect(redactLine("jar __Host-boxpilot_session=s3ss10n; boxpilot_device=d3v1c3")).toBe("jar __Host-boxpilot_session=[REDACTED]; boxpilot_device=[REDACTED]");
+    expect(redactLine(null)).toBe("");
+  });
+
+  it("reads text of several lines a line at a time, so a Cookie header in the middle goes and the next line stays", () => {
+    expect(redactLine("starting\nCookie: sid=c00k13; theme=dark\nlistening on :8080\nAuthorization: Bearer b3ar3rT0k3n")).toBe("starting\nCookie=[REDACTED]\nlistening on :8080\nAuthorization=[REDACTED]");
+  });
+});
 
 describe("support-bundle redaction policy", () => {
   it("loads only bounded literals and path prefixes without exposing configured values", async () => {

@@ -27,7 +27,7 @@ volumes:
 env:
   - name: SEARXNG_BASE_URL
     label: Address people use
-    description: The URL this server is opened at, with a trailing slash. Needed for links and the browser search shortcut; change it after enabling Serve on tailnet.
+    description: The URL this server is opened at, with a trailing slash. Needed for links and the browser search shortcut; change it after you choose Reach only through Tailscale on the Reach tab.
     default: http://localhost:8089/
   - name: SEARXNG_REDIS_URL
     default: redis://redis:6379/0
@@ -44,4 +44,4 @@ sidecars:
 health:
   kind: running
   stableSeconds: 10
-notes: "The first start writes settings.yml with a fresh secret key into the Configuration volume; edit that file to enable or disable engines. To add it to a browser, open the SearXNG page and use the browser's 'add search engine' option, or use the URL <address>/search?q=%s. Serve on tailnet gives you private search from your phone anywhere."
+notes: "The first start writes settings.yml with a fresh secret key into the Configuration volume; edit that file to enable or disable engines. To add it to a browser, open the SearXNG page and use the browser's 'add search engine' option, or use the URL <address>/search?q=%s. Reach only through Tailscale, on the Reach tab, gives you private search from your phone anywhere."

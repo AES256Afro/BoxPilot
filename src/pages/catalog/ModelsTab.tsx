@@ -62,7 +62,7 @@ export function ModelsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
           <Button variant="primary" type="submit" risk={riskOf("app.model.pull")} disabled={!wanted.trim()}>Download</Button>
         </form>
       )}
-      <p className="catalog-quiet">Disk is rarely the limit; memory is: a model needs roughly its own size free in RAM to answer, so a 19 GB model wants about that much spare. Check the Performance page before pulling a large one. Without a graphics card, 3 to 8 B models answer at reading speed; <code>qwen3:30b-a3b</code> is the exception worth its size.</p>
+      <p className="catalog-quiet">Disk is rarely the limit; memory is: a model needs roughly its own size free in RAM to answer, so a 19 GB model wants about that much spare. Check the Metrics page before pulling a large one. Without a graphics card, 3 to 8 B models answer at reading speed; <code>qwen3:30b-a3b</code> is the exception worth its size.</p>
     </div>
   );
 }

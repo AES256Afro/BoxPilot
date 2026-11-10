@@ -1,3 +1,4 @@
+import { openView } from "../../activityEvents";
 import { useOperation } from "../../shell/ApproveDialog";
 import type { ProtectionVerdict, ScheduleLike } from "../../backupProtection";
 import type { ViewName } from "../../data";
@@ -76,7 +77,7 @@ export default function AppsTab({ csrfToken, role, protection, protectionError, 
         footer={<span className="backups-foot backups-foot--row">
           <span className="backups-foot__text">Caches and re-downloadable models are left out. Each app also backs up from its card in the App catalog; VMs are protected on Virtual Machines.</span>
           {onNavigate && <span className="backups-links">
-            <Button variant="ghost" className="backups-inline" onClick={() => onNavigate("catalog")}>App catalog</Button>
+            <Button variant="ghost" className="backups-inline" onClick={() => onNavigate("catalog")}>Apps</Button>
             <Button variant="ghost" className="backups-inline" onClick={() => onNavigate("virtualization")}>Virtual Machines</Button>
           </span>}
         </span>}
@@ -92,7 +93,7 @@ export default function AppsTab({ csrfToken, role, protection, protectionError, 
               rowStatus={(verdict) => (verdict.state === "ok" ? undefined : "warning")}
               empty={!protection
                 ? "Reading what protects each app…"
-                : <EmptyState title="No installed app holds data that needs backing up yet" />}
+                : <EmptyState title="No installed app holds data that needs backing up yet" action={<Button onClick={() => openView("catalog")}>Open Apps</Button>}>Install an app that keeps data and it is listed here, with what protects it.</EmptyState>}
             />
           )}
       </Panel>

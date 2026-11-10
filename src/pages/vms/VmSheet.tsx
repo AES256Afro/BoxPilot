@@ -36,7 +36,7 @@ export function VmSheet({ domain, rate, role, onClose, start }: { domain: Virtua
     { id: "autostart", label: "Autostart", value: domain.autostart ? "On: starts when this server boots" : "Off" },
     { id: "persistent", label: "Definition", value: domain.persistent ? "Persistent" : "Transient: gone when it stops" },
     { id: "agent", label: "Guest agent", value: guestAgentWords(domain) },
-    { id: "addresses", label: "Addresses", mono: true, value: domain.addresses.length ? domain.addresses.map((address) => address.address).join(", ") : "No leased IP reported" },
+    { id: "addresses", label: "Addresses", mono: true, value: domain.addresses.length ? domain.addresses.map((address) => address.address).join(", ") : "No address yet" },
     { id: "snapshots", label: "Snapshots", value: domain.snapshotCount === null ? "Unavailable" : `${domain.snapshotCount} · not independent backups` },
   ];
 
@@ -120,7 +120,7 @@ export function VmSheet({ domain, rate, role, onClose, start }: { domain: Virtua
           ]}
           rows={domain.disks}
           rowKey={(disk) => `${disk.target}-${disk.source}`}
-          empty="No block devices reported."
+          empty="No disks"
         />
       </Panel>
 

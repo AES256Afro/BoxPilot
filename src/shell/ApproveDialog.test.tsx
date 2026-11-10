@@ -91,7 +91,8 @@ describe("approval dialog", () => {
     const opener = document.createElement("button"); document.body.append(opener); opener.focus();
     const { unmount } = render(<ApproveDialog operationId="apt.repair" title="Repair packages" parameters={{}} csrfToken="csrf" onClose={() => {}} />);
     await screen.findByText("High risk");
-    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+    // With nothing to type, the keyboard is on the button that approves, once it can.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Confirm and run" })));
     fireEvent.keyDown(document, { key: "Tab" });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close dialog" }));
     fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
@@ -101,6 +102,62 @@ describe("approval dialog", () => {
     opener.focus();
     expect(document.activeElement).toBe(screen.getByRole("dialog"));
     unmount(); expect(document.activeElement).toBe(opener); opener.remove();
+  });
+
+  it("puts the keyboard in the typed confirmation first, else in the password, once the job is staged", async () => {
+    stubApi({ passwordRequired: true });
+    const first = render(<ApproveDialog operationId="storage.format" title="Erase and format a disk" parameters={{ device: "/dev/sdb" }} csrfToken="csrf" onClose={() => {}} />);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Typed confirmation")));
+    first.unmount();
+    stubApi({ passwordRequired: true, confirmText: "" });
+    render(<ApproveDialog operationId="apt.repair" title="Repair packages" parameters={{}} csrfToken="csrf" onClose={() => {}} />);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Approval password")));
+  });
+
+  it("runs on Enter from anywhere in the dialog when nothing has to be typed, and never from a held key or another button", async () => {
+    const calls = stubApi({ confirmText: "" });
+    const onClose = vi.fn();
+    render(<ApproveDialog operationId="apt.repair" title="Repair packages" parameters={{}} csrfToken="csrf" onClose={onClose} />);
+    const dialog = screen.getByRole("dialog");
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    await waitFor(() => expect(run.hasAttribute("disabled")).toBe(false));
+    const approved = () => calls.filter((call) => call.url.endsWith("/approve")).length;
+    // Held down since before the dialog opened: nothing.
+    fireEvent.keyDown(dialog, { key: "Enter", repeat: true });
+    // On Cancel, Enter is Cancel's.
+    fireEvent.keyDown(screen.getByRole("button", { name: "Cancel" }), { key: "Enter" });
+    expect(approved()).toBe(0);
+    // Only Escape or Close withdraws (M50.1): Enter is not one of them.
+    expect(onClose).not.toHaveBeenCalled();
+    expect(calls.some((call) => call.method === "DELETE")).toBe(false);
+    dialog.focus();
+    fireEvent.keyDown(dialog, { key: "Enter" });
+    await waitFor(() => expect(approved()).toBe(1));
+  });
+
+  it("does not run on Enter outside a field when a password or a typed confirmation is asked for", async () => {
+    const calls = stubApi({ passwordRequired: true, confirmText: "" });
+    render(<ApproveDialog operationId="apt.repair" title="Repair packages" parameters={{}} csrfToken="csrf" onClose={() => {}} />);
+    const field = await screen.findByLabelText("Approval password");
+    fireEvent.change(field, { target: { value: "correct horse battery" } });
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
+    expect(calls.some((call) => call.url.endsWith("/approve"))).toBe(false);
+  });
+
+  it("selects a refused password, so typing again replaces it", async () => {
+    stubApi({ passwordRequired: true, confirmText: "" });
+    const answered = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => input.toString().endsWith("/approve")
+      ? Promise.resolve(new Response(JSON.stringify({ error: "That password is not right", code: "job_approval_failed" }), { status: 403, headers: { "Content-Type": "application/json" } }))
+      : answered(input, init));
+    render(<ApproveDialog operationId="apt.repair" title="Repair packages" parameters={{}} csrfToken="csrf" onClose={() => {}} />);
+    fireEvent.change(await screen.findByLabelText("Approval password"), { target: { value: "wrong horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve and run" }));
+    expect(await screen.findByText("That password is not right")).toBeTruthy();
+    const field = screen.getByLabelText("Approval password") as HTMLInputElement;
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    expect(field.value).toBe("wrong horse battery");
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, field.value.length]);
   });
 
   it("withdraws a staging reply that arrives after the dialog was removed", async () => {

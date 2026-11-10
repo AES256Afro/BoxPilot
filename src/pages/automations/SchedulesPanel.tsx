@@ -221,8 +221,9 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
               ? <span className="automations-reason">Schedules are skipped while approvals always ask for the password. {role === "owner"
                 ? <Button variant="ghost" onClick={() => openView("settings", { tab: "approvals" })}>Open Approvals</Button>
                 : "The owner changes that in Settings."}</span>
-              : (schedule.lastOutcome === "failed" || schedule.lastOutcome === "did-not-run") && schedule.lastReason
-                ? <span className="automations-reason">{schedule.lastReason}</span>
+              // Why it failed, on the row: a tooltip never reaches a finger. An older server sends the reason as the result.
+              : last.failed && (schedule.lastReason || (!schedule.lastOutcome && schedule.lastResult))
+                ? <span className="automations-reason">{schedule.lastReason || schedule.lastResult}</span>
                 : null}
           </span>
         );

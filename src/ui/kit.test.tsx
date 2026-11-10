@@ -3,7 +3,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ShellHostProvider, TopBarSlotProvider } from "../shell/TopBarSlot";
 import {
-  Checkbox, CodeBlock, EmptyState, Field, JobProgress, KeyValue, Notice, PageHeader, Panel, Progress, SearchField, SecretInput, Segmented, Select, Sheet,
+  Button, Checkbox, CodeBlock, EmptyState, Field, JobProgress, KeyValue, Notice, PageHeader, Panel, Progress, SearchField, SecretInput, Segmented, Select, Sheet,
   Switch, Table, Tabs, Tag, TextInput, Textarea, Toolbar, useUrlParam,
 } from ".";
 
@@ -294,6 +294,104 @@ describe("Sheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.mouseDown(document.querySelector(".ui-sheet-backdrop") as Element);
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("a sheet that is a form", () => {
+  it("opens with the keyboard in its first field, and does not take it back when the page draws again", () => {
+    function Harness() {
+      const [name, setName] = useState("");
+      const [late, setLate] = useState(false);
+      return (
+        <Sheet title="Add a user" onClose={() => undefined} footer={<button type="button" onClick={() => setLate(true)}>More</button>}>
+          {late && <input aria-label="Earlier field" />}
+          <input type="hidden" value="x" readOnly />
+          <input aria-label="Switched off" disabled />
+          <input aria-label="Username" value={name} onChange={(event) => setName(event.target.value)} />
+          <textarea aria-label="Note" />
+        </Sheet>
+      );
+    }
+    render(<Harness />);
+    const username = screen.getByRole("textbox", { name: "Username" });
+    expect(document.activeElement).toBe(username);
+    fireEvent.change(username, { target: { value: "alex" } });
+    expect(document.activeElement).toBe(username);
+    // Somewhere else by choice, then a field appears above: focus stays where it was put.
+    const more = screen.getByRole("button", { name: "More" });
+    more.focus();
+    fireEvent.click(more);
+    expect(screen.getByRole("textbox", { name: "Earlier field" })).toBeTruthy();
+    expect(document.activeElement).toBe(more);
+  });
+
+  it("submits on Enter through its main button, and not while that button is disabled", () => {
+    const onSubmit = vi.fn();
+    function Harness() {
+      const [port, setPort] = useState("");
+      return (
+        <Sheet title="Add a rule" side="center" onClose={() => undefined} onSubmit={onSubmit} footer={<><Button>Cancel</Button><Button variant="primary" type="submit" disabled={!port}>Add rule</Button></>}>
+          <input aria-label="Port" value={port} onChange={(event) => setPort(event.target.value)} />
+        </Sheet>
+      );
+    }
+    render(<Harness />);
+    const dialog = screen.getByRole("dialog", { name: "Add a rule" });
+    const form = dialog.querySelector("form") as HTMLFormElement;
+    // The body and the foot are both inside the form, so the foot's submit button is the form's.
+    expect(form.contains(screen.getByRole("textbox", { name: "Port" }))).toBe(true);
+    const add = within(dialog).getByRole("button", { name: "Add rule" }) as HTMLButtonElement;
+    expect(add.form).toBe(form);
+    fireEvent.click(add);
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Port" }), { target: { value: "8096" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    // What Enter in a field does in a browser: the form is submitted.
+    fireEvent.submit(form);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    fireEvent.click(add);
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+  });
+
+  it("draws no form of its own without onSubmit, so a sheet with its own form is as it was", () => {
+    render(<Sheet title="Share a folder" onClose={() => undefined} footer={<button type="submit" form="own">Share</button>}><form id="own"><input aria-label="Folder" /></form></Sheet>);
+    expect(document.querySelectorAll("form").length).toBe(1);
+    expect((screen.getByRole("button", { name: "Share" }) as HTMLButtonElement).form?.id).toBe("own");
+  });
+});
+
+describe("Caps Lock on a secret", () => {
+  const key = (capsLock: boolean) => ({ key: "a", modifierCapsLock: capsLock });
+
+  it("says so under the field while the key is on, as the field's description, and stops when it is off or the field is left", () => {
+    render(<Field label="Password" hint="Twelve characters or more."><SecretInput value="" onChange={() => undefined} /></Field>);
+    const input = screen.getByLabelText("Password");
+    expect(screen.queryByText("Caps Lock is on")).toBeNull();
+    const before = input.getAttribute("aria-describedby");
+    fireEvent.keyDown(input, key(true));
+    const hint = screen.getByText("Caps Lock is on");
+    expect(hint.closest(".ui-secret")).not.toBeNull();
+    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(hint.id);
+    // The field's own hint is still read with it.
+    expect(input.getAttribute("aria-describedby")).toContain(before ?? "");
+    fireEvent.keyUp(input, key(false));
+    expect(screen.queryByText("Caps Lock is on")).toBeNull();
+    expect(input.getAttribute("aria-describedby")).toBe(before);
+    fireEvent.keyDown(input, key(true));
+    expect(screen.getByText("Caps Lock is on")).toBeTruthy();
+    fireEvent.blur(input);
+    expect(screen.queryByText("Caps Lock is on")).toBeNull();
+  });
+
+  it("still passes the page's own key and blur handlers", () => {
+    const onKeyDown = vi.fn(); const onBlur = vi.fn();
+    render(<SecretInput aria-label="Token" value="" onChange={() => undefined} onKeyDown={onKeyDown} onBlur={onBlur} />);
+    const input = screen.getByLabelText("Token");
+    fireEvent.keyDown(input, key(true));
+    fireEvent.blur(input);
+    expect(onKeyDown).toHaveBeenCalledTimes(1);
+    expect(onBlur).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -100,4 +100,4 @@ health:
   kind: running
   stableSeconds: 30
   timeoutSeconds: 900
-notes: "First start installs Nextcloud and takes a few minutes; the admin username and generated password are under Secrets. For HTTPS from anywhere, click Serve on tailnet. The mobile apps need the server address exactly as you open it in the browser. Nextcloud's own backup guidance: back up the Application volume (this card's Back up) and copy the user files folder separately."
+notes: "First start installs Nextcloud and takes a few minutes; the admin username and generated password are under Secrets. For HTTPS from anywhere, open the Reach tab and choose Reach only through Tailscale. The mobile apps need the server address exactly as you open it in the browser. Nextcloud's own backup guidance: back up the Application volume (Back up on this app's sheet) and copy the user files folder separately."

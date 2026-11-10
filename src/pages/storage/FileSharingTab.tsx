@@ -66,6 +66,8 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
   const [diagnosis, setDiagnosis] = useState<{ checks: DiagnosticCheck[]; ok: boolean } | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagnoseError, setDiagnoseError] = useState<string | null>(null);
+  // The share whose weekly clean is being confirmed: it deletes for good, every week, so it asks first.
+  const [cleaning, setCleaning] = useState<string | null>(null);
   const [exportPath, setExportPath] = useState("");
   const [exportReadOnly, setExportReadOnly] = useState(false);
 
@@ -181,7 +183,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
             )}
             {bin !== null && (scheduled
               ? <span className="storage-dim">cleans weekly, keeps 30 days {may("samba.recycle.empty") && <Button variant="ghost" aria-label={`Stop cleaning ${share.name}'s bin weekly`} onClick={() => void samba.unscheduleAutoClean(scheduled)}>Stop the weekly clean</Button>}</span>
-              : may("samba.recycle.empty") && <Button variant="ghost" title="Every week, permanently delete recycled files older than 30 days, so the bin never fills the drive." aria-label={`Clean ${share.name}'s bin weekly`} onClick={() => void samba.scheduleAutoClean(share.name)}>Clean weekly</Button>)}
+              : may("samba.recycle.empty") && <Button variant="ghost" title="Every week, permanently delete recycled files older than 30 days, so the bin never fills the drive." aria-label={`Clean ${share.name}'s bin weekly`} onClick={() => setCleaning(share.name)}>Clean weekly…</Button>)}
             {samba.autoCleanError === share.name && <span className="storage-error" role="alert">The weekly clean could not be scheduled.</span>}
             {canApply && <Button variant="ghost" aria-label={`Remove ${share.name} from the list`} onClick={() => samba.setDraft((current) => current.filter((row) => row.name !== share.name))}>Remove</Button>}
           </span>
@@ -203,12 +205,14 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
   const exportValid = nfsPathValid(exportPath.trim()) && !nfs.draft.some((entry) => entry.path === normalized);
   const sambaInstalled = state ? state.installed || Boolean(state.error) : true;
   const nfsInstalled = nfs.state ? nfs.state.installed || Boolean(nfs.state.error) : true;
-  const applyBar = (dirty: boolean, configured: boolean, onApply: () => void, operationId: string, first: string) => (
+  const applyBar = (dirty: boolean, configured: boolean, onApply: () => void, operationId: string, first: string, onDiscard: () => void) => (
     <div className="storage-apply">
       <span className="storage-apply__state ui-marked" data-status={dirty ? "warning" : configured ? "good" : "neutral"}>
         <span className="ui-mark" aria-hidden="true" />
         {dirty ? "Changes are not live until you apply." : configured ? "Everything shown is live." : "Nothing is applied yet."}
       </span>
+      {/* The way back from edits made by mistake: the list as the server has it, nothing applied. */}
+      {dirty && <Button variant="ghost" onClick={onDiscard}>Discard changes</Button>}
       {may(operationId) && <Button variant="primary" risk={riskOf(operationId)} disabled={!dirty && configured} onClick={onApply}>{configured ? "Apply changes" : first}</Button>}
     </div>
   );
@@ -285,7 +289,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
                 <CheckList checks={diagnosis.checks} empty="Nothing to check yet." />
               </div>
             )}
-            {applyBar(samba.dirty, Boolean(state.configured), applySamba, "samba.apply", "Apply and start sharing")}
+            {applyBar(samba.dirty, Boolean(state.configured), applySamba, "samba.apply", "Apply and start sharing", samba.discard)}
           </>
         )}
       </Panel>
@@ -323,7 +327,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
           footer={live.some((share) => share.forceUser === null && !share.readOnly) ? "Folders owned by root are read-only for everyone until you change their owner." : undefined}
         >
           {live.length === 0
-            ? <EmptyState title="Nothing is shared yet" />
+            ? <EmptyState title="Nothing is shared yet">Add a share under Samba above, then press Apply changes. The address to type on each kind of computer shows here once it is live.</EmptyState>
             : (
               <ul className="storage-rows">
                 {live.map((share) => (
@@ -382,7 +386,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
                 <Button type="submit" disabled={!exportValid}>Add export</Button>
               </form>
             )}
-            {applyBar(nfs.dirty, Boolean(nfs.state.configured), applyNfs, "nfs.apply", "Apply and start exporting")}
+            {applyBar(nfs.dirty, Boolean(nfs.state.configured), applyNfs, "nfs.apply", "Apply and start exporting", nfs.discard)}
           </>
         )}
       </Panel>
@@ -403,6 +407,16 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
       )}
 
       <datalist id={`${foldersId}-folders`}>{folders.map((folder) => <option value={folder} key={folder} />)}</datalist>
+
+      {cleaning && (
+        <Sheet side="center" size="sm" kicker="Recycle bin" title={`Clean ${cleaning}'s bin every week?`} onClose={() => setCleaning(null)}
+          footer={<>
+            <Button variant="ghost" onClick={() => setCleaning(null)}>Cancel</Button>
+            <Button variant="primary" onClick={() => { const share = cleaning; setCleaning(null); void samba.scheduleAutoClean(share); }}>Clean weekly</Button>
+          </>}>
+          <p className="storage-dim">Every week, permanently delete recycled files older than 30 days, so the bin never fills the drive. Files deleted that way cannot be brought back. Newer ones stay in the bin, and you can stop the weekly clean from this row.</p>
+        </Sheet>
+      )}
 
       {form && (
         <Sheet

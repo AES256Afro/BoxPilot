@@ -41,7 +41,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       if (!lines.length) return { ok: false, stdout: "", stderr: "No such object" };
       return { ok: true, stdout: lines.join("\n"), stderr: "" };
     }
-    if (args[0] === "logs") return { ok: true, stdout: "line1\npassword=hunter2", stderr: "" };
+    if (args[0] === "logs") return { ok: true, stdout: "line1\nAuthorization: Bearer b3ar3rT0k3n\nCookie: theme=dark; sid=c00k13\npassword=hunter2", stderr: "" };
     // `docker top <name> -eo pid`: the host PIDs of the container's processes, under a PID header.
     // Like the real CLI, a container that is stopped or sits in restart backoff has none to list.
     if (args[0] === "top") {
@@ -61,7 +61,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       if (url === "--version") return { ok: !execTable.noCurl, stdout: "curl 8", stderr: execTable.noCurl ? "no such file" : "" };
       if (url.includes("/v1/vpn/status") && method === "PUT") { execTable.vpn = JSON.parse(body).status; return { ok: true, stdout: JSON.stringify({ outcome: execTable.vpn }), stderr: "" }; }
       if (url.includes("/v1/vpn/status")) return { ok: true, stdout: JSON.stringify({ status: execTable.vpn }), stderr: "" };
-      if (url.includes("/v1/publicip/ip")) return { ok: true, stdout: JSON.stringify(execTable.vpn === "running" ? { public_ip: "212.92.104.227", country: "Netherlands" } : {}), stderr: "" };
+      if (url.includes("/v1/publicip/ip")) return { ok: true, stdout: JSON.stringify(execTable.vpn === "running" ? { public_ip: "203.0.113.27", country: "Netherlands" } : {}), stderr: "" };
       if (url.includes("1.1.1.1")) return execTable.leaks || execTable.vpn === "running" ? { ok: true, stdout: "204", stderr: "" } : { ok: false, stdout: "000", stderr: "curl: (28) timed out" };
       return { ok: false, stdout: "", stderr: `unexpected exec ${url}` };
     }
@@ -153,6 +153,9 @@ describe("generic app deployer", () => {
     const bare = await setup({ listDevices: async () => ["tty", "zero"] });
     await writeFile(path.join(bare.catalogDirectory, "smart.yaml"), manifestYaml);
     await expect(bare.apps.install({ id: "smart" })).rejects.toThrow("needs a device matching /dev/sd?, /dev/nvme?");
+    // The refusal comes after the app's folder was made: it is taken away again, or every later
+    // failed install would find a folder, take it for an existing project and leave its own mess.
+    await expect(stat(path.join(bare.catalogRoot, "smart"))).rejects.toMatchObject({ code: "ENOENT" });
     // The web process can hand over the devices it resolved; only paths matching the manifest survive.
     await expect(bare.apps.install({ id: "smart", devices: ["/dev/sdb", "/dev/null"] })).resolves.toMatchObject({ installed: true });
     await expect(bare.apps.reconfigure({ id: "smart", devices: ["/dev/null"] })).rejects.toThrow("needs a device matching");
@@ -484,7 +487,7 @@ sidecars:
     await writeFile(path.join((held).catalogDirectory, "qbt.yaml"), tunnelManifest);
     await held.apps.install({ id: "qbt", values: {} });
     const result = await held.apps.vpnKillSwitchDrill({ id: "qbt" });
-    expect(result).toMatchObject({ held: true, leaked: false, restored: true, exitBefore: "212.92.104.227" });
+    expect(result).toMatchObject({ held: true, leaked: false, restored: true, exitBefore: "203.0.113.27" });
     expect(result.verdict).toMatch(/kill switch held.*came back on its own/);
 
     const leaky = await setup({ execTable: { vpn: "running", leaks: true, noCurl: false } });
@@ -545,6 +548,16 @@ sidecars:
     const call = calls.find((c) => c.includes("--project-name handmade") && c.endsWith(" restart"));
     expect(call).toContain("--file /home/user/stack/compose.yaml --file /home/user/stack/compose.override.yaml");
     await expect(apps.foreignProjectAction({ name: "old-wordpress", action: "stop" })).resolves.toMatchObject({ action: "stop", done: true });
+  });
+
+  it("streams a foreign stack's compose output to the job's log", async () => {
+    // The Docker runner streams to `onLine`; handed `progress`, it streamed nothing.
+    const { apps, runDocker } = await setup();
+    const progress = vi.fn();
+    await apps.foreignProjectAction({ name: "handmade", action: "start" }, { progress });
+    const [, , options] = runDocker.mock.calls.find(([, args]) => args.includes("handmade") && args.at(-1) === "start");
+    expect(options.onLine).toBe(progress);
+    expect(options).not.toHaveProperty("progress");
   });
 
   it("refuses to act on BoxPilot's own projects or an unknown name", async () => {
@@ -808,6 +821,9 @@ sidecars:
 
     const logs = await apps.logs({ id: "demo", lines: 5 });
     expect(logs.lines.join("\n")).toContain("password=[REDACTED]");
+    // The same rules as the log reader and a service's journal (redactLine): a Bearer token's second
+    // word and a whole Cookie header go too, which the one-pattern version here once left readable.
+    expect(logs.lines).toEqual(["line1", "Authorization=[REDACTED]", "Cookie=[REDACTED]", "password=[REDACTED]"]);
 
     const effective = await apps.config({ id: "demo" });
     expect(effective.compose).toBeNull();
@@ -1056,7 +1072,7 @@ sidecars:
 
   it("rolls back a failed fresh install and reports the container's last log lines", async () => {
     const { apps, catalogRoot } = await setup({ exitOnUp: true });
-    await expect(apps.install({ id: "demo" })).rejects.toThrow(/rolled back.*Container exited/);
+    await expect(apps.install({ id: "demo" })).rejects.toThrow(/rolled back.*Demo stopped as soon as it started \(exit code/);
     await expect(readdir(path.join(catalogRoot, "demo"))).rejects.toThrow();
     const failing = await setup({ failUp: true });
     await expect(failing.apps.install({ id: "demo" })).rejects.toThrow("port is already allocated");
@@ -1239,7 +1255,7 @@ sidecars:
 
       const tarFails = async (_binary, args) => { await writeFile(args[args.indexOf("-czf") + 1], "no space"); return { ok: false, stdout: "", stderr: "tar: write error: No space left on device" }; };
       const later = createAppHelper({ ...{ catalogRoot, backupRoot, runDocker: context.runDocker }, catalog: createCatalogService({ directory: context.catalogDirectory, ttlMs: 0 }), wait: async () => {}, clock: () => new Date("2026-09-30T03:15:00.000Z"), runCommand: tarFails });
-      await expect(later.backup({ id: "demo" })).rejects.toThrow("tar failed");
+      await expect(later.backup({ id: "demo" })).rejects.toThrow("The backup could not be written: tar: write error: No space left on device. No backup was kept. Demo was started again.");
       expect(containers.get("bp-demo").running).toBe(true);
       expect((await readdir(path.join(backupRoot, "demo"))).sort()).toEqual(["20260929T031500Z.json", "20260929T031500Z.tar.gz"]);
       expect(await later.interruptedBackups()).toEqual([]);
@@ -1250,7 +1266,7 @@ sidecars:
       const context = await setup({ networkGone_: true });
       await context.apps.install({ id: "demo" });
       const tarFails = async (_binary, args) => { await writeFile(args[args.indexOf("-czf") + 1], ""); return { ok: false, stdout: "", stderr: "tar: write error: No space left on device" }; };
-      await expect(helperOver(context, { runCommand: tarFails }).backup({ id: "demo" })).rejects.toThrow(/^tar failed: tar: write error: No space left on device\. Demo did not start again either: .*network .* not found/);
+      await expect(helperOver(context, { runCommand: tarFails }).backup({ id: "demo" })).rejects.toThrow(/^The backup could not be written: tar: write error: No space left on device\. No backup was kept\. Demo did not start again either: .*network .* not found/);
     });
   });
 
@@ -1776,7 +1792,7 @@ describe.skipIf(onWindows)("restoring an application backup", () => {
     await writeFile(path.join(catalogRoot, "demo", "latest-data"), "original newer data");
     const original = runDocker.getMockImplementation();
     runDocker.mockImplementation(async (binary, args, options) => args[0] === "compose" && args.includes("up") ? { ok: false, stdout: "", stderr: "fixture start failure" } : original(binary, args, options));
-    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow(/original directory remains/);
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow(/would not start: fixture start failure\. Its folder as it was before the restore is kept beside it as \w+\.replaced\./);
     expect(await readFile(path.join(catalogRoot, "demo.replaced", "latest-data"), "utf8")).toBe("original newer data");
     await expect(readFile(path.join(catalogRoot, "demo", "latest-data"))).rejects.toThrow();
   });
@@ -2835,7 +2851,7 @@ describe.skipIf(onWindows)("what an app backup leaves out on purpose", () => {
     const { apps, made, runDocker, catalogRoot } = await stack();
     const original = runDocker.getMockImplementation();
     runDocker.mockImplementation(async (binary, args, options) => (args[0] === "compose" && args.includes("up") ? { ok: false, stdout: "", stderr: "fixture start failure" } : original(binary, args, options)));
-    await expect(apps.restoreAppBackup({ id: "stack", backup: made.artifact })).rejects.toThrow(/original directory remains/);
+    await expect(apps.restoreAppBackup({ id: "stack", backup: made.artifact })).rejects.toThrow(/would not start: fixture start failure\. Its folder as it was before the restore is kept beside it as \w+\.replaced\./);
     const replaced = path.join(catalogRoot, "stack.replaced");
     expect(await readFile(path.join(replaced, "models", "llama.gguf"), "utf8")).toBe("forty gigabytes");
     expect(await readFile(path.join(replaced, "cache-data", "dump.rdb"), "utf8")).toBe("warm cache");

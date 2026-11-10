@@ -44,7 +44,7 @@ env:
     default: "1"
 setup:
   title: Starter models
-  note: "Models download once into this app's folder and can be removed later with `ollama rm`. Without a GPU everything runs on the CPU: 3-8 B models answer at reading speed on a modern processor, while Qwen3 30B-A3B only does ~3 B of work per word and so reasons far above its speed."
+  note: "Models download once into this app's folder and can be removed later on its Models tab. Without a GPU everything runs on the CPU: 3-8 B models answer at reading speed on a modern processor, while Qwen3 30B-A3B only does ~3 B of work per word and so reasons far above its speed."
   choices:
     - id: hermes3-8b
       label: Hermes 3 8B

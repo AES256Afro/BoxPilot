@@ -85,7 +85,7 @@ const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-3).
 
 /** Write the jail, test the configuration, start fail2ban, verify the sshd jail is up. */
 export async function fail2banApply({ enabled = true, maxRetry = 5, findTimeMinutes = 10, banTimeMinutes = 60, ignoreLan = true } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir, copyFile, unlink, access } } = {}) {
-  if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
+  if (typeof enabled !== "boolean") throw new Error("Choose on or off.");
   const problem = validateFail2banConfig({ maxRetry, findTimeMinutes, banTimeMinutes, ignoreLan });
   if (problem) throw new Error(`Invalid configuration: ${problem}`);
   const installed = await files.access(binaries.client).then(() => true, () => false);

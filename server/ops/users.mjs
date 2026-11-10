@@ -66,7 +66,7 @@ export function userOperations() {
     }),
     defineOperation({
       id: "users.add", title: "Add a user", risk: "medium", timeoutMs: minutes(3),
-      description: "Creates the account with a home directory and bash, password login locked. Optionally imports the user's public keys from GitHub.",
+      description: "Creates the account with a home folder. It cannot sign in with a password; its SSH keys can be brought in from GitHub at the same time.",
       parameters: { fields: { username: usernameField, githubUser: githubUserField } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("users.add", { username: parameters.username, githubUser: parameters.githubUser ?? null }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
@@ -84,7 +84,7 @@ export function userOperations() {
     }),
     defineOperation({
       id: "ssh.password-auth.set", title: "Change SSH password login", risk: "high", timeoutMs: minutes(3),
-      description: "Turns SSH password authentication on or off via a validated sshd drop-in, then reloads ssh. Turning it off requires at least one user with a key. Tailscale SSH is unaffected.",
+      description: "Turns signing in over SSH with a password on or off. Turning it off needs at least one user with an SSH key, so nobody is locked out. Tailscale SSH is not affected.",
       parameters: { fields: { enabled: { type: "boolean" } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("ssh.password-auth", { enabled: parameters.enabled }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),

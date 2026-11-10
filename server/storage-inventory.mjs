@@ -36,7 +36,10 @@ export function parseLsblkTree(json) {
     for (const child of node.children ?? []) visit(child, row);
   };
   for (const node of parsed?.blockdevices ?? []) visit(node, null);
-  const byKname = new Map(rows.filter((row) => row.kname).map((row) => [row.kname, row]));
+  // The first row for a kernel name is the one that is kept, so that is the one a child points at.
+  const byKname = new Map();
+  for (const row of rows) if (row.kname && !byKname.has(row.kname)) byKname.set(row.kname, row);
+  const drawnUnder = new Map();
   const children = new Map();
   const roots = [];
   const seen = new Set();
@@ -46,8 +49,14 @@ export function parseLsblkTree(json) {
   for (const row of rows) {
     if (row.path && seen.has(row.path)) {
       // An LV over several PVs is listed once per PV: keep the extra parent → LV link so the group can be rebuilt.
-      const parent = row.pkname ? byKname.get(row.pkname) : null;
-      if (parent && row.type === "lvm") (parent.lvmVolumes ??= []).push(row.path);
+      // The same goes for an md array under each of its members, or anything else with two parents:
+      // the row is drawn under the first, and `alsoHolds` on the others is how annotateDevices knows
+      // the second disk of a RAID1 root is a system disk too.
+      const parent = (row.pkname ? byKname.get(row.pkname) : null) ?? row.visitParent ?? null;
+      if (parent && parent.path !== row.path && drawnUnder.get(row.path) !== parent.path) {
+        if (!(parent.alsoHolds ??= []).includes(row.path)) parent.alsoHolds.push(row.path);
+        if (row.type === "lvm" && !(parent.lvmVolumes ??= []).includes(row.path)) parent.lvmVolumes.push(row.path);
+      }
       continue;
     }
     if (row.path) seen.add(row.path);
@@ -62,6 +71,7 @@ export function parseLsblkTree(json) {
     let parent = (row.pkname ? byKname.get(row.pkname) : null) ?? row.visitParent ?? null;
     while (parent && internal(parent)) parent = (parent.pkname ? byKname.get(parent.pkname) : null) ?? parent.visitParent ?? null;
     if (parent && parent !== row) {
+      drawnUnder.set(row.path, parent.path);
       if (!children.has(parent.path)) children.set(parent.path, []);
       children.get(parent.path).push(row);
     } else roots.push(row);
@@ -111,9 +121,25 @@ export function descendantsOf(devices, index) {
  * must never be touched: member devices, anything with mounted descendants, system disks.
  */
 export function annotateDevices(devices) {
+  const indexOf = new Map(devices.map((device, index) => [device.path, index]));
+  // Everything below a device: the rows nested under it, plus whatever those (or it) hold through a
+  // second parent (`alsoHolds`), and what is nested under that in turn.
+  const collect = (index, found) => {
+    for (const row of [devices[index], ...descendantsOf(devices, index)]) {
+      if (row !== devices[index]) found.add(row);
+      for (const held of row.alsoHolds ?? []) {
+        const heldIndex = indexOf.get(held);
+        if (heldIndex === undefined || found.has(devices[heldIndex])) continue;
+        found.add(devices[heldIndex]);
+        collect(heldIndex, found);
+      }
+    }
+    return found;
+  };
+  const below = (index) => [...collect(index, new Set())].filter((row) => row !== devices[index]);
   return devices.map((device, index) => {
-    const descendants = descendantsOf(devices, index);
-    const mountedBelow = descendants.flatMap((row) => row.mountpoints);
+    const descendants = below(index);
+    const mountedBelow = [...new Set(descendants.flatMap((row) => row.mountpoints))];
     const allMounts = [...device.mountpoints, ...mountedBelow];
     const member = memberFstypes.includes(device.fstype ?? "");
     const system = allMounts.some((target) => systemMountpoints.includes(target));

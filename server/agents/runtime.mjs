@@ -4,7 +4,7 @@
  * cgroup and under the same hard caps (deploy/boxpilot-agents.service). Stopped means no model at
  * all: no process, no memory held, 0% processor.
  *
- * Built to the Unsloth spike (docs/spikes/2026-09-unsloth-headless.md):
+ * Built to the Unsloth spike of 2026-09 (not kept in the repo):
  *
  * - unsloth: `unsloth run --model <repo:quant> --api-only --disable-tools -H 127.0.0.1 -p <port>
  *   --context-length 8192 --parallel 1 --threads 4 -c 8192 --ctx-checkpoints 4 --batch-size 512

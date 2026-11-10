@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { relativeTime } from "../../home/format";
 import type { PendingOperation } from "../../shell/ApproveDialog";
-import { Button, EmptyState, Notice, Panel, StatusChip, Table, type TableColumn } from "../../ui";
+import { Button, EmptyState, Notice, Panel, StatusChip, Table, Tag, type TableColumn } from "../../ui";
 import type { AgentSummary, Glance, Overview, Proposal } from "./api";
 import type { RunnerWait } from "./setup";
 import { agentState, duration, runState, triggerWords } from "./format";
+import { CardGroup, groupCards } from "./CardGroup";
 import { ProposalCard } from "./ProposalCard";
 import { AnswerText } from "./Trace";
 
@@ -94,6 +96,10 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
     },
   ];
 
+  // Cards "Done with all" could not change: said above the list, where they still are.
+  const [cardsRefused, setCardsRefused] = useState(0);
+  const openRun = (agentId: string, runId: string) => onOpen(agentId, "test", runId);
+
   const cardsPanel = staff && (
     <Panel className="agents-cards" title="Cards waiting" count={proposals ? { status: open.length ? "warning" : "good", label: String(open.length) } : undefined}
       meta={open.length ? "each step is staged at its own tier" : undefined} padded={open.length === 0}>
@@ -101,7 +107,19 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
         ? <p className="agents-quiet">Reading…</p>
         : open.length === 0
           ? <p className="agents-quiet">No cards. When an agent finds something a registered operation fixes, it leaves a card here; nothing runs until you stage and approve it.</p>
-          : <div className="agents-cards__list">{open.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} csrfToken={csrfToken} role={role} onStage={onStage} onDecided={onProposalDecided} onOpenRun={(agentId, runId) => onOpen(agentId, "test", runId)} />)}</div>}
+          : (
+            <div className="agents-cards__list">
+              {cardsRefused > 0 && (
+                <Notice tone="danger" live>
+                  {cardsRefused === 1 ? "1 card could not be marked done. It is" : `${cardsRefused} cards could not be marked done. They are`} still here. Try again.
+                </Notice>
+              )}
+              {/* Cards that say the same thing share one head; a plan is always its own card. */}
+              {groupCards(open).map((group) => (group.cards.length > 1
+                ? <CardGroup key={group.key} cards={group.cards} csrfToken={csrfToken} role={role} now={now} onStage={onStage} onDecided={onProposalDecided} onOpenRun={openRun} onAllDone={setCardsRefused} />
+                : <ProposalCard key={group.key} proposal={group.cards[0]} csrfToken={csrfToken} role={role} now={now} onStage={onStage} onDecided={onProposalDecided} onOpenRun={openRun} />))}
+            </div>
+          )}
     </Panel>
   );
 
@@ -120,8 +138,11 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
       )}
 
       {glance?.digest && (
-        <Panel className="agents-digest" title="Latest digest" meta={<>{glance.digest.agentName} · {relativeTime(glance.digest.at, now) ?? ""}</>} padded
+        <Panel className="agents-digest" title="Latest digest" padded
+          meta={<>{glance.digest.agentName} · {relativeTime(glance.digest.at, now) ?? ""}{glance.digest.state === "degraded" && <>{" "}<Tag tone="warning">Facts only</Tag></>}</>}
           actions={<Button variant="ghost" onClick={() => onOpen(glance.digest!.agentId, "test", glance.digest!.runId)}>Open the run</Button>}>
+          {/* A run without the model's words is not the digest it looks like: said here, with why on the run. */}
+          {glance.digest.state === "degraded" && <p className="agents-quiet">The model's words are missing from this run, so this is what its tools found. Open the run to see why.</p>}
           <AnswerText text={glance.digest.excerpt} />
         </Panel>
       )}

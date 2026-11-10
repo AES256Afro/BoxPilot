@@ -237,7 +237,9 @@ export function createAgentAdmin({ store, registry, cloud, limits, now, audit, r
   /**
    * A webhook call: "accepted" | "not-found" | "rate-limited". A wrong token, a missing agent and a
    * paused or webhook-less agent answer alike, so the URL cannot be probed. Nothing in the request
-   * reaches the run: the agent does its job, under its maker's authority, as a schedule would.
+   * reaches the run: the agent does its job, under its maker's authority, as a schedule would. What
+   * the caller called itself (`source`, its User-Agent) is kept in the audit entry and nowhere else:
+   * in the run's title it was a sentence of the caller's choosing in the model's prompt.
    */
   function fireAgentWebhook(agentId, token, { source = null } = {}) {
     const agent = store.getAgent(agentId);
@@ -248,8 +250,8 @@ export function createAgentAdmin({ store, registry, cloud, limits, now, audit, r
     const recent = (webhookFires.get(agent.id) ?? []).filter((at) => now().getTime() - at < 60_000);
     if (recent.length >= limits.webhookFiresPerMinute) { webhookFires.set(agent.id, recent); return "rate-limited"; }
     webhookFires.set(agent.id, [...recent, now().getTime()]);
-    const queued = enqueueSystem(agent, "webhook", { title: `A webhook${source ? ` from ${clip(String(source).replace(/[^\w .:-]/g, ""), 40)}` : ""}` });
-    audit("agents.webhook.fired", { actorId: agent.createdBy, subjectId: agent.id, details: { queued: Boolean(queued.run), skipped: queued.skipped ?? null } });
+    const queued = enqueueSystem(agent, "webhook", { title: "A webhook" });
+    audit("agents.webhook.fired", { actorId: agent.createdBy, subjectId: agent.id, details: { queued: Boolean(queued.run), skipped: queued.skipped ?? null, source: source ? clip(String(source).replace(/[^\w .:-]/g, ""), 40) : null } });
     return "accepted";
   }
 

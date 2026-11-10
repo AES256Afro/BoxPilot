@@ -90,12 +90,12 @@ export function aptOperations() {
       run: (_parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.repair", {}, { timeoutMs: minutes(55), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({
-      id: "system.manager.reexec", title: "Refresh systemd manager", risk: "medium", timeoutMs: 60_000,
-      description: "Re-executes the systemd manager to pick up upgraded libraries while preserving its state.",
+      id: "system.manager.reexec", title: "Finish applying system updates", risk: "medium", timeoutMs: 60_000,
+      description: "Restarts Ubuntu's service manager in place so it uses the updated files. Nothing running is stopped.",
       run: async (_parameters, { run, progress }) => {
         progress?.("$ systemctl daemon-reexec", "stdout");
         const result = await run("/usr/bin/systemctl", ["daemon-reexec"], { timeout: 45_000 });
-        if (!result.ok) throw new Error(`systemctl daemon-reexec failed: ${result.stderr || "see the system journal"}`);
+        if (!result.ok) throw new Error(`Ubuntu's service manager could not be restarted in place: ${String(result.stderr ?? "").trim() || "it gave no reason"}. Nothing running was stopped.`);
         clearNeedrestartCache();
         return { reexecuted: true };
       },
@@ -105,7 +105,7 @@ export function aptOperations() {
       description: "Reads APT's view of upgradable packages, plus which running services still use pre-upgrade libraries (needrestart, when installed).",
       run: async (_parameters, { run }) => {
         const result = await run("/usr/bin/apt", ["list", "--upgradable"], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
-        if (!result.ok) throw new Error(`apt list failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+        if (!result.ok) throw new Error(`The list of updates could not be read: ${result.stderr.split("\n").filter(Boolean).slice(-2).join(" ") || "no reason given"}. Try again.`);
         const upgradable = parseUpgradable(result.stdout);
         const security = upgradable.filter((item) => /security/i.test(item.suite)).length;
         if (upgradable.length) {
@@ -121,19 +121,19 @@ export function aptOperations() {
     }),
     defineOperation({
       id: "apt.refresh", title: "Refresh package lists", risk: "low", timeoutMs: minutes(15),
-      description: "Runs apt-get update so the list of available updates is current. Installs nothing.",
+      description: "Asks Ubuntu what updates exist. Installs nothing.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("apt.update", {}, { timeoutMs: minutes(10), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       // Restarts BoxPilot when the upgrade replaced libraries it runs on (libc, openssl).
       id: "apt.upgrade", title: "Install package updates", risk: "medium", timeoutMs: minutes(185), restartsService: "drained",
-      description: "Runs apt-get update then upgrades every package, or only the selected ones.",
+      description: "Installs every available update, or only the ones you picked.",
       parameters: { fields: { packages: optionalPackagesField, refreshFirst: refreshField } },
       run: (parameters, { runUnit, jobLog, selfRestart, progress }) => restartBoxPilotAfter(withCacheReset(runUnit.runTask("apt.upgrade", { packages: parameters.packages ?? null, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(180), logPath: jobLog?.path ?? null })), { selfRestart, progress }),
     }),
     defineOperation({
       id: "apt.install", title: "Install packages", risk: "medium", timeoutMs: minutes(70), restartsService: "drained",
-      description: "Installs the listed APT packages without recommends.",
+      description: "Installs the listed packages.",
       parameters: { fields: { packages: packagesField, refreshFirst: refreshField } },
       run: (parameters, { runUnit, jobLog, selfRestart, progress }) => restartBoxPilotAfter(withCacheReset(runUnit.runTask("apt.install", { packages: parameters.packages, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(65), logPath: jobLog?.path ?? null })), { selfRestart, progress }),
     }),
@@ -144,14 +144,14 @@ export function aptOperations() {
       run: (parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.remove", { packages: parameters.packages, purge: false, autoremove: true }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({
-      id: "apt.purge", title: "Purge packages", risk: "high", timeoutMs: minutes(40),
-      description: "Removes the listed packages including their configuration files.",
+      id: "apt.purge", title: "Remove packages and their settings", risk: "high", timeoutMs: minutes(40),
+      description: "Removes the listed packages, and what only they needed, and deletes their settings files. Reinstalling starts from defaults.",
       parameters: { fields: { packages: packagesField } },
       run: (parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.remove", { packages: parameters.packages, purge: true, autoremove: true, keepProtected: false }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({
       id: "apt.autoremove", title: "Remove unused packages", risk: "medium", timeoutMs: minutes(40),
-      description: "Runs apt-get autoremove --purge.",
+      description: "Removes packages nothing needs any more, with their settings files.",
       run: (_parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.autoremove", {}, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({

@@ -11,7 +11,7 @@
 #                             local:     bind to loopback only (reach it with an SSH tunnel)
 #   --port <n>                web port, 1024-65535 (default 8787)
 #   --node-version <v24.x.y>  pin the Node.js release to install (default: latest v24 LTS)
-#   --no-token                do not print a first-owner bootstrap token at the end
+#   --no-token                do not print the one-time setup code at the end
 #
 # Re-running it upgrades in place. An option not given again keeps what /etc/boxpilot/boxpilot.env
 # already says: the port and access the box was installed with, and a LAN choice made in Settings.
@@ -19,7 +19,7 @@
 # What it does: installs curl/tar/xz, Node.js 24 under /opt/node-v<ver> (+ /usr/local/bin symlinks),
 # creates the boxpilot system user and /etc/boxpilot, builds the chosen ref into /opt/boxpilot with
 # scripts/boxpilot-upgrade.sh, installs and enables the systemd units, configures access, checks
-# health, and prints the URL plus a one-time owner bootstrap token.
+# health, and prints the URL plus a one-time setup code for the first owner.
 set -eu
 # sudo keeps the caller's umask: a strict one would make /opt and node_modules unreadable to the service user.
 umask 022
@@ -374,7 +374,7 @@ printf '\n'
 log "BoxPilot is installed and running."
 log "Open:   ${URL}"
 if [ -n "$TOKEN_LINE" ]; then
-  log "First-owner bootstrap token (valid 15 minutes; paste it on the setup screen):"
+  log "One-time setup code (valid 15 minutes; paste it on the setup screen):"
   printf '        %s\n' "$TOKEN_LINE"
 elif [ "$PRINT_TOKEN" -eq 1 ]; then
   log "An owner already exists (or the token could not be created). Sign in with your existing account."

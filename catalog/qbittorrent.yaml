@@ -100,7 +100,7 @@ env:
     fromVpnProfile: true
   - name: VPN_PORT_FORWARDING
     label: Seeding port forwarding
-    description: Asks the VPN for a port other peers can reach you on, which improves seeding. Proton supports it (paid plans); most other providers here do not. The card shows the port once the tunnel has one; paste it into qBittorrent under Tools, Options, Connection.
+    description: Asks the VPN for a port other peers can reach you on, which improves seeding. Proton supports it (paid plans); most other providers here do not. The sheet shows the port once the tunnel has one; paste it into qBittorrent under Tools, Options, Connection.
     default: "off"
     fromVpnProfile: true
     options:

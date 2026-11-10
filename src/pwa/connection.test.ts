@@ -57,3 +57,54 @@ describe("watching the connection", () => {
     }
   });
 });
+
+describe("how often it asks", () => {
+  /** Timers the test fires by hand: each armed timer with its delay, newest last. */
+  function timers() {
+    const armed = new Map<number, { run: () => void; ms: number }>();
+    let next = 1;
+    return {
+      setTimer: (run: () => void, ms: number) => { armed.set(next, { run, ms }); return next++; },
+      clearTimer: (id: number) => { armed.delete(id); },
+      delays: () => [...armed.values()].map((timer) => timer.ms),
+      fire: async () => { const [id, timer] = [...armed.entries()].at(-1)!; armed.delete(id); timer.run(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); },
+    };
+  }
+  const answering = async () => new Response("{}", { headers: { "Content-Type": "application/json" } });
+  const silent = async () => { throw new TypeError("Failed to fetch"); };
+
+  it("once a minute while BoxPilot answers, every five seconds while it does not, and a minute again once it is back", async () => {
+    const clock = timers();
+    let fetcher: () => Promise<Response> = answering;
+    const asked = vi.fn(() => fetcher());
+    vi.stubGlobal("fetch", asked);
+    const stop = watchConnection({ setTimer: clock.setTimer, clearTimer: clock.clearTimer });
+    await vi.waitFor(() => expect(connectionState().lastHeardAt).not.toBeNull());
+    expect(clock.delays()).toEqual([60_000]);
+    // A reboot: the minute's question is not answered, and the next is five seconds away.
+    fetcher = silent;
+    await clock.fire();
+    await vi.waitFor(() => expect(connectionState().reachable).toBe(false));
+    expect(clock.delays()).toEqual([5_000]);
+    await clock.fire();
+    expect(clock.delays()).toEqual([5_000]);
+    // Back: the first answer puts the banner away, and the pace returns to a minute.
+    fetcher = answering;
+    await clock.fire();
+    await vi.waitFor(() => expect(connected(connectionState())).toBe(true));
+    expect(clock.delays()).toEqual([60_000]);
+    const before = asked.mock.calls.length;
+    stop();
+    expect(clock.delays()).toEqual([]);
+    expect(asked.mock.calls.length).toBe(before);
+  });
+
+  it("never asks more often than its own interval", async () => {
+    const clock = timers();
+    vi.stubGlobal("fetch", vi.fn(silent));
+    const stop = watchConnection({ intervalMs: 1_000, setTimer: clock.setTimer, clearTimer: clock.clearTimer });
+    await vi.waitFor(() => expect(connectionState().reachable).toBe(false));
+    expect(clock.delays()).toEqual([1_000]);
+    stop();
+  });
+});

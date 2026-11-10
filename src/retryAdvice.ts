@@ -52,7 +52,7 @@ const rules: Rule[] = [
   { test: /Save a VPN profile in the VPN section first/i, retry: false, next: { label: "Open VPN", view: "network", tab: "vpn" } },
   { test: /save it under Settings first/i, retry: false, next: { label: "Open Credentials", view: "settings", tab: "credentials" } },
   { test: /is not mounted, so there is nothing to \w+ yet|Reconnect the drive first|mount it first/i, retry: false, next: { label: "Open Storage", view: "storage" } },
-  { test: /is already installed; use reconfigure or update|start or restart it instead/i, retry: false, next: { label: "Open App catalog", view: "catalog" } },
+  { test: /is already installed(?:; use reconfigure or update|\. Open it in)|start or restart it instead/i, retry: false, next: { label: "Open Apps", view: "catalog" } },
   // Nothing BoxPilot can change by running it again.
   { test: /has no data to back up|is already scheduled/i, retry: false },
   // What a backup or snapshot holds, and whether it is there, are the file's own: the same file is

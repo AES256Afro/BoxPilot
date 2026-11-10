@@ -198,7 +198,7 @@ describe("Virtual machines page", () => {
       expect(await screen.findByText("Keep an encrypted copy of snapshot-lab")).toBeTruthy();
       closeDialog();
       fireEvent.click(screen.getByRole("button", { name: "Apply retention" }));
-      expect(await screen.findByText("Apply VM backup retention")).toBeTruthy();
+      expect(await screen.findByText("Let go of old VM backups")).toBeTruthy();
       expect(screen.getByText(/no space is reclaimed/)).toBeTruthy();
       closeDialog();
       fireEvent.click(screen.getByRole("button", { name: "Test the restore" }));

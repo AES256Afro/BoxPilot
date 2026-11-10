@@ -56,4 +56,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 300
-notes: "Install Element web from this catalog (or use the Element app) and sign up against http://<this server>:8110 with the registration token from Secrets. Click Serve on tailnet to reach it from anywhere over HTTPS."
+notes: "Install Element web from this catalog (or use the Element app) and sign up against http://<this server>:8110 with the registration token from Secrets. Choose Reach only through Tailscale on the Reach tab to reach it from anywhere over HTTPS."

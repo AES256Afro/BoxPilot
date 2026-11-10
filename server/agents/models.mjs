@@ -5,7 +5,7 @@
  *
  * Sizes here are what the previews say before a download starts; the download itself takes the
  * exact sizes and checksums from Hugging Face and verifies every byte (download.mjs). Memory, and
- * the 2B's and the 9B's speeds, are the Unsloth spike's (docs/spikes/2026-09-unsloth-headless.md,
+ * the 2B's and the 9B's speeds, are the Unsloth spike's (2026-09, not kept in the repo;
  * EPYC 7763 cores, one processor); the 4B's speed is BoxPilot's own benchmark at four threads under
  * a 400% quota on a four-processor GitHub runner (.github/workflows/agents-bench.yml), where the
  * runner's caps now put it. `measuredAt` says which. The home server is faster than either, and

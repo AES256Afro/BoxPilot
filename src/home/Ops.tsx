@@ -87,8 +87,11 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   const { facts, refresh, accept } = useFacts();
   const clock = now();
   const values = useMemo(() => valuesOf(facts), [facts]);
-  const needs = buildNeeds(values, { now: clock, role });
-  const tiers = groupByTier(needs);
+  // Built again when the facts, the role or the minute changes, not on every five-second poll of
+  // the metric strip: the list's ages are said to the minute at their finest.
+  const minute = Math.floor(clock / 60_000);
+  const needs = useMemo(() => buildNeeds(values, { now: clock, role }), [values, role, minute]); // eslint-disable-line react-hooks/exhaustive-deps -- the clock, to the minute
+  const tiers = useMemo(() => groupByTier(needs), [needs]);
   const performance = usePerformance(pollMs, now);
   // More of the history than the live feed keeps, for the backup matrix (shared with Today, M25.3).
   const { jobs: history } = useJobHistory();

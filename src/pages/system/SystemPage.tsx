@@ -9,7 +9,7 @@ import { SystemHousekeeping } from "./SystemHousekeeping";
 import { SystemPower, thresholdWords, watchdogWords } from "./SystemPower";
 import { SystemTime } from "./SystemTime";
 import { releaseState, SystemUpdates, updateLogFacts } from "./SystemUpdates";
-import { gib, nextRunWords, upsLabel, type DockerDisk, type Housekeeping, type PowerHardware, type PowerOverview, type ReleaseUpdate, type SpaceReport, type StartOperation, type SystemSettings, type UpdateStatus, type UpsDetection } from "./systemTypes";
+import { gibFromKib, nextRunWords, upsLabel, type DockerDisk, type Housekeeping, type PowerHardware, type PowerOverview, type ReleaseUpdate, type SpaceReport, type StartOperation, type SystemSettings, type UpdateStatus, type UpsDetection } from "./systemTypes";
 import { upsStateWords } from "../../powerEvents";
 import "./system.css";
 
@@ -262,7 +262,7 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
       <PageHeader
         title="System"
         status={verdict}
-        meta={settings ? <><b>{settings.hostname.live ?? "—"}</b> · {settings.timezone ?? "time zone unknown"} · <b>{gib(memory?.memAvailableKiB)}</b> free of {gib(memory?.memTotalKiB)} · BoxPilot <b>{release?.current.version ?? __BOXPILOT_VERSION__}</b></> : undefined}
+        meta={settings ? <><b>{settings.hostname.live ?? "—"}</b> · {settings.timezone ?? "time zone unknown"} · <b>{gibFromKib(memory?.memAvailableKiB)}</b> free of {gibFromKib(memory?.memTotalKiB)} · BoxPilot <b>{release?.current.version ?? __BOXPILOT_VERSION__}</b></> : undefined}
         actions={<Button variant="ghost" busy={loading && Boolean(settings)} onClick={() => { void refresh(); void loadRelease(); void scan(); void lookForUps(); void loadPower(); if (tab === "power") void readHardware(); }}>Check again</Button>}
         about={<>
           <p>This server's own settings: BoxPilot's update, what can be cleaned up, the name, time zone and language, memory, swap and SSD trim, power (a UPS, the watchdog, and starting again after a power cut), and what runs on a schedule.</p>
@@ -290,10 +290,10 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
           <>
             <MetricStrip label="The server at a glance" className="system-strip">
               <MetricTile label="BoxPilot" value={release?.current.version ?? __BOXPILOT_VERSION__} caption={lastFailed ? "the last update failed" : releaseChip.label} status={lastFailed ? "danger" : releaseChip.status === "good" ? "good" : releaseChip.status === "warning" ? "warning" : "unknown"} onSelect={() => setTab("updates")} />
-              <MetricTile label="Memory" value={gib(memory?.memAvailableKiB)} caption={`available of ${gib(memory?.memTotalKiB)}`} status={usedPercent === null ? "unknown" : usedPercent >= 95 ? "danger" : usedPercent >= 85 ? "warning" : "good"} bar={usedPercent === null ? undefined : { value: usedPercent, label: "Memory in use" }} onSelect={() => setTab("hardware")} />
-              <MetricTile label="Swap" value={gib(memory?.swapTotalKiB)} caption={memory?.swapTotalKiB ? `${gib(swapUsed)} in use · swappiness ${settings?.swappiness ?? "—"}` : settings ? "no swap configured" : "Reading…"} status={settings ? (memory?.swapTotalKiB ? "neutral" : "warning") : "unknown"} onSelect={() => setTab("hardware")} />
+              <MetricTile label="Memory" value={gibFromKib(memory?.memAvailableKiB)} caption={`available of ${gibFromKib(memory?.memTotalKiB)}`} status={usedPercent === null ? "unknown" : usedPercent >= 95 ? "danger" : usedPercent >= 85 ? "warning" : "good"} bar={usedPercent === null ? undefined : { value: usedPercent, label: "Memory in use" }} onSelect={() => setTab("hardware")} />
+              <MetricTile label="Swap" value={gibFromKib(memory?.swapTotalKiB)} caption={memory?.swapTotalKiB ? `${gibFromKib(swapUsed)} in use · swappiness ${settings?.swappiness ?? "—"}` : settings ? "no swap configured" : "Reading…"} status={settings ? (memory?.swapTotalKiB ? "neutral" : "warning") : "unknown"} onSelect={() => setTab("hardware")} />
               <MetricTile label="Reclaimable" value={housekeeping ? housekeeping.totalHumanBytes : "—"} caption={!operator ? "an operator's to scan" : housekeeping ? "in items nothing needs" : scanning ? "Scanning…" : "Not scanned"} status={housekeeping ? "neutral" : "unknown"} onSelect={() => setTab("housekeeping")} />
-              <MetricTile label="Name" value={settings?.hostname.live ?? "—"} caption={settings ? (settings.hostname.static !== settings.hostname.live ? `static: ${settings.hostname.static}` : "static and live match") : "Reading…"} status={settings ? "neutral" : "unknown"} onSelect={() => setTab("time")} />
+              <MetricTile label="Name" value={settings?.hostname.live ?? "—"} caption={settings ? (settings.hostname.static !== settings.hostname.live ? `also saved as ${settings.hostname.static}` : undefined) : "Reading…"} status={settings ? "neutral" : "unknown"} onSelect={() => setTab("time")} />
               <MetricTile label="Time zone" value={settings?.timezone ?? "—"} caption={settings?.locale ? `language ${settings.locale}` : `${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} in your browser`} status={settings ? "neutral" : "unknown"} onSelect={() => setTab("time")} />
               <MetricTile label="Power" value={upsWatching ? upsWords.label : upsDevice ? "UPS found" : power ? "No UPS" : "—"}
                 caption={upsWatching ? `battery ${upsReading?.batteryChargePercent ?? "—"}%${lowWords ? ` · shuts down ${lowWords}` : ""}` : upsDevice ? "set up monitoring" : power ? "a power cut stops it without warning" : powerError ? "not read" : "Reading…"}

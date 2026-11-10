@@ -38,7 +38,7 @@ export function agentsOperations() {
     }),
     defineOperation({
       id: "agents.runtime.enable", title: "Start the agents runner", risk: "medium", minimumRole: "owner", timeoutMs: minutes(3),
-      description: "Enables and starts boxpilot-agents.service: the capped runner (four processors at most, idle priority, 8 GB of memory, loopback only). It starts the model server only when an agent runs, and stops it after an hour with nothing to do.",
+      description: "Starts the agents runner and keeps it starting with this server. It is capped: four processors in the background, up to eight while you wait, the lowest priority, 8 GB of memory, and reachable from this server only. A model is loaded only when an agent runs, and unloaded after an hour with nothing to do.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("agents.enable", {}, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
@@ -48,7 +48,7 @@ export function agentsOperations() {
       // (sweep 3): BoxPilot calls the helper with it directly, so no card, flow, schedule or person
       // stages it - a steered agent once proposed every processor, all the time, as one click.
       id: "agents.runtime.cpu", title: "Set the agents runner's processors", risk: "low", minimumRole: "owner", timeoutMs: 45_000, internal: true,
-      description: "Sets how many processors the capped agents runner may use, with systemctl set-property --runtime on boxpilot-agents.service: the owner's \"while you wait\" number during a run a person waits on, the \"background\" number otherwise. Idle priority, idle I/O and the memory cap stay. A raise arms a timer that puts the background number back after the run's longest time. Never more than eight, or all of this machine's processors but two.",
+      description: "Sets how many processors the agents runner may use: your \"while you wait\" number during a run a person waits on, the \"background\" number otherwise. The lowest priority and the memory cap stay, and a raise is taken back after the run's longest time. Never more than eight, or all of this machine's processors but two.",
       parameters: {
         exact: true,
         fields: {
@@ -61,7 +61,7 @@ export function agentsOperations() {
     }),
     defineOperation({
       id: "agents.runtime.disable", title: "Stop the agents runner", risk: "low", timeoutMs: minutes(3),
-      description: "Stops and disables boxpilot-agents.service, and with it any model it was running. Agents stay as they are and wait until it is started again.",
+      description: "Stops the agents runner, and with it any model it was running, and keeps it from starting with this server. Agents stay as they are and wait until it is started again.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("agents.disable", {}, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({

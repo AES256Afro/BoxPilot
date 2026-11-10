@@ -131,6 +131,56 @@ describe("volume groups over several physical volumes", () => {
   });
 });
 
+describe("a device that sits on two disks", () => {
+  const row = (path, kname, pkname, type, fstype = null, mountpoints = [null]) => ({ path, kname, pkname, type, size: GiB, fstype, mountpoints, ro: false, rm: false });
+
+  it("calls both halves of a RAID1 root a system disk", () => {
+    // lsblk lists md0 under each member. The row is drawn once, under sda1; sdb used to look like a
+    // disk with nothing mounted below it and was offered Format.
+    const devices = annotateDevices(parseLsblkTree(JSON.stringify({ blockdevices: [
+      row("/dev/sda", "sda", null, "disk"),
+      row("/dev/sda1", "sda1", "sda", "part", "linux_raid_member"),
+      row("/dev/md0", "md0", "sda1", "raid1", "ext4", ["/"]),
+      row("/dev/sdb", "sdb", null, "disk"),
+      row("/dev/sdb1", "sdb1", "sdb", "part", "linux_raid_member"),
+      row("/dev/md0", "md0", "sdb1", "raid1", "ext4", ["/"]),
+    ] })));
+    expect(devices.map((device) => device.path)).toEqual(["/dev/sda", "/dev/sda1", "/dev/md0", "/dev/sdb", "/dev/sdb1"]);
+    const sdb = devices.find((device) => device.path === "/dev/sdb");
+    expect(sdb).toMatchObject({ protected: true, protectedReason: "system disk", mountedBelow: ["/"] });
+    expect(devices.find((device) => device.path === "/dev/sdb1")).toMatchObject({ protected: true, protectedReason: "system disk", mountedBelow: ["/"] });
+    expect(devices.find((device) => device.path === "/dev/sda")).toMatchObject({ protectedReason: "system disk", mountedBelow: ["/"] });
+  });
+
+  it("calls every disk under a root volume group a system disk, and follows an LV on an array", () => {
+    // ubuntu-vg spans sda3 and sdb1; a second group sits on an array of sdc1 + sdd1, nested the way
+    // lsblk prints it with NAME as the tree column (the array and its LV both repeated).
+    const devices = annotateDevices(parseLsblkTree(JSON.stringify({ blockdevices: [
+      row("/dev/sda", "sda", null, "disk"),
+      row("/dev/sda3", "sda3", "sda", "part", "LVM2_member"),
+      row("/dev/mapper/ubuntu--vg-ubuntu--lv", "dm-0", "sda3", "lvm", "ext4", ["/"]),
+      row("/dev/sdb", "sdb", null, "disk"),
+      row("/dev/sdb1", "sdb1", "sdb", "part", "LVM2_member"),
+      row("/dev/mapper/ubuntu--vg-ubuntu--lv", "dm-0", "sdb1", "lvm", "ext4", ["/"]),
+      row("/dev/sdc", "sdc", null, "disk"),
+      row("/dev/sdc1", "sdc1", "sdc", "part", "linux_raid_member"),
+      row("/dev/md1", "md1", "sdc1", "raid1", "LVM2_member"),
+      row("/dev/mapper/data--vg-media", "dm-1", "md1", "lvm", "ext4", ["/mnt/media"]),
+      row("/dev/sdd", "sdd", null, "disk"),
+      row("/dev/sdd1", "sdd1", "sdd", "part", "linux_raid_member"),
+      row("/dev/md1", "md1", "sdd1", "raid1", "LVM2_member"),
+      row("/dev/mapper/data--vg-media", "dm-1", "md1", "lvm", "ext4", ["/mnt/media"]),
+    ] })));
+    const named = (path) => devices.find((device) => device.path === path);
+    expect(named("/dev/sdb")).toMatchObject({ protected: true, protectedReason: "system disk", mountedBelow: ["/"] });
+    expect(named("/dev/sdb1")).toMatchObject({ protectedReason: "system disk", holdsVolumeGroups: ["ubuntu-vg"] });
+    expect(named("/dev/sdd")).toMatchObject({ protected: true, protectedReason: "holds mounted filesystems (/mnt/media)" });
+    // The LV is drawn under md1 once and is not also listed as something md1 holds from elsewhere.
+    expect(named("/dev/md1").alsoHolds).toBeUndefined();
+    expect(volumeGroupsFrom(devices).map((group) => [group.name, group.physicalVolumes])).toEqual([["ubuntu-vg", ["/dev/sda3", "/dev/sdb1"]], ["data-vg", ["/dev/md1"]]]);
+  });
+});
+
 describe("the disk a format is staged for", () => {
   const listing = JSON.stringify({ blockdevices: [
     { path: "/dev/sda", serial: "SYS-1", wwn: null, size: 500107862016, model: "System SSD" },

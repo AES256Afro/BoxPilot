@@ -10,10 +10,11 @@ import { AreaIcon, BellIcon, ExternalIcon, PlusIcon, RunIcon, SearchIcon, SparkI
 import "./command.css";
 import { actionCommands, buildCommands, searchCommands, suggestedCommands, type AppActionFacts, type CatalogEntry, type Command, type CommandGroup } from "./commandIndex";
 import { useApprovalsWaiting, useLatestFailure } from "./approvalsWaiting";
-import { openActivity } from "../activityEvents";
+import { openActivity, openNotifications } from "../activityEvents";
 
 /*
- * The command bar (M33.2): Ctrl K or Cmd K anywhere, or the search box in the top bar. Typing
+ * The command bar (M33.2): Ctrl K or Cmd K anywhere, "/" when nothing is being typed into, or the
+ * search box in the top bar. Typing
  * finds any page, app or feature. Where the local assistant is set up (M34.2) the last choice asks
  * it the question instead; where it is not, the bar says so and stays a search box. The assistant
  * never runs anything: a step it suggests opens the ordinary approval dialog at its own tier.
@@ -38,18 +39,30 @@ export interface CommandBarProps {
   onStart: (operation: PendingOperation) => void;
   /** Who is asking: actions are offered only where this role could start them. None, no actions. */
   role?: string | null;
+  /** Signs out, as the bar's own button does. Without it the bar offers no "Sign out". */
+  onSignOut?: () => void;
 }
+
+/** Where a "/" is something being typed, not the shortcut. */
+const typingPlaces = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]';
 
 const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
-export function CommandBar({ csrfToken, onNavigate, onStart, role = null }: CommandBarProps) {
+export function CommandBar({ csrfToken, onNavigate, onStart, role = null, onSignOut }: CommandBarProps) {
   const [open, setOpen] = useState(false);
   // Attached as the bar is drawn, so the shortcut works the moment the bar can be seen.
   useLayoutEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "k") return;
+      const chord = (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "k";
+      // "/" on its own, in every look, unless it is being typed somewhere or a look's own bar took
+      // it already (Phosphor's does, and has opened this).
+      const slash = event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.repeat && !event.defaultPrevented
+        && !(event.target instanceof Element && event.target.closest(typingPlaces));
+      if (!chord && !slash) return;
       // Another dialog holds the keyboard; opening this over it would leave two fighting for focus.
       if (document.querySelector('[aria-modal="true"]:not(.command-dialog)')) return;
+      // Open already, "/" is a character for its own search box.
+      if (slash && document.querySelector(".command-dialog")) return;
       event.preventDefault();
       setOpen(true);
     };
@@ -59,12 +72,12 @@ export function CommandBar({ csrfToken, onNavigate, onStart, role = null }: Comm
   const mac = isMac();
   return (
     <>
-      <button type="button" className="command-trigger" aria-haspopup="dialog" aria-keyshortcuts={mac ? "Meta+K" : "Control+K"} onClick={() => setOpen(true)}>
+      <button type="button" className="command-trigger" aria-haspopup="dialog" aria-keyshortcuts={mac ? "Meta+K /" : "Control+K /"} onClick={() => setOpen(true)}>
         <SearchIcon className="command-trigger__icon" />
         <span className="command-trigger__label">Search pages, apps and settings</span>
         <kbd className="command-trigger__keys" aria-hidden="true">{mac ? "⌘K" : "Ctrl K"}</kbd>
       </button>
-      {open && <CommandDialog csrfToken={csrfToken} role={role} onClose={() => setOpen(false)} onNavigate={onNavigate} onStart={onStart} />}
+      {open && <CommandDialog csrfToken={csrfToken} role={role} onClose={() => setOpen(false)} onNavigate={onNavigate} onStart={onStart} onSignOut={onSignOut} />}
     </>
   );
 }
@@ -72,12 +85,13 @@ export function CommandBar({ csrfToken, onNavigate, onStart, role = null }: Comm
 const groupIcon = (command: Command): ReactNode => {
   if (command.action) return <RunIcon />;
   if (command.href) return <ExternalIcon />;
-  if (command.job) return <BellIcon />;
+  if (command.job || command.shell === "activity" || command.shell === "notifications") return <BellIcon />;
+  if (command.shell) return <RunIcon />;
   if (command.label.startsWith("Install ")) return <PlusIcon />;
   return command.view ? <AreaIcon view={command.view} /> : null;
 };
 
-function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: CommandBarProps & { onClose: () => void }) {
+function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role, onSignOut }: CommandBarProps & { onClose: () => void }) {
   const dialogRef = useRef<HTMLElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listId = useId();
@@ -120,15 +134,25 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
     return () => { cancelled = true; asking.current?.abort(); };
   }, []);
 
+  // An answer can take a minute to come, so one Escape does not throw it away: with a question
+  // asked (answered or still being answered) Escape goes back to the list, and the next one closes.
+  const answering = useRef(false);
+  answering.current = asked !== null;
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); onClose(); } };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      if (answering.current) { asking.current?.abort(); setAsked(null); inputRef.current?.focus(); }
+      else onClose();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
   const ready = assistant !== null && assistant !== "failed" && assistant.ready;
   const actions = useMemo(() => actionCommands(appActions, role), [appActions, role]);
-  const commands = useMemo(() => buildCommands(catalog, actions), [catalog, actions]);
+  const canSignOut = Boolean(onSignOut);
+  const commands = useMemo(() => buildCommands(catalog, actions).filter((command) => command.shell !== "sign-out" || canSignOut), [catalog, actions, canSignOut]);
   const waiting = useApprovalsWaiting();
   const failure = useLatestFailure();
   const typed = query.trim();
@@ -168,6 +192,9 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
     // An action goes through the ordinary approval dialog, at its own tier; nothing runs from here.
     if (command.action) { onStart({ operationId: command.action.operationId, title: command.action.title, parameters: command.action.parameters, preview: <span>{command.action.preview}</span> }); return; }
     if (command.job) { openActivity(command.job); return; }
+    if (command.shell === "activity") { openActivity(); return; }
+    if (command.shell === "notifications") { openNotifications(); return; }
+    if (command.shell === "sign-out") { onSignOut?.(); return; }
     if (command.href) window.open(command.href, "_blank", "noopener,noreferrer");
     else if (command.view) onNavigate(command.view, command.app || command.tab ? { app: command.app, tab: command.tab } : undefined);
   };
@@ -202,7 +229,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role }: Comman
         : `The local assistant is not set up, so this only searches.${assistant.problem?.message ? ` ${assistant.problem.message}` : ""}`;
 
   return createPortal(
-    <div className="command-overlay" role="presentation" onMouseDown={onClose}>
+    <div className="command-overlay" role="presentation" onMouseDown={() => { if (!asked) onClose(); }}>
       <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Search BoxPilot" className="command-dialog" onMouseDown={(event) => event.stopPropagation()}>
         <div className="command-input">
           <SearchIcon className="command-input__icon" />

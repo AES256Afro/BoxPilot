@@ -8,6 +8,14 @@
 # reused (and reactivated if it was deactivated), an existing channel is kept as it is, and
 # subscriptions that exist are left alone.
 #
+# What already exists is only reused when it is the owner's. Any member of the organization can
+# make a bot or a channel, so one made first under these names is not taken on trust:
+#   - a bot at the address that the owner does not own is refused (its maker would keep its key);
+#   - a reused bot gets a new API key every time, so a key anyone held before stops working;
+#   - a channel the owner did not make is refused while anyone but the owner and the bot is in it.
+# Every refusal is decided before anything is changed, so a refused connect leaves Zulip, and the
+# key BoxPilot already holds, as they were.
+#
 # Everything it is given comes from the environment, set by BoxPilot, never from a person:
 #   BOXPILOT_BOT_SHORT_NAME  the bot's short name (its address is <short name>-bot@<bot domain>)
 #   BOXPILOT_BOT_FULL_NAME   the bot's name as people see it
@@ -23,8 +31,20 @@ from zerver.actions.create_user import do_create_user, do_reactivate_user, notif
 from zerver.actions.streams import bulk_add_subscriptions
 from zerver.lib.streams import create_stream_if_needed
 from zerver.lib.users import validate_short_name_and_construct_bot_email
-from zerver.models import Realm, UserProfile
+from zerver.models import Realm, Stream, Subscription, UserProfile
 from zerver.models.users import get_user_by_delivery_email
+
+# Zulip's own "Generate new API key": where it lives has moved between releases.
+try:
+    from zerver.actions.user_settings import do_regenerate_api_key
+except ImportError:
+    try:
+        from zerver.actions.bots import do_regenerate_api_key
+    except ImportError:
+        try:
+            from zerver.lib.actions import do_regenerate_api_key
+        except ImportError:
+            do_regenerate_api_key = None
 
 
 def boxpilot_result(**fields):
@@ -56,17 +76,40 @@ def boxpilot_connect():
         return
 
     _short, email = validate_short_name_and_construct_bot_email(short_name, realm)
-    bot_created = False
-    reactivated = False
     try:
         bot = get_user_by_delivery_email(email, realm)
+    except UserProfile.DoesNotExist:
+        bot = None
+    if bot is not None:
         if not bot.is_bot:
             boxpilot_result(error="address-taken", realm=realm.name, bot=email)
             return
-        if not bot.is_active:
-            do_reactivate_user(bot, acting_user=owner)
-            reactivated = True
-    except UserProfile.DoesNotExist:
+        if bot.bot_owner_id != owner.id:
+            boxpilot_result(error="bot-not-yours", realm=realm.name, bot=email)
+            return
+        if do_regenerate_api_key is None:
+            boxpilot_result(error="key-not-renewed", realm=realm.name, bot=email)
+            return
+
+    # A channel that is already there and that the owner did not make: nobody else may be in it.
+    allowed = {owner.id} | ({bot.id} if bot is not None else set())
+    for entry in channels:
+        existing = Stream.objects.filter(realm=realm, name__iexact=entry["name"]).first()
+        if existing is None or getattr(existing, "creator_id", None) == owner.id:
+            continue
+        members = set(
+            Subscription.objects.filter(
+                recipient_id=existing.recipient_id, active=True, user_profile__is_active=True
+            ).values_list("user_profile_id", flat=True)
+        )
+        others = members - allowed
+        if others:
+            boxpilot_result(error="channel-shared", realm=realm.name, channel=existing.name, others=len(others))
+            return
+
+    bot_created = False
+    reactivated = False
+    if bot is None:
         bot = do_create_user(
             email=email,
             password=None,
@@ -78,6 +121,16 @@ def boxpilot_connect():
         )
         notify_created_bot(bot)
         bot_created = True
+        api_key = bot.api_key
+    else:
+        if not bot.is_active:
+            do_reactivate_user(bot, acting_user=owner)
+            reactivated = True
+        # A new key on every connect: whatever key existed before this run is void from here.
+        api_key = do_regenerate_api_key(bot, owner)
+        if not isinstance(api_key, str) or not api_key:
+            bot.refresh_from_db()
+            api_key = bot.api_key
 
     made = []
     for entry in channels:
@@ -98,7 +151,7 @@ def boxpilot_connect():
         url=getattr(realm, "url", None) or realm.uri,
         realmId=realm.id,
         bot=bot.delivery_email,
-        apiKey=bot.api_key,
+        apiKey=api_key,
         botCreated=bot_created,
         reactivated=reactivated,
         channels=made,

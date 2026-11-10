@@ -72,11 +72,11 @@ export function SystemHousekeeping({ csrfToken, role, housekeeping, scanning, on
           meta={housekeeping ? "shared image layers can make the space recovered smaller" : undefined}
           footer={housekeeping && Number.isFinite(Date.parse(housekeeping.generatedAt)) ? `Scanned ${new Date(housekeeping.generatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : undefined}
           actions={<>
-            <Button variant="ghost" busy={scanning} onClick={onRescan}>Rescan</Button>
+            <Button variant="ghost" busy={scanning} onClick={onRescan}>Check again</Button>
             {mayStart(role, "housekeeping.reclaim") && <Button variant="primary" risk={riskOf("housekeeping.reclaim")} disabled={chosen.size === 0} onClick={reclaim}>Reclaim {chosen.size > 0 ? chosenWords : "space"}</Button>}
           </>}>
           {!housekeeping ? (
-            <EmptyState title={scanning ? "Working out what can go…" : "Not scanned"} action={scanning ? undefined : <Button onClick={onRescan}>Rescan</Button>}>{scanning ? undefined : "The scan could not be read. Rescan to look again."}</EmptyState>
+            <EmptyState title={scanning ? "Working out what can go…" : "Not scanned"} action={scanning ? undefined : <Button onClick={onRescan}>Check again</Button>}>{scanning ? undefined : "The scan could not be read."}</EmptyState>
           ) : categories.length === 0 ? (
             <EmptyState title="Nothing to clean up">Nothing on this server is taking room that nothing needs.</EmptyState>
           ) : (

@@ -104,7 +104,7 @@ describe("Repair Center", () => {
     expect(screen.getByText("Independent BoxPilot database copy")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download rebuild steps (.md)" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download recovery data (.json)" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Check helper" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check the admin service" }));
     expect(await screen.findByText(/version 0.61.0/)).toBeTruthy();
   });
 

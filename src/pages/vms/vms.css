@@ -94,3 +94,6 @@
   .vms-sizes { grid-template-columns: minmax(0, 1fr); }
   .vms-inline-form > .ui-button { margin-bottom: 0; }
 }
+
+/* A checksum cut short, with a Copy that takes all of it. */
+.vms-sha { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }

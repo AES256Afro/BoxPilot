@@ -72,8 +72,8 @@ interface ApprovalPolicy { confirmText?: string | null;
 }
 
 const tierCopy: Record<ApprovalPolicy["tier"], { label: string; description: string }> = {
-  low: { label: "Low risk", description: "One click. The action is audited and reversible." },
-  medium: { label: "Medium risk", description: "Confirm to run. Review the preflight and recovery steps below first." },
+  low: { label: "Low risk", description: "One click." },
+  medium: { label: "Medium risk", description: "Confirm to run. Read what it will do first." },
   high: { label: "High risk", description: "Enter your owner password to run this." },
 };
 
@@ -297,10 +297,10 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
     setCanaryResult(null);
     try {
       const { result } = await inspectOperation<{ helperVersion: string }>("canary.verify");
-      setCanaryResult(`Answered: the root side is running, version ${result.helperVersion}. Nothing on the server was changed.`);
+      setCanaryResult(`Answered: the admin service is running, version ${result.helperVersion}. Nothing on the server was changed.`);
     } catch (requestError) {
       setErrorAt("desk");
-      setError(requestError instanceof Error ? requestError.message : "The helper did not answer");
+      setError(requestError instanceof Error ? requestError.message : "The admin service did not answer");
     } finally {
       setPending(false);
     }
@@ -472,7 +472,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
           {checks.length > 0 && <Table caption="Prerequisites" columns={prerequisiteColumns} rows={checks} rowKey={(item) => item.id} />}
         </Panel>
 
-        <Panel title={awaitingApproval ? "Approval desk" : "Helper"} label={awaitingApproval ? "Approval desk" : "Helper check"} className={awaitingApproval ? "rp-desk" : undefined}
+        <Panel title={awaitingApproval ? "Approval desk" : "Admin service"} label={awaitingApproval ? "Approval desk" : "Check the admin service"} className={awaitingApproval ? "rp-desk" : undefined}
           count={awaitingApproval ? { status: "warning", label: "1 waiting" } : undefined}
           meta={awaitingApproval ? undefined : "connection and logging"}>
           <div className="rp-body">
@@ -514,8 +514,8 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
               </>
             ) : (
               <>
-                <p className="rp-row__text">Run this if jobs fail to start or their output is missing: it asks the root helper to answer and writes a small test log.</p>
-                <div className="rp-finding__actions"><Button onClick={() => void runCanary()} busy={pending}>{pending ? "Checking..." : "Check helper"}</Button></div>
+                <p className="rp-row__text">Run this if jobs fail to start or their output is missing: it asks BoxPilot's admin service to answer and writes a small test log.</p>
+                <div className="rp-finding__actions"><Button onClick={() => void runCanary()} busy={pending}>{pending ? "Checking..." : "Check the admin service"}</Button></div>
                 {canaryResult && <p className="rp-note" data-tone="good" role="status">{canaryResult}</p>}
               </>
             )}

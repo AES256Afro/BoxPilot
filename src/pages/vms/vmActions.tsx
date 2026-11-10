@@ -46,7 +46,7 @@ export const forceOff = (domain: VirtualDomain): PendingOperation => ({
   operationId: "vm.force-off",
   title: `Force off ${domain.name}`,
   parameters: { name: domain.name },
-  preview: <span>Pulls the virtual power plug with <code>virsh destroy</code>. Unsaved data inside the guest is lost; start the VM again afterwards.</span>,
+  preview: <span>Pulls the virtual power plug. Unsaved data inside the guest is lost; start the VM again afterwards.</span>,
 });
 
 export const deleteVm = (domain: VirtualDomain): PendingOperation => ({

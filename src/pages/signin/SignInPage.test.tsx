@@ -24,7 +24,7 @@ describe("owner authentication screen", () => {
     expect(screen.getByText(/boxpilot-owner.mjs create-bootstrap-token/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Username"), { target: { value: "operator" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct horse battery" } });
-    fireEvent.change(screen.getByLabelText("Bootstrap token"), { target: { value: "server-token" } });
+    fireEvent.change(screen.getByLabelText("Setup code"), { target: { value: "server-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Create owner" }));
 
     expect(await screen.findByRole("button", { name: "Verifying..." })).toBeTruthy();
@@ -34,7 +34,7 @@ describe("owner authentication screen", () => {
   it("does not show bootstrap controls on an existing server", () => {
     render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
     expect(screen.getByRole("heading", { name: "Sign in to BoxPilot" })).toBeTruthy();
-    expect(screen.queryByLabelText("Bootstrap token")).toBeNull();
+    expect(screen.queryByLabelText("Setup code")).toBeNull();
   });
 
   it("cancels GitHub sign-in, and a poll already out does not start another", async () => {
@@ -51,6 +51,8 @@ describe("owner authentication screen", () => {
     vi.useFakeTimers();
     await act(async () => { fireEvent.click(start); await vi.advanceTimersByTimeAsync(5000); });
     expect(screen.getByText("WXYZ-9876")).toBeTruthy();
+    // The code is typed on another device or tab: it has a Copy.
+    expect(screen.getByRole("button", { name: "Copy code" })).toBeTruthy();
     expect(polls).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByText("WXYZ-9876")).toBeNull();
@@ -87,6 +89,20 @@ describe("the sign-in page's ways in (M33.13)", () => {
     // The first way offered is the card's main button; the password's Sign in is not.
     expect(screen.getByRole("button", { name: "Sign in with a passkey" }).className).toContain("ui-button--primary");
     expect(screen.getByRole("button", { name: "Sign in" }).className).not.toContain("ui-button--primary");
+  });
+
+  it("says a passkey's failure under the passkey button, not in the password form", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (input.toString().includes("/auth/passkey/")
+      ? new Response(JSON.stringify({ error: "No passkey for this server was offered" }), { status: 400, headers: { "Content-Type": "application/json" } })
+      : new Response(JSON.stringify({ tailscale: { available: false, linked: false }, github: { configured: false }, passkey: { registered: true } }), { status: 200, headers: { "Content-Type": "application/json" } }))));
+    vi.stubGlobal("PublicKeyCredential", function PublicKeyCredential() {});
+    vi.stubGlobal("isSecureContext", true);
+    render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in with a passkey" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.closest(".signin-ways")).toBeTruthy();
+    expect(alert.closest("form")).toBeNull();
+    expect(alert.previousElementSibling?.textContent).toBe("Sign in with a passkey");
   });
 
   it("makes the password the main way in when it is the only one", async () => {
@@ -165,6 +181,8 @@ describe("the ways in, each to its end", () => {
     fireEvent.change(screen.getByLabelText("Recovery code"), { target: { value: "ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ" } });
     fireEvent.click(use);
     expect((await screen.findByRole("alert")).textContent).toBe("That recovery code was used already");
+    // Said in the recovery form, under the code, not in the password form above it.
+    expect(screen.getByRole("alert").closest(".signin-recovery")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Recovery code"), { target: { value: "AAAAA-BBBBB-CCCCC-DDDDD" } });
     fireEvent.click(screen.getByRole("button", { name: "Use recovery code" }));
     await vi.waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith(expect.objectContaining({ authenticated: true, bootstrapRequired: false })));

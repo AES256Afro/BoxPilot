@@ -10,6 +10,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { mkdirWithoutFollowing, readFileWithoutFollowing, replaceFileWithoutFollowing } from "./durable-file.mjs";
 import { fixedRun } from "./exec.mjs";
+import { redactLine } from "./redaction.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
@@ -98,8 +99,9 @@ async function defaultDockerRunner(binary, args, { timeout = 120_000, cwd, onLin
   return fixedRun(binary, args, { timeout, cwd, onLine, maxBuffer: 4 * 1024 * 1024, env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" } });
 }
 
+/** What a failure quotes from Docker or an app's log: secrets out (redactLine), and no more than 2000 characters. */
 function redact(value) {
-  return String(value ?? "").replace(/\b(token|password|secret|api[_-]?key|authorization)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]").slice(0, 2000);
+  return redactLine(value).slice(0, 2000);
 }
 
 function parseEnvFile(text) {
@@ -305,12 +307,12 @@ export function createAppHelper({
         stableSince = null;
         if (status.restarts >= 2) {
           const logs = await docker(["logs", "--tail", "20", projectNameFor(manifest.id)], { timeout: 10_000 });
-          throw new Error(`Container keeps restarting (${status.restarts} times). ${logTail(redact(`${logs.stdout}\n${logs.stderr}`))}`);
+          throw new Error(`${manifest.name} keeps restarting (${status.restarts} times). ${logTail(redact(`${logs.stdout}\n${logs.stderr}`))}`);
         }
       } else if (status.running) {
         if (manifest.health.kind === "healthcheck") {
           if (status.health === "healthy" && sidecarsSettled) return status;
-          if (status.health === "none") throw new Error("Manifest expects a container healthcheck but the image defines none");
+          if (status.health === "none") throw new Error(`${manifest.name} cannot be checked after starting: its image has no health check. This is a fault in the catalog, not yours.`);
         } else {
           if (lastRestarts !== null && status.restarts > lastRestarts) { stableSince = null; }
           lastRestarts = status.restarts;
@@ -321,12 +323,12 @@ export function createAppHelper({
         stableSince = null;
         if (status.exists && ["exited", "dead"].includes(status.status)) {
           const logs = await docker(["logs", "--tail", "20", projectNameFor(manifest.id)], { timeout: 10_000 });
-          throw new Error(`Container exited (code ${status.exitCode ?? "?"}). ${logTail(redact(`${logs.stdout}\n${logs.stderr}`))}`);
+          throw new Error(`${manifest.name} stopped as soon as it started (exit code ${status.exitCode ?? "?"}). ${logTail(redact(`${logs.stdout}\n${logs.stderr}`))}`);
         }
       }
       await wait(2000);
     }
-    throw new Error(`Application did not become healthy within ${manifest.health.timeoutSeconds}s (last state ${last})`);
+    throw new Error(`${manifest.name} did not start properly within ${manifest.health.timeoutSeconds} seconds (Docker last reported it as ${last})`);
   }
 
   /** @param {string} id @param {string[]} args @param {{ progress?: ((line: string, stream: string) => void) | null, timeout?: number }} [options] */
@@ -1037,7 +1039,7 @@ export function createAppHelper({
   async function install({ id, values: rawValues = {}, devices = null }, { progress = null, timeScale = 1, storedValues = false } = {}) {
     const manifest = await ensureManifest(id);
     const existing = await readState(id);
-    if (existing?.installed) throw new Error(`${manifest.name} is already installed; use reconfigure or update`);
+    if (existing?.installed) throw new Error(`${manifest.name} is already installed. Open it in the App catalog to change its settings or update it.`);
     const given = storedValues ? withSavedSecrets(manifest, sanitizeStoredValues(manifest, rawValues ?? {}), await readEnv(id)) : rawValues;
     // An install that does not say who can reach the app takes the manifest's default: tailnet only
     // for an app that must not face the home network (Zulip). Only here: a reconfigure keeps what
@@ -1063,7 +1065,14 @@ export function createAppHelper({
       await docker(["pull", reference], { timeout: scaled(15 * 60_000, timeScale) }).catch(() => null);
     }
     progress?.(`Writing compose project for ${manifest.name} (${manifest.image.reference})`, "stdout");
-    const rendered = await writeProject(manifest, values, { existingEnv: await readEnv(id), devices });
+    // writeProject makes the app's folder before it can refuse (no saved VPN profile, a device that
+    // is not there, no tailnet name). Left behind, the folder made every later failed install look
+    // like one over an existing project, which is never cleaned up.
+    const existingEnv = await readEnv(id);
+    const rendered = await writeProject(manifest, values, { existingEnv, devices }).catch(async (error) => {
+      if (!directoryExisted) await rm(dirFor(id), { recursive: true, force: true }).catch(() => {});
+      throw error;
+    });
     // Before anything is pulled or started: a port something else holds would fail `up` after the
     // download, with Docker's sentence instead of who holds it.
     let ports;
@@ -1191,7 +1200,7 @@ export function createAppHelper({
     // Stored state may predate the current manifest (or older releases stored values the
     // operator could not change); keep only what the manifest accepts today.
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));
-    if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
+    if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "update" }, { progress }) : null;
     // What is running right now, read from the deployed compose file before it is overwritten. This
     // is the only exact record: the manifest below has already moved to the new tags, and stored
@@ -1289,7 +1298,7 @@ export function createAppHelper({
     if (!Object.keys(restoreTo).length) throw new Error(`${manifest.name} has no recorded version that still matches how it is built today, so there is nothing to go back to`);
 
     const { values, errors } = resolveValues(manifest, withSavedSecrets(manifest, sanitizeStoredValues(manifest, state.values ?? {}), await readEnv(id)));
-    if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
+    if (errors.length) throw new Error(`${manifest.name}'s saved settings no longer fit the catalog (${errors.join("; ")}); uninstall it and install it again from the App catalog`);
     // Pin every service that moved, app and sidecars alike: restoring the app onto an upgraded
     // database is how a rollback reports success and leaves the app unable to read its own data.
     const pinned = {

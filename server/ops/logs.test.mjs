@@ -32,6 +32,15 @@ describe("log operations", () => {
     expect(lines[0]).toBe("2026-10-18T07:00:00Z GET / Cookie=[REDACTED]");
   });
 
+  it("takes an Authorization header's scheme and token out together, in a header line and in JSON", async () => {
+    const run = vi.fn(async (binary, args) => {
+      if (args[0] === "ps") return { ok: true, stdout: "bp-whoami", stderr: "" };
+      return { ok: true, stdout: "2026-10-18T07:00:00Z GET /api Authorization: Bearer b3ar3rT0k3n\n2026-10-18T07:00:01Z headers={\"authorization\":\"Basic dXNlcjpwYXNz\"} done", stderr: "" };
+    });
+    const { lines } = await registry.execute("logs.read", { kind: "container", target: "bp-whoami" }, { run });
+    expect(lines).toEqual(["2026-10-18T07:00:00Z GET /api Authorization=[REDACTED]", "2026-10-18T07:00:01Z headers={\"authorization=[REDACTED]\"} done"]);
+  });
+
   // Every other app's cookies ride in the same header, and a filter that saw the raw line would
   // answer "is the session cookie's next character a?" one guess at a time.
   it("hides every cookie in the header and filters what it shows, not what it hid", async () => {

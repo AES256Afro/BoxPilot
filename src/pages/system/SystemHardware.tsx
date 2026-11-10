@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button, EmptyState, Field, KeyValue, Panel, Switch, Table, TextInput, mayStart, riskOf } from "../../ui";
-import { gib, nextRunWords, type StartOperation, type SystemSettings } from "./systemTypes";
+import { gibFromKib, nextRunWords, type StartOperation, type SystemSettings } from "./systemTypes";
 
 type SwapDevice = SystemSettings["swap"][number];
 
@@ -46,8 +46,8 @@ export function SystemHardware({ settings, loading, role, start }: {
       <Panel title="Memory and swap" count={usedPercent === null ? undefined : `${usedPercent}% used`}>
         <div className="system-pad">
           <KeyValue layout="columns" items={[
-            { id: "memory", label: "Memory available", mono: true, value: gib(memory?.memAvailableKiB), hint: `of ${gib(memory?.memTotalKiB)}` },
-            { id: "swap", label: "Swap", mono: true, value: gib(memory?.swapTotalKiB), hint: memory?.swapTotalKiB ? `${gib(swapUsed)} in use` : "none configured" },
+            { id: "memory", label: "Memory available", mono: true, value: gibFromKib(memory?.memAvailableKiB), hint: `of ${gibFromKib(memory?.memTotalKiB)}` },
+            { id: "swap", label: "Swap", mono: true, value: gibFromKib(memory?.swapTotalKiB), hint: memory?.swapTotalKiB ? `${gibFromKib(swapUsed)} in use` : "none configured" },
             { id: "swappiness", label: "Swappiness", mono: true, value: settings?.swappiness ?? "—", hint: "Ubuntu's default is 60" },
           ]} />
         </div>
@@ -56,8 +56,8 @@ export function SystemHardware({ settings, loading, role, start }: {
           columns={[
             { id: "device", header: "Swap device", cell: (entry) => <code>{entry.device}</code> },
             { id: "type", header: "Type", cell: (entry) => entry.type },
-            { id: "size", header: "Size", numeric: true, cell: (entry) => gib(entry.sizeKiB) },
-            { id: "used", header: "In use", numeric: true, cell: (entry) => gib(entry.usedKiB) },
+            { id: "size", header: "Size", numeric: true, cell: (entry) => gibFromKib(entry.sizeKiB) },
+            { id: "used", header: "In use", numeric: true, cell: (entry) => gibFromKib(entry.usedKiB) },
             { id: "priority", header: "Priority", numeric: true, hideOnPhone: true, cell: (entry) => String(entry.priority) },
           ]}
           rows={settings?.swap ?? []}

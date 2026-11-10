@@ -20,7 +20,8 @@ type Block =
 
 const bulletLine = /^\s*[-*•+]\s+(.*)$/;
 const numberLine = /^\s*(\d{1,4})[.)]\s+(.*)$/;
-const headingLine = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/;
+// However far it is indented: a model nests a heading under a list item, and nothing here is a code block.
+const headingLine = /^\s*#{1,6}\s+(.*?)\s*#*\s*$/;
 const ruleLine = /^\s{0,3}(?:[-*_]\s*){3,}$/;
 
 /** The text in blocks: paragraphs (their lines kept), headings, and runs of list items. */
@@ -33,6 +34,9 @@ export function blocksOf(text: string): Block[] {
   for (const raw of String(text ?? "").replace(/\r\n?/g, "\n").split("\n")) {
     const line = raw.replace(/\s+$/, "");
     if (!line.trim() || ruleLine.test(line)) { endParagraph(); endList(); continue; }
+    // Headings before the list rules: an indented "## Backups" under an item is a heading, not more of the item.
+    const heading = headingLine.exec(line);
+    if (heading) { endParagraph(); endList(); blocks.push({ kind: "heading", text: heading[1] }); continue; }
     const bullet = bulletLine.exec(line);
     const numbered = bullet ? null : numberLine.exec(line);
     if (bullet || numbered) {
@@ -44,8 +48,6 @@ export function blocksOf(text: string): Block[] {
     }
     // An indented line under an item goes on with that item.
     if (list && /^\s{2,}\S/.test(raw)) { list.items[list.items.length - 1] += `\n${line.trim()}`; continue; }
-    const heading = headingLine.exec(line);
-    if (heading) { endParagraph(); endList(); blocks.push({ kind: "heading", text: heading[1] }); continue; }
     endList();
     paragraph.push(line);
   }

@@ -110,6 +110,32 @@ export function createStandIns({ hosts = [], domains = [], users = [] } = {}) {
   };
 }
 
+/** A parsed JSON value with `change` applied to every string in it, object keys included. */
+function mapStrings(value, change, depth = 0) {
+  if (typeof value === "string") return change(value);
+  if (depth > 64 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((entry) => mapStrings(entry, change, depth + 1));
+  // defineProperty, so a key called __proto__ stays a key.
+  const out = {};
+  for (const [key, entry] of Object.entries(value)) Object.defineProperty(out, change(key), { value: mapStrings(entry, change, depth + 1), enumerable: true, writable: true, configurable: true });
+  return out;
+}
+
+/**
+ * A tool call's arguments with `change` applied to the strings inside. The arguments are JSON text,
+ * and in JSON text a line break is the two characters `\n`: a name straight after one reads as
+ * glued to a letter (`\nhomebox` as "nhomebox"), so it was not found and went to the remote model,
+ * and `\nnas.local` came back as `\site-1.example`, which is not JSON at all. So the text is
+ * parsed, each string changed as the words it holds, and written again. Text that does not parse
+ * (a model's half-written call) is changed as plain text, as before.
+ */
+function changeArguments(text, change) {
+  if (typeof text !== "string") return text === null || typeof text !== "object" ? text : mapStrings(text, change);
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { return change(text); }
+  return JSON.stringify(mapStrings(parsed, change));
+}
+
 /**
  * A chat request with its words hidden: every message's text and every tool call's arguments. A
  * remote provider's own blocks are left as they are: they hold stand-ins already, as the model wrote
@@ -120,7 +146,7 @@ export function hideRequest(request, standIns) {
     const next = { ...entry };
     if (typeof next.content === "string") next.content = standIns.hide(next.content);
     else if (Array.isArray(next.content)) next.content = next.content.map((part) => (part?.type === "text" ? { ...part, text: standIns.hide(part.text) } : part));
-    if (Array.isArray(next.tool_calls)) next.tool_calls = next.tool_calls.map((call) => ({ ...call, function: { ...call.function, arguments: standIns.hide(call.function.arguments) } }));
+    if (Array.isArray(next.tool_calls)) next.tool_calls = next.tool_calls.map((call) => ({ ...call, function: { ...call.function, arguments: changeArguments(call.function.arguments, standIns.hide) } }));
     return next;
   };
   return { ...request, messages: (request.messages ?? []).map(message) };
@@ -131,6 +157,6 @@ export function showResult(result, standIns) {
   return {
     ...result,
     content: standIns.show(result.content),
-    toolCalls: (result.toolCalls ?? []).map((call) => ({ ...call, arguments: standIns.show(call.arguments) })),
+    toolCalls: (result.toolCalls ?? []).map((call) => ({ ...call, arguments: changeArguments(call.arguments, standIns.show) })),
   };
 }

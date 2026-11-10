@@ -87,8 +87,8 @@ export function ReconnectSwitch({ drive, control, canChange }: { drive: string; 
   const paused = Boolean(armed && !armed.enabled);
   const waiting: { text: string; open: { view: string; label: string } } | null = paused
     ? { text: "Paused on Automations: nothing reconnects until it is resumed there.", open: { view: "automations", label: "Open Automations" } }
-    : armed?.held ? { text: `Waiting for you: ${armed.heldBecause ?? "the last automatic reconnect did not work"}. Reconnect it from Repair Center to start again.`, open: { view: "repairs", label: "Open Repair Center" } }
-      : armed?.lastCheckFoundErrors ? { text: "Waiting for you: its last check found errors.", open: { view: "repairs", label: "Open Repair Center" } } : null;
+    : armed?.held ? { text: `Waiting for you: ${armed.heldBecause ?? "the last automatic reconnect did not work"}. Reconnect it from Repair Center to start again.`, open: { view: "repairs", label: "Open Repair" } }
+      : armed?.lastCheckFoundErrors ? { text: "Waiting for you: its last check found errors.", open: { view: "repairs", label: "Open Repair" } } : null;
   return (
     <div className="storage-reconnect">
       <Switch

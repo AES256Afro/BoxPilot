@@ -69,4 +69,4 @@ setup:
       description: Runs the collector once immediately.
       recommended: true
       exec: [/opt/scrutiny/bin/scrutiny-collector-metrics, run, --api-endpoint, "http://localhost:8080"]
-notes: "Scrutiny sees the drives that exist when it is installed (/dev/sd* and /dev/nvme*). If you add a disk later, open Settings on this card and Apply once so the new device is passed through. Attributes marked failed in red are the ones to act on; ignore the 'warn' ones on an otherwise healthy drive."
+notes: "Scrutiny sees the drives that exist when it is installed (/dev/sd* and /dev/nvme*). If you add a disk later, open Settings on this app's sheet and Apply once so the new device is passed through. Attributes marked failed in red are the ones to act on; ignore the 'warn' ones on an otherwise healthy drive."

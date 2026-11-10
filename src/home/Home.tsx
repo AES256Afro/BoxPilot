@@ -205,7 +205,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
             title={<><AreaIcon view="catalog" className="lx-title-icon" />Apps</>}
             status={facts.catalog.state === "failed" || (catalog && !catalog.liveKnown) ? { status: "unknown", label: "Not read" }
               : catalog ? (unwell ? { status: "warning", label: `${unwell} of ${countOf(apps.length, "app")} flagged` } : { status: apps.length ? "good" : "neutral", label: countOf(apps.length, "app") }) : undefined}
-            actions={<Button variant="ghost" onClick={() => onNavigate("catalog")}>App catalog</Button>}
+            actions={<Button variant="ghost" onClick={() => onNavigate("catalog")}>Apps</Button>}
           >
             {facts.catalog.state === "failed" && (
               <p className="lx-quiet">Which apps are installed could not be read. <Button variant="ghost" onClick={() => refresh(["catalog"])}>Try again</Button></p>

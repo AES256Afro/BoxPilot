@@ -5,7 +5,7 @@ import { CommandBar } from "./CommandBar";
 import { act } from "react";
 import { publishWaiting } from "./approvalsWaiting";
 import { actionCommands, buildCommands, searchCommands, suggestedCommands } from "./commandIndex";
-import { openActivityEvent } from "../activityEvents";
+import { openActivityEvent, openNotificationsEvent } from "../activityEvents";
 import type { Job } from "../operations";
 import { dockAreas } from "./ShellNav";
 
@@ -83,12 +83,12 @@ describe("the command bar", () => {
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const again = screen.getByRole("combobox", { name: "Search pages, apps and settings" });
     fireEvent.change(again, { target: { value: "jelly" } });
-    fireEvent.click(await screen.findByRole("option", { name: /Jellyfin in the App catalog/ }));
+    fireEvent.click(await screen.findByRole("option", { name: /Jellyfin in Apps/ }));
     expect(onNavigate).toHaveBeenCalledWith("catalog", { app: "jellyfin" });
 
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "mealie" } });
-    expect((await screen.findByRole("option", { name: /Install Mealie/ })).textContent).toContain("App catalog · Food");
+    expect((await screen.findByRole("option", { name: /Install Mealie/ })).textContent).toContain("Apps · Food");
   });
 
   it("says plainly that no assistant is set up, and stays a search box", async () => {
@@ -132,6 +132,123 @@ describe("the command bar", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe("the assistant's answer is not thrown away by one key", () => {
+  it("goes back to the list on the first Escape and closes on the second; a click outside does nothing while it shows", async () => {
+    const { dialog, input } = open({ ready: true, chatModel: "hermes3:8b" });
+    fireEvent.change(input, { target: { value: "is vaultwarden backed up" } });
+    fireEvent.click(await within(dialog).findByRole("option", { name: /^Ask:/ }));
+    expect(await within(dialog).findByText(/Vaultwarden has never been backed up/)).toBeTruthy();
+    fireEvent.mouseDown(document.querySelector(".command-overlay") as Element);
+    expect(within(dialog).getByText(/Vaultwarden has never been backed up/)).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    // Still open, back on the list, with what was typed and the keyboard in the box.
+    expect(screen.getByRole("dialog", { name: "Search BoxPilot" })).toBeTruthy();
+    expect(within(dialog).queryByText(/Vaultwarden has never been backed up/)).toBeNull();
+    expect(within(dialog).getByRole("option", { name: /^Ask:/ })).toBeTruthy();
+    expect((input as HTMLInputElement).value).toBe("is vaultwarden backed up");
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps a question that is still being answered through a click outside, and stops it on Escape", async () => {
+    let signal: AbortSignal | undefined;
+    const base = stub({ ready: true, chatModel: "hermes3:8b" });
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() !== "/api/v1/assistant/ask") return base(input);
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>(() => undefined);
+    }));
+    render(<CommandBar csrfToken="csrf" onNavigate={vi.fn()} onStart={vi.fn()} />);
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const dialog = screen.getByRole("dialog", { name: "Search BoxPilot" });
+    fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "why is it slow" } });
+    fireEvent.click(await within(dialog).findByRole("option", { name: /^Ask:/ }));
+    expect(within(dialog).getByText(/an answer can take a minute/)).toBeTruthy();
+    fireEvent.mouseDown(document.querySelector(".command-overlay") as Element);
+    expect(within(dialog).getByText(/an answer can take a minute/)).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(signal?.aborted).toBe(true);
+    expect(screen.getByRole("dialog", { name: "Search BoxPilot" })).toBeTruthy();
+    expect(within(dialog).getByRole("listbox")).toBeTruthy();
+  });
+
+  it("still closes on a click outside while it is only a search", () => {
+    open();
+    fireEvent.mouseDown(document.querySelector(".command-overlay") as Element);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("the / shortcut", () => {
+  const mount = () => { vi.stubGlobal("fetch", stub({ ready: false })); return render(<><CommandBar csrfToken="csrf" onNavigate={vi.fn()} onStart={vi.fn()} /><input aria-label="A page's own field" /><div contentEditable="true" data-testid="editable" /></>); };
+
+  it("opens the bar when nothing is being typed into", () => {
+    mount();
+    fireEvent.keyDown(document.body, { key: "/" });
+    expect(screen.getByRole("dialog", { name: "Search BoxPilot" })).toBeTruthy();
+    // Open, a slash is a character for its own box.
+    const typed = fireEvent.keyDown(screen.getByRole("combobox"), { key: "/" });
+    expect(typed).toBe(true);
+  });
+
+  it("is left alone in a field, in editable text, with a modifier, under another dialog, and when a look's own bar took it", () => {
+    mount();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "A page's own field" }), { key: "/" });
+    fireEvent.keyDown(screen.getByTestId("editable"), { key: "/" });
+    fireEvent.keyDown(document.body, { key: "/", ctrlKey: true });
+    // Phosphor's bar handles "/" on the document and marks it handled before it reaches the window.
+    const taken = (event: KeyboardEvent) => event.preventDefault();
+    document.addEventListener("keydown", taken);
+    fireEvent.keyDown(document.body, { key: "/" });
+    document.removeEventListener("keydown", taken);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const other = document.createElement("div"); other.setAttribute("aria-modal", "true"); document.body.append(other);
+    fireEvent.keyDown(document.body, { key: "/" });
+    other.remove();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("what the shell does, from the command bar", () => {
+  it("opens Activity and the notifications, and signs out where it was given the means", async () => {
+    vi.stubGlobal("fetch", stub({ ready: false }));
+    const onSignOut = vi.fn();
+    render(<CommandBar csrfToken="csrf" onNavigate={vi.fn()} onStart={vi.fn()} onSignOut={onSignOut} />);
+    const activity = vi.fn(); const notifications = vi.fn();
+    window.addEventListener(openActivityEvent, activity);
+    window.addEventListener(openNotificationsEvent, notifications);
+    const choose = (words: string) => {
+      fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+      const input = screen.getByRole("combobox");
+      fireEvent.change(input, { target: { value: words } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(screen.queryByRole("dialog"), words).toBeNull();
+    };
+    choose("activity");
+    expect(activity).toHaveBeenCalledTimes(1);
+    choose("open notifications");
+    expect(notifications).toHaveBeenCalledTimes(1);
+    choose("sign out");
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+    window.removeEventListener(openActivityEvent, activity);
+    window.removeEventListener(openNotificationsEvent, notifications);
+  });
+
+  it("offers no Sign out where it could not do it", () => {
+    const { dialog, input } = open();
+    fireEvent.change(input, { target: { value: "sign out" } });
+    expect(within(dialog).queryByRole("option", { name: /^Sign out/ })).toBeNull();
+  });
+
+  it("opens a feature's page at its tab", () => {
+    const { input, onNavigate } = open();
+    fireEvent.change(input, { target: { value: "fail2ban" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onNavigate).toHaveBeenCalledWith("firewall", { app: undefined, tab: "bans" });
   });
 });
 

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { formatBytes } from "../../formatBytes";
 import { inspectOperation } from "../../operations";
 import { Button, Checkbox, CodeBlock, Field, KeyValue, Notice, Select, Sheet, TextInput, Textarea, riskOf } from "../../ui";
-import { createVmPlan, fetchVmPlanningOptions, formatBytes, formatMemory, type VmCreationPlan, type VmPlanInput, type VmPlanningOptions } from "../../virtualization";
+import { createVmPlan, fetchVmPlanningOptions, formatMemory, type VmCreationPlan, type VmPlanInput, type VmPlanningOptions } from "../../virtualization";
 import { AsksFor, isVmName, vmNamePattern, type StartOperation } from "./vmActions";
 
 /*

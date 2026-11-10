@@ -445,3 +445,8 @@
     :root[data-look="swiss"] .shell-dock .ui-dock__separator { width: 2px; margin: 6px 0; background: #111111; }
   }
 }
+
+/* A finger, not a pointer: what this look draws smaller than the kit's 44 px grows back on a touch screen. */
+@media (pointer: coarse) {
+  :root[data-look="swiss"] :is(.ui-button, .ui-tabs__tab, .ui-segmented__option) { min-height: 44px; }
+}

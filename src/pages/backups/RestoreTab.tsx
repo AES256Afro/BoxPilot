@@ -49,7 +49,12 @@ function DataArchive({ app }: { app: DescribedApp }) {
   if (!app.newestBackup) return <span className="backups-dim">none</span>;
   if (!app.dataAvailable) return <StatusChip status="warning">not reachable</StatusChip>;
   if (app.dataArchive && app.dataArchive !== app.newestBackup) {
-    return <StatusChip status="warning" title={`${app.newestBackup}, the archive this snapshot names, is gone; the restore would use ${app.dataArchive}, an older one it lists.`}>older copy, {archiveDate(app.dataArchive)} · {dataPlace(app.dataLocation)}</StatusChip>;
+    return (
+      <span className="backups-cell">
+        <StatusChip status="warning" title={`${app.newestBackup}, the archive this snapshot names, is gone; the restore would use ${app.dataArchive}, an older one it lists.`}>older copy, {archiveDate(app.dataArchive)} · {dataPlace(app.dataLocation)}</StatusChip>
+        <span className="backups-dim">The archive this snapshot names is gone; the restore would use this older one.</span>
+      </span>
+    );
   }
   return <StatusChip status="good">{dataPlace(app.dataLocation)}</StatusChip>;
 }
@@ -296,7 +301,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
                 ]}
                 rows={described.apps}
                 rowKey={(app) => app.id}
-                empty={<EmptyState title="This snapshot has no apps" />}
+                empty={<EmptyState title="This snapshot has no apps">There is nothing in it to pick. Close this and choose another snapshot from the list.</EmptyState>}
               />
               <Checkbox label="Restore each app's data after installing it" description="From the data archive the snapshot names, or an older one it lists where that one is gone. A safety copy of any data already there is taken first." checked={restoreData} disabled={!canRestore} onChange={setRestoreData} />
               {refusedApps.map((app) => <ComposeRefusal key={app.id} title={`${nameOf(app.id)} cannot be restored from this snapshot's data; leave it out`} review={app.compose!} />)}

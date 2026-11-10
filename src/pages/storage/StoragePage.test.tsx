@@ -186,6 +186,8 @@ describe("Storage page", () => {
       render(<StoragePage csrfToken="csrf-token" />);
       fireEvent.click(await screen.findByRole("button", { name: "Erase and format /dev/sdb" }));
       expect(await screen.findByText("High risk")).toBeTruthy();
+      // What would be lost is named: the disk has no filesystem of its own, its partition does.
+      expect(screen.getByText(/Its partition holds ext4 “media” \(\/dev\/sdb1\)\./)).toBeTruthy();
       const approve = screen.getByRole("button", { name: "Approve and run" }) as HTMLButtonElement;
       fireEvent.change(screen.getByLabelText("Approval password"), { target: { value: "correct horse battery" } });
       expect(approve.disabled).toBe(true);
@@ -372,6 +374,18 @@ describe("Storage page", () => {
       openTab(/^File sharing/);
       const again = screen.getByRole("region", { name: "Samba (SMB)" });
       expect(within(again).getByText("Changes are not live until you apply.")).toBeTruthy();
+      // Discard puts the list back as the server has it; the share is added again to go on.
+      fireEvent.click(within(again).getByRole("button", { name: "Discard changes" }));
+      expect(within(again).getByText("Everything shown is live.")).toBeTruthy();
+      expect(within(again).queryByText("Private")).toBeNull();
+      expect(within(again).queryByRole("button", { name: "Discard changes" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Add a share" }));
+      const second = screen.getByRole("dialog", { name: "Add a share" });
+      fireEvent.change(within(second).getByLabelText("Share name"), { target: { value: "Private" } });
+      fireEvent.change(within(second).getByLabelText("Folder on this server"), { target: { value: "/srv/private/" } });
+      fireEvent.change(within(second).getByLabelText("Who can open it"), { target: { value: "selected" } });
+      fireEvent.click(within(second).getByLabelText("Allow jamie"));
+      fireEvent.click(within(second).getByRole("button", { name: "Add share" }));
       fireEvent.click(within(again).getByRole("button", { name: "Apply changes" }));
       expect(await screen.findByText("Medium risk")).toBeTruthy();
       await waitFor(() => expect(JSON.parse(staged["samba.apply"] ?? "{}")).toEqual({ parameters: { workgroup: "WORKGROUP", scope: "tailscale", shares: [
@@ -457,6 +471,11 @@ describe("Storage page", () => {
       expect(await screen.findByLabelText("Recycle bin for Docs")).toBeTruthy();
       expect(screen.getByText("Recycle bin (2.3 GiB)")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Clean Docs's bin weekly" }));
+      // It deletes for good, every week: it asks first, with the sentence, and nothing is scheduled until then.
+      const confirm = screen.getByRole("dialog", { name: "Clean Docs's bin every week?" });
+      expect(confirm.textContent).toContain("permanently delete recycled files older than 30 days");
+      expect(posted).toBeFalsy();
+      fireEvent.click(within(confirm).getByRole("button", { name: "Clean weekly" }));
       await waitFor(() => expect(JSON.parse(posted ?? "{}")).toEqual({ operationId: "samba.recycle.empty", parameters: { share: "Docs", olderThanDays: 30 }, frequency: "weekly", minute: 0, hour: 5, weekday: 0 }));
       expect(await screen.findByRole("button", { name: "Stop cleaning Docs's bin weekly" })).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Empty the recycle bin of Docs" }));
@@ -509,7 +528,14 @@ describe("Storage page", () => {
       expect(screen.getByText("before-upgrade")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Take a snapshot" }));
       const sheet = screen.getByRole("dialog", { name: "Take a snapshot" });
-      fireEvent.change(within(sheet).getByLabelText("Space for changes (GiB)"), { target: { value: "20" } });
+      // Clearing the box leaves it empty, with the reason on the button, rather than snapping to 1.
+      const space = within(sheet).getByLabelText("Space for changes (GiB)") as HTMLInputElement;
+      fireEvent.change(space, { target: { value: "" } });
+      expect(space.value).toBe("");
+      expect(within(sheet).getByRole("button", { name: "Take a snapshot" })).toHaveProperty("disabled", true);
+      expect(within(sheet).getByRole("button", { name: "Take a snapshot" }).getAttribute("title")).toMatch(/whole number from 1 to/);
+      fireEvent.change(space, { target: { value: "20" } });
+      expect(space.value).toBe("20");
       fireEvent.change(within(sheet).getByLabelText(/^Label/), { target: { value: "test-run" } });
       fireEvent.click(within(sheet).getByRole("button", { name: "Take a snapshot" }));
       expect(await screen.findByText("Medium risk")).toBeTruthy();

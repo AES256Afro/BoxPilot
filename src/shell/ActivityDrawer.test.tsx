@@ -317,4 +317,47 @@ describe("acting on a job from Activity", () => {
     expect(screen.getByText("Failed, dismissed")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
+
+  it("stages a failure again with what it ran with, and never one with a secret or a fix somewhere else", async () => {
+    const withParameters = { ...failed, parameters: { packages: ["curl"] } };
+    const calls = openWith([withParameters, { ...failed, id: "44444444-4444-4444-8444-444444444444", title: "Add a network share", type: "op:share.add", parameters: { password: "[secret]" } }, { ...failed, id: "55555555-5555-4555-8555-555555555555", title: "Back up Immich", type: "op:app.backup.run", error: "tar: write error: No space left on device" }]);
+    act(() => openActivity("44444444-4444-4444-8444-444444444444"));
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    act(() => openActivity("55555555-5555-4555-8555-555555555555"));
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    act(() => openActivity(failed.id));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    // The drawer makes way for the approval dialog, which stages the same operation with the same parameters.
+    expect(screen.queryByRole("dialog", { name: "Activity" })).toBeNull();
+    await waitFor(() => expect(calls).toContainEqual({ url: "/api/v1/operations/apt.upgrade/jobs", method: "POST" }));
+    expect(screen.getByText(/Runs Install package updates again with the same settings\. The last run failed: dpkg lock/)).toBeTruthy();
+  });
+
+  it("dismisses every failure the Failed filter shows, one after another, and says which would not go", async () => {
+    const second = { ...failed, id: "66666666-6666-4666-8666-666666666666", title: "Back up Immich" };
+    const calls = openWith([staged, failed, second]);
+    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+    expect(screen.queryByRole("button", { name: /Dismiss all/ })).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: /Failed/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss all 2 failed" }));
+    await waitFor(() => expect(calls.filter((call) => call.url.endsWith("/dismiss")).map((call) => call.url)).toEqual([`/api/v1/jobs/${failed.id}/dismiss`, `/api/v1/jobs/${second.id}/dismiss`]));
+  });
+
+  it("reads the next page of older jobs when asked, and says when there are no more", async () => {
+    const at = (index: number) => new Date(Date.parse("2026-08-20T10:00:00.000Z") - index * 60_000).toISOString();
+    const many = Array.from({ length: 35 }, (_, index) => job({ id: `job-${String(index).padStart(2, "0")}`, title: `Job ${index}`, state: "completed", createdAt: at(index) }));
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => { asked.push(input.toString()); return input.toString().startsWith("/api/v1/jobs?limit=") ? json({ jobs: many }) : json({ output: "" }); }));
+    render(<ActivityDrawer csrfToken="csrf" />);
+    act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: many.slice(0, 30) }));
+    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+    expect(within(screen.getByRole("list", { name: "Recent jobs" })).getAllByRole("listitem")).toHaveLength(30);
+    fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+    await waitFor(() => expect(within(screen.getByRole("list", { name: "Recent jobs" })).getAllByRole("listitem")).toHaveLength(35));
+    expect(asked).toContain("/api/v1/jobs?limit=50");
+    expect(screen.getByText("That is every job in the history.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
+  });
 });

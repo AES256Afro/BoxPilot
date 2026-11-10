@@ -26,7 +26,7 @@ const fsNameValid = (name: string) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(n
 export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnapshots, onChanged }: SnapshotsTabProps) {
   const { start, dialog } = useOperation(csrfToken, () => onChanged());
   const may = (operationId: string) => mayStart(role, operationId);
-  const [lvmForm, setLvmForm] = useState<{ origin: string; size: number; label: string } | null>(null);
+  const [lvmForm, setLvmForm] = useState<{ origin: string; /** As typed: parsed when it is used, so clearing the box does not snap it to 1. */ size: string; label: string } | null>(null);
   const [fsForm, setFsForm] = useState<{ key: string; name: string } | null>(null);
 
   const origins = (report?.volumeGroups ?? []).flatMap((group) => group.logicalVolumes.filter((volume) => !volume.snapshot && volume.mountpoints.length > 0).map((volume) => ({ group, volume })));
@@ -34,12 +34,15 @@ export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnaps
   const defaultOrigin = origins.find((entry) => entry.volume.mountpoints.includes("/")) ?? origins[0];
   const chosen = lvmForm ? origins.find((entry) => entry.volume.path === lvmForm.origin) ?? defaultOrigin : defaultOrigin;
   const freeGiB = chosen ? Math.floor(chosen.group.freeBytes / 1024 ** 3) : 0;
-  const sizeValid = lvmForm ? Number.isInteger(lvmForm.size) && lvmForm.size >= 1 && lvmForm.size <= Math.max(1, freeGiB) : false;
+  const sizeGiB = lvmForm && /^\d{1,6}$/.test(lvmForm.size.trim()) ? Number(lvmForm.size.trim()) : null;
+  const sizeValid = sizeGiB !== null && sizeGiB >= 1 && sizeGiB <= Math.max(1, freeGiB);
+  const sizeReason = `Space for changes is a whole number from 1 to ${Math.max(1, freeGiB)}.`;
   const labelValid = lvmForm ? lvmForm.label === "" || /^[a-z0-9-]{1,24}$/.test(lvmForm.label) : false;
 
   const takeLvm = () => {
-    if (!lvmForm || !chosen || !sizeValid || !labelValid || freeGiB < 1) return;
-    const { size, label } = lvmForm;
+    if (!lvmForm || !chosen || sizeGiB === null || !sizeValid || !labelValid || freeGiB < 1) return;
+    const { label } = lvmForm;
+    const size = sizeGiB;
     setLvmForm(null);
     start({
       operationId: "storage.lvm.snapshot.create",
@@ -70,7 +73,7 @@ export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnaps
               title: `Roll back to ${snapshot.name}`,
               parameters: { path: snapshot.path },
               confirmText: snapshot.name,
-              preview: <span>Runs <code>lvconvert --merge {snapshot.path}</code>. <strong>Everything written to {snapshot.origin ?? "the volume"} since {snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : "the snapshot"} is discarded.</strong> For the root volume the merge runs during the next reboot, so reboot the server when convenient. The snapshot is consumed by the merge.</span>,
+              preview: <span>Puts the volume back as it was when the snapshot was taken. <strong>Everything written to {snapshot.origin ?? "the volume"} since {snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : "the snapshot"} is discarded.</strong> For the root volume the merge runs during the next reboot, so reboot the server when convenient. The snapshot is consumed by the merge.</span>,
             })}>Roll back</Button>
           )}
           {may("storage.lvm.snapshot.delete") && (
@@ -123,7 +126,7 @@ export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnaps
   ];
 
   const takeButton = may("storage.lvm.snapshot.create") && origins.length > 0
-    ? <Button variant="primary" risk={riskOf("storage.lvm.snapshot.create")} onClick={() => setLvmForm({ origin: defaultOrigin?.volume.path ?? "", size: 10, label: "" })}>Take a snapshot</Button>
+    ? <Button variant="primary" risk={riskOf("storage.lvm.snapshot.create")} onClick={() => setLvmForm({ origin: defaultOrigin?.volume.path ?? "", size: "10", label: "" })}>Take a snapshot</Button>
     : null;
 
   return (
@@ -174,7 +177,7 @@ export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnaps
           onClose={() => setLvmForm(null)}
           footer={<>
             <Button variant="ghost" onClick={() => setLvmForm(null)}>Cancel</Button>
-            <Button variant="primary" risk={riskOf("storage.lvm.snapshot.create")} disabled={!chosen || !sizeValid || !labelValid || freeGiB < 1} onClick={takeLvm}>Take a snapshot</Button>
+            <Button variant="primary" risk={riskOf("storage.lvm.snapshot.create")} disabled={!chosen || !sizeValid || !labelValid || freeGiB < 1} title={!sizeValid && freeGiB >= 1 ? sizeReason : undefined} onClick={takeLvm}>Take a snapshot</Button>
           </>}
         >
           {freeGiB < 1 && <Notice tone="warning" title="No free space in the volume group">Remove a snapshot, or keep some space unallocated.</Notice>}
@@ -182,7 +185,7 @@ export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnaps
             <Select mono value={chosen?.volume.path ?? ""} onValueChange={(value) => setLvmForm({ ...lvmForm, origin: value })} options={origins.map((entry) => ({ value: entry.volume.path, label: `${entry.volume.mountpoints[0]} (${gib(entry.volume.sizeBytes)}, ${entry.group.name})` }))} />
           </Field>
           <Field label="Space for changes (GiB)" hint={`Up to ${Math.max(1, freeGiB)} GiB free. If the original changes by more than this, the snapshot becomes invalid; it never harms the original.`} error={!sizeValid ? `A whole number from 1 to ${Math.max(1, freeGiB)}.` : undefined}>
-            <TextInput mono type="number" min={1} max={Math.max(1, freeGiB)} value={String(lvmForm.size)} onValueChange={(value) => setLvmForm({ ...lvmForm, size: Number.parseInt(value, 10) || 1 })} />
+            <TextInput mono type="number" min={1} max={Math.max(1, freeGiB)} value={lvmForm.size} onValueChange={(value) => setLvmForm({ ...lvmForm, size: value })} />
           </Field>
           <Field label="Label" optional hint="Lower case letters, digits and dashes, up to 24." error={!labelValid ? "Lower case letters, digits and dashes, up to 24." : undefined}>
             <TextInput mono placeholder="before-upgrade" value={lvmForm.label} onValueChange={(value) => setLvmForm({ ...lvmForm, label: value.toLowerCase() })} />

@@ -222,7 +222,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
 
   // Delete sends only the action, port and protocol, which ufw reads as an incoming rule from
   // anywhere: an outgoing or source-restricted rule is not the one it would delete.
-  const deletable = (rule: FirewallRule) => !rule.raw && rule.port !== null && rule.port !== undefined && rule.app === null && ruleActions.includes(rule.action ?? "") && !rule.interface && rule.direction !== "out" && !rule.source && (rule.action === "deny" || !isProtectedPort(rule.port, rule.protocol));
+  const deletable = (rule: FirewallRule) => rule.deletable !== false && !rule.destination && !rule.raw && rule.port !== null && rule.port !== undefined && rule.app === null && ruleActions.includes(rule.action ?? "") && !rule.interface && rule.direction !== "out" && !rule.source && (rule.action === "deny" || !isProtectedPort(rule.port, rule.protocol));
   const deleteRule = (rule: FirewallRule) => start({
     operationId: "firewall.rule.delete",
     title: `Delete ${rule.action} ${spec(rule.port ?? 0, rule.protocol)}`,
@@ -284,7 +284,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
         count={overview ? (actionCount ? { status: "danger", label: `${actionCount} to do` } : advice.length) : undefined}
         meta="from what is listening now"
       >
-        {!overview ? <p className="firewall-quiet firewall-pad">{loading ? "Reading…" : "Not read."}</p>
+        {!overview ? <p className="firewall-quiet firewall-pad">{loading ? "Reading…" : "Not read yet. Press Check again."}</p>
           : advice.length === 0 ? <EmptyState title="Nothing to suggest">The firewall is on, blocks by default, and nothing risky is open to the network.</EmptyState>
             : (
               <ul className="firewall-advice__list">
@@ -313,7 +313,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
         meta={current?.appliedAt ? `applied ${relativeTime(current.appliedAt, clock) ?? current.appliedAt}` : undefined}
         actions={canProfile && overview && !notInstalled ? <Button onClick={openProfiles}>Choose a profile…</Button> : undefined}
       >
-        {!overview ? <p className="firewall-quiet">{loading ? "Reading…" : "Not read."}</p> : (
+        {!overview ? <p className="firewall-quiet">{loading ? "Reading…" : "Not read yet. Press Check again."}</p> : (
           <KeyValue items={[
             { id: "profile", label: "In force", value: currentProfile?.name ?? "None applied", hint: currentProfile?.summary ?? "Apply one to get sensible defaults." },
             ...(current ? [
@@ -325,7 +325,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
       </Panel>
 
       <Panel className="firewall-kept" title="Always kept open" count={protectedRules.length || undefined} footer="These cannot be denied or deleted from BoxPilot, so a profile or a typo can never lock you out.">
-        <Table caption="Ports BoxPilot always keeps open" columns={protectedColumns} rows={protectedRules} rowKey={(entry) => `${entry.port}/${entry.protocol}`} empty={overview ? "None." : "Reading…"} />
+        <Table caption="Ports BoxPilot always keeps open" columns={protectedColumns} rows={protectedRules} rowKey={(entry) => `${entry.port}/${entry.protocol}`} empty={overview ? "No ports are kept open." : "Reading…"} />
       </Panel>
     </>
   );
@@ -378,13 +378,13 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
       />
 
       {error && <Notice tone="danger" live title="The firewall could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{error}</Notice>}
-      {overview?.reportError && !error && <Notice tone="warning" title="ufw could not be read">{overview.reportError}</Notice>}
+      {overview?.reportError && !error && <Notice tone="warning" title="The firewall's rules could not be read">{overview.reportError}</Notice>}
       {planError && sheet !== "profile" && <Notice tone="danger" live title="The plan could not be built" onDismiss={() => setPlanError(null)}>{planError}</Notice>}
 
       {notInstalled ? (
-        <Panel title="ufw" count={{ status: "warning", label: "not installed" }}>
-          <EmptyState title="ufw is not installed" action={canInstall ? <Button variant="primary" risk={riskOf("apt.install")} onClick={installUfw}>Install ufw</Button> : undefined}>
-            Install the uncomplicated firewall to manage incoming traffic from here. Installing does not turn it on.
+        <Panel title="The firewall" count={{ status: "warning", label: "not installed" }}>
+          <EmptyState title="The firewall is not installed" action={canInstall ? <Button variant="primary" risk={riskOf("apt.install")} onClick={installUfw}>Install ufw</Button> : undefined}>
+            Install the firewall (ufw) to manage incoming traffic from here. Installing does not turn it on.
           </EmptyState>
         </Panel>
       ) : (
@@ -426,12 +426,13 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
           side="center"
           size="sm"
           onClose={() => setSheet(null)}
+          onSubmit={() => { if (portValid && !protectedHit) addRule(); }}
           footer={<>
             <Button variant="ghost" onClick={() => setSheet(null)}>Cancel</Button>
-            <Button variant="primary" risk={riskOf("firewall.rule.add")} disabled={!portValid || Boolean(protectedHit)} onClick={addRule}>Add rule</Button>
+            <Button variant="primary" type="submit" risk={riskOf("firewall.rule.add")} disabled={!portValid || Boolean(protectedHit)}>Add rule</Button>
           </>}
         >
-          <form className="firewall-rule-form" onSubmit={(event) => { event.preventDefault(); if (portValid && !protectedHit) addRule(); }}>
+          <div className="firewall-rule-form">
             <Field label="Action">
               <Select value={ruleAction} onValueChange={setRuleAction} options={[{ value: "allow", label: "Allow" }, { value: "deny", label: "Deny" }, { value: "limit", label: "Rate-limit" }]} />
             </Field>
@@ -445,7 +446,7 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
               <TextInput value={ruleComment} onValueChange={setRuleComment} placeholder="What it is for" />
             </Field>
             {ruleAction === "limit" && <p className="firewall-quiet">Allows up to 6 new connections per 30 seconds per address, then drops the rest.</p>}
-          </form>
+          </div>
         </Sheet>
       )}
     </div>

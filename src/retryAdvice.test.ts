@@ -28,6 +28,8 @@ describe("whether running a failure again can work", () => {
     expect(adviseRetry("Jellyfin is set to use the shared VPN profile, but none is saved. Save a VPN profile in the VPN section first, or turn off \"Use my VPN profile\" and give this app its own connection.")).toMatchObject({ retry: false, next: { view: "network", tab: "vpn" } });
     expect(adviseRetry("/mnt/media is not mounted, so there is nothing to check yet. Reconnect the drive first.")).toMatchObject({ retry: false, next: { view: "storage" } });
     expect(adviseRetry("Immich is already installed; use reconfigure or update")).toMatchObject({ retry: false, next: { view: "catalog" } });
+    // The server's words since 1.240, and the ones a job from before it still carries.
+    expect(adviseRetry("Immich is already installed. Open it in the App catalog to change its settings or update it.")).toMatchObject({ retry: false, next: { view: "catalog" } });
   });
 
   it("offers nothing to run when nothing BoxPilot runs would change it", () => {

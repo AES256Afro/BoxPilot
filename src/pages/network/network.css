@@ -64,3 +64,7 @@
   .network-actions { flex-wrap: wrap; justify-content: flex-start; white-space: normal; }
   .network-actions-cell { width: auto; }
 }
+
+/* A value with its Copy beside it: an address, a command. */
+.network-value { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.network-value .ui-button { min-height: 24px; padding-right: 6px; padding-left: 6px; font-size: 12px; }

@@ -92,7 +92,7 @@ export interface PowerHardware { watchdog: WatchdogReading; wakeOnLan: { ethtool
 export type StartOperation = (operation: PendingOperation) => void;
 
 /** "15.6 GiB" from KiB, or a dash. */
-export function gib(kib: number | null | undefined): string {
+export function gibFromKib(kib: number | null | undefined): string {
   if (kib === null || kib === undefined) return "—";
   return `${(kib / 1024 / 1024).toFixed(1)} GiB`;
 }

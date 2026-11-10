@@ -95,9 +95,10 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
   }, []);
 
   // For the few apps that run through a VPN tunnel, where their traffic actually leaves. The answer
-  // comes from the tunnel's own log, so it costs one read per tunneled app, not per tile.
+  // comes from the tunnel's own log, so it costs one read per tunneled app, not per tile. The reads
+  // go out together: one after another, the last tile waited for every tunnel before it.
   const loadTunnels = useCallback(async (entries: Entry[]) => {
-    for (const entry of entries.filter((candidate) => candidate.manifest.networkVia && candidate.live?.installed)) {
+    await Promise.all(entries.filter((candidate) => candidate.manifest.networkVia && candidate.live?.installed).map(async (entry) => {
       try {
         const { response, body } = await runRead<{ tunneled: boolean; running?: boolean; exit?: Tunnel["exit"]; forwardedPort?: number | null }>(csrfToken, "app.vpn.inspect", { id: entry.manifest.id });
         if (response.ok && body.result?.tunneled) {
@@ -105,7 +106,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
           setTunnels((current) => ({ ...current, [entry.manifest.id]: { running: result.running ?? false, exit: result.exit ?? null, forwardedPort: result.forwardedPort ?? null } }));
         }
       } catch { /* the app's state already covers a broken tunnel; the exit is a bonus */ }
-    }
+    }));
   }, [csrfToken]);
 
   const refresh = useCallback(async () => {
@@ -337,7 +338,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     <div className="catalog-page">
       {dialog}
       <PageHeader
-        title="App catalog"
+        title="Apps"
         status={verdict}
         meta={data ? <><b>{installedAll.length}</b> installed · <b>{installedAll.filter((entry) => isRunning(entry.live)).length}</b> running · <b>{updates}</b> {updates === 1 ? "update" : "updates"} · <b>{applications.length}</b> in the catalog · <b>{categories.length}</b> categories</> : undefined}
         actions={<>
@@ -347,7 +348,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
               operationId: "app.update.many",
               title: `Update ${batch.length} apps`,
               parameters: { ids: batch.map((entry) => entry.manifest.id) },
-              preview: <span>Updates {batch.map((entry) => entry.manifest.name).join(", ")}, one at a time. Each gets a data checkpoint first, then the catalog's current image; one that does not become healthy goes back to its previous image. One that fails does not stop the others.{updatable.length > batch.length ? ` The other ${updatable.length - batch.length} wait for the next run: one job updates at most ${updateBatchLimit}.` : ""}</span>,
+              preview: <span>Updates {batch.map((entry) => entry.manifest.name).join(", ")}, one at a time. Each gets a backup of its data first, then the catalog's current image; one that does not become healthy goes back to its previous image. One that fails does not stop the others.{updatable.length > batch.length ? ` The other ${updatable.length - batch.length} wait for the next run: one job updates at most ${updateBatchLimit}.` : ""}</span>,
             })}>{updatable.length > batch.length ? `Update ${batch.length} of ${updatable.length}` : `Update all (${updatable.length})`}</Button>
           )}
           <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Check again</Button>

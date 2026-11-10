@@ -16,7 +16,7 @@ import "./shell/jobs.css";
  * "rerun"), and Activity showed those names with "completed" beside each.
  */
 const stepNames: Record<string, string> = {
-  preflight: "Checked the request", checkpoint: "Tier and runner", rerun: "Ran again", retry: "More time", agent: "Asked by an agent", budget: "Time allowed",
+  preflight: "Checked the request", checkpoint: "Risk", rerun: "Ran again", retry: "More time", agent: "Asked by an agent", budget: "Time allowed",
   run: "Ran", verify: "Checked the result", approval: "Approval", rollback: "Rolled back", undo: "Undone",
 };
 export const stepWords = (name: string): string => stepNames[name] ?? name.replace(/[_-]+/g, " ");
@@ -106,7 +106,7 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
   }, [id, job !== null, finished, retry]);
 
   const retryButton = <Button onClick={() => setRetry((value) => value + 1)}>Try reading again</Button>;
-  if (id && goneId === id) return <p className="jobs-quiet">{title ?? job?.title ?? "This job"} is no longer in the history, which keeps the last 500 jobs for 90 days.</p>;
+  if (id && goneId === id) return <p className="jobs-quiet">{title ?? job?.title ?? "This job"} is no longer in the history, which keeps every job for 90 days and the newest 500 after that.</p>;
   if (!job) return jobError ? <Notice tone="danger" live action={retryButton}>{jobError}</Notice> : <p className="jobs-quiet">Reading…</p>;
 
   const name = title ?? job.title;

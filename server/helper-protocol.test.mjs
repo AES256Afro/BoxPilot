@@ -61,7 +61,7 @@ describe("restricted helper protocol", () => {
 
   // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
   it.skipIf(onWindows)("does not report a fresh canary when diagnostic output could not be written", async () => {
-    await expect(executeHelperOperation(request(), { createProbeWriter: () => ({ append: async () => false }) })).rejects.toThrow("fresh diagnostic log evidence");
+    await expect(executeHelperOperation(request(), { createProbeWriter: () => ({ append: async () => false }) })).rejects.toThrow("could not write a job log");
   });
 
   // Linux only: executeHelperOperation builds its default helpers from POSIX paths.

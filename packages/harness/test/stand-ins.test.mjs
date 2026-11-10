@@ -63,4 +63,23 @@ describe("stand-ins", () => {
     const shown = showResult({ content: "host-2 is up at 192.0.2.1", toolCalls: [{ id: "t2", name: "ping", arguments: "{\"host\":\"host-1\"}" }] }, standIns);
     expect(shown).toEqual({ content: "nas-attic is up at 192.168.1.30", toolCalls: [{ id: "t2", name: "ping", arguments: "{\"host\":\"homebox\"}" }] });
   });
+
+  it("hides a name that follows a line break inside a tool call's arguments, and keeps them JSON", () => {
+    // The arguments are JSON text, where a line break is the two characters \n. Hidden as plain
+    // text, "\nhomebox" read as the word "nhomebox" and the name went to the remote model, and
+    // "\nnas.local" became "\site-1.example", which no JSON parser accepts.
+    const standIns = createStandIns({ hosts: ["homebox"], domains: ["homebox.tail1234.ts.net"], users: ["alex"] });
+    const call = (value) => ({ role: "assistant", content: "", tool_calls: [{ id: "t", type: "function", function: { name: "note", arguments: JSON.stringify(value) } }] });
+    const hiddenArguments = (value) => JSON.parse(hideRequest({ messages: [call(value)] }, standIns).messages[0].tool_calls[0].function.arguments);
+    expect(hiddenArguments({ text: "Summary:\nhomebox is fine\nalex logged in" })).toEqual({ text: "Summary:\nhost-1 is fine\nuser-1 logged in" });
+    expect(hiddenArguments({ text: "Reached at:\nphotos.homebox.tail1234.ts.net\tand\rhomebox.tail1234.ts.net" })).toEqual({ text: "Reached at:\nsite-1.example\tand\rsite-2.example" });
+    expect(hiddenArguments({ text: "Mounts:\nnas.local" })).toEqual({ text: "Mounts:\nsite-3.example" });
+    // Every string in the arguments, however deep, and the keys as they were before.
+    expect(hiddenArguments({ homebox: [{ note: "line\nalex" }, 3, null, true] })).toEqual({ "host-1": [{ note: "line\nuser-1" }, 3, null, true] });
+    // Arguments that are not JSON are still hidden, as text.
+    expect(hideRequest({ messages: [{ role: "assistant", tool_calls: [{ id: "t", function: { name: "note", arguments: "{\"text\": \"homebox" } }] }] }, standIns).messages[0].tool_calls[0].function.arguments).toBe("{\"text\": \"host-1");
+    // And back: what the remote model writes after a line break is turned back too.
+    const shown = showResult({ content: "", toolCalls: [{ id: "t", name: "note", arguments: JSON.stringify({ text: "Checked:\nhost-1\nuser-1 was there" }) }] }, standIns);
+    expect(JSON.parse(shown.toolCalls[0].arguments)).toEqual({ text: "Checked:\nhomebox\nalex was there" });
+  });
 });

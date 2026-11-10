@@ -117,10 +117,16 @@ describe("Firewall page", () => {
     const add = within(sheet).getByRole("button", { name: "Add rule" });
     expect((add as HTMLButtonElement).disabled).toBe(true);
     expect(within(sheet).getByText(/is BoxPilot and stays open: This page\./)).toBeTruthy();
+    // Enter in a field submits the sheet's form, which Add rule is the button of; refused, it stages nothing.
+    const form = within(sheet).getByLabelText("Port").closest("form") as HTMLFormElement;
+    expect((add as HTMLButtonElement).form).toBe(form);
+    fireEvent.submit(form);
+    expect(screen.getByRole("dialog", { name: "Add a rule" })).toBeTruthy();
+    expect(staged["firewall.rule.add"]).toBeUndefined();
     fireEvent.change(within(sheet).getByLabelText("Port"), { target: { value: "8080" } });
     fireEvent.change(within(sheet).getByLabelText(/Comment/), { target: { value: "test box" } });
     expect((add as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(add);
+    fireEvent.submit(form);
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Add a rule" })).toBeNull();
     await waitFor(() => expect(staged["firewall.rule.add"]).toEqual({ parameters: { action: "deny", port: 8080, protocol: "tcp", comment: "test box" } }));

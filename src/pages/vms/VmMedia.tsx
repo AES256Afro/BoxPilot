@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
-import { Button, EmptyState, Notice, Panel, Table, Tag, mayStart, riskOf } from "../../ui";
-import { fetchVmMedia, formatBytes, uploadVmMedia, type VmMediaCandidate, type VmMediaInventory } from "../../virtualization";
+import { Button, CopyButton, EmptyState, Notice, Panel, Table, Tag, mayStart, riskOf } from "../../ui";
+import { formatBytes } from "../../formatBytes";
+import { fetchVmMedia, uploadVmMedia, type VmMediaCandidate, type VmMediaInventory } from "../../virtualization";
 import { when, type StartOperation } from "./vmActions";
 
 type LibraryImage = VmMediaInventory["library"]["images"][number];
@@ -94,7 +95,7 @@ export function VmMedia({ csrfToken, role, start, refreshKey }: { csrfToken: str
             columns={[
               { id: "name", header: "ISO", cell: (candidate) => <code>{candidate.name}</code> },
               { id: "size", header: "Size", numeric: true, cell: (candidate) => formatBytes(candidate.sizeBytes) },
-              { id: "sha", header: "SHA-256", hideOnPhone: true, cell: (candidate) => <code title={candidate.sha256}>{candidate.sha256.slice(0, 16)}…</code> },
+              { id: "sha", header: "SHA-256", hideOnPhone: true, cell: (candidate) => <span className="vms-sha"><code title={candidate.sha256}>{candidate.sha256.slice(0, 16)}…</code><CopyButton value={candidate.sha256} name={`the whole SHA-256 of ${candidate.name}`} /></span> },
               {
                 id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "vms-actions-cell", cell: (candidate) => (
                   <span className="vms-actions">

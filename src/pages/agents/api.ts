@@ -400,14 +400,19 @@ export function followRun(runId: string, onEvent: (event: RunEvent) => void): ()
   // The stream said the run is over. The server then closes it, which reaches here as an error.
   let ended = false;
   const finished = new Set<RunState>(["completed", "degraded", "failed", "cancelled", "killed", "interrupted", "refused", "timeout"]);
+  // One chain of reads at a time: the stream failing while a read was in flight started a second
+  // chain beside it, each scheduling its own next read, so every snapshot arrived twice.
+  let chain = 0;
   const poll = async () => {
     if (stopped || streamed) return;
+    const mine = ++chain;
     try {
       const run = await agentsApi.run(runId);
-      if (stopped || streamed) return;
+      if (stopped || streamed || mine !== chain) return;
       onEvent({ event: "snapshot", data: run });
       if (finished.has(run.state)) return;
     } catch { /* try again */ }
+    if (mine !== chain) return;
     timer = setTimeout(() => void poll(), 2_000);
   };
   if (typeof EventSource !== "undefined") {

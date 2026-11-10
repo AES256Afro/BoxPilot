@@ -1,6 +1,6 @@
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
-import { devicePattern, dockerOrderOption, driveDeviceTimeout, labelPattern, logicalVolumePattern, mountNamePattern, parseManagedFstab, uuidPattern } from "../tasks/storage.mjs";
+import { devicePattern, driveDeviceTimeout, labelPattern, logicalVolumePattern, mountNamePattern, parseManagedFstab, uuidPattern } from "../tasks/storage.mjs";
 import { fsSnapshotsInspect, snapshotKinds, snapshotNamePattern as fsSnapshotNamePattern } from "../tasks/fs-snapshots.mjs";
 
 /** The LV name the Storage page shows for a snapshot path (device-mapper escapes "-" as "--"). */
@@ -36,7 +36,14 @@ export function parseLsblk(json) {
   return rows;
 }
 
-/** Non-comment fstab entries, with the BoxPilot-managed name attached where present. */
+/** fstab writes a space in a field as \040 (a tab as \011, a backslash as \134): the field as it is meant. */
+const fstabField = (value) => (typeof value === "string" ? value.replace(/\\([0-7]{3})/g, (_match, code) => String.fromCharCode(Number.parseInt(code, 8))) : value);
+
+/**
+ * Non-comment fstab entries, with the BoxPilot-managed name attached where present. The device and
+ * the mountpoint are decoded, so a share reads `//nas.lan/My Photos` and a mountpoint compares equal
+ * to the one findmnt reports. This is for reading: whatever writes fstab escapes its own fields.
+ */
 export function parseFstab(content) {
   const managed = new Map(parseManagedFstab(content).map((entry) => [entry.line.trim(), entry.name]));
   return String(content ?? "").split("\n")
@@ -44,7 +51,7 @@ export function parseFstab(content) {
     .map((line) => {
       const [device, mountpoint, fstype, options, , pass] = line.trim().split(/\s+/);
       // pass: whether the boot-time fsck checks it (0: never), which the boot partition's finding says.
-      return { device, mountpoint, fstype, options, pass: Number.parseInt(pass ?? "0", 10) || 0, managedName: managed.get(line.trim()) ?? null };
+      return { device: fstabField(device), mountpoint: fstabField(mountpoint), fstype, options, pass: Number.parseInt(pass ?? "0", 10) || 0, managedName: managed.get(line.trim()) ?? null };
     });
 }
 
@@ -210,7 +217,7 @@ export function storageOperations() {
       parameters: { fields: { path: { type: "string", maxLength: 512, pattern: /^\/(mnt|srv)(\/[^\0\r\n]*)?$/ } } },
       run: async (parameters) => {
         const requested = parameters.path.replace(/\/+$/, "") || "/mnt";
-        if (requested.includes("/../") || requested.endsWith("/..")) throw new Error("Path is invalid");
+        if (requested.includes("/../") || requested.endsWith("/..")) throw new Error("The path cannot contain \"..\"");
         // Resolve first and re-check: a symlink under /mnt must not become a listing of /etc.
         // Fails closed — an unresolvable path is not silently treated as itself.
         const base = await realpath(requested).catch(() => null);
@@ -306,8 +313,8 @@ export function storageOperations() {
     defineOperation({
       // The migration for drive entries written before the ordering existed (M26), offered on
       // Repair for a drive an app uses. Running it again changes nothing.
-      id: "storage.docker-order.apply", title: "Order the drives around Docker", risk: "medium", timeoutMs: minutes(3),
-      description: `Adds ${dockerOrderOption} and x-systemd.device-timeout=${driveDeviceTimeout} to each drive BoxPilot mounted, so a shutdown stops Docker before unmounting the drive and a boot mounts the drive before Docker starts its apps, waiting for it at most ${driveDeviceTimeout.replace("s", " seconds")}. fstab is copied first, the new one is checked with findmnt --verify before it replaces the old one, and the old one is put back if systemd does not take the change. Nothing is unmounted or restarted. Network shares and entries you wrote yourself are left alone.`,
+      id: "storage.docker-order.apply", title: "Make apps wait for their drives", risk: "medium", timeoutMs: minutes(3),
+      description: `Makes this server connect each drive BoxPilot mounted before Docker starts its apps, waiting for the drive at most ${driveDeviceTimeout.replace("s", " seconds")}, and stop Docker before disconnecting the drive at shutdown. The list of drives is copied first and put back if Ubuntu does not take the change. Nothing is unmounted or restarted; network shares and entries you wrote yourself are left alone.`,
       parameters: { fields: {} },
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("storage.docker-order", {}, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
@@ -368,7 +375,7 @@ export function storageOperations() {
     }),
     defineOperation({
       id: "storage.lvm.snapshot.rollback", title: "Roll back to a snapshot", risk: "high", confirm: (parameters) => snapshotNameFromPath(parameters.path), timeoutMs: minutes(6),
-      description: "Schedules a merge of the snapshot into its origin (lvconvert --merge). Everything written since the snapshot is discarded. For the root volume the merge happens during the next reboot.",
+      description: "Puts the volume back as it was when the snapshot was taken. Everything written since is lost. The system volume goes back at the next restart.",
       parameters: { fields: { path: { type: "string", maxLength: 120, pattern: /^\/dev\/mapper\/[A-Za-z0-9._+-]+-boxpilot--snap--[A-Za-z0-9._+-]+$/ } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-snapshot-rollback", { path: parameters.path }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
     }),

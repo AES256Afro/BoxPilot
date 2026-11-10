@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { cancelJob, type Job } from "../../operations";
 import type { PendingOperation } from "../../shell/ApproveDialog";
-import { Button, Notice, RiskTag, StatusChip, Tag } from "../../ui";
+import { Button, Notice, RelativeTime, RiskTag, StatusChip, Tag } from "../../ui";
 import { agentsApi, type PlanStep, type Proposal } from "./api";
 import { errorText } from "./format";
 
@@ -30,6 +30,8 @@ export interface ProposalCardProps {
   onDecided: (proposal: Proposal) => void;
   /** Opens the run the card came from, in the console. */
   onOpenRun?: (agentId: string, runId: string) => void;
+  /** The page's clock: given, an open card says when it was left and when it lapses. */
+  now?: number;
 }
 
 /** Whether this role may stage a step of this tier: the server checks again. */
@@ -57,7 +59,7 @@ function StepState({ step, open, may, onStage, onReview }: { step: PlanStep; ope
   return <Tag tone={status === "approved" ? "good" : "danger"}>{status}</Tag>;
 }
 
-export function ProposalCard({ proposal, csrfToken, role, onStage, onDecided, onOpenRun }: ProposalCardProps) {
+export function ProposalCard({ proposal, csrfToken, role, onStage, onDecided, onOpenRun, now }: ProposalCardProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const open = proposal.state === "open";
@@ -167,6 +169,12 @@ export function ProposalCard({ proposal, csrfToken, role, onStage, onDecided, on
         <p className="agents-card__dropped">Left out: {proposal.dropped.map((entry) => `${entry.operationId ?? "a step"} (${entry.reason})`).join("; ")}</p>
       )}
       {error && <Notice tone="danger" live>{error}</Notice>}
+      {open && now !== undefined && (
+        <p className="agents-card__when">
+          left <RelativeTime at={proposal.createdAt} now={now} fallback="at a time this card does not say" />
+          {Number.isFinite(Date.parse(proposal.expiresAt)) && <> · {Date.parse(proposal.expiresAt) > now ? "lapses" : "lapsed"} <RelativeTime at={proposal.expiresAt} now={now} /></>}
+        </p>
+      )}
       {open && (
         <footer className="agents-card__foot">
           {proposal.runId && proposal.agentId && onOpenRun && <Button variant="ghost" onClick={() => onOpenRun(proposal.agentId!, proposal.runId!)}>Open the run</Button>}

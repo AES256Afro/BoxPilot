@@ -363,6 +363,21 @@ async function loadUnattended(): Promise<{ enabled: boolean }> {
   return { enabled: result.enabled };
 }
 
+/**
+ * The inventory once for both loaders that read it in the same cycle (sweep 2026-11-10): the
+ * inventory facts and the failed-services count each fetched /api/v1/inventory every minute. Shared
+ * only while the read is under way, so "Check again" a moment later still asks the server.
+ */
+let inventoryRead: Promise<unknown> | null = null;
+function inventoryOnce<T>(): Promise<T> {
+  if (inventoryRead) return inventoryRead as Promise<T>;
+  const promise = getJson<unknown>("/api/v1/inventory");
+  inventoryRead = promise;
+  const done = () => { if (inventoryRead === promise) inventoryRead = null; };
+  promise.then(done, done);
+  return promise as Promise<T>;
+}
+
 type ServiceAnswer = { counts?: { failed?: number } };
 /**
  * The failed-services count from the inventory (M50), which Home reads every minute anyway and the
@@ -370,7 +385,7 @@ type ServiceAnswer = { counts?: { failed?: number } };
  * list only when the inventory could not say.
  */
 async function loadServices(): Promise<{ failed: number }> {
-  const inventory = await getJson<{ maintenance?: { system?: { failedServiceCount?: number | null } } }>("/api/v1/inventory").catch(() => null);
+  const inventory = await inventoryOnce<{ maintenance?: { system?: { failedServiceCount?: number | null } } }>().catch(() => null);
   const counted = inventory?.maintenance?.system?.failedServiceCount;
   if (typeof counted === "number") return { failed: counted };
   const { result } = await inspectOperation<ServiceAnswer>("service.list");
@@ -521,7 +536,7 @@ async function loadRebuild(): Promise<{ count: number; source: string } | null> 
 
 const loaders = {
   catalog: loadCatalog,
-  inventory: async () => inventoryFactsFrom(await getJson<RawInventory>("/api/v1/inventory")),
+  inventory: async () => inventoryFactsFrom(await inventoryOnce<RawInventory>()),
   updates: loadUpdates,
   unattended: loadUnattended,
   services: loadServices,

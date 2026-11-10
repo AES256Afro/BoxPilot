@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { Button, Field, Notice, SecretInput, Sheet } from "../../ui";
+import { Button, Field, SecretInput, Sheet } from "../../ui";
 import { errorText } from "./format";
 
 /*
@@ -42,7 +42,6 @@ export function PasswordSheet({ title, children, confirmLabel, onConfirm, onClos
         <Field label="Your password" error={error ?? undefined}>
           <SecretInput autoComplete="current-password" value={password} onValueChange={setPassword} />
         </Field>
-        {error && <Notice tone="danger" live>{error}</Notice>}
       </form>
     </Sheet>
   );

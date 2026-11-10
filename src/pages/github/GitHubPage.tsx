@@ -172,8 +172,8 @@ export default function GitHubPage({ now = Date.now }: GitHubPageProps) {
         meta={status ? <><b>{repositories.length}</b> {repositories.length === 1 ? "repository" : "repositories"} · {boundary?.tokenConfigured ? <>token <b>configured</b></> : <><b>no</b> token</>} · cached <b>{minutes}</b> min · fetched <b>{relativeTime(status.fetchedAt, clock) ?? status.fetchedAt}</b></> : undefined}
         actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(status)}>Check again</Button>}
         about={<>
-          <p>Where this BoxPilot came from: release, commit, and asset digests.</p>
-          <p>Read from the public repositories on a fixed allowlist, without a GitHub token, and cached on the server; Check again respects that cache. Nothing is written back, downloaded or installed, and GitHub&apos;s word about a digest or a signature is not the same as checking it here.</p>
+          <p>Where this BoxPilot came from: each release and the checksums of its files.</p>
+          <p>The releases and latest commits of the public repositories BoxPilot is built from, read from GitHub and kept for a few minutes.</p>
         </>}
       />
 
@@ -195,10 +195,10 @@ export default function GitHubPage({ now = Date.now }: GitHubPageProps) {
           />
 
           {repositories.length === 0
-            ? <Panel title="Repositories" count={0}><EmptyState title="No repositories on the allowlist">BoxPilot reads only the repositories it was built to trust.</EmptyState></Panel>
+            ? <Panel title="Repositories" count={0}><EmptyState title="No repositories to show">Press Check again to ask GitHub once more.</EmptyState></Panel>
             : repositories.map((repository) => <RepositoryPanel key={repository.id} repository={repository} now={clock} />)}
 
-          <Panel padded className="github-limits" title="Trust limitations" count={status.limitations.length} meta="metadata is not verification">
+          <Panel padded className="github-limits" title="What these figures are" count={status.limitations.length}>
             {status.limitations.length
               ? <ul className="github-limits__list">{status.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul>
               : <p className="github-dim">None reported.</p>}

@@ -57,4 +57,4 @@ signIn:
 health:
   kind: running
   stableSeconds: 15
-notes: The login and sudo passwords were generated for you. Use the Secrets button on this card to reveal them.
+notes: The login and sudo passwords were generated for you. Open the Secrets tab on this app's sheet to reveal them.

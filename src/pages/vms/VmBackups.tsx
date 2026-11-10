@@ -2,7 +2,8 @@ import { useState } from "react";
 import { openView } from "../../activityEvents";
 import { countOf, sentenceList } from "../../data";
 import { Button, CodeBlock, EmptyState, Field, KeyValue, Notice, Panel, Sheet, StatusChip, Table, Tag, TextInput, mayStart, riskOf, type Status } from "../../ui";
-import { formatBytes, type VmExportArtifact, type VmProtectedBackup, type VmProtectionDestination, type VmRecoveryRecord, type VmRetentionStatus } from "../../virtualization";
+import { formatBytes } from "../../formatBytes";
+import { type VmExportArtifact, type VmProtectedBackup, type VmProtectionDestination, type VmRecoveryRecord, type VmRetentionStatus } from "../../virtualization";
 import { AsksFor, isVmName, vmNamePattern, when, type StartOperation } from "./vmActions";
 
 export interface VmBackupData {
@@ -50,7 +51,7 @@ export function VmBackups({ data, role, start }: { data: VmBackupData; role: str
   });
   const applyRetention = () => start({
     operationId: "vm.backup.retention.apply",
-    title: "Apply VM backup retention",
+    title: "Let go of old VM backups",
     parameters: {},
     preview: <span>Lets go of old backups that are safe to drop: only ones that passed a test restore, are no longer in use, are past the minimum age, and never below {minimumCopies} restore-tested copies per VM. Then checks the store is intact. The files stay and no space is reclaimed, so nothing you still need is touched.</span>,
   });

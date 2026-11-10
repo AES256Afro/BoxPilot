@@ -94,4 +94,4 @@ health:
   kind: healthcheck
   stableSeconds: 10
   timeoutSeconds: 900
-notes: "The first start downloads the server (a few minutes). Players on your LAN connect to this server's address on port 25565; for friends elsewhere, either share it over Tailscale (they join the tailnet) or tick 'Minecraft server' on the Firewall page and forward port 25565 on your router. Backups: this card's Back up archives the worlds; a Paper server also gets the Minecraft 'Plugins' folder under the data volume."
+notes: "The first start downloads the server (a few minutes). Players on your LAN connect to this server's address on port 25565; for friends elsewhere, either share it over Tailscale (they join the tailnet) or tick 'Minecraft server' on the Firewall page and forward port 25565 on your router. Backups: Back up on this app's sheet archives the worlds; a Paper server also gets the Minecraft 'Plugins' folder under the data volume."

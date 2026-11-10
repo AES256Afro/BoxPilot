@@ -102,3 +102,6 @@
   .setup-password > .ui-button { margin-top: 0; }
   .setup-new__go { justify-content: stretch; }
 }
+
+/* A failed step's way to its job log, under its error. */
+.setup-step__log { justify-self: start; }

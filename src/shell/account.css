@@ -26,4 +26,5 @@
 /* A finger's target on a touch screen, whatever size a look draws the initial. */
 @media (pointer: coarse) {
   .account-menu__button { min-width: 44px; min-height: 44px; }
+  .account-menu__item { min-height: 44px; }
 }

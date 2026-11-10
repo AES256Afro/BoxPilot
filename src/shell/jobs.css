@@ -79,3 +79,7 @@
   .jobs-step__detail { grid-column: 2 / -1; }
   .jobs-row__meta { flex: 1 1 100%; justify-content: space-between; }
 }
+
+/* Activity's "Dismiss all N failed" above the list, and "Show older" under it. */
+.jobs-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.jobs-older { display: grid; gap: 8px; justify-items: start; }

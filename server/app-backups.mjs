@@ -330,13 +330,14 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
         await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
         progress?.(`$ tar -czf ${stamp}.tar.gz ${contents.join(" ")}`, "stdout");
         const archive = await runCommand(tarBinary, ["-czf", partial, "-C", directory, ...contents], { timeout: backupLimitsMs.archive, maxBuffer: 4 * 1024 * 1024 });
-        if (!archive.ok) throw new Error(`tar failed: ${archive.stderr.split("\n").slice(-2).join(" ")}`);
+        if (!archive.ok) throw new Error(`The backup could not be written: ${archive.stderr.split("\n").filter(Boolean).slice(-2).join(" ") || "no reason given"}. No backup was kept.`);
       } catch (error) {
         await rm(partial, { force: true }).catch(() => {});
         // Said with the failure: a start that did not work left the app down while the job spoke
         // only of tar (a full disk fails both).
         const back = restartAfter ? await compose(id, ["start"], { timeout: backupLimitsMs.start, progress }).catch((failure) => ({ ok: false, stderr: failure.message })) : { ok: true };
         if (!back.ok) throw new Error(`${String(error.message).replace(/[.\s]+$/, "")}. ${manifest.name} did not start again either: ${redact(back.stderr ?? "").split("\n").slice(-3).join(" ") || "docker compose start failed"}`);
+        if (restartAfter && error instanceof Error) error.message = `${error.message.replace(/[.\s]+$/, "")}. ${manifest.name} was started again.`;
         throw error;
       } finally {
         if (wasRunning) downtimeMs = clock().getTime() - started;
@@ -1158,7 +1159,7 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     if (!up.ok) {
       await putBack();
-      throw new Error(`Restored the files, but docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}. The original directory remains in ${path.basename(displaced)} for recovery.`);
+      throw new Error(`The files were restored, but ${manifest.name} would not start: ${redact(up.stderr).split("\n").filter(Boolean).slice(-4).join(" ")}. Its folder as it was before the restore is kept beside it as ${path.basename(displaced)}.`);
     }
     let healthy;
     try { healthy = await waitHealthy(manifest, progress); }
@@ -1282,7 +1283,7 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
       progress?.(`$ tar -xzf ${backupName} ${relativePath}`, "stdout");
       // "--" before the member name (M50): one starting with "-" would be read as an option.
       const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged, "--", relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
-      if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
+      if (!extract.ok) throw new Error(`${relativePath} could not be read out of ${backupName}: ${extract.stderr.split("\n").filter(Boolean).slice(-2).join(" ") || "no reason given"}. Nothing in ${manifest.name}'s folder was changed; the backup taken just before, ${saved.artifact}, holds it as it was.`);
       const planted = await linksWhereBoxPilotWrites(staged, manifest);
       if (planted.length) throw new Error(plantedWords(manifest, planted, relativePath));
       const unpacked = await settleUnpacked(staged, progress);

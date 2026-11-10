@@ -113,7 +113,7 @@ export default function VmsPage({ csrfToken = "", role = "owner", onOpenRepair =
 
   const verdict = !status ? (error ? { status: "unknown" as const, label: "Not read" } : { status: "unknown" as const, label: "Reading…" })
     : !status.ready ? { status: "warning" as const, label: "Host needs setup" }
-      : !domainList?.connected ? { status: "danger" as const, label: "libvirt not connected" }
+      : !domainList?.connected ? { status: "danger" as const, label: "Not set up yet" }
         : odd ? { status: "warning" as const, label: `${odd} need${odd === 1 ? "s" : ""} a look` }
           : { status: "good" as const, label: "Host ready" };
 
@@ -173,7 +173,7 @@ export default function VmsPage({ csrfToken = "", role = "owner", onOpenRepair =
           {newButtons}
         </>}
         about={<>
-          <p>QEMU/KVM virtual machines through libvirt: make one from a cloud image or plan one from an ISO, start, stop and snapshot it, export it, keep an encrypted copy off this server, prove it restores, and recover it as a clone.</p>
+          <p>Make a virtual machine from a cloud image or an ISO, then start, stop and snapshot it. Export it, keep an encrypted copy off this server, prove the copy restores, and recover it as a clone.</p>
           <p>Starting, stopping and snapshotting a VM asks you to confirm, with the exact change shown first. Creating one from an ISO, deleting one and reverting a snapshot ask for your password and the VM's name typed out.</p>
         </>}
       />
@@ -196,11 +196,11 @@ export default function VmsPage({ csrfToken = "", role = "owner", onOpenRepair =
         >
           {(current) => current === "machines" ? (
             <Panel className="vms-machines" title="Machines" count={domainList?.connected ? domains.length : undefined}
-              meta={domainList?.connected ? `${running} running · live from libvirt` : undefined}
+              meta={domainList?.connected ? `${running} running` : undefined}
               footer={domainList?.connected && domains.length > 0 ? `${countOf(protectedCount, "VM copy", "VM copies")} restore-tested · default network and pool ${hostSetup.label.toLowerCase()}` : undefined}>
               {!domainList?.connected ? (
-                <EmptyState title="libvirt is not connected" action={<Button onClick={() => setTab("host")}>Open the Host tab</Button>}>
-                  {domainList?.error ?? "Complete the host checks, then read again."}
+                <EmptyState title="Virtual machines are not set up yet" action={<Button onClick={() => setTab("host")}>Open the Host tab</Button>}>
+                  {domainList?.error ?? "Finish the checks on the Host tab, then press Check again."}
                 </EmptyState>
               ) : (
                 <Table

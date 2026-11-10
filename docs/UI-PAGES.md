@@ -1,8 +1,10 @@
 # How to build a page
 
-Every page but Home is drawn inside the console (M33.8, ADR-004 addendum): the Command Center's
-rail down the left (the dock along the bottom on a phone), a compact bar across the top, and the
-Command Center's look, near-black or paper, light and dark. A page builds on the kit in `src/ui/`
+Every page but Home is drawn inside the console (M33.8, ADR-004 addendum): the navigation the
+chosen look uses (a rail, a sidebar or a dock; the dock along the bottom on a phone) and a compact
+bar across the top. Since M41 the owner picks one of thirteen looks and every page is drawn in it:
+each look is a skin in `src/looks/<id>/skin.css`, scoped to `:root[data-look="<id>"]` and loaded by
+`src/looks/skins.ts`, so no page carries look code. A page builds on the kit in `src/ui/`
 and puts its own layout in its own stylesheet. `src/pages/services/` and `src/pages/logs/` are the
 reference pages; copy their shape. `src/pages/settings/` shows a page of tabs (`Tabs` with
 `urlParam`, the owner's tabs left out for other roles) and forms on `Field`; `src/pages/signin/`
@@ -16,8 +18,9 @@ is the one page outside the console, on the Launcher's wallpaper.
   Ctrl K work everywhere.
 - **The look.** The shell sets `data-shell="console"` on `<html>` and on `.app-shell`, and points
   the base token names (`--surface`, `--text`, `--accent`, `--link`, `--status-*`, `--risk-*`) at
-  the Command Center's (`--cc-*`). A component that uses tokens is right in light and dark with no
-  work. Dialogs and sheets opened over the page get the same look, because the tokens are on the
+  the Command Center's (`--cc-*`); the chosen look's skin (`data-look` on the root) then gives those
+  tokens its own values. A component that uses tokens is right in every look, light and dark, with
+  no work. Dialogs and sheets opened over the page get the same look, because the tokens are on the
   root.
 - **Compact density.** The console's content has `data-density="compact"`.
 - **Your address.** `?view=<area>`. A page's own parameters (a tab, a filter) are dropped when the
@@ -42,8 +45,9 @@ The shell also owns what opens over any page (M33.13), so a page never draws the
 - **Activity and the notifications**, the job log (`src/JobLogView.tsx`) and the page error
   (`src/shell/PageErrorBoundary.tsx`). Show one job inline with the kit's `JobProgress`, or its
   whole log with `JobLogView`.
-- **The console's look everywhere.** What the shell draws over a page carries `look-console`
-  (`src/shell/look.css`), so it is the same on Home, whose root keeps the Launcher's tokens. The
+- **The page's look, over the page.** What the shell draws over a page carries `look-console`
+  (`src/shell/look.css`) and takes the chosen look's tokens from the root, so a sheet or dialog is
+  drawn in the same look as the page under it, on Home too. The
   shell's own sheets live in `src/shell/<name>.css`, every selector under `.<name>-`, held by
   `src/shell/shellCss.test.ts` as the pages' are by `src/pages/pageCss.test.ts`.
 
@@ -52,7 +56,7 @@ The shell also owns what opens over any page (M33.13), so a page never draws the
 1. **The verdict first.** `PageHeader`'s `status` is one `StatusChip` that answers "is this area
    OK?": `2 failed` in red, `None failed` in green, `Not read` when it could not be read. Never
    green about something unread (M28.5).
-2. **Then the facts,** in mono: `meta` in the header (`142 units · 98 active · 2 failed`), a
+2. **Then the facts,** in mono: `meta` in the header (`142 services · 98 active · 2 failed`), a
    `KeyValue` strip or `MetricTile`s when there are more.
 3. **Then the panels** with the rows, each `Panel` with its count and its facts on the right.
 4. **No explainer paragraphs above the facts.** What the page is for goes in `PageHeader`'s
@@ -61,7 +65,7 @@ The shell also owns what opens over any page (M33.13), so a page never draws the
 5. **Every action carries its tier.** A `Button` that starts an operation has `risk` (from
    `riskOf(operationId)` in `src/ui/operationRisk.ts`, which the server's registry test holds to
    the truth) and goes through `useOperation` and the approval dialog, unchanged. A button that
-   changes nothing on the server (Read again, Copy, Show output) has no tier. Leave out the buttons
+   changes nothing on the server (Check again, Copy, Show output) has no tier. Leave out the buttons
    a role cannot use: `mayStart(role, operationId)`.
 6. **Say what failed.** A request that fails is a `Notice tone="danger" live` with a Try again
    action; an empty list is an `EmptyState` with the one action that would fill it.

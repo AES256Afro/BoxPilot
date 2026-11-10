@@ -134,7 +134,7 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
     <div className="network-page">
       {dialog}
       <PageHeader
-        title="Network and DNS"
+        title="Network"
         status={verdict}
         meta={topology ? <>
           <b>{collectorsRead}</b> of <b>{collectorsTotal}</b> read · <b>{topology.devices?.length ?? 0}</b> on the LAN
@@ -184,7 +184,7 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
             : open === "dns" ? <NetworkDns csrfToken={csrfToken} topology={topology} role={role} start={start} refreshKey={refreshKey} resilience={resilience} resilienceError={resilienceError} checkingDns={checkingDns} onCheckDns={() => void readResilience(true)} now={clock} />
               : open === "router" ? <NetworkRouter gateway={gateway?.gateway ?? null} role={role} start={start} refreshKey={refreshKey} />
                 : open === "vpn" ? <NetworkVpn role={role} start={start} refreshKey={refreshKey} now={clock} />
-                  : <NetworkOverview topology={topology} networkCap={networkCap} tlsCap={tlsCap} reach={reach} role={role} start={start} />
+                  : <NetworkOverview topology={topology} networkCap={networkCap} tlsCap={tlsCap} reach={reach} role={role} start={start} onCheckAgain={() => void refresh()} />
         )}
       </Tabs>
     </div>

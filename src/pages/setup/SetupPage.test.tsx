@@ -2,9 +2,9 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ShellHostProvider } from "../../shell/TopBarSlot";
 import { Autoinstall } from "./Autoinstall";
-import SetupPage from "./SetupPage";
+import SetupPage, { forgetLeftRun } from "./SetupPage";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); forgetLeftRun(); window.history.replaceState(null, "", "/"); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 const setupState = {
@@ -245,6 +245,52 @@ describe("Setup", () => {
     // One of the loop's two-second waits, and a little more.
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     expect(calls.slice(before)).toEqual([]);
+  });
+
+  it("warns before a reload ends a run, and says on the way back which steps ran and which never started", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/setup")) return json(setupState);
+      if (url.endsWith("/operations/app.install/jobs")) return json({ job: { id: "job-1" } }, 201);
+      if (url.endsWith("/jobs/job-1/approve")) return json({ job: { id: "job-1", state: "applying" } }, 202);
+      if (url.endsWith("/jobs/job-1")) return json({ job: { id: "job-1", state: "applying", error: null } });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    const asks = () => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; };
+    const view = render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    expect(asks()).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Install everything \(2\)/ }));
+    await screen.findByText("Running");
+    expect(asks()).toBe(true);
+    view.unmount();
+    expect(asks()).toBe(false);
+    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    const notice = (await screen.findByText("You left while Home server was being set up")).closest(".ui-notice")!;
+    expect(notice.textContent).toContain("Under way when you left: Install Jellyfin.");
+    expect(notice.textContent).toContain("Not started: Back up the database nightly.");
+    expect(within(notice as HTMLElement).getByRole("button", { name: "Open Activity" })).toBeTruthy();
+  });
+
+  it("opens a failed step's job log in Activity", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/setup")) return json(setupState);
+      if (url.endsWith("/operations/app.install/jobs")) return json({ job: { id: "job-9" } }, 201);
+      if (url.endsWith("/jobs/job-9/approve")) return json({ job: { id: "job-9", state: "applying" } }, 202);
+      if (url.endsWith("/jobs/job-9")) return json({ job: { id: "job-9", state: "failed", error: "The image could not be pulled" } });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<SetupPage csrfToken="csrf" onDone={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Home server/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Install everything/ }));
+    expect(await screen.findByText("The image could not be pulled")).toBeTruthy();
+    const opened: unknown[] = [];
+    const onOpen = (event: Event) => opened.push((event as CustomEvent).detail);
+    window.addEventListener("boxpilot:open-activity", onOpen);
+    fireEvent.click(screen.getByRole("button", { name: "Open the job log of Install Jellyfin" }));
+    window.removeEventListener("boxpilot:open-activity", onOpen);
+    expect(opened).toEqual([{ jobId: "job-9" }]);
   });
 });
 
