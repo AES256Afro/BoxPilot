@@ -4013,6 +4013,10 @@ loop; what changed is where the findings were, from proven faults in new code do
   manifests a request, the push sweep rewrote its state 2,880 times a day when idle, Home fetched the
   inventory twice a minute, Ops rebuilt its needs every five seconds, the Apps page read tunnels one
   at a time. Found and left for M62: 169 database copies from earlier upgrades take 1.1 GB.
+- ✅ **M57.8 What the upgrade itself broke** (1.240.1). The gateway's new `PartOf` carries a stop and
+  not the start that follows, and the upgrade to 1.240.0 is run by the previous version's script: on
+  the owner's server the gateway was left stopped. The web service now wants the gateway, which
+  starts only where a Claude key is stored; proven there by stopping and starting BoxPilot.
 - ✅ **M57.7 Four mockups** (`docs/mockups/2026-11-sweep-four.html`): Today's "since you last looked",
   find in the logs, choices that say what they do (built in M57.3), and a bell that folds
   ninety-seven into five (built in M57.3).
