@@ -265,7 +265,7 @@ describe("samba tasks", () => {
   describe("sambaDiagnose", () => {
     const CONF = [
       "# Managed by BoxPilot", "[global]", "   workgroup = WORKGROUP", "   interfaces = lo tailscale0 eno1",
-      "[the-dump]", "   path = /mnt/the-dump", "   read only = no", "   guest ok = no", "   valid users = chris",
+      "[the-dump]", "   path = /mnt/the-dump", "   read only = no", "   guest ok = no", "   valid users = alex",
     ].join("\n");
     // A server where everything that can be right, is: running, valid, listening, discoverable.
     function healthyRun({ discovery = true, ufw = "Status: active\n445/tcp ALLOW Anywhere\n", listen = "LISTEN 0 50 0.0.0.0:445 0.0.0.0:*" } = {}) {
@@ -275,7 +275,7 @@ describe("samba tasks", () => {
         if (binary.endsWith("testparm")) return { ok: true, stdout: "", stderr: "" };
         if (binary.endsWith("/ss")) return { ok: true, stdout: listen, stderr: "" };
         if (binary.endsWith("ufw")) return { ok: true, stdout: ufw, stderr: "" };
-        if (args?.[0] === "group") return { ok: true, stdout: "sambashare:x:1001:chris\n", stderr: "" };
+        if (args?.[0] === "group") return { ok: true, stdout: "sambashare:x:1001:alex\n", stderr: "" };
         return { ok: true, stdout: "", stderr: "" };
       });
     }
@@ -325,7 +325,7 @@ describe("samba tasks", () => {
 
       const noUser = vi.fn(async (binary, args) => (args?.[0] === "group" ? { ok: true, stdout: "sambashare:x:1001:\n", stderr: "" } : healthyRun()(binary, args)));
       const missing = await sambaDiagnose({}, { run: noUser, files: filesFor() });
-      expect(byId(missing)["share.the-dump.users"].detail).toContain("chris");
+      expect(byId(missing)["share.the-dump.users"].detail).toContain("alex");
     });
 
     it("stops at the first thing that makes the rest moot", async () => {

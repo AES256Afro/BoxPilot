@@ -7,12 +7,12 @@ description: A private search engine for your household. Queries go to Google, B
 website: https://docs.searxng.org
 risk: low
 image:
-  reference: searxng/searxng:2026.8.21-5f4005996@sha256:374c5da46d26960bf1132834d05bc2ef2ae57232f7a490e4eac8c8b640fa783d
-  version: 2026.8.21
-capabilities:
-  - CAP_CHOWN
-  - CAP_SETGID
-  - CAP_SETUID
+  reference: searxng/searxng:2026.11.6-ac11e14c5@sha256:c750ee1d859b26d3aeae51c07f6a48c3a0bfbaa9195d71a18b258862d88c4c3c
+  version: 2026.11.6
+# The image's own `searxng` account. Upstream's container starts as root and chowns its volumes
+# itself; BoxPilot already hands managed folders to the app's user, so nothing here needs root
+# (and the CAP_CHOWN/SETUID/SETGID the old uWSGI image wanted for that are gone with it).
+user: "977:977"
 ports:
   - id: web
     label: Web UI
@@ -22,26 +22,42 @@ ports:
 volumes:
   - id: config
     label: Configuration
+    description: settings.yml (engines, categories, the secret key) and any limiter or favicon settings you add.
     container: /etc/searxng
     path: config
+    backup: true
+  - id: data
+    label: Cache
+    description: The favicon cache. Rebuilt on its own, so it is not backed up.
+    container: /var/cache/searxng
+    path: data
+# The setting that holds the app's public address, so Hosted domains watches it once it is set.
+publicHostname:
+  env: SEARXNG_BASE_URL
 env:
   - name: SEARXNG_BASE_URL
     label: Address people use
-    description: The URL this server is opened at, with a trailing slash. Needed for links and the browser search shortcut; change it after you choose Reach only through Tailscale on the Reach tab.
-    default: http://localhost:8089/
-  - name: SEARXNG_REDIS_URL
-    default: redis://redis:6379/0
-    fixed: true
-  - name: UWSGI_WORKERS
-    default: "4"
-    fixed: true
-  - name: UWSGI_THREADS
-    default: "4"
+    description: Leave empty and SearXNG uses whatever address the browser opened it at, on the home network and over your tailnet alike. Set it (with a trailing slash) only behind a reverse proxy of your own that hides the real address.
+  - name: SEARXNG_SECRET
+    label: Secret key
+    description: Signs the preferences cookie and the image proxy links. Generated once; changing it signs everyone out of their saved preferences.
+    type: password
+    secret: true
+    generate: true
+  - name: SEARXNG_IMAGE_PROXY
+    label: Proxy image results
+    description: Fetch image thumbnails through this server, so browsers never contact the image hosts directly. Costs some bandwidth on the box.
+    type: boolean
+    default: "false"
+  # SearXNG's bot detection, rate limiter and engine caches live in Valkey (the Redis fork upstream
+  # moved to in 2025; SEARXNG_REDIS_URL is no longer read).
+  - name: SEARXNG_VALKEY_URL
+    default: valkey://valkey:6379/0
     fixed: true
 sidecars:
-  - id: redis
-    image: valkey/valkey:8.1.9-alpine@sha256:4934d214fd7e091d4ee77b398945b3fd62c6dd0ac71d8b79e2e3cbad8364f3b1
+  - id: valkey
+    image: valkey/valkey:9.1.1@sha256:64e361b630ecf18dff7ca4df6a88e6eafc193687eb48cff2c7e0a293ab67d29a
 health:
   kind: running
   stableSeconds: 10
-notes: "The first start writes settings.yml with a fresh secret key into the Configuration volume; edit that file to enable or disable engines. To add it to a browser, open the SearXNG page and use the browser's 'add search engine' option, or use the URL <address>/search?q=%s. Reach only through Tailscale, on the Reach tab, gives you private search from your phone anywhere."
+notes: "The first start writes settings.yml into the Configuration volume; edit that file to enable or disable engines, then restart the app. BoxPilot's agents can search the web through it once json is added under search.formats in that file. To add it to a browser, open the SearXNG page and use the browser's 'add search engine' option, or use the URL <address>/search?q=%s. Serve on tailnet gives you private search from your phone anywhere, with no setting to change."

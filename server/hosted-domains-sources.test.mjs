@@ -179,3 +179,30 @@ describe("reading files an app can write, as root", () => {
     expect(listed).toHaveLength(sourceLimits.proxyFiles);
   });
 });
+
+/**
+ * Per-file bounds, as the audit loop first wrote them (M53.2), held to the limits that shipped: a
+ * file contributes the first `sourceLimits.namesPerFile` names it lists and no more, and a file
+ * that fits loses nothing. A file over `sourceLimits.fileBytes` never reaches a parser at all:
+ * that is `readSmallFile`'s test, above.
+ */
+describe("what one file may contribute", () => {
+  it("keeps the first names of a server_name list that runs past the cap", () => {
+    const many = `server_name ${Array.from({ length: sourceLimits.namesPerFile + 50 }, (_value, index) => `h${index}.example.com`).join(" ")};`;
+    const parsed = parseProxyHostConfig(many);
+    expect(parsed.hostnames).toHaveLength(sourceLimits.namesPerFile);
+    expect(parsed.hostnames[0]).toBe("h0.example.com");
+    expect(parsed.hostnames.at(-1)).toBe(`h${sourceLimits.namesPerFile - 1}.example.com`);
+  });
+
+  it("keeps every name and the target when the file fits", () => {
+    expect(parseProxyHostConfig("server_name a.example.com b.example.com;\nset $server \"10.0.0.5\";\nset $port 8080;")).toEqual({ hostnames: ["a.example.com", "b.example.com"], target: "http://10.0.0.5:8080" });
+  });
+
+  it("keeps the first rules of an ingress list that runs past the cap", () => {
+    const rules = Array.from({ length: sourceLimits.namesPerFile + 25 }, (_value, index) => `  - hostname: h${index}.example.com\n    service: http://localhost:8080`).join("\n");
+    const parsed = parseCloudflaredConfig(`ingress:\n${rules}\n`);
+    expect(parsed.ingress).toHaveLength(sourceLimits.namesPerFile);
+    expect(parsed.ingress.at(-1)).toMatchObject({ hostname: `h${sourceLimits.namesPerFile - 1}.example.com`, service: "http://localhost:8080" });
+  });
+});

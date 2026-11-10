@@ -53,3 +53,28 @@ describe("nfs operations", () => {
     expect(state).toHaveProperty("config.exports");
   });
 });
+
+/**
+ * Checking file sharing (M56.2): in the registry, named by no test. The check is
+ * server/tasks/samba.mjs and has its own tests; what was untested is the operation's own shape —
+ * a read open to every role, because it reports whether sharing answers, not who shares what.
+ */
+describe("checking file sharing", () => {
+  const operation = () => sambaOperations().find((entry) => entry.id === "samba.diagnose");
+
+  it("is a read with nothing to choose, open to viewers", () => {
+    expect(operation()).toMatchObject({ risk: "low", readOnly: true, minimumRole: null });
+    expect(Object.keys(operation().parameters?.fields ?? {})).toEqual([]);
+  });
+
+  it("answers with checks rather than failing, whether or not Samba is on the host", async () => {
+    // It stops at the first check when /usr/sbin/smbd is absent and runs several when it is there —
+    // macOS ships smbd and the CI runner does not, so "the runner was called" is a fact about the
+    // machine. What holds everywhere is that a read asked for checks gets checks.
+    const read = await operation().run({}, { run: async () => ({ ok: false, stdout: "", stderr: "" }) });
+    expect(Array.isArray(read.checks)).toBe(true);
+    expect(read.checks.length).toBeGreaterThan(0);
+    expect(typeof read.ok).toBe("boolean");
+    for (const check of read.checks) expect(check).toMatchObject({ id: expect.any(String), state: expect.any(String), title: expect.any(String) });
+  });
+});

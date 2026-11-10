@@ -73,7 +73,7 @@ export function createStandIns({ hosts = [], domains = [], users = [] } = {}) {
     ...clean(hosts).map((value) => ({ value, kind: "host", make: (n) => `host-${n + 1}` })),
     ...clean(users).filter((value) => !commonNames.has(value.toLowerCase())).map((value) => ({ value, kind: "user", make: (n) => `user-${n + 1}` })),
   ].sort((a, b) => b.value.length - a.value.length);
-  // Bounded by anything but a letter or digit (M48.4): "chris-laptop" and "nas_backup" name the house as plainly as the bare name does.
+  // Bounded by anything but a letter or digit (M48.4): "alex-laptop" and "nas_backup" name the house as plainly as the bare name does.
   const literalPattern = literals.length
     ? new RegExp(`(?<![A-Za-z0-9])(?:${literals.map((entry) => escape(entry.value)).join("|")})(?![A-Za-z0-9])`, "gi")
     : null;
