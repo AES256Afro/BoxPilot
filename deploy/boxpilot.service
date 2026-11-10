@@ -9,6 +9,14 @@ After=network-online.target
 # unavailable" and recovers when the socket answers, so it should start regardless.
 Wants=boxpilot-helper.service
 After=boxpilot-helper.service
+# The model gateway is part of this unit and of the helper (PartOf, so its view of their sockets is
+# made again when either restarts), and PartOf carries a stop but not the start that follows it.
+# 1.240.0 found that out on the owner's server: an upgrade run by the previous version's script
+# stopped the helper, the gateway went with it, and nothing brought it back. Wanted from here, a
+# start of BoxPilot is a start of the gateway whoever asked for it (an upgrade, a database put
+# back, a person at a terminal). It starts only where a Claude key was stored: the gateway's own
+# ConditionPathExists skips it everywhere else, and disconnecting Claude removes the key.
+Wants=boxpilot-model-gateway.service
 
 [Service]
 Type=simple
