@@ -17,6 +17,7 @@ import { registry as defaultRegistry } from "./ops/index.mjs";
 import { computeNextRun, describeCadence, scheduleOutcome } from "./scheduler.mjs";
 import { overdueScheduleIds } from "./schedule-freshness.mjs";
 import { isNotice } from "./health-alerts.mjs";
+import { logged } from "./logged-loop.mjs";
 
 export const reportCadence = Object.freeze({ frequency: "weekly", weekday: 0, hour: 9, minute: 0 });
 export const reportKey = "report.weekly";
@@ -225,7 +226,7 @@ export function createWeeklyReport({ store, alerts, notifications, registry = de
   }
 
   function start() {
-    const timer = schedule(() => { tick().catch(() => {}); }, intervalMs);
+    const timer = schedule(() => { tick().catch(logged("weekly report")); }, intervalMs);
     timer.unref?.();
     return () => unschedule(timer);
   }

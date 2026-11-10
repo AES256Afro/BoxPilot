@@ -5,9 +5,10 @@
 > section 8's questions are answered there. Section 1 describes 1.119.0; releases since are in git.
 
 Written 2026-09-27 by a Claude session working in the LLMCoach repo, which also did BoxPilot work
-that day. It is a proposal to fold into `docs/ROADMAP-V2.md`, not part of it yet: nothing below has
-been added to the roadmap, and the owner has not yet chosen between the designs. No personal host
-data here, per AGENTS.md; the server is called `homebox` as in the demo.
+that day. It was written as a proposal, before the owner chose between the designs. It has since been
+folded into `docs/ROADMAP-V2.md`: B1-B4 are M33, the assistant (B5) is M34, the phone layout (B6)
+is M25, and recipes and a GPU page (B7) belong to M22. No personal host data here, per AGENTS.md;
+the server is called `homebox` as in the demo.
 
 ## 1. Already done: 1.119.0 (PR #262, merged 2026-09-27)
 
@@ -25,7 +26,7 @@ commit: `git log 4f1b249^1..4f1b249^2` lists them.
   (`nvidiaGpuReservation`, `wantsGpu`) when a manifest says `gpu: optional` and Docker can provide
   one. `catalog/ollama.yaml` and Open WebUI's Ollama sidecar opt in. There is a read operation,
   `prerequisite.nvidia.inspect`, and a Repair Center check. **Not yet tried on real hardware:** the
-  owner's server has no GPU installed yet (an RTX 4080 16 GB is planned), so this is covered by unit
+  owner's server has no GPU installed yet (a card is planned), so this is covered by unit
   tests and Linux CI only. Expect a follow-up once the card is in.
 - **Bug sweep, four areas** (merged as `fix/firewall-sweep`, `fix/backup-sweep`, `fix/core-sweep`,
   `fix/ui-sweep`). Among them: Docker firewall sync and from-scratch rollback; restores staged
@@ -126,7 +127,7 @@ of 2026-09-27 evening:
   at a mounted network share. Nothing else in BoxPilot was needed for this.
 - **GPU for LLMCoach.** From LLMCoach 0.8.0 every release also publishes
   `ghcr.io/aes256afro/llmcoach:X.Y.Z-cuda` (PyTorch 2.8 on CUDA 12.8, plus bitsandbytes). Once the
-  RTX 4080 is installed, point `image.reference` in `catalog/llmcoach.yaml` at the `-cuda` tag and add
+  card is installed, point `image.reference` in `catalog/llmcoach.yaml` at the `-cuda` tag and add
   `gpu: optional`. The CUDA image also runs on a CPU, but it's several GB larger, so there's no reason
   to switch before the card is in. LLMCoach's `/api/health` now reports its version (e.g. `0.8.0-cuda`).
 - **Exported models land in BoxPilot's Ollama.** LLMCoach's export job uploads blobs and calls

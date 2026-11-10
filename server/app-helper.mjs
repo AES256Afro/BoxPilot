@@ -18,7 +18,7 @@ import { coversEveryAddress, findPortConflicts, holderWords, normalizeBind, port
 import { createNvidiaInspector } from "./nvidia.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { measurableFolders, mountFor } from "./app-data-growth.mjs";
-import { keepsBackupData, resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
+import { keepsBackupData, resolveValues, sanitizeStoredValues, stopBudgetMs } from "./catalog/schema.mjs";
 import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
 import { dataScanCommand } from "./scan-resources.mjs";
 import { shared } from "./cache.mjs";
@@ -1086,7 +1086,7 @@ export function createAppHelper({
       return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, exposure: values.exposure ?? "lan", health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name), setup, ...withPortWarnings(ports) };
     } catch (error) {
       progress?.(`Install failed: ${error.message}. Rolling back...`, "stderr");
-      await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
+      await compose(id, ["down", "--remove-orphans"], { timeout: stopBudgetMs(manifest), progress }).catch(() => {});
       recentlyTouched.add(id);
       if (!directoryExisted) await rm(dirFor(id), { recursive: true, force: true }).catch(() => {});
       throw keepTimeout(error, new Error(`${manifest.name} installation failed and was rolled back. ${error.message}`));
@@ -1098,7 +1098,7 @@ export function createAppHelper({
     const state = await readState(id);
     const status = await containerStatus(id);
     if (!state && !status.exists) throw new Error(`${manifest.name} is not installed`);
-    const down = await compose(id, ["down", "--remove-orphans"], { timeout: 180_000, progress });
+    const down = await compose(id, ["down", "--remove-orphans"], { timeout: stopBudgetMs(manifest, 180_000), progress });
     if (!down.ok && status.exists) throw new Error(`docker compose down failed: ${redact(down.stderr).split("\n").slice(-3).join(" ")}`);
     if (purge) {
       await rm(dirFor(id), { recursive: true, force: true });
@@ -1169,7 +1169,7 @@ export function createAppHelper({
       return { reinstalled: true, started: true, id, name: manifest.name, projectRewritten: rewritten, image: status.image, health: status.health, ...withPortWarnings(ports) };
     } catch (error) {
       progress?.(`${manifest.name} did not come up: ${error.message}. Taking down what started...`, "stderr");
-      await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
+      await compose(id, ["down", "--remove-orphans"], { timeout: stopBudgetMs(manifest), progress }).catch(() => {});
       recentlyTouched.add(id);
       throw keepTimeout(error, new Error(`${manifest.name} could not be ${start ? "started" : "created"} again, so what ${start ? "started" : "was made"} was taken down. Its data folder and saved settings are as they were. ${error.message}`));
     }
@@ -1486,7 +1486,8 @@ export function createAppHelper({
       // which is when something waiting for one takes it.
       if (project !== null && (verb === "restart" || !before.running)) ports = await assertPortsFree(manifest, project, { progress, refused });
     }
-    let result = await compose(id, [verb], { timeout: 180_000, progress });
+    // A stop or a restart waits out the app's own stop grace period (stopBudgetMs); a start has none to wait for.
+    let result = await compose(id, [verb], { timeout: verb === "start" ? 180_000 : stopBudgetMs(manifest, 180_000), progress });
     // A stopped container is pinned to the network it was created on, and anything that prunes
     // Docker — `docker system prune`, Portainer, a compose UI the owner runs themselves — takes
     // that network with it, because nothing running is attached. Starting then fails with a

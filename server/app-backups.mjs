@@ -12,7 +12,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { readFileWithoutFollowing, replaceFileWithoutFollowing, writeFileDurably } from "./durable-file.mjs";
 import { deployedImages } from "./catalog/compose.mjs";
-import { isDeniedHostPath, keepsBackupData, resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
+import { isDeniedHostPath, keepsBackupData, longestStopBudgetMs, resolveValues, sanitizeStoredValues, stopBudgetMs } from "./catalog/schema.mjs";
 import { keepTimeout } from "./timeouts.mjs";
 import { snapshotBackupReferences } from "./machine-snapshot-helper.mjs";
 import { appFolderMounts, composeFindingsText, composeSha256, imageRepository, powerfulComposeSettings, sameCompose } from "./catalog/compose-review.mjs";
@@ -23,9 +23,11 @@ import { homepageSyncFile } from "./app-homepage.mjs";
  * The limits one app backup runs within, and so a checkpoint's: stopping the app, writing the
  * archive, starting it again. An operation that takes a checkpoint before its change budgets the
  * ceiling on top of its own steps (ops/apps.mjs), or the checkpoint alone could outlast the job.
+ * `stop` is the least an app is given: one whose manifest sets a stop grace period gets that and a
+ * margin (stopBudgetMs), and the ceiling counts the longest a manifest may ask for.
  */
 const backupLimitsMs = Object.freeze({ stop: 2 * 60_000, archive: 60 * 60_000, start: 3 * 60_000 });
-export const checkpointCeilingMs = backupLimitsMs.stop + backupLimitsMs.archive + backupLimitsMs.start;
+export const checkpointCeilingMs = Math.max(backupLimitsMs.stop, longestStopBudgetMs) + backupLimitsMs.archive + backupLimitsMs.start;
 
 export const backupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
 /** Pre-change checkpoints kept per app, counted separately from the owner's own backups. */
@@ -321,7 +323,7 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     try {
       if (wasRunning) {
         progress?.(`Stopping ${manifest.name} for a consistent backup...`, "stdout");
-        const stop = await compose(id, ["stop"], { timeout: backupLimitsMs.stop, progress });
+        const stop = await compose(id, ["stop"], { timeout: stopBudgetMs(manifest, backupLimitsMs.stop), progress });
         if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
       }
       try {
@@ -377,7 +379,10 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
         try { entryMeta = JSON.parse(await readFile(path.join(backupDirectory, name.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { entryMeta = null; }
         if (Boolean(entryMeta?.checkpoint) === Boolean(checkpointReason)) sameKind.push(name);
       }
-      const behind = sameKind.slice(keep).filter((name) => name !== preserve);
+      // Never the copy just written: with the clock behind the copies already here (a dead clock
+      // battery before the time is set), the new one sorted last and was pruned as the oldest, and
+      // the job still said it had backed up.
+      const behind = sameKind.slice(keep).filter((name) => name !== preserve && name !== meta.artifact);
       pruned = behind.filter((name) => !referenced.has(name));
       if (pruned.length < behind.length) progress?.(`Kept ${behind.length - pruned.length} older cop${behind.length - pruned.length === 1 ? "y" : "ies"} a machine snapshot restores ${manifest.name} from`, "stdout");
       for (const name of pruned) {
@@ -1082,7 +1087,7 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     }
     const status = await containerStatus(id);
     if (status.running) {
-      const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
+      const stop = await compose(id, ["stop"], { timeout: stopBudgetMs(manifest), progress });
       if (!stop.ok) {
         await rm(staged, { recursive: true, force: true });
         throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}. The live application directory was not replaced.`);
@@ -1261,7 +1266,7 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     const saved = await checkpoint({ id, reason: "file restore", preserve: backupName }, { progress });
     const status = await containerStatus(id);
     if (status.running) {
-      const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
+      const stop = await compose(id, ["stop"], { timeout: stopBudgetMs(manifest), progress });
       if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
     }
     // Extract into a fresh folder of our own, never into the live one: tar runs as root and follows a

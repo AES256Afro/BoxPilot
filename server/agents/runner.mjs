@@ -601,6 +601,3 @@ export function directRunnerApi(service, runnerId) {
     model: (runId, lease, request, { timeoutMs = 180_000, reason = null } = {}) => service.runnerModel(runId, lease, { request, timeoutMs, ...(reason ? { reason } : {}) }),
   };
 }
-
-/** For tests and the benchmark: the catalog's tools a run with these ids acts with, as the model sees them. */
-export const actToolsFor = (claimTools, understanding, kind) => actToolIds(claimTools.map((tool) => tool.id), { planned: understanding?.tools?.length ? understanding.tools : null, kind }).map((id) => toolCatalog.find((tool) => tool.id === id)?.fn);

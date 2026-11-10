@@ -327,6 +327,28 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  it("writes a job, its first steps and its audit line together or not at all", async () => {
+    // Four separate commits: a failure after the first left a job with no steps and no record of who made it.
+    const store = await testStore();
+    const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "operator", passwordHash: "hash" });
+    const created = () => store.listAudit().filter((event) => event.type === "job.created");
+    expect(() => store.createJob({ type: "op:apt.refresh", title: "Half made", createdBy: owner.id, initialSteps: [{ name: "preflight", state: "completed", detail: "checked" }, { name: "checkpoint", state: "completed", detail: null }] })).toThrow();
+    expect(store.listJobs(10)).toEqual([]);
+    expect(created()).toEqual([]);
+    // The store is not left inside a transaction: the next job is made and committed as usual.
+    const job = store.createJob({ type: "op:apt.refresh", title: "Whole", createdBy: owner.id });
+    expect(store.getJob(job.id).steps.map((step) => step.name)).toEqual(["preflight", "checkpoint"]);
+    expect(created()).toMatchObject([{ subjectId: job.id, actorId: owner.id }]);
+    // Made inside a caller's transaction, it is part of that one: kept when it commits, gone when it does not.
+    const inside = store.updateSetting("made", null, () => { const made = store.createJob({ type: "op:apt.refresh", title: "Inside", createdBy: owner.id }); return { value: made.id, result: made.id }; });
+    expect(store.getJob(inside)).toMatchObject({ title: "Inside" });
+    let undone = null;
+    expect(() => store.updateSetting("made", null, () => { undone = store.createJob({ type: "op:apt.refresh", title: "Undone", createdBy: owner.id }).id; throw new Error("the caller changed its mind"); })).toThrow("changed its mind");
+    expect(store.getJob(undone)).toBeNull();
+    expect(store.listJobs(10).map((entry) => entry.title).sort()).toEqual(["Inside", "Whole"]);
+    store.close();
+  });
+
   it("fails interrupted jobs without automatically retrying them", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();

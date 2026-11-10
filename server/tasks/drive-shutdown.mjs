@@ -225,6 +225,8 @@ export const hostView = {
 
 /** The longest BoxPilot's reboot waits for apps and drives before it reboots regardless. */
 export const rebootPreparationBudgetMs = 150_000;
+/** What is kept of that budget for syncing and unmounting, when a container with a long stop timeout would use it all. */
+const drivesReserveMs = 20_000;
 
 /**
  * Stop what uses BoxPilot's drives and unmount them, then say how each went, before a reboot.
@@ -300,8 +302,10 @@ export async function prepareDrivesForReboot(_parameters = {}, {
       // they are stopped the way `docker stop` would, without its "stopped by hand" mark.
       log?.(`${names(alive).join(", ")} kept running after Docker stopped (live-restore is on); sending each its stop signal`, "stdout");
       for (const container of alive) if (host.signal(container.pid, stopSignalOf(container))) summary.containers.signalled.push(container.name);
-      const grace = Math.min(Math.max(...alive.map((container) => container.stopTimeout)) * 1000, 30_000);
-      const stubborn = await waitFor(alive, Math.min(clock() + grace, deadline));
+      // Their own stop timeout, as Docker gives it: one that asks for two minutes to write out is not killed at
+      // thirty seconds. The budget still binds, less what the drives need after it; thirty seconds is never taken away.
+      const grace = Math.max(...alive.map((container) => container.stopTimeout)) * 1000;
+      const stubborn = await waitFor(alive, Math.min(clock() + grace, Math.max(clock() + Math.min(grace, 30_000), deadline - drivesReserveMs), deadline));
       summary.containers.stopped.push(...names(alive.filter((container) => !stubborn.includes(container))));
       for (const container of stubborn) { host.signal(container.pid, "SIGKILL"); log?.(`${container.name} did not stop within its stop timeout; killed it`, "stderr"); }
       const survivors = await waitFor(stubborn, clock() + 5_000);
