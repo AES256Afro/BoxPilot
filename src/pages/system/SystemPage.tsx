@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { onRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";
@@ -79,6 +80,8 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
+  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
 
   const loadRelease = useCallback(async (again = false) => {
     setCheckingRelease(true);

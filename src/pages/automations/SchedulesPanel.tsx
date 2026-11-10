@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { openView } from "../../activityEvents";
 import { JobLogView } from "../../JobLogView";
 import { Button, EmptyState, Field, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, type Status, type TableColumn } from "../../ui";
+import { CadenceFields, cadenceOf, startingCadence, type CadenceDraft } from "./CadenceFields";
 import "./automations.css";
 
 /*
@@ -24,9 +25,7 @@ export interface Schedule {
 }
 
 interface Template { key: string; label: string; operationId: string; parameters: Record<string, unknown> }
-type Frequency = "hourly" | "daily" | "weekly";
 
-const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 /** The schedules, read once and again after each change, for the panel and for a page's verdict. */
 export function useSchedules(enabled = true) {
@@ -93,9 +92,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
   const [removing, setRemoving] = useState<Schedule | null>(null);
   const [adding, setAdding] = useState(false);
   const [templateKey, setTemplateKey] = useState("");
-  const [frequency, setFrequency] = useState<Frequency>("daily");
-  const [time, setTime] = useState("03:00");
-  const [weekday, setWeekday] = useState(0);
+  const [cadence, setCadence] = useState<CadenceDraft>(startingCadence);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const formId = useId();
@@ -128,7 +125,6 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
   const create = async () => {
     const template = templates.find((entry) => entry.key === templateKey);
     if (!template || busy) return;
-    const [hour, minute] = time.split(":").map((part) => Number.parseInt(part, 10));
     setFormError(null);
     setBusy(true);
     try {
@@ -138,10 +134,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
         body: JSON.stringify({
           operationId: template.operationId,
           parameters: template.parameters,
-          frequency,
-          minute: Number.isInteger(minute) ? minute : 0,
-          hour: frequency === "hourly" ? null : hour,
-          weekday: frequency === "weekly" ? weekday : null,
+          ...cadenceOf(cadence),
         }),
       });
       const body = (await response.json().catch(() => ({}))) as { error?: string };
@@ -285,23 +278,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
             <Field label="What to run" hint={appsUnread ? "The installed apps could not be listed, so their backups are not offered. Close and open this again." : "Runs as you, approved like any schedule. A high-risk operation cannot run unattended."}>
               <Select value={templateKey} onValueChange={setTemplateKey} placeholder="Choose an action…" options={templates.map((template) => ({ value: template.key, label: template.label }))} />
             </Field>
-            <Field label="How often">
-              <Select value={frequency} onValueChange={(value) => setFrequency(value as Frequency)} options={[{ value: "hourly", label: "Hourly" }, { value: "daily", label: "Daily" }, { value: "weekly", label: "Weekly" }]} />
-            </Field>
-            {frequency === "weekly" && (
-              <Field label="Weekday">
-                <Select value={String(weekday)} onValueChange={(value) => setWeekday(Number(value))} options={weekdays.map((day, index) => ({ value: String(index), label: day }))} />
-              </Field>
-            )}
-            {frequency !== "hourly" ? (
-              <Field label="Time of day" hint={serverTimezone ? `In the server's time zone, ${serverTimezone}.` : "In the server's time zone."}>
-                <TextInput type="time" mono value={time} onValueChange={setTime} />
-              </Field>
-            ) : (
-              <Field label="Minute of the hour">
-                <TextInput mono inputMode="numeric" value={time.split(":")[1] ?? "0"} onValueChange={(value) => setTime(`00:${value}`)} placeholder="minute" />
-              </Field>
-            )}
+            <CadenceFields value={cadence} onChange={setCadence} serverTimezone={serverTimezone} />
           </form>
         </Sheet>
       )}

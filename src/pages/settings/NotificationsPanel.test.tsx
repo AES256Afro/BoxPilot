@@ -38,16 +38,28 @@ describe("Notification settings", () => {
 
   it("saves an ntfy target with the owner password", async () => {
     let saved: string | undefined;
+    let tests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url.endsWith("/settings/notifications") && init?.method === "PUT") { saved = init.body as string; return json({ configured: true, kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot", hasToken: false }); }
       if (url.endsWith("/settings/notifications")) return json({ configured: false, kind: null, url: null, topic: null, hasToken: false });
+      if (url.endsWith("/settings/notifications/test") && init?.method === "POST") { tests += 1; return json({ ok: true }); }
+      if (url.endsWith("/catalog?view=summary")) return json({ applications: [{ manifest: { id: "ntfy", name: "ntfy" }, live: null }], host: {} });
       return json({ error: `unexpected ${url}` }, 500);
     });
     vi.stubGlobal("fetch", fetchMock);
+    const opened = vi.fn();
+    const listener = (event: Event) => opened((event as CustomEvent).detail);
+    window.addEventListener("boxpilot:open-view", listener);
     render(<NotificationSettings csrfToken="csrf-token" />);
 
     expect(await screen.findByText("Off")).toBeTruthy();
+    // Nothing to send to yet, and neither ntfy nor Gotify installed: where to get one is one press.
+    expect(await screen.findByText("No notification server yet.")).toBeTruthy();
+    expect(screen.getByText("Install ntfy on this server, or use an ntfy server you already have.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open ntfy in Apps" }));
+    expect(opened).toHaveBeenCalledWith({ view: "catalog", options: { app: "ntfy" } });
+    window.removeEventListener("boxpilot:open-view", listener);
     fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "http://127.0.0.1:8093" } });
     // The greyed Save says what it waits for, until the password is typed.
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
@@ -56,8 +68,11 @@ describe("Notification settings", () => {
     expect(screen.queryByText("Type your password to save.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText(/Saved\./)).toBeTruthy();
+    // The test goes by itself once it is saved, and the panel says so.
+    expect(await screen.findByText("Saved, and a test was sent. Check your device.")).toBeTruthy();
+    expect(tests).toBe(1);
     expect(screen.getByText("On · ntfy")).toBeTruthy();
+    expect(screen.queryByText("No notification server yet.")).toBeNull();
     expect(JSON.parse(saved ?? "{}")).toEqual({ target: { kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" }, password: "correct horse battery" });
   });
 
@@ -208,6 +223,23 @@ describe("Notification settings", () => {
     expect(screen.getByText("Sending needs a notification target: set one above.")).toBeTruthy();
   });
 
+  it("says a saved target's test was refused, rather than leaving it for the first real alert to find", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/notifications") && init?.method === "PUT") return json({ configured: true, kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot", hasToken: false });
+      if (url.endsWith("/settings/notifications")) return json({ configured: false, kind: null, url: null, topic: null, hasToken: false });
+      if (url.endsWith("/settings/notifications/test")) return json({ error: "The server at 127.0.0.1:8093 refused the connection" }, 502);
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    await screen.findByText("Off");
+    fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "http://127.0.0.1:8093" } });
+    fireEvent.change(screen.getByLabelText("Owner password"), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("The test did not go: The server at 127.0.0.1:8093 refused the connection")).toBeTruthy();
+    expect(screen.getByText("Saved.")).toBeTruthy();
+  });
+
   it("holds pushes overnight once quiet hours are on, and says how many are waiting", async () => {
     let saved: unknown;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -220,6 +252,8 @@ describe("Notification settings", () => {
       return json({ applications: [], host: {} });
     }));
     render(<NotificationSettings csrfToken="csrf-token" />);
+    // The other quiet hours (approval pushes) are somewhere else, and this panel says where.
+    expect(await screen.findByText("Approval pushes have their own quiet hours, under the bell.")).toBeTruthy();
     const panel = await screen.findByRole("region", { name: "Quiet hours" });
     expect(within(panel).getByText("3")).toBeTruthy();
     const save = within(panel).getByRole("button", { name: "Save quiet hours" }) as HTMLButtonElement;

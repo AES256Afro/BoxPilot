@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Field, Notice, Panel, SecretInput, Select, Table, Tag, TextInput, type TableColumn } from "../../ui";
+import { Button, CopyButton, Field, Notice, Panel, SecretInput, Select, Table, Tag, TextInput, type TableColumn } from "../../ui";
 
 /** People (M5.4): owners add operators and viewers, change roles, and disable accounts. Owner-only. */
 
@@ -7,7 +7,7 @@ interface Person { id: string; username: string; role: "owner" | "operator" | "v
 
 const roleHelp: Record<string, string> = {
   owner: "Everything, including settings, people, and high-risk approvals.",
-  operator: "Stages and approves low- and medium-risk work; cannot change settings or approve high-risk jobs.",
+  operator: "Runs backups, updates, installs and single firewall rules; cannot turn the firewall off, erase or restore, or change settings and people.",
   viewer: "Read-only: every page, no changes.",
 };
 
@@ -36,6 +36,15 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
   // and its "user name taken" used to appear above the table, out of sight; its success said nothing.
   const [errorAt, setErrorAt] = useState<"list" | "confirm" | "add">("list");
   const [added, setAdded] = useState<string | null>(null);
+  // Where the new person signs in: every address BoxPilot answers on (the Network page's own
+  // answer), to hand over with the password. Nice to have: a failed read shows none.
+  const [addresses, setAddresses] = useState<Array<{ label: string; url: string }>>([]);
+  const readAddresses = () => {
+    fetch("/api/v1/network/reachability").then((response) => (response.ok ? response.json() : null)).then((body: { ways?: unknown } | null) => {
+      const ways = Array.isArray(body?.ways) ? body.ways as Array<{ label?: unknown; url?: unknown }> : [];
+      setAddresses(ways.flatMap((way) => (typeof way?.url === "string" && /^https?:\/\//.test(way.url) ? [{ label: typeof way.label === "string" ? way.label : "", url: way.url }] : [])).slice(0, 6));
+    }).catch(() => setAddresses([]));
+  };
   const call = async (method: string, url: string, body: unknown, at: "confirm" | "add") => {
     setBusy(true); setError(null); setAdded(null); setErrorAt(at);
     try {
@@ -127,7 +136,7 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
           {error && errorAt === "confirm" && <Notice tone="danger" live>{error}</Notice>}
         </form>
       )}
-      <form className="settings-body settings-add" aria-label="Add a person" onSubmit={(event) => { event.preventDefault(); const who = form.username; const as = form.role; void call("POST", "/api/v1/people", form, "add").then((ok) => { if (ok) { setForm({ username: "", newPassword: "", role: "operator", password: "" }); setAdded(`${who} can sign in now, as ${becomes(as)}, with the password you set.`); } }); }}>
+      <form className="settings-body settings-add" aria-label="Add a person" onSubmit={(event) => { event.preventDefault(); const who = form.username; const as = form.role; void call("POST", "/api/v1/people", form, "add").then((ok) => { if (ok) { setForm({ username: "", newPassword: "", role: "operator", password: "" }); setAdded(`${who} can sign in now, as ${becomes(as)}, with the password you set.`); readAddresses(); } }); }}>
         <h3 className="settings-sub__title">Add a person</h3>
         <div className="settings-grid-form">
           <Field label="New user name" hint="Lower case, digits, dot, dash or underscore.">
@@ -146,6 +155,16 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
         <div className="settings-actions"><Button type="submit" busy={busy}>Add person</Button></div>
         {error && errorAt === "add" && <Notice tone="danger" live>{error}</Notice>}
         {added && <Notice tone="success" live onDismiss={() => setAdded(null)}>{added}</Notice>}
+        {added && addresses.length > 0 && (
+          <div className="settings-handover" role="group" aria-label="Where they sign in">
+            <h4 className="settings-sub__title">Give them the address</h4>
+            <ul className="settings-handover__list">
+              {addresses.map((way) => (
+                <li key={way.url}><code>{way.url}</code>{way.label ? <span className="settings-handover__label">{way.label}</span> : null}<CopyButton value={way.url} name={way.label || way.url} /></li>
+              ))}
+            </ul>
+          </div>
+        )}
       </form>
     </Panel>
   );

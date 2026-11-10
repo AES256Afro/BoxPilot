@@ -166,6 +166,19 @@ describe("the ways in, each to its end", () => {
     expect(screen.queryByRole("button", { name: "Confirm and sign in" })).toBeNull();
   });
 
+  it("says what to do about a forgotten password, with the command to copy, and not on a server with no owner yet", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    const { unmount } = render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
+    const forgot = screen.getByText("Forgot your password?").closest("details")!;
+    expect(forgot.textContent).toContain("Use a recovery code or a passkey if you saved one. Otherwise, from an SSH session on the server, run:");
+    expect(forgot.querySelector("code")?.textContent).toBe("sudo node /opt/boxpilot/scripts/boxpilot-owner.mjs reset-password <your user name>");
+    expect(forgot.textContent).toContain("It asks for a new password twice.");
+    expect(forgot.querySelector("button")?.textContent).toContain("Copy");
+    unmount();
+    render(<AuthScreen bootstrapRequired onAuthenticated={vi.fn()} />);
+    expect(screen.queryByText("Forgot your password?")).toBeNull();
+  });
+
   it("signs in with a recovery code, says when one is refused, and goes back to the password", async () => {
     const codes: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

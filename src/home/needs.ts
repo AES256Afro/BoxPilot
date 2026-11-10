@@ -86,6 +86,10 @@ export function watchView(family: string): ViewName {
   if (family === "signin.new" || family === "report.weekly") return "settings";
   // A power cut: its advice is a UPS, which the System page sets up.
   if (family === "power.lost") return "system";
+  // A full disk has no finding on Repair: the system disk is cleared from System's Housekeeping,
+  // and a full drive is looked into on Storage, which says what is filling it.
+  if (family === "storage.root.full") return "system";
+  if (family === "storage.mount.full") return "storage";
   return "repairs";
 }
 
@@ -157,7 +161,10 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
       if (alert.family === "power.lost" && facts.outages) return;
       needs.push({
         id: `alert:${alert.family}:${index}`, kind: "alert", severity: dangerFamilies.has(alert.family) ? "danger" : "warning", title: alert.title,
-        detail: alert.since ? `Since ${relativeTime(alert.since, now)}` : null, view: watchView(alert.family), action: null,
+        detail: alert.since ? `Since ${relativeTime(alert.since, now)}` : null, view: watchView(alert.family),
+        action: alert.family === "storage.root.full" ? openAction({ label: "Free up space", view: "system", tab: "housekeeping" })
+          : alert.family === "storage.mount.full" ? openAction({ label: "Open Mounts", view: "storage", tab: "mounts" })
+            : null,
       });
     });
   }

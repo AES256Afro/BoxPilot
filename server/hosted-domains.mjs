@@ -425,10 +425,10 @@ async function eachLimited(items, width, work) {
  * test, or the demo, has neither); `probes` are the network's hands, replaced by a test.
  *
  * @param {{ store: any, helper?: any, catalog?: any, alerts?: any, notifications?: any, probes?: { resolve: Function, probe: Function }, now?: () => Date,
- *   initialDelayMs?: number, tickMs?: number, probeTimeoutMs?: number, concurrency?: number, hostname?: () => string, freshMinMs?: number, warn?: (message: string) => void,
+ *   initialDelayMs?: number, tickMs?: number, promptDelayMs?: number, probeTimeoutMs?: number, concurrency?: number, hostname?: () => string, freshMinMs?: number, warn?: (message: string) => void,
  *   setTimeout?: typeof globalThis.setTimeout, setInterval?: typeof globalThis.setInterval, clearTimeout?: typeof globalThis.clearTimeout, clearInterval?: typeof globalThis.clearInterval }} options
  */
-export function createHostedDomainsService({ store, helper = null, catalog = null, alerts = null, notifications = null, probes = defaultProbes, now = () => new Date(), initialDelayMs = 90_000, tickMs = 60_000, probeTimeoutMs = 10_000, concurrency = 6, hostname = () => os.hostname(), freshMinMs = freshMinIntervalMs, warn = (message) => console.warn(message), setTimeout: delay = globalThis.setTimeout, setInterval: schedule = globalThis.setInterval, clearTimeout: cancel = globalThis.clearTimeout, clearInterval: unschedule = globalThis.clearInterval }) {
+export function createHostedDomainsService({ store, helper = null, catalog = null, alerts = null, notifications = null, probes = defaultProbes, now = () => new Date(), initialDelayMs = 90_000, tickMs = 60_000, promptDelayMs = 10_000, probeTimeoutMs = 10_000, concurrency = 6, hostname = () => os.hostname(), freshMinMs = freshMinIntervalMs, warn = (message) => console.warn(message), setTimeout: delay = globalThis.setTimeout, setInterval: schedule = globalThis.setInterval, clearTimeout: cancel = globalThis.clearTimeout, clearInterval: unschedule = globalThis.clearInterval }) {
   /** @type {Promise<any> | null} */
   let inflight = null;
   /** @type {Map<string, number>} how many checks running a name has been down, for the flap guard. */
@@ -665,8 +665,18 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
     return { removed: name, manual: current.manual.filter((existing) => existing.hostname !== name) };
   }
 
-  /** Something changed what is published (a publish, an unpublish): check again at the next tick. */
-  function forget() { dueAt = now().getTime(); dirty = true; }
+  /**
+   * Something changed what is published (a publish, an unpublish): a round is due now, and one is
+   * started `promptDelayMs` later rather than at the next tick, so the page is right by the time
+   * the owner turns to it. The pause lets the tunnel take up what was just changed. A round already
+   * under way read the names before the change: the tick after it ends runs another (`dirty`).
+   */
+  function forget() {
+    dueAt = now().getTime();
+    dirty = true;
+    const soon = delay(() => { tick().catch(warnOnce); }, promptDelayMs);
+    soon?.unref?.();
+  }
 
   /** A failed background round is said in the log, once for each different failure, and a bounded number of them. */
   function warnOnce(error) {

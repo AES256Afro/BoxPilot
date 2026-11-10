@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { onRefresh } from "../../shell/refresh";
 import { openView } from "../../activityEvents";
 import { readJson } from "../../http";
 import { relativeTime } from "../../home/format";
@@ -139,6 +140,8 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
     }
   }, []);
   useEffect(() => { void read(); }, [read]);
+  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
+  useEffect(() => onRefresh(() => { void read(); }), [read]);
   // The first round after a start is still running: read again shortly, until it has an answer.
   useEffect(() => {
     if (!status || (!status.checking && status.checkedAt)) return undefined;
@@ -232,6 +235,8 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "hosted-actions-cell", cell: (domain) => (
         <span className="hosted-actions">
           <Button variant="ghost" onClick={() => setOpen(domain.hostname)} aria-label={`Details of ${domain.hostname}`}>Details</Button>
+          {/* A name BoxPilot traced to an app (one it published through the tunnel): the app is a press away. */}
+          {domain.appId && <Button variant="ghost" onClick={() => openView("catalog", { app: domain.appId ?? undefined })} aria-label={`Open ${domain.appName ?? domain.appId} in Apps`}>Open app</Button>}
           {canChange && domain.manual && <Button variant="ghost" onClick={() => setStopping(domain.hostname)} busy={removing === domain.hostname} aria-label={`Stop watching ${domain.hostname}`}>Stop watching</Button>}
         </span>
       ),
@@ -240,7 +245,7 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
 
   const strip: KeyValueItem[] = status ? [
     { id: "tunnel", label: "Tunnel", value: tunnel.value, status: tunnel.status, hint: tunnel.hint ?? undefined },
-    { id: "cloudflare", label: "Cloudflare", value: status.tunnel?.cloudflare?.connected ? status.tunnel.cloudflare.tunnelName ?? "Connected" : "Not connected", mono: Boolean(status.tunnel?.cloudflare?.connected), status: status.tunnel?.cloudflare?.connected ? "good" : "neutral", hint: status.tunnel?.cloudflare?.connected ? "the tunnel BoxPilot manages" : "connect from the Cloudflare Tunnel app" },
+    { id: "cloudflare", label: "Cloudflare", value: status.tunnel?.cloudflare?.connected ? status.tunnel.cloudflare.tunnelName ?? "Connected" : "Not connected", mono: Boolean(status.tunnel?.cloudflare?.connected), status: status.tunnel?.cloudflare?.connected ? "good" : "neutral", hint: status.tunnel?.cloudflare?.connected ? "the tunnel BoxPilot manages" : role === "owner" ? <Button variant="ghost" onClick={() => openView("catalog", { app: "cloudflared", sheet: "tunnel" })}>Connect in Cloudflare Tunnel</Button> : "the owner connects it from the Cloudflare Tunnel app" },
     { id: "checks", label: "Checks", value: `every ${status.intervalMinutes} min`, mono: true, hint: status.checking ? "checking now" : status.nextCheckAt ? <>next <RelativeTime at={status.nextCheckAt} now={clock} fallback="soon" /></> : checked ? <>last <RelativeTime at={status.checkedAt} now={clock} /></> : "not yet" },
     { id: "alerts", label: "Alerts", value: status.alertsTarget ? "On" : "No target", status: status.alertsTarget ? "good" : "warning", hint: status.alertsTarget ? "a name down, or a certificate inside 14 days" : role === "owner" ? <Button variant="ghost" onClick={() => openView("settings", { tab: "notifications" })}>Open Notifications</Button> : "the owner sets one in Settings, under Notifications" },
   ] : [];

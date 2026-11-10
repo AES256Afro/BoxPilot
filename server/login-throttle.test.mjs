@@ -132,4 +132,13 @@ describe("the per-account ceiling", () => {
     expect(throttle.check(guesser).blocked).toBe(true);
     expect(throttle.size()).toBeLessThanOrEqual(100);
   });
+
+  it("forgets one account's counts, from every caller, and nobody else's", () => {
+    const throttle = createLoginThrottle({ now: () => 1_000_000 });
+    const keys = ["user:a1", "user:a1|ip:198.51.100.7", "user:a1|ip:203.0.113.9", "user:a10", "user:a10|ip:198.51.100.7", "user:unknown|ip:user:a1"];
+    for (const key of keys) for (let index = 0; index < 5; index += 1) throttle.record([key], false);
+    throttle.forget("user:a1");
+    expect(keys.map((key) => throttle.check([key]).blocked)).toEqual([false, false, false, true, true, true]);
+    expect(throttle.size()).toBe(3);
+  });
 });

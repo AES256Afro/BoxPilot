@@ -45,6 +45,24 @@ describe("Users & SSH page", () => {
     expect(screen.getByRole("button", { name: "Turn off password login" }).getAttribute("data-risk")).toBe("high");
   });
 
+  it("says these are the server's accounts, and takes the owner to where BoxPilot's own people are", async () => {
+    mockFetch(report);
+    const opened = vi.fn();
+    const listener = (event: Event) => opened((event as CustomEvent).detail);
+    window.addEventListener("boxpilot:open-view", listener);
+    const { unmount } = render(<UsersPage csrfToken="csrf-token" role="owner" />);
+    expect(await screen.findByText("These are accounts on the server itself.")).toBeTruthy();
+    expect(screen.getByText("To let someone sign in to BoxPilot, use Settings, People.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open People" }));
+    expect(opened).toHaveBeenCalledWith({ view: "settings", options: { tab: "people" } });
+    unmount();
+    // People is the owner's: anyone else gets the words, and no button to a panel they cannot open.
+    render(<UsersPage csrfToken="csrf-token" role="operator" />);
+    expect(await screen.findByText("Who may sign in to BoxPilot is the owner's to change, under Settings, People.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open People" })).toBeNull();
+    window.removeEventListener("boxpilot:open-view", listener);
+  });
+
   it("imports keys from GitHub in a sheet, closing it before the approval opens", async () => {
     const staged: Record<string, unknown> = {};
     mockFetch(report, staged);

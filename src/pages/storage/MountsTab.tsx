@@ -1,3 +1,4 @@
+import { openView } from "../../activityEvents";
 import { buildStorageMap, type MapApp, type MapSambaShare, type StorageMapEntry } from "../../storageMap";
 import { SpaceOverTime } from "./SpaceOverTime";
 import { connectPaths } from "../../sharePaths";
@@ -33,6 +34,13 @@ function measured(lastMeasured: LastMeasured | null) {
 
 function PlaceCard({ entry, shareHost }: { entry: StorageMapEntry; shareHost: string | null }) {
   const counted = new Set<string>();
+  // Nearly full, and not the system disk (which Housekeeping clears): nothing of BoxPilot's is on a
+  // data drive to clear, so the row says whose folders fill it, largest first, each counted once.
+  const used = entry.sizeBytes && entry.availableBytes !== null ? percentUsed(entry.sizeBytes - entry.availableBytes, entry.sizeBytes) ?? 0 : 0;
+  const sized = entry.apps.filter((app, index, apps) => app.bytes !== null && apps.findIndex((other) => other.path === app.path) === index).sort((left, right) => (right.bytes ?? 0) - (left.bytes ?? 0));
+  const fills = entry.kind !== "system" && used >= 90
+    ? `BoxPilot cleans nothing here: ${sized.length ? `what fills it is ${sized.slice(0, 4).map((app) => `${app.name} (${gib(app.bytes)})`).join(", ")}${sized.length > 4 ? ` and ${sized.length - 4} more` : ""}.` : "what fills it is not an app's folder it has measured."}`
+    : null;
   return (
     <article className="storage-place" aria-label={entry.label}>
       <header className="storage-place__head">
@@ -43,6 +51,7 @@ function PlaceCard({ entry, shareHost }: { entry: StorageMapEntry; shareHost: st
         ? <UsageMeter used={entry.sizeBytes - entry.availableBytes} size={entry.sizeBytes} label={entry.label} />
         : null}
       {entry.daysToFull !== null && entry.daysToFull <= 90 && <span className="storage-place__fills ui-marked" data-status={entry.daysToFull <= 14 ? "warning" : "neutral"}><span className="ui-mark" aria-hidden="true" />fills in ~{entry.daysToFull} days</span>}
+      {fills && <p className="storage-place__full">{fills}</p>}
       <dl className="storage-place__facts">
         <div>
           <dt>Apps</dt>
@@ -54,9 +63,11 @@ function PlaceCard({ entry, shareHost }: { entry: StorageMapEntry; shareHost: st
               counted.add(app.path);
               const sharedWith = entry.apps.filter((other) => other.path === app.path && other.id !== app.id);
               return (
-                <Tag key={app.id + app.path} title={sharedWith.length ? `${app.path}, shared with ${sharedWith.map((other) => other.name).join(", ")}` : app.path}>
-                  {app.name}{app.bytes !== null ? (first ? ` · ${gib(app.bytes)}` : " · same folder") : ""}
-                </Tag>
+                <button key={app.id + app.path} type="button" className="storage-place__app" aria-label={`Open ${app.name}`} onClick={() => openView("catalog", { app: app.id })}>
+                  <Tag title={sharedWith.length ? `${app.path}, shared with ${sharedWith.map((other) => other.name).join(", ")}` : app.path}>
+                    {app.name}{app.bytes !== null ? (first ? ` · ${gib(app.bytes)}` : " · same folder") : ""}
+                  </Tag>
+                </button>
               );
             }) : <span className="storage-dim">none yet</span>}
           </dd>

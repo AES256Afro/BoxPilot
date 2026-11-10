@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { onRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { Button, EmptyState, Notice, PageHeader, Panel, StatusChip, Table, Tabs, Tag, mayStart, riskOf, useUrlParam, type TableColumn } from "../../ui";
@@ -97,6 +98,8 @@ export default function VmsPage({ csrfToken = "", role = "owner", onOpenRepair =
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
+  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
 
   const { start: startOperation, dialog } = useOperation(csrfToken, () => { void refresh(); setMediaKey((key) => key + 1); });
   // Starting anything closes the sheet it was pressed in, so the approval dialog is alone on screen.

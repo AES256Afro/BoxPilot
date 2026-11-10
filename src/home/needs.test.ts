@@ -85,6 +85,15 @@ describe("what needs you", () => {
     expect(needs.find((need) => need.id === "unannounced")).toMatchObject({ title: "BoxPilot could not tell you about 2 things", detail: "No notification target is set", view: "settings" });
   });
 
+  it("sends a full system disk to Housekeeping and a full drive to Storage's Mounts, not to Repair, which has no finding for either", () => {
+    const needs = buildNeeds(facts({ watch: watchFactsFrom({ targetConfigured: true, conditions: [
+      { key: "storage.root.full", active: true, details: [{ title: "Root disk is 93% full", announced: true }] },
+      { key: "storage.mount.full", active: true, details: [{ title: "/mnt/media is 96% full", announced: true }] },
+    ], notices: [] }) }), { now, role: "viewer" });
+    expect(needs.find((need) => need.id === "alert:storage.root.full:0")).toMatchObject({ view: "system", severity: "danger", action: { kind: "open", label: "Free up space", open: { view: "system", tab: "housekeeping" } } });
+    expect(needs.find((need) => need.id === "alert:storage.mount.full:1")).toMatchObject({ view: "storage", action: { kind: "open", label: "Open Mounts", open: { view: "storage", tab: "mounts" } } });
+  });
+
   it("says a failed app backup once, with a way to run it again, and leaves one that ran again alone", () => {
     const needs = buildNeeds(facts({
       catalog: { apps: [app({ id: "immich", name: "Immich" })], total: 1, liveKnown: true },

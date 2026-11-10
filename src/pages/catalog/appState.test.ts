@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appStatus, compactValues, installTier, offlineFor, shortImage } from "./appState";
+import { appStatus, compactValues, installTier, offlineFor, shortImage, withHostTimezone } from "./appState";
 import type { LiveState, Manifest, ManifestEnv } from "./types";
 
 /**
@@ -104,5 +104,19 @@ describe("an image reference for reading", () => {
     expect(shortImage(`nginx:1.27@sha256:${"0123456789ab".padEnd(64, "f")}`)).toBe("nginx:1.27@sha256:0123456789ab…");
     expect(shortImage("nginx:1.27")).toBe("nginx:1.27");
     expect(shortImage(null)).toBe("");
+  });
+});
+
+describe("a time zone setting on a first install", () => {
+  const zoned = { env: [{ name: "TZ", type: "timezone", default: "Etc/UTC", fixed: false, generate: false }, { name: "OTHER_TZ", type: "timezone", default: "Europe/Paris", fixed: false, generate: false }] } as unknown as Manifest;
+  const opened = { ports: {}, volumes: {}, env: { TZ: "Etc/UTC", OTHER_TZ: "Europe/Paris" } };
+
+  it("takes the server's zone where the catalog said UTC, and leaves a manifest's own choice", () => {
+    expect(withHostTimezone(zoned, opened, "America/Chicago").env).toEqual({ TZ: "America/Chicago", OTHER_TZ: "Europe/Paris" });
+  });
+
+  it("changes nothing the owner already changed, nor for a zone that is unknown, UTC, or not a zone", () => {
+    expect(withHostTimezone(zoned, { ...opened, env: { ...opened.env, TZ: "Asia/Tokyo" } }, "America/Chicago").env.TZ).toBe("Asia/Tokyo");
+    for (const zone of [null, undefined, "", "Etc/UTC", "UTC", "not a zone; rm"]) expect(withHostTimezone(zoned, opened, zone)).toBe(opened);
   });
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { onRefresh } from "../../shell/refresh";
 import { useAutoReconnect } from "../../AutoReconnect";
 import type { ViewName } from "../../data";
 import { readJson } from "../../http";
@@ -64,8 +65,10 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
   const nfs = useNfs();
   const autoReconnect = useAutoReconnect(csrfToken);
 
-  const readOverview = useCallback(async () => {
-    setLoading(true);
+  const readOverview = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    // A quiet read (the Drives tab's every fifteen seconds, the tab coming back into view) does not
+    // put Check again into its busy state.
+    if (!quiet) setLoading(true);
     try {
       const body = await readJson<Partial<StorageReport>>(await fetch("/api/v1/storage/overview"));
       // An answer without the drives and the mounts is not a reading: never an empty, healthy page.
@@ -75,9 +78,16 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The storage state could not be read");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
+  const rereadQuietly = useCallback(() => { void readOverview({ quiet: true }); }, [readOverview]);
+  // A drive plugged in while the tab was in the background is there when it comes back.
+  useEffect(() => {
+    const visible = () => { if (document.visibilityState === "visible") rereadQuietly(); };
+    document.addEventListener("visibilitychange", visible);
+    return () => document.removeEventListener("visibilitychange", visible);
+  }, [rereadQuietly]);
   // What the map and the forecasts add; each on its own, so one that fails costs only itself.
   const readExtras = useCallback(() => {
     fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : {})).then((body: { forecasts?: Forecast[]; usage?: Usage[]; lastMeasured?: LastMeasured | null } | null) => {
@@ -107,6 +117,8 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
     void refreshNfs();
     void refreshReconnect();
   }, [readOverview, readExtras, refreshSamba, refreshNfs, refreshReconnect]);
+  // A job ending anywhere and the bar's Refresh read it again in place.
+  useEffect(() => onRefresh(refreshAll), [refreshAll]);
 
   const mapShares: MapSambaShare[] = samba.state?.config?.shares ?? [];
   const shareHost = samba.state ? (samba.state.config?.scope === "lan" ? samba.state.lanAddress ?? samba.state.tailscaleDnsName : samba.state.tailscaleDnsName ?? samba.state.lanAddress) ?? null : null;
@@ -170,7 +182,7 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
           if (current === "sharing") return <FileSharingTab csrfToken={csrfToken} role={role} samba={samba} nfs={nfs} folders={shareableFolders(report)} prefill={sharePrefill} onPrefillUsed={() => setSharePrefill(null)} onChanged={refreshAll} onNavigate={onNavigate} />;
           if (current === "snapshots") return <SnapshotsTab csrfToken={csrfToken} role={role} report={report} loading={loading} fsSnapshots={fsSnapshots} onChanged={refreshAll} />;
           if (current === "mounts") return <MountsTab report={report} loading={loading} forecasts={forecasts} usage={usage} lastMeasured={lastMeasured} mapApps={mapApps} mapShares={mapShares} shareHost={shareHost} />;
-          return <DrivesTab csrfToken={csrfToken} role={role} report={report} loading={loading} autoReconnect={autoReconnect} mapApps={mapApps} sambaShares={mapShares} onChanged={refreshAll} onShareFolder={shareFolder} />;
+          return <DrivesTab csrfToken={csrfToken} role={role} report={report} loading={loading} autoReconnect={autoReconnect} mapApps={mapApps} sambaShares={mapShares} onChanged={refreshAll} onReread={rereadQuietly} onShareFolder={shareFolder} />;
         }}
       </Tabs>
     </div>

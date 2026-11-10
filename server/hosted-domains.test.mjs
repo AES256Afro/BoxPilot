@@ -477,6 +477,41 @@ describe("the hosted-domains service", () => {
     expect(rounds()).toBe(3);
   });
 
+  it("checks again seconds after a publish or unpublish, not at the next tick or the next cadence", async () => {
+    const timers = [];
+    const probes = { resolve: vi.fn(async () => cloudflare), probe: vi.fn(async () => ({ outcome: "answered", status: 200, ms: 1 })) };
+    const base = fixture({ answers: liveAnswers });
+    let clock = now;
+    const service = createHostedDomainsService({ store: base.store, helper: base.helper, probes, now: () => clock, promptDelayMs: 4_000, setTimeout: /** @type {any} */ ((run, ms) => { timers.push({ run, ms }); return { unref() {} }; }) });
+    await service.tick();
+    const rounds = () => base.audits.filter((entry) => entry.type === "hosted.checked").length;
+    expect(rounds()).toBe(1);
+    // Mid-cadence a tick does nothing; the job hook (index.mjs) calls forget() and a round is started in four seconds.
+    clock = new Date(now.getTime() + 60_000);
+    expect(await service.tick()).toBeNull();
+    service.forget();
+    expect(timers.map((timer) => timer.ms)).toEqual([4_000]);
+    expect((await service.status()).nextCheckAt).toBe(clock.toISOString());
+    timers[0].run();
+    await vi.waitFor(async () => { expect((await service.status()).checking).toBe(false); expect(rounds()).toBe(2); });
+    // A publish that lands while a round is running is not lost: that round ends still due.
+    const running = service.check();
+    service.forget();
+    timers[1].run(); // a round is under way, so this one waits its turn
+    await running;
+    expect(rounds()).toBe(3);
+    expect(await service.tick()).not.toBeNull();
+    expect(rounds()).toBe(4);
+  });
+
+  it("is told of both by the job hooks, which run when the job has finished", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const entry = await readFile(new URL("./index.mjs", import.meta.url), "utf8");
+    const hooks = entry.slice(entry.indexOf("operationRecordHooks: {"), entry.indexOf("operationRiskHooks,"));
+    expect(hooks).toContain('"cloudflare.publish": () => hostedDomains.forget(),');
+    expect(hooks).toContain('"cloudflare.unpublish": () => hostedDomains.forget(),');
+  });
+
   it("says in the log, once, why the background round did not finish", async () => {
     const warn = vi.fn();
     let message = "database locked";

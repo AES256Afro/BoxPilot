@@ -6,6 +6,8 @@ import { useDialogFocus } from "../useDialogFocus";
 import { jobWarnings } from "../JobWarnings";
 import { formatDuration, jobTimeout } from "../JobTimeout";
 import { JobLogView } from "../JobLogView";
+import { adviseRetry } from "../retryAdvice";
+import { openView } from "../activityEvents";
 import { Button, Facts, Field, JobProgress, Notice, Progress, SecretInput, TextInput, riskOf } from "../ui";
 import { CloseIcon, LockIcon } from "../ui/icons";
 import "./look.css";
@@ -88,6 +90,12 @@ export interface PendingOperation {
    */
   next?: PendingOperation;
   /**
+   * What comes after this one when it is not an operation but a place: a form to fill in (mount the
+   * drive just formatted), or another page (copy backups to the drive just mounted). Offered as
+   * "Next: …" once this one has completed; pressing it closes the dialog and opens it.
+   */
+  after?: { label: string; open: () => void };
+  /**
    * Who suggested this step when it was not the person approving it: an agent's name, or the
    * assistant. Its `preview` is then the model's own words, which text the model read can steer, so
    * the dialog says whose words they are and shows everything the operation is given, unfolded.
@@ -118,7 +126,7 @@ function ParameterList({ parameters }: { parameters: Record<string, unknown> }) 
   );
 }
 
-export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, onApproved, onWithdrawn, onClosed, handoff, moreTimeFor, existingJobId, next, onNext, proposedBy }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished, onStaged, onApproved, onWithdrawn, onClosed, handoff, moreTimeFor, existingJobId, next, after, onNext, proposedBy }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [finished, setFinished] = useState<Job | null>(null);
@@ -127,11 +135,17 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const [typedConfirm, setTypedConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
+  const runningRef = useRef(false);
   const dialogRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const observation = useRef<AbortController | null>(null);
   const mounted = useRef(false);
   const stagedRef = useRef<{ jobId: string | null; approvalStarted: boolean; withdrawn: boolean; owned: boolean } | null>(null);
+  // Closed with "Keep working" while its job runs: the job is still followed to its end, so the page
+  // hears how it went, but nothing here is drawn again.
+  const detached = useRef(false);
+  // Staging the same operation again after it failed ("Try again").
+  const [attempt, setAttempt] = useState(0);
   const titleId = useId();
   const formId = useId();
   // The timed-out job being tried again with more time, if that is what is staged.
@@ -147,11 +161,13 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   onClosedRef.current = onClosed;
   const handoffRef = useRef(handoff);
   handoffRef.current = handoff;
+  const onFinishedRef = useRef(onFinished);
+  onFinishedRef.current = onFinished;
   useDialogFocus(dialogRef);
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; observation.current?.abort(); };
+    return () => { mounted.current = false; if (!detached.current) observation.current?.abort(); };
   }, []);
 
   useEffect(() => {
@@ -178,10 +194,14 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       .then((staged) => { stagedState.jobId = staged.job.id; if (cancelled) { withdraw(); return; } setJob(staged.job); setPolicy(staged.approval); setPhase("ready"); onStagedRef.current?.(staged.job); })
       .catch((stageError: unknown) => { if (cancelled) return; setError(stageError instanceof Error ? stageError.message : "Could not prepare this action"); setPhase("error"); });
     return () => { cancelled = true; withdraw(); };
-  }, [operationId, parameters, csrfToken, retryFrom, existingJobId]);
+  }, [operationId, parameters, csrfToken, retryFrom, existingJobId, attempt]);
 
   // Dismissing a staged-but-unapproved job withdraws it so Activity does not fill with orphans.
   const dismiss = useCallback(() => {
+    // A job that is running carries on without this dialog (an install runs for up to 25 minutes, an
+    // update for hours): closing lets the person get on, and withdraws nothing. The page is told how
+    // it ended when it does.
+    if (phase === "running") { detached.current = true; onClose(); return; }
     if (job && phase === "ready" && stagedRef.current?.owned && !stagedRef.current.withdrawn) {
       stagedRef.current.withdrawn = true;
       const jobId = job.id;
@@ -195,7 +215,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   // opened over it has Escape first.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || busyRef.current) return;
+      if (event.key !== "Escape" || (busyRef.current && !runningRef.current)) return;
       const dialogs = document.querySelectorAll('[aria-modal="true"]');
       if (dialogRef.current && dialogs.length && dialogs[dialogs.length - 1] !== dialogRef.current) return;
       dismiss();
@@ -226,14 +246,19 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       // it went and hand the finished job to the page.
       setPhase("running");
       const ended = await waitForJob(job.id, { signal: tracking.signal });
-      if (!mounted.current || tracking.signal.aborted) return;
+      if (tracking.signal.aborted) return;
+      if (!mounted.current) {
+        if (detached.current) { onFinishedRef.current?.(ended); onClosedRef.current?.(ended); }
+        return;
+      }
       setJob(ended);
       setFinished(ended);
       setPhase(ended.state === "completed" ? "done" : "error");
       if (ended.state !== "completed") setError(ended.error ?? "The operation did not complete");
-      onFinished?.(ended);
+      onFinishedRef.current?.(ended);
     } catch (approveError) {
-      if (!mounted.current || tracking.signal.aborted) return;
+      if (tracking.signal.aborted) return;
+      if (!mounted.current) { if (detached.current && accepted) onClosedRef.current?.(null); return; }
       if (!accepted && stagedRef.current) stagedRef.current.approvalStarted = false;
       const detail = approveError instanceof Error ? approveError.message : "Could not follow this job";
       setError(accepted ? `${detail}. The job may still be running. Check Activity for its current state.` : detail);
@@ -250,7 +275,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     } finally {
       if (observation.current === tracking) observation.current = null;
     }
-  }, [job, csrfToken, password, typedConfirm, onFinished]);
+  }, [job, csrfToken, password, typedConfirm]);
 
   const [approvalExpired, setApprovalExpired] = useState(false);
   useEffect(() => {
@@ -268,6 +293,13 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const confirmRequired = confirmText ?? policy?.confirmText ?? null;
   const busy = phase === "staging" || phase === "approving" || phase === "running";
   busyRef.current = busy;
+  runningRef.current = phase === "running";
+  // What a failed run offers beside Close (Home and Repair already do): the place the fix is, when
+  // the error names one, else the same thing again. A job that ran out of time has "more time" in
+  // its log; one this dialog did not stage, or a cancelled one, is not its to run again.
+  const advice = phase === "error" && finished?.state === "failed" && jobTimeout(finished) === null ? adviseRetry(finished.error) : null;
+  const fixElsewhere = advice?.next ?? null;
+  const canTryAgain = Boolean(advice?.retry && !fixElsewhere && !retryFrom && !existingJobId);
   const ended = phase === "done" || phase === "error";
   const actionLabel = phase === "running" ? "Running..." : phase === "approving" ? "Approving..." : passwordRequired ? "Approve and run" : tier === "low" ? "Run" : "Confirm and run";
   const canApprove = !approvalExpired && !busy && phase === "ready" && !(passwordRequired && password.length < 12) && !(Boolean(confirmRequired) && typedConfirm !== confirmRequired);
@@ -326,7 +358,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
             {/* The job's short id, which Activity lists it by; the operation's id is with its parameters (M49). */}
             {job && <Facts className="approve-facts">job <code>{job.id.slice(0, 8)}</code></Facts>}
           </div>
-          <button ref={closeRef} className="approve-close" type="button" onClick={dismiss} aria-label="Close dialog" disabled={busy}><CloseIcon /></button>
+          <button ref={closeRef} className="approve-close" type="button" onClick={dismiss} aria-label={phase === "running" ? "Keep working" : "Close dialog"} disabled={busy && phase !== "running"}><CloseIcon /></button>
         </header>
 
         <div className="approve-tier" data-tier={policy ? tier : "unknown"}>
@@ -399,6 +431,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
             <section className="approve-section" aria-labelledby={`${titleId}-run`}>
               <h3 id={`${titleId}-run`} className="approve-section__title">Progress</h3>
               {phase === "approving" ? <Progress label="Sending the approval…" /> : <JobProgress jobId={job.id} title={title} showOutput />}
+              {phase === "running" && <p className="approve-note">You can close this. It carries on in Activity.</p>}
             </section>
           )}
 
@@ -424,10 +457,25 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
                   <Button onClick={dismiss}>Close</Button>
                   <Button variant="primary" risk={riskOf(next.operationId)} onClick={() => onNext(next)}>Next: {next.title}</Button>
                 </>
-              : <Button variant="primary" onClick={dismiss}>Close</Button>
+              : phase === "done" && after
+                ? <>
+                    <Button onClick={dismiss}>Close</Button>
+                    <Button variant="primary" onClick={() => { dismiss(); after.open(); }}>Next: {after.label}</Button>
+                  </>
+              : fixElsewhere
+                ? <>
+                    <Button onClick={dismiss}>Close</Button>
+                    <Button variant="primary" onClick={() => { dismiss(); openView(fixElsewhere.view, fixElsewhere.tab ? { tab: fixElsewhere.tab } : {}); }}>{fixElsewhere.label}</Button>
+                  </>
+                : canTryAgain
+                  ? <>
+                      <Button onClick={dismiss}>Close</Button>
+                      <Button variant="primary" onClick={() => setAttempt((value) => value + 1)}>Try again</Button>
+                    </>
+                  : <Button variant="primary" onClick={dismiss}>Close</Button>
           ) : (
             <>
-              <Button onClick={dismiss} disabled={busy}>Cancel</Button>
+              <Button onClick={dismiss} disabled={busy && phase !== "running"}>{phase === "running" ? "Keep working" : "Cancel"}</Button>
               <Button variant="primary" type="submit" form={formId} className="approve-go" data-tier={policy ? tier : undefined} busy={phase === "approving" || phase === "running"} disabled={!canApprove} onKeyDown={(event) => { if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault(); }}>{actionLabel}</Button>
             </>
           )}

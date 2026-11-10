@@ -120,6 +120,11 @@
 .storage-place__facts dt { color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 .storage-place__facts dd { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; margin: 0; }
 .storage-place__facts .ui-tag { white-space: normal; overflow-wrap: anywhere; }
+/* An app's tag opens the app. */
+.storage-place__app { display: inline-flex; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.storage-place__app:hover .ui-tag { text-decoration: underline; }
+.storage-place__app:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.storage-place__full { margin: 0; color: var(--status-danger-text); font-family: var(--font-condensed); font-size: 12.5px; line-height: 1.4; }
 .storage-disclose { display: grid; gap: 6px; }
 .storage-disclose > summary { width: fit-content; color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; }
 

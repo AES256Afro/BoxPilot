@@ -118,6 +118,12 @@
 .signin-card .ui-button--ghost:hover:not(:disabled) { border-color: transparent; background: transparent; }
 .signin-row .ui-button { flex: 1 1 auto; width: auto; }
 .signin-recovery-link { justify-self: center; }
+/* "Forgot your password?": what to do, folded under the form. */
+.signin-forgot { display: grid; gap: 8px; min-width: 0; text-align: center; }
+.signin-forgot > summary { color: var(--lx-ink-muted); font-size: 13px; cursor: pointer; }
+.signin-forgot[open] > summary { margin-bottom: 8px; }
+.signin-forgot > * + * { margin-top: 8px; }
+.signin-forgot__command { font-size: 12px; overflow-wrap: anywhere; text-align: left; }
 
 .signin-divider { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; color: var(--lx-ink-muted); font-size: 12.5px; }
 .signin-divider::before,

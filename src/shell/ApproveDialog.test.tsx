@@ -375,6 +375,40 @@ describe("a job that ran out of time (M30.3)", () => {
     expect(screen.queryByText("Ran out of time")).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again with more time" })).toBeNull();
   });
+
+  it("offers the same thing again beside Close after a failure a second run can clear", async () => {
+    const calls = stubRun({ state: "failed", error: "docker compose up failed: the registry did not answer", timeout: null });
+    render(<ApproveDialog operationId="app.install" title="Install Jellyfin" parameters={install.parameters} csrfToken="csrf" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    // Staged afresh, and approved again like anything else: nothing runs on the press.
+    await waitFor(() => expect(calls.filter((call) => call.url === "/api/v1/operations/app.install/jobs")).toHaveLength(2));
+    expect(await screen.findByRole("button", { name: "Confirm and run" })).toBeTruthy();
+    expect(calls.filter((call) => call.url.endsWith("/approve"))).toHaveLength(1);
+  });
+
+  it("opens the place the fix is when the error names one, instead of a try that fails the same way", async () => {
+    stubRun({ state: "failed", error: "write /var/lib/docker/tmp: no space left on device", timeout: null });
+    const opened = vi.fn();
+    const listener = (event: Event) => opened((event as CustomEvent).detail);
+    window.addEventListener("boxpilot:open-view", listener);
+    const close = vi.fn();
+    render(<ApproveDialog operationId="app.install" title="Install Jellyfin" parameters={install.parameters} csrfToken="csrf" onClose={close} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Free up space" }));
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(opened).toHaveBeenCalledWith({ view: "system", options: { tab: "housekeeping" } });
+    expect(close).toHaveBeenCalled();
+    window.removeEventListener("boxpilot:open-view", listener);
+  });
+
+  it("offers no plain second try for a job that ran out of time: its log has more time", async () => {
+    stubRun({ state: "failed", error: "Timed out", timeout });
+    render(<ApproveDialog operationId="app.install" title="Install Jellyfin" parameters={install.parameters} csrfToken="csrf" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    expect(await screen.findByRole("button", { name: "Try again with more time" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
 });
 
 // M36: Home, Ops and Activity approve a job someone already staged.
@@ -467,7 +501,46 @@ describe("the approval dialog's tiers", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
     const progress = await screen.findByRole("progressbar", { name: /Install package updates/ });
     expect(progress).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Close dialog" }).hasAttribute("disabled")).toBe(true);
+    // The job runs without the dialog: both ways out are open, and say what closing means.
+    const ways = screen.getAllByRole("button", { name: "Keep working" });
+    expect(ways).toHaveLength(2);
+    expect(ways.every((button) => !button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getByText("You can close this. It carries on in Activity.")).toBeTruthy();
+  });
+
+  it("closes while the job runs without withdrawing it, and still tells the page how it ended", async () => {
+    stubTier({ tier: "medium", passwordRequired: false, confirmText: null }, { state: "applying" });
+    const api = vi.mocked(fetch); const normal = api.getMockImplementation()!;
+    let end: ((response: Response) => void) | null = null;
+    const methods: string[] = [];
+    api.mockImplementation((input, init) => {
+      methods.push(init?.method ?? "GET");
+      // The dialog's own wait for the end carries a signal.
+      if (/\/jobs\/[^/]+$/.test(input.toString()) && !init?.method && init?.signal) return new Promise<Response>((resolve) => { end = resolve; });
+      return normal(input, init);
+    });
+    const finished = vi.fn(); const closed = vi.fn(); const withdrawn = vi.fn();
+    const noParameters = {};
+    function Page() {
+      const { start, dialog } = useOperation("csrf", finished);
+      return <><button type="button" onClick={() => start({ operationId: "apt.upgrade", title: "Install package updates", parameters: noParameters, onClosed: closed, onWithdrawn: withdrawn })}>Go</button>{dialog}</>;
+    }
+    render(<Page />);
+    fireEvent.click(screen.getByRole("button", { name: "Go" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+    await screen.findByRole("progressbar", { name: /Install package updates/ });
+    await waitFor(() => expect(end).toBeTruthy());
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(methods).not.toContain("DELETE");
+    expect(withdrawn).not.toHaveBeenCalled();
+    // Not told it closed yet: a form is put back only for a job that did not complete.
+    expect(closed).not.toHaveBeenCalled();
+    end!(new Response(JSON.stringify({ job: { id: "job-1", type: "op:apt.upgrade", title: "Install package updates", state: "completed", steps: [], parameters: {}, recovery: {} } }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await waitFor(() => expect(finished).toHaveBeenCalledTimes(1));
+    expect(finished.mock.calls[0][0].state).toBe("completed");
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(closed.mock.calls[0][0].state).toBe("completed");
   });
 
   it("tells a page the job it staged, and hands the run over when asked to (Repair, M35)", async () => {

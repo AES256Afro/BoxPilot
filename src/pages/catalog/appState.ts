@@ -107,6 +107,19 @@ export function initialValues(manifest: Manifest, live: LiveState | null): Value
 }
 
 /**
+ * A time zone setting still at the catalog's "Etc/UTC" takes the server's own zone: an app installed
+ * with UTC shows every time hours out, and the owner set the server's zone once already. Only a box
+ * nobody has changed, and only when the server's zone is known and is not UTC itself.
+ */
+export function withHostTimezone(manifest: Manifest, values: Values, hostZone: string | null | undefined): Values {
+  const zone = typeof hostZone === "string" ? hostZone.trim() : "";
+  if (!zone || zone === "Etc/UTC" || zone === "UTC" || !/^[A-Za-z0-9_+\-/]{1,64}$/.test(zone)) return values;
+  const fields = manifest.env.filter((entry) => entry.type === "timezone" && !entry.fixed && !entry.generate && entry.default === "Etc/UTC" && values.env[entry.name] === "Etc/UTC");
+  if (!fields.length) return values;
+  return { ...values, env: { ...values.env, ...Object.fromEntries(fields.map((entry) => [entry.name, zone])) } };
+}
+
+/**
  * Send only what differs from the baseline. On install the baseline is the manifest default; on
  * reconfigure it is the app's STORED value, because the server merges each field over the stored set
  * ({...stored, ...request}). Comparing to the manifest default there would silently drop a change

@@ -1,5 +1,6 @@
 /** Client for the operation registry and the generic job path (ADR-001). */
 import { readJson } from "./http";
+import { refreshAfterJob } from "./shell/refresh";
 
 export type RiskTier = "low" | "medium" | "high";
 
@@ -183,6 +184,25 @@ interface JobFeedListener { onSnapshot: (jobs: Job[]) => void; onJob: (job: Job)
  */
 const feed: { listeners: Set<JobFeedListener>; stop: (() => void) | null; jobs: Job[] | null; status: JobFeedStatus } = { listeners: new Set(), stop: null, jobs: null, status: "loading" };
 
+/*
+ * Which jobs the feed has already seen finished, so a page is told once when one ends (refresh.ts).
+ * The first snapshot is history, not news. A job is news when it reaches a finished state after
+ * that, by event or, where the stream is buffered, by turning up finished in a later snapshot.
+ */
+let seenFinished: Set<string> | null = null;
+function noteFinished(jobs: Job[], snapshot: boolean): void {
+  const finished = jobs.filter((job) => terminalJobStates.has(job.state)).map((job) => job.id);
+  if (!seenFinished) {
+    if (snapshot) seenFinished = new Set(finished);
+    return;
+  }
+  const fresh = finished.filter((id) => !seenFinished!.has(id));
+  // A snapshot is the whole recent history: ids that have left it are forgotten with it.
+  if (snapshot) seenFinished = new Set(finished);
+  else for (const id of fresh) seenFinished.add(id);
+  if (fresh.length > 0) refreshAfterJob();
+}
+
 const newestFirst = (jobs: Job[]) => [...jobs].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, 50);
 
 export function followJobs(listener: JobFeedListener): () => void {
@@ -192,12 +212,14 @@ export function followJobs(listener: JobFeedListener): () => void {
   if (feed.stop && feed.status === "unavailable") { const stale = feed.stop; feed.stop = null; stale(); }
   if (!feed.stop) {
     feed.jobs = null;
+    seenFinished = null;
     feed.status = "loading";
     const each = (call: (entry: JobFeedListener) => void) => { for (const entry of [...feed.listeners]) call(entry); };
     feed.stop = openJobFeed({
-      onSnapshot: (jobs) => { feed.jobs = jobs; each((entry) => entry.onSnapshot(jobs)); },
+      onSnapshot: (jobs) => { feed.jobs = jobs; noteFinished(jobs, true); each((entry) => entry.onSnapshot(jobs)); },
       onJob: (job) => {
         if (feed.jobs) feed.jobs = newestFirst(feed.jobs.some((entry) => entry.id === job.id) ? feed.jobs.map((entry) => (entry.id === job.id ? job : entry)) : [job, ...feed.jobs]);
+        noteFinished([job], false);
         each((entry) => entry.onJob(job));
       },
       onStatus: (status) => { feed.status = status; each((entry) => entry.onStatus?.(status)); },
@@ -217,6 +239,7 @@ export function followJobs(listener: JobFeedListener): () => void {
     const stop = feed.stop;
     feed.stop = null;
     feed.jobs = null;
+    seenFinished = null;
     stop?.();
   };
 }

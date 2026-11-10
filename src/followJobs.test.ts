@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { followJobs, type Job } from "./operations";
+import { onRefresh } from "./shell/refresh";
 
 class FakeSource {
   static last: FakeSource | null = null;
@@ -135,5 +136,80 @@ describe("one job feed per tab (M50.2)", () => {
     expect(retry.onSnapshot).toHaveBeenLastCalledWith([job]);
     stopRetry(); stopHome();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("a job finishing, wherever it was started", () => {
+  const running = { ...job, id: "job-7", state: "applying" } as Job;
+
+  it("asks the page in front to read again, once, and not for the history it opened with", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource); vi.stubGlobal("fetch", vi.fn());
+    await vi.advanceTimersByTimeAsync(10_000);
+    const read = vi.fn();
+    const stopListening = onRefresh(read);
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn() });
+    const source = FakeSource.last!;
+    source.emit("snapshot", { jobs: [job, running] });
+    source.emit("job", { job });
+    source.emit("job", { job: { ...running, state: "verifying" } });
+    expect(read).not.toHaveBeenCalled();
+    source.emit("job", { job: { ...running, state: "completed" } });
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenLastCalledWith("job");
+    // The same job said again is not news.
+    source.emit("job", { job: { ...running, state: "completed" } });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(read).toHaveBeenCalledTimes(1);
+    stop(); stopListening();
+  });
+
+  it("makes one read of jobs that finish together: at most one a second", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource); vi.stubGlobal("fetch", vi.fn());
+    await vi.advanceTimersByTimeAsync(20_000); // past the last test's read: the one-a-second rule is the tab's, not the test's
+    const read = vi.fn();
+    const stopListening = onRefresh(read);
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn() });
+    const source = FakeSource.last!;
+    source.emit("snapshot", { jobs: [] });
+    source.emit("job", { job: { ...job, id: "a", state: "failed" } });
+    source.emit("job", { job: { ...job, id: "b", state: "completed" } });
+    source.emit("job", { job: { ...job, id: "c", state: "cancelled" } });
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(read).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(read).toHaveBeenCalledTimes(2);
+    stop(); stopListening();
+  });
+
+  it("notices one that turns up finished in a later snapshot, where the stream is buffered", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", undefined);
+    let jobs: Job[] = [running];
+    vi.stubGlobal("fetch", vi.fn(async () => response({ jobs })));
+    await vi.advanceTimersByTimeAsync(40_000);
+    const read = vi.fn();
+    const stopListening = onRefresh(read);
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn() });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(read).not.toHaveBeenCalled();
+    jobs = [{ ...running, state: "completed" } as Job, { ...job, id: "job-8", state: "failed" } as Job];
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(read).toHaveBeenCalledTimes(1);
+    stop(); stopListening();
+  });
+
+  it("loads nothing again when no page listens", () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource); vi.stubGlobal("fetch", vi.fn());
+    vi.advanceTimersByTime(60_000);
+    const seen = vi.fn();
+    window.addEventListener("boxpilot:refresh", seen);
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn() });
+    FakeSource.last!.emit("snapshot", { jobs: [] });
+    FakeSource.last!.emit("job", { job });
+    expect(seen).toHaveBeenCalledTimes(1);
+    window.removeEventListener("boxpilot:refresh", seen);
+    stop();
   });
 });

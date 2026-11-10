@@ -94,7 +94,12 @@ export function createLoginThrottle({
     }
   }
 
-  return { check, record, size: () => entries.size };
+  /** Forget what was counted against one account: its own key and every `account|caller` pair. */
+  function forget(account) {
+    for (const key of entries.keys()) if (key === account || key.startsWith(`${account}|`)) entries.delete(key);
+  }
+
+  return { check, record, forget, size: () => entries.size };
 }
 
 export const defaultThrottle = createLoginThrottle();

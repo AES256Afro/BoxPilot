@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { openView } from "../../activityEvents";
 import { appAddresses } from "../../appLinks";
+import { inspectOperation } from "../../operations";
 import { Button, EmptyState, KeyValue, Notice, Panel, Tag, mayStart, riskOf } from "../../ui";
 import { runRead } from "./appState";
 import type { CatalogContext, Entry, ManifestPort } from "./types";
@@ -28,6 +30,21 @@ export function ReachTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) 
   const [report, setReport] = useState<Report | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
+  // Publishing to the internet lives in the Cloudflare Tunnel app's sheet (M42), which nobody finds
+  // from the app they want published: this tab says whether it is, and opens that form with this
+  // app chosen. The owner's, as the Tunnel tab is; read from BoxPilot's own record of what it published.
+  const tunnelApp = data.applications.find((candidate) => candidate.manifest.id === "cloudflared") ?? null;
+  const publishable = role === "owner" && Boolean(tunnelApp) && manifest.id !== "cloudflared" && Boolean(live?.installed) && manifest.ports.some((port) => port.protocol === "tcp");
+  const tunnelInstalled = Boolean(tunnelApp?.live?.installed);
+  const [publicNames, setPublicNames] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!publishable || !tunnelInstalled) return undefined;
+    let active = true;
+    inspectOperation<{ routes?: Array<{ hostname?: unknown; appId?: unknown }> }>("cloudflare.tunnel.inspect")
+      .then(({ result }) => { if (active) setPublicNames((Array.isArray(result?.routes) ? result.routes : []).flatMap((route) => (route?.appId === manifest.id && typeof route.hostname === "string" ? [route.hostname] : []))); })
+      .catch(() => { if (active) setPublicNames(null); });
+    return () => { active = false; };
+  }, [publishable, tunnelInstalled, manifest.id]);
   if (!live) return null;
   const https = manifest.id === "portainer";
 
@@ -91,6 +108,18 @@ export function ReachTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) 
     <div className="catalog-tab">
       <KeyValue layout="rows" className="catalog-facts" items={[
         { id: "from", label: "Reachable from", value: <span className="catalog-inline">{tailnetOnly ? <Tag reach="tailnet" /> : <Tag reach="lan" />}{tailnetOnly ? "Only through Tailscale" : "Your home network; the firewall decides who can reach it"}</span> },
+        ...(publishable ? [{
+          id: "internet", label: "On the internet", value: (
+            <span className="catalog-inline">
+              {publicNames?.length
+                ? publicNames.map((hostname) => <a key={hostname} href={`https://${hostname}`} target="_blank" rel="noreferrer"><code>{hostname}</code></a>)
+                : "Not published"}
+              {tunnelInstalled
+                ? <Button variant="ghost" onClick={() => openView("catalog", { app: "cloudflared", sheet: "tunnel", publish: manifest.id })}>{publicNames?.length ? "Change in Cloudflare Tunnel…" : "Publish through Cloudflare…"}</Button>
+                : <Button variant="ghost" onClick={() => openView("catalog", { app: "cloudflared" })}>Install Cloudflare Tunnel first</Button>}
+            </span>
+          ),
+        }] : []),
         { id: "ports", label: "Ports", mono: true, value: live.urls.length ? live.urls.map((url) => `${url.label} ${url.host}`).join(" · ") : manifest.ports.length ? manifest.ports.map((port) => `${port.label} ${live.state?.values?.ports?.[port.id] ?? port.host}/${port.protocol}`).join(" · ") : "none" },
       ]} />
 

@@ -156,6 +156,70 @@ describe("Storage page", () => {
       await waitFor(() => expect(JSON.parse(staged["storage.mount"] ?? "{}")).toEqual({ parameters: { uuid: "data-uuid", name: "media" } }));
     });
 
+    it("goes from Format to the mount form, named already, and from mounting the backup drive to copying backups", async () => {
+      // /dev/sdb as it is once formatted: a filesystem and a UUID, which the report from before has not.
+      let formatted = false;
+      const after = { ...report, devices: report.devices.filter((device) => device.path !== "/dev/sdb1").map((device) => (device.path === "/dev/sdb" ? { ...device, fstype: "ext4", uuid: "fresh-uuid" } : device)) };
+      const extra = (url: string, init?: RequestInit) => {
+        if (url === "/api/v1/storage/overview") return json(formatted ? after : report);
+        const stagedFor = url.match(/\/operations\/(storage\.(?:format|mount))\/jobs$/)?.[1];
+        if (stagedFor) return json({ ...job(stagedFor, "medium"), approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk", confirmText: null } }, 201);
+        const id = url.match(/\/jobs\/job-(storage\.(?:format|mount))/)?.[1];
+        if (id && url.endsWith("/approve")) { if (id === "storage.format") formatted = true; return json({ job: { ...job(id, "medium").job, state: "applying" } }, 202);}
+        if (id && url.endsWith("/output")) return json({ output: "" });
+        if (id && init?.method === undefined) return json({ job: { ...job(id, "medium").job, state: "completed" } });
+        return null;
+      };
+      mockFetch({ extra });
+      const opened = vi.fn();
+      const listener = (event: Event) => opened((event as CustomEvent).detail);
+      window.addEventListener("boxpilot:open-view", listener);
+      render(<StoragePage csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Erase and format /dev/sdb" }));
+      fireEvent.change(await screen.findByLabelText("Typed confirmation"), { target: { value: "/dev/sdb" } });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm and run" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Next: Mount it" }));
+      // The form opens for the same device, read again, with a name in the box: nothing is mounted
+      // for BoxPilot's backups yet, so that one.
+      const sheet = await screen.findByRole("dialog", { name: "/dev/sdb" });
+      expect((within(sheet).getByLabelText("Mount name") as HTMLInputElement).value).toBe("boxpilot-backup");
+      fireEvent.click(within(sheet).getByRole("button", { name: /^Mount$/ }));
+      fireEvent.click(await screen.findByRole("button", { name: "Confirm and run" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Next: Copy backups to it" }));
+      expect(opened).toHaveBeenCalledWith({ view: "backups", options: { tab: "offbox" } });
+      window.removeEventListener("boxpilot:open-view", listener);
+    });
+
+    it("starts an unlabelled drive at data when the backup drive is mounted already, and offers no next step for it", async () => {
+      const withBackup = { ...report,
+        devices: report.devices.map((device) => (device.path === "/dev/sdb1" ? { ...device, label: null } : device)),
+        mounts: [...report.mounts, { target: "/mnt/boxpilot/backup", source: "/dev/sdd1", fstype: "ext4", sizeBytes: 100, usedBytes: 1, availableBytes: 99 }, { target: "/mnt/data", source: "/dev/sde1", fstype: "ext4", sizeBytes: 100, usedBytes: 1, availableBytes: 99 }] };
+      mockFetch({ overview: withBackup });
+      render(<StoragePage csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Mount /dev/sdb1" }));
+      expect((within(screen.getByRole("dialog", { name: "/dev/sdb1" })).getByLabelText("Mount name") as HTMLInputElement).value).toBe("data2");
+    });
+
+    it("reads the drives again every fifteen seconds and when the tab comes back, but not under an open form", async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      try {
+        const { fetchMock } = mockFetch();
+        const reads = () => fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/storage/overview").length;
+        render(<StoragePage csrfToken="csrf-token" />);
+        const mount = await screen.findByRole("button", { name: "Mount /dev/sdb1" });
+        const first = reads();
+        act(() => { vi.advanceTimersByTime(15_000); });
+        expect(reads()).toBe(first + 1);
+        // Check again does not go busy for it.
+        expect(screen.getByRole("button", { name: "Check again" }).getAttribute("aria-busy")).not.toBe("true");
+        act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+        expect(reads()).toBe(first + 2);
+        fireEvent.click(mount);
+        act(() => { vi.advanceTimersByTime(60_000); });
+        expect(reads()).toBe(first + 2);
+      } finally { vi.useRealTimers(); }
+    });
+
     it("offers the backup destination's name for a drive, as the share sheet does", async () => {
       mockFetch();
       render(<StoragePage csrfToken="csrf-token" />);
@@ -581,6 +645,23 @@ describe("Storage page", () => {
       expect(screen.getByText("one, two")).toBeTruthy();
       expect(screen.getByText(/Shared folder used by/).closest("li")?.textContent).toContain("grew 2.0 GiB");
       expect(screen.getByText("~10 days left")).toBeTruthy();
+    });
+
+    it("opens an app from its tag where data lives, and says whose folders fill a drive that is nearly full", async () => {
+      const catalog = { applications: [{ manifest: { id: "plex", name: "Plex", volumes: [{ id: "media", hostPath: null }] }, live: { installed: true, state: { values: { volumes: { media: "/mnt/olddata/films" } } } } }] };
+      mockFetch({ extra: (url) => (url === "/api/v1/catalog?view=summary" ? json(catalog) : url === "/api/v1/storage/forecast" ? json({ forecasts: [], usage: [{ appId: "plex", path: "/mnt/olddata/films", mount: "/mnt/olddata", bytes: 3 * GiB, grewBytes: 0, days: 7 }] }) : null) });
+      const opened = vi.fn();
+      const listener = (event: Event) => opened((event as CustomEvent).detail);
+      window.addEventListener("boxpilot:open-view", listener);
+      render(<StoragePage csrfToken="csrf-token" />);
+      await screen.findByText("Example USB HDD");
+      openTab(/^Mounts/);
+      const place = await screen.findByRole("article", { name: "/mnt/olddata" });
+      // 95% used, and nothing of BoxPilot's to clear on a data drive.
+      expect(await within(place).findByText("BoxPilot cleans nothing here: what fills it is Plex (3.0 GiB).")).toBeTruthy();
+      fireEvent.click(within(place).getByRole("button", { name: "Open Plex" }));
+      expect(opened).toHaveBeenCalledWith({ view: "catalog", options: { app: "plex" } });
+      window.removeEventListener("boxpilot:open-view", listener);
     });
 
     it("lists every mounted filesystem with its use, and says nearly full in words", async () => {

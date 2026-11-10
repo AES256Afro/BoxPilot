@@ -143,6 +143,7 @@ function QuietHours({ csrfToken }: { csrfToken: string }) {
       </div>
       <Checkbox checked={draft.holdHigh} onChange={(holdHigh) => setDraft({ ...draft, holdHigh })} disabled={!draft.enabled} label="Hold urgent ones too" description="A failing disk, a drive gone, the UPS running low, a failed job. Left off, these still wake you." />
       <p className="settings-quiet">Server time. The test button and "Send the report now" always go at once.</p>
+      <p className="settings-quiet">Approval pushes have their own quiet hours, under the bell.</p>
       <div className="settings-actions">
         <Button variant="primary" disabled={busy || !changed} onClick={() => void save()}>Save quiet hours</Button>
       </div>
@@ -176,6 +177,9 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
   // A refusal's body ({ error }) used to be kept as the settings, so the panel drew "Off" and a form
   // over a target it had not read: the answer is checked, and a failure is said with Try again.
   const [readError, setReadError] = useState<string | null>(null);
+  // Whether the catalog has ntfy and neither it nor Gotify is installed: the form's placeholder
+  // address leads nowhere then, and the way to get a server is one press. null until the catalog is read.
+  const [noServer, setNoServer] = useState<boolean | null>(null);
   const refresh = () => fetch("/api/v1/settings/notifications")
     .then(async (response) => {
       const body = (await response.json().catch(() => null)) as (NotificationState & { error?: string }) | null;
@@ -196,6 +200,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
     // running, offer to point BoxPilot straight at it rather than making the owner type its address.
     fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((data: { applications?: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean }; urls: Array<{ host: number }> } | null }>; host?: { lanAddress: string | null; tailscaleDnsName: string | null } } | null) => {
       if (!data?.applications) return;
+      setNoServer(data.applications.some((app) => app.manifest.id === "ntfy") && !data.applications.some((app) => (app.manifest.id === "ntfy" || app.manifest.id === "gotify") && app.live?.installed));
       for (const wanted of ["ntfy", "gotify"] as const) {
         const entry = data.applications.find((app) => app.manifest.id === wanted && app.live?.installed && app.live.container.running);
         const port = entry?.live?.urls?.[0]?.host;
@@ -223,8 +228,12 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
       const body = (await response.json()) as NotificationState & { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Could not save the notification target");
       setCurrent(body); setEditing(false); setPassword(""); setToken("");
-      setMessage(target ? "Saved. Send a test to make sure it arrives." : "Notifications are off.");
       onChange?.();
+      if (!target) { setMessage("Notifications are off."); return; }
+      // A saved target nobody has tried is a guess: the test goes at once, and its refusal is said.
+      const refusal = await sendTest();
+      if (refusal) { setMessage("Saved."); setError(`The test did not go: ${refusal}`); }
+      else setMessage("Saved, and a test was sent. Check your device.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not save the notification target");
     } finally {
@@ -232,18 +241,21 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
     }
   };
 
-  const test = async () => {
-    setBusy(true); setError(null); setMessage(null);
+  /** Sends the test; null when it went, else why it did not. */
+  const sendTest = async (): Promise<string | null> => {
     try {
       const response = await fetch("/api/v1/settings/notifications/test", { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } });
-      const body = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(body.error ?? "The test notification failed");
-      setMessage("Test sent. Check your device.");
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      return response.ok ? null : body.error ?? "The test notification failed";
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "The test notification failed");
-    } finally {
-      setBusy(false);
+      return requestError instanceof Error ? requestError.message : "The test notification failed";
     }
+  };
+  const test = async () => {
+    setBusy(true); setError(null); setMessage(null);
+    const refusal = await sendTest();
+    if (refusal) setError(refusal); else setMessage("Test sent. Check your device.");
+    setBusy(false);
   };
 
   const configured = current?.configured === true;
@@ -285,6 +297,11 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
           )}
           {localServer && url === localServer.sendUrl && (
             <p className="settings-quiet">Alerts will be sent to the {localServer.name} on this server. To get them on your phone, open the {localServer.name} app and subscribe to {kind === "ntfy" ? <>topic <code>{topic || "boxpilot"}</code></> : "this server"}{localServer.reachAddress ? <> at <code>{localServer.reachAddress}</code></> : ""}. If the app is only reachable from this server, publish it on your tailnet first. <Button variant="ghost" onClick={() => openView("catalog", { app: localServer.kind })}>Open {localServer.name} in the catalog</Button></p>
+          )}
+          {form && current && !configured && noServer && (
+            <Notice tone="info" title="No notification server yet." action={<Button onClick={() => openView("catalog", { app: "ntfy" })}>Open ntfy in Apps</Button>}>
+              Install ntfy on this server, or use an ntfy server you already have.
+            </Notice>
           )}
           {form && current && (
             <form className="settings-form" onSubmit={(event) => { event.preventDefault(); if (password.length >= 12 && url) void save({ kind, url, ...(kind === "ntfy" ? { topic } : {}), ...(token ? { token } : {}) }); }}>

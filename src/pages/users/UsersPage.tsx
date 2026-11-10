@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { openView } from "../../activityEvents";
+import { onRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { inspectOperation } from "../../operations";
@@ -54,6 +56,8 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
     }
   }, [canRead]);
   useEffect(() => { void refresh(); }, [refresh]);
+  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
+  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
 
   // A change that took clears the form it came from, and only that form; a cancelled approval or a
   // failed job keeps it, so reopening the sheet shows what was typed. Any job ending (a sudo switch,
@@ -175,6 +179,10 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
         </>}
       />
 
+      {/* The sidebar says "Users": these are the server's own accounts, not who may sign in here. */}
+      <Notice tone="info" title="These are accounts on the server itself." action={role === "owner" ? <Button onClick={() => openView("settings", { tab: "people" })}>Open People</Button> : undefined}>
+        {role === "owner" ? "To let someone sign in to BoxPilot, use Settings, People." : "Who may sign in to BoxPilot is the owner's to change, under Settings, People."}
+      </Notice>
       {!canRead && <Notice tone="info" title="Reading accounts needs an operator">Accounts and their keys are read as root, so an owner or operator reads them.</Notice>}
       {error && <Notice tone="danger" live title="The accounts and SSH could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{error}</Notice>}
 

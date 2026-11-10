@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { onRefresh } from "../../shell/refresh";
 import { behindBackupSchedules, judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "../../backupProtection";
 import type { ViewName } from "../../data";
 import { readJson } from "../../http";
@@ -111,6 +112,8 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
+  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
 
   /**
    * Schedule each operation daily, one request each, so a refusal on one does not cost the others;

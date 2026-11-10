@@ -36,6 +36,8 @@ export interface Command {
   view?: ViewName;
   app?: string;
   tab?: string;
+  /** With `app`: the tab its sheet opens at ("tunnel"). */
+  sheet?: string;
   /** An address outside BoxPilot (an app's own web page), opened in a new tab. */
   href?: string;
   /** Extra words that should find it, searched like the label and ranked just under it. */
@@ -243,6 +245,8 @@ export function buildCommands(catalog: CatalogEntry[], actions: Command[] = []):
       { id: `app:${app.id}`, group: "Apps", label: `${app.name} in Apps`, hint: "Installed", view: "catalog", app: app.id, keywords: `${app.name} ${app.id} ${app.category} manage settings logs backups` },
     ];
   });
+  // Publishing to the internet is a tab of the Cloudflare Tunnel app's sheet, which nobody types.
+  if (catalog.some((app) => app.id === "cloudflared")) features.push({ id: "catalog:publish", group: "Settings and features", label: "Publish an app to the internet", hint: "Apps · Cloudflare Tunnel", view: "catalog", app: "cloudflared", sheet: "tunnel", keywords: "cloudflare tunnel public domain expose website outside port forward share online" });
   return [...pageCommands(), ...actions, ...shellCommands(), ...apps, ...features];
 }
 

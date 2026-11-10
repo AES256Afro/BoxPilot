@@ -93,4 +93,11 @@ describe("the command bar's index", () => {
       ["Sign out", "sign-out", "Actions"],
     ]);
   });
+
+  it("finds publishing to the internet, which is a tab of an app's sheet, when that app is in the catalog", () => {
+    const tunnel = { id: "cloudflared", name: "Cloudflare Tunnel", category: "Network", installed: true, url: null };
+    const found = searchCommands(buildCommands([tunnel]), "publish internet")[0];
+    expect(found).toMatchObject({ label: "Publish an app to the internet", view: "catalog", app: "cloudflared", sheet: "tunnel" });
+    expect(searchCommands(buildCommands([]), "publish internet").some((command) => command.id === "catalog:publish")).toBe(false);
+  });
 });

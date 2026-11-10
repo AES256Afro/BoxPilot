@@ -132,6 +132,31 @@ describe("Backups page", () => {
       expect(JSON.parse(bodies["app.backup"] ?? "{}")).toEqual({ parameters: { id: "vaultwarden" } });
     });
 
+    it("backs up every app now in one job, naming them and saying each stops briefly", async () => {
+      const { bodies } = mockFetch({ apps: [{ id: "vaultwarden", name: "Vaultwarden", protectable: true, backups: 3, newestAt: daysAgo(0.5) }, { id: "immich", name: "Immich", protectable: true, backups: 0, newestAt: null }] });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      const button = await screen.findByRole("button", { name: "Back up all now" });
+      expect(button.getAttribute("data-risk")).toBe("medium");
+      fireEvent.click(button);
+      expect(await screen.findByText(/^Backs up Immich, Vaultwarden in one job, one at a time\. Each stops briefly/)).toBeTruthy();
+      expect(JSON.parse(bodies["app.backup.many"] ?? "{}")).toEqual({ parameters: { ids: ["immich", "vaultwarden"] } });
+    });
+
+    it("opens an app's own Backups from its row, where one app or one file is restored", async () => {
+      mockFetch({ apps: [{ id: "vaultwarden", name: "Vaultwarden", protectable: true, backups: 3, newestAt: daysAgo(0.5) }, { id: "immich", name: "Immich", protectable: true, backups: 0, newestAt: null }] });
+      const opened = vi.fn();
+      const listener = (event: Event) => opened((event as CustomEvent).detail);
+      window.addEventListener("boxpilot:open-view", listener);
+      render(<BackupsPage csrfToken="csrf-token" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Restore Vaultwarden: open its backups" }));
+      expect(opened).toHaveBeenCalledWith({ view: "catalog", options: { app: "vaultwarden", sheet: "backups" } });
+      // Nothing to restore from yet: no button.
+      expect(screen.queryByRole("button", { name: "Restore Immich: open its backups" })).toBeNull();
+      openTab(/^Restore/);
+      expect(await screen.findByText("One app, or one file from it: open the app's Backups.")).toBeTruthy();
+      window.removeEventListener("boxpilot:open-view", listener);
+    });
+
     it("schedules nightly backups for the apps with none, and says what it did", async () => {
       const posted: unknown[] = [];
       mockFetch({

@@ -1,4 +1,5 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { openView } from "../../activityEvents";
 import { useOperation } from "../../shell/ApproveDialog";
 import { autoReconnectRule, type AutoReconnectControl } from "../../AutoReconnect";
 import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mountpoints";
@@ -28,6 +29,8 @@ export interface DrivesTabProps {
   /** Samba's shares, for which computers a check disconnects. */
   sambaShares: MapSambaShare[];
   onChanged: () => void;
+  /** Reads the drives again, quietly: a drive plugged in shows up without Check again. */
+  onReread?: () => void;
   /** "Share on network": open File sharing's Add a share with this folder filled in. */
   onShareFolder: (prefill: { name: string; path: string }) => void;
 }
@@ -50,7 +53,7 @@ const namedFs = (device: DeviceRow) => `${device.fstype}${device.label ? ` “${
  * What a device holds, for the sentence before it is erased: its own filesystem, or those of the
  * partitions under it (the rows that follow it, deeper, until the next one at its level).
  */
-export function holdsWords(device: DeviceRow, devices: DeviceRow[]): string {
+function holdsWords(device: DeviceRow, devices: DeviceRow[]): string {
   if (device.fstype) return `It holds ${namedFs(device)}.`;
   const at = devices.indexOf(device);
   const below: DeviceRow[] = [];
@@ -66,9 +69,22 @@ function filesystemOf(device: DeviceRow) {
   return <>{device.fstype ?? "—"}{device.label ? ` (${device.label})` : ""}</>;
 }
 
-export default function DrivesTab({ csrfToken, role, report, loading, autoReconnect, mapApps, sambaShares, onChanged, onShareFolder }: DrivesTabProps) {
-  const { start, dialog } = useOperation(csrfToken, () => onChanged());
+/** How often the drives are read again while this tab shows and nothing is open over it. */
+const rereadEveryMs = 15_000;
+
+export default function DrivesTab({ csrfToken, role, report, loading, autoReconnect, mapApps, sambaShares, onChanged, onReread, onShareFolder }: DrivesTabProps) {
+  const { start, dialog, active } = useOperation(csrfToken, () => onChanged());
   const [form, setForm] = useState<MountForm | null>(null);
+  // The device just formatted, whose mount form opens once the drives are read again: its new
+  // filesystem and UUID are what Mount needs, and the report from before the format has neither.
+  const [mountNext, setMountNext] = useState<string | null>(null);
+
+  const quiet = !form && !active;
+  useEffect(() => {
+    if (!onReread || !quiet) return undefined;
+    const timer = window.setInterval(() => { if (document.visibilityState !== "hidden") onReread(); }, rereadEveryMs);
+    return () => window.clearInterval(timer);
+  }, [onReread, quiet]);
 
   const managed = managedMounts(report);
   const drives = (report?.mounts ?? []).flatMap((mount) => { const name = managed.get(mount.target); return name ? [{ name, mount }] : []; });
@@ -113,9 +129,30 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
     title: `Erase and format ${device.path}`,
     parameters: { device: device.path },
     confirmText: device.path ?? "",
+    // A formatted drive is not in use until it is mounted: the next step, not a hunt down the table.
+    after: may("storage.mount") && device.path ? { label: "Mount it", open: () => { setMountNext(device.path); onChanged(); } } : undefined,
     preview: <span>Runs <code>wipefs -a</code> then <code>mkfs.ext4</code> on <code>{device.path}</code> ({gib(device.sizeBytes)}{device.model ? `, ${device.model}` : ""}). {holdsWords(device, report?.devices ?? [])} <strong>Everything on it is destroyed.</strong></span>,
   });
-  const openMount = (device: DeviceRow) => setForm({ device, name: device.label ? slug(device.label) : "", readOnly: false, appWritable: permissionlessFs(device.fstype) });
+  // A drive with no label of its own (one just formatted) starts with a name rather than an empty
+  // box: BoxPilot's backups when nothing is mounted for them yet, else "data", or the first of
+  // data2, data3… that no mount has.
+  const suggestedName = () => {
+    const mounted = new Set((report?.mounts ?? []).map((mount) => mount.target));
+    const promised = new Set((report?.fstab ?? []).map((row) => row.mountpoint));
+    const free = (name: string) => !mounted.has(mountpointFor(name)) && !promised.has(mountpointFor(name));
+    if (report && free(BACKUP_MOUNT_NAME)) return BACKUP_MOUNT_NAME;
+    for (let count = 1; count <= 20; count += 1) { const name = count === 1 ? "data" : `data${count}`; if (free(name)) return name; }
+    return "";
+  };
+  const openMount = (device: DeviceRow) => setForm({ device, name: device.label ? slug(device.label) : suggestedName(), readOnly: false, appWritable: permissionlessFs(device.fstype) });
+  useEffect(() => {
+    if (!mountNext || active || form) return;
+    const device = (report?.devices ?? []).find((entry) => entry.path === mountNext);
+    if (!device || !canMount(device)) return;
+    setMountNext(null);
+    openMount(device);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mountNext, report, active, form]);
   const submitMount = () => {
     if (!form || !nameValid(form.name)) return;
     const { device, name, readOnly, appWritable } = form;
@@ -123,6 +160,8 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
     start({
       operationId: "storage.mount",
       title: `Mount ${device.path} at ${mountpointFor(name)}`,
+      // The drive BoxPilot's backups go to is empty until something is copied: that is on Backups.
+      after: name === BACKUP_MOUNT_NAME ? { label: "Copy backups to it", open: () => openView("backups", { tab: "offbox" }) } : undefined,
       parameters: { uuid: device.uuid, name, ...(readOnly ? { readOnly: true } : {}), ...(appWritable && !readOnly ? { appWritable: true } : {}) },
       preview: <span>Mounts <code>{device.path}</code> ({device.fstype ?? "auto"}) at <code>{mountpointFor(name)}</code> with a <code>nofail</code> fstab entry, so a missing disk never blocks boot.{readOnly ? " Read-only." : appWritable ? (permissionlessFs(device.fstype) ? " Owned by your apps user so containers and shares can write to it." : " The top folder is handed to your apps user so containers can write to it.") : ""}</span>,
     });

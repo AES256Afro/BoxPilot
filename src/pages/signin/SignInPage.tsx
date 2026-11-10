@@ -86,6 +86,9 @@ export function SignInUnavailable({ problem }: { problem: string }) {
   );
 }
 
+/** Resets an account's password from the server itself (scripts/boxpilot-owner.mjs), when nothing else is left. */
+const resetCommand = "sudo node /opt/boxpilot/scripts/boxpilot-owner.mjs reset-password <your user name>";
+
 export default function SignInPage({ bootstrapRequired, onAuthenticated, notice = null }: { bootstrapRequired: boolean; onAuthenticated: (status: AuthStatus) => void; notice?: SignedOutNotice | null }) {
   const titleId = useId();
   // Empty, not "operator" (M50): that is a role's name, and nobody's username by default.
@@ -278,6 +281,16 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
         {errorFor("password")}
         <Button variant={bootstrapRequired || lead === "password" ? "primary" : "secondary"} type="submit" busy={submitting}>{submitting ? "Verifying..." : bootstrapRequired ? "Create owner" : "Sign in"}</Button>
       </form>
+
+      {/* The way back in when the password is gone: said here, where it is needed, not only in the docs. */}
+      {!bootstrapRequired && (
+        <details className="signin-forgot">
+          <summary>Forgot your password?</summary>
+          <p className="signin-hint">Use a recovery code or a passkey if you saved one. Otherwise, from an SSH session on the server, run:</p>
+          <span className="signin-device__copy"><code className="signin-forgot__command">{resetCommand}</code><CopyButton value={resetCommand} label="Copy" name="the command" /></span>
+          <p className="signin-hint">It asks for a new password twice.</p>
+        </details>
+      )}
 
       {!bootstrapRequired && (
         recoveryOpen ? (

@@ -4,7 +4,7 @@ import { isIP } from "node:net";
 import { defaultThrottle as throttle, defaultSprayThrottle as sprayThrottle } from "./login-throttle.mjs";
 import { normalizeAddress, tailnetClientAddress } from "./identity.mjs";
 import { promisify } from "node:util";
-import { elevationTtlMs } from "./ops/risk.mjs";
+import { approvalRequirement, elevationTtlMs } from "./ops/risk.mjs";
 
 /** @type {(password: string, salt: string, keylen: number, options: import("node:crypto").ScryptOptions) => Promise<Buffer>} */
 const scrypt = promisify(scryptCallback);
@@ -18,6 +18,9 @@ const cookieName = "boxpilot_session";
  * name, and both names are read so nobody is signed out by an upgrade.
  */
 const hostCookieName = `__Host-${cookieName}`;
+
+/** Where a console password reset leaves its time, by account, for the running service to see (forgetThrottleIfReset). */
+const passwordResetSettingKey = "passwordResetFromConsole";
 
 /** What the browser is told when its session was presented from an address it was not signed in from. */
 export const addressChangedMessage = "You were signed out because this sign-in came from a different network address. Sign in again.";
@@ -82,6 +85,11 @@ function validateCredentials(username, password) {
   return errors;
 }
 
+/** What is wrong with a password someone is about to be given, in words for them, or null. One rule for every door that sets one. */
+export function newPasswordProblem(password, subject = "The new password") {
+  return typeof password !== "string" || password.length < 12 || password.length > 256 ? `${subject} must be 12 to 256 characters` : null;
+}
+
 export async function hashPassword(password) {
   const salt = randomBytes(16).toString("base64url");
   const derived = await scrypt(password, salt, 64, passwordOptions);
@@ -96,6 +104,27 @@ export async function verifyPassword(password, encoded) {
     N: Number.parseInt(n, 10), r: Number.parseInt(r, 10), p: Number.parseInt(p, 10), maxmem: 64 * 1024 * 1024,
   });
   return safeEqual(Buffer.from(derived).toString("base64url"), expected);
+}
+
+/**
+ * A forgotten password, set again from the server's own console (scripts/boxpilot-owner.mjs
+ * reset-password, as root): the last way back in when there is no recovery code and no passkey.
+ * Being root on the server is the proof; nothing over the network reaches this. Any account, the
+ * owner's or a member's. Every session of the account ends, the browsers it trusted are forgotten,
+ * the running service is told to forget the wrong guesses counted against it, and the audit log
+ * says it was done from the console, by no account. An unknown name says nothing of the others.
+ * @param {{ store: any, username: unknown, password: unknown, now?: () => Date, hash?: (password: string) => Promise<string> }} options
+ * @returns {Promise<{ ok: true, username: string, role: string, sessionsEnded: number } | { ok: false, error: string }>}
+ */
+export async function resetPasswordFromConsole({ store, username, password, now = () => new Date(), hash = hashPassword }) {
+  const account = typeof username === "string" && username.length <= 64 ? store.findOwnerByUsername(username) : null;
+  if (!account) return { ok: false, error: "No such account." };
+  const problem = newPasswordProblem(password);
+  if (problem) return { ok: false, error: `${problem}.` };
+  const set = store.setOwnerPassword(account.id, await hash(/** @type {string} */ (password)), { actorId: null, auditType: "auth.password.reset-from-console" });
+  const at = now().toISOString();
+  store.updateSetting(passwordResetSettingKey, {}, (resets) => ({ value: { ...(resets && typeof resets === "object" && !Array.isArray(resets) ? resets : {}), [account.id]: at }, result: null }));
+  return { ok: true, username: account.username, role: account.role, sessionsEnded: set.sessionsEnded };
 }
 
 /**
@@ -293,8 +322,8 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
       response.status(401).json({ error: "Current password is wrong", code: "invalid_credentials" });
       return;
     }
-    if (typeof newPassword !== "string" || newPassword.length < 12 || newPassword.length > 256) {
-      response.status(400).json({ error: "The new password must be 12 to 256 characters", code: "invalid_password" });
+    if (newPasswordProblem(newPassword)) {
+      response.status(400).json({ error: newPasswordProblem(newPassword), code: "invalid_password" });
       return;
     }
     if (newPassword === currentPassword) {
@@ -411,6 +440,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
    */
   async function checkPassword(request, owner, password) {
     const caller = await clientKeyFor(request);
+    forgetThrottleIfReset(owner);
     // One key per caller either way. The bare caller key alongside it only doubled the entries an
     // attacker needs to create, and the two were perfectly correlated.
     const keys = [`user:${owner ? owner.id : "unknown"}|${caller}`];
@@ -432,6 +462,41 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
     if (owner) sprayThrottle.record(account, ok);
     if (!ok) store.recordAudit("auth.failed", { actorId: owner?.id ?? null, subjectId: owner?.id ?? null, details: { client: caller.slice(3) } });
     return { ok, blocked: false, retryAfterMs: 0 };
+  }
+
+  /**
+   * A password reset from the server's own console (scripts/boxpilot-owner.mjs) runs in another
+   * process, and the counters are in this one's memory: it leaves the time of the reset in a
+   * setting, and the first password check after it forgets what was counted against that account,
+   * so the person who just reset it is not kept waiting behind their own wrong guesses.
+   */
+  const resetSeen = new Map();
+  function forgetThrottleIfReset(owner) {
+    if (!owner) return;
+    let at = null;
+    try { at = store.getSetting?.(passwordResetSettingKey, null)?.[owner.id] ?? null; } catch { return; }
+    if (typeof at !== "string" || resetSeen.get(owner.id) === at) return;
+    resetSeen.set(owner.id, at);
+    throttle.forget(`user:${owner.id}`);
+    sprayThrottle.forget(`user:${owner.id}`);
+  }
+
+  /**
+   * The owner's word on a change that asks for the password again: the password, or the short
+   * elevated window a high-risk approval (or Unlock) opened on this very session. The window is
+   * read off the session the request presented, by the rule approvals use (approvalRequirement), so
+   * it ends when theirs does, is nobody else's, and counts for nothing in always-password mode. A
+   * password that was sent is checked and decides, wrong ones counted by the throttle as anywhere
+   * else; one that was not sent is not a guess, and is not counted as one. A viewer has no window.
+   */
+  async function checkPasswordOrElevation(request, owner, password) {
+    if (typeof password === "string" && password.length > 0) return checkPassword(request, owner, password);
+    const session = request.boxpilotSession;
+    const role = owner?.role ?? "disabled";
+    if (!owner || !session || session.owner?.id !== owner.id || (role !== "owner" && role !== "operator")) return { ok: false, blocked: false, retryAfterMs: 0 };
+    const mode = store.getSetting?.("approvalMode", null) ?? process.env.BOXPILOT_APPROVAL_MODE;
+    const needed = approvalRequirement({ atLeast: "high", mode, elevatedUntil: session.elevatedUntil ?? null, now: () => new Date(now()) });
+    return { ok: needed.elevated && !needed.passwordRequired, blocked: false, retryAfterMs: 0 };
   }
 
   function rejectThrottled(response, verdict) {
@@ -576,7 +641,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
     response.json({ revoked: count });
   }
 
-  return { bootstrap, login, status, logout, elevate, dropElevation, changePassword, issueSession, requestSession, requireSession, requireCsrf, requireRole, trustedDevice, rememberDevice, checkPassword, rejectThrottled, listSessions, revokeSession, revokeOtherSessions };
+  return { bootstrap, login, status, logout, elevate, dropElevation, changePassword, issueSession, requestSession, requireSession, requireCsrf, requireRole, trustedDevice, rememberDevice, checkPassword, checkPasswordOrElevation, rejectThrottled, listSessions, revokeSession, revokeOtherSessions };
 }
 
 export const securityInternals = { cookieName, parseCookies, safeEqual, validateCredentials };

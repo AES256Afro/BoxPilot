@@ -222,6 +222,8 @@ const changeRoutes = [
   "POST /api/v1/power/outages/:id/acknowledge",
   "POST /api/v1/oidc/clients", "DELETE /api/v1/oidc/clients/:id",
   "POST /api/v1/people", "PUT /api/v1/people/:id", "DELETE /api/v1/people/:id",
+  // A member's forgotten password, set by the owner.
+  "POST /api/v1/people/:id/password",
   "PUT /api/v1/settings/weekly-report", "POST /api/v1/settings/weekly-report/send", "PUT /api/v1/settings/notifications", "POST /api/v1/settings/notifications/test", "PUT /api/v1/settings/quiet-hours",
   "PUT /api/v1/settings/approval-mode", "PUT /api/v1/settings/backup-destination", "PUT /api/v1/settings/github-client-id", "PUT /api/v1/settings/assistant",
   "PUT /api/v1/settings/storage-wake",
