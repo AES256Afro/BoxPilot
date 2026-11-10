@@ -13,7 +13,7 @@ import { createRecoveryCodeStore } from "./state/recovery-codes.mjs";
 import { createScheduleFlowStore } from "./state/schedules-flows.mjs";
 import { applySchema } from "./state/schema.mjs";
 import { createSettingsStore } from "./state/settings.mjs";
-import { digest, iso, parseJson } from "./state/shared.mjs";
+import { iso } from "./state/shared.mjs";
 import { createStoredParameterStore } from "./state/stored-parameters.mjs";
 import { createVmLedgerStore } from "./state/vm-ledger.mjs";
 
@@ -265,4 +265,3 @@ export function createStateStore({
   };
 }
 
-export const stateInternals = { digest, parseJson };

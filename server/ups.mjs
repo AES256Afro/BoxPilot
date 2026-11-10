@@ -91,4 +91,3 @@ export function createUpsService({ run = fixedRun } = {}) {
   return { inspect };
 }
 
-export const upsInternals = { baseEvidence, boundedNumber, fixedStatusTokens, parseVariables, upscBinary, upsNamePattern };

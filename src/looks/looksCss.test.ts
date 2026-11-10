@@ -87,6 +87,9 @@ describe("the looks' stylesheets", () => {
   });
 
   it("scope a skin to its look and a look's other sheets to its own classes", () => {
+    // The sheets come from a glob import: one that matched nothing would pass every check below
+    // without checking a stylesheet (M54).
+    expect(Object.keys(sheets).length).toBeGreaterThan(LOOK_IDS.length);
     for (const [path, css] of Object.entries(sheets)) {
       const [, id, file] = /^\.\/([a-z]+)\/([a-z-]+)\.css$/.exec(path) ?? [];
       if (!id) continue;

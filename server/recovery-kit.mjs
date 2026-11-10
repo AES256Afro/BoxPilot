@@ -175,4 +175,3 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
   return { inspect: shared(inspect) };
 }
 
-export const recoveryKitInternals = { productVersion, renderRunbook };

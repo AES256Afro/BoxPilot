@@ -1,10 +1,8 @@
 import { chmod, chown, lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { createVmRestoreDrillHelper, vmRestoreDrillHelperInternals } from "./vm-restore-drill-helper.mjs";
+import { createVmRestoreDrillHelper, safeDomainPattern, vmRestoreDrillHelperInternals } from "./vm-restore-drill-helper.mjs";
+import { restoreEvidenceErrors, uuidPattern } from "./restic-retention.mjs";
 
-const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
-const shaPattern = /^[a-f0-9]{64}$/;
-const safeDomainPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
 
 export function validateVmRecoveryInput(input) {
   const errors = [];
@@ -17,11 +15,7 @@ export function validateVmRecoveryInput(input) {
   if (typeof input.targetDomainName !== "string" || !safeDomainPattern.test(input.targetDomainName)) errors.push("Recovery domain name is invalid");
   if (typeof input.targetDomainName === "string" && input.targetDomainName.toLowerCase().startsWith("boxpilot-drill-")) errors.push("Recovery domain name uses the reserved restore-drill namespace");
   if (typeof input.restoreDrillId !== "string" || !uuidPattern.test(input.restoreDrillId)) errors.push("Restore drill id must be a UUID");
-  if (typeof input.repositoryId !== "string" || !shaPattern.test(input.repositoryId)) errors.push("Repository id is invalid");
-  if (typeof input.snapshotId !== "string" || !shaPattern.test(input.snapshotId)) errors.push("Snapshot id is invalid");
-  if (typeof input.expectedManifestChecksumSha256 !== "string" || !shaPattern.test(input.expectedManifestChecksumSha256)) errors.push("Manifest checksum is invalid");
-  if (!Number.isSafeInteger(input.expectedSizeBytes) || input.expectedSizeBytes <= 0) errors.push("Expected backup size is invalid");
-  if (typeof input.expectedDestinationRevision !== "string" || !shaPattern.test(input.expectedDestinationRevision)) errors.push("Destination revision is invalid");
+  errors.push(...restoreEvidenceErrors(input));
   return errors;
 }
 

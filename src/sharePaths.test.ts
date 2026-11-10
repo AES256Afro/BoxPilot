@@ -44,8 +44,8 @@ describe("how to reach a share from each machine", () => {
   });
 
   it("builds the Linux mount command for a permanent mount", () => {
-    expect(linuxMountCommand({ host: "192.168.1.10", share: "torrents", mountpoint: "/mnt/torrents", username: "chris" }))
-      .toBe("sudo mount -t cifs //192.168.1.10/torrents /mnt/torrents -o username=chris,uid=$(id -u),gid=$(id -g)");
+    expect(linuxMountCommand({ host: "192.168.1.10", share: "torrents", mountpoint: "/mnt/torrents", username: "alex" }))
+      .toBe("sudo mount -t cifs //192.168.1.10/torrents /mnt/torrents -o username=alex,uid=$(id -u),gid=$(id -g)");
   });
 });
 

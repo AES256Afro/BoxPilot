@@ -214,3 +214,37 @@ describe("the disk a format is staged for", () => {
     await expect(pinDiskIdentity({ device: "/dev/sdz" }, lsblk())).rejects.toThrow(/Could not read which disk \/dev\/sdz is; nothing was staged/);
   });
 });
+
+/**
+ * Pathological device-mapper parentage (M55.2). The walk to a device's first real parent skips
+ * LVM's internal `-real` and `-cow` nodes, and had no visited set: a node whose PKNAME was its own
+ * KNAME resolved to itself for ever. Synchronous, in the web process, so it took the event loop and
+ * every request with it rather than one page. Each case here hung before the fix.
+ */
+describe("lsblk output that claims a device is its own parent", () => {
+  const mapper = (name, pkname) => ({ path: `/dev/mapper/${name}`, kname: name, pkname, type: "lvm", size: "1024" });
+
+  it("does not hang on a -real node whose parent is itself, and still lists the real device", () => {
+    const tree = parseLsblkTree(JSON.stringify({ blockdevices: [mapper("x-real", "x-real"), mapper("y", "x-real")] }));
+    expect(tree.map((device) => device.path)).toEqual(["/dev/mapper/y"]);
+  });
+
+  it("does not hang on two internal nodes that claim each other", () => {
+    const tree = parseLsblkTree(JSON.stringify({ blockdevices: [mapper("a-real", "b-cow"), mapper("b-cow", "a-real"), mapper("z", "a-real")] }));
+    expect(tree.map((device) => device.path)).toEqual(["/dev/mapper/z"]);
+  });
+
+  it("still lists two ordinary devices that claim each other, rather than dropping both", () => {
+    // Neither can be placed under the other, so neither was a root and neither was anybody's child:
+    // both used to disappear from Storage without a word.
+    const tree = parseLsblkTree(JSON.stringify({ blockdevices: [mapper("one", "two"), mapper("two", "one")] }));
+    expect(tree.map((device) => device.path).sort()).toEqual(["/dev/mapper/one", "/dev/mapper/two"]);
+  });
+
+  it("leaves ordinary parentage exactly as it was", () => {
+    const tree = parseLsblkTree(JSON.stringify({
+      blockdevices: [{ path: "/dev/sda", kname: "sda", type: "disk", size: "2048", children: [{ path: "/dev/sda1", kname: "sda1", pkname: "sda", type: "part", size: "1024" }] }],
+    }));
+    expect(tree.map((device) => [device.path, device.depth])).toEqual([["/dev/sda", 0], ["/dev/sda1", 1]]);
+  });
+});
