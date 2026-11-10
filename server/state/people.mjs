@@ -31,7 +31,7 @@ export function createPeopleStore({ database, now, timestamp, tokenBytes, record
     try {
       if (ownerCount() > 0) throw new Error("An owner already exists");
       const entry = database.prepare("SELECT * FROM bootstrap_tokens WHERE token_hash = ?").get(digest(token));
-      if (!entry || entry.used_at || entry.expires_at <= at) throw new Error("Bootstrap token is invalid or expired");
+      if (!entry || entry.used_at || entry.expires_at <= at) throw new Error("That setup code is not valid or has run out");
       const owner = { id: randomUUID(), username, role: "owner", createdAt: at };
       database.prepare("INSERT INTO owners (id, username, password_hash, role, created_at) VALUES (?, ?, ?, 'owner', ?)")
         .run(owner.id, owner.username, passwordHash, owner.createdAt);

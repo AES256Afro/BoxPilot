@@ -28,6 +28,17 @@ export function openView(view: string, options: OpenViewOptions = {}): void {
   window.dispatchEvent(new CustomEvent<{ view: string; options: OpenViewOptions }>(openViewEvent, { detail: { view, options } }));
 }
 
+/**
+ * Whether this page, at this tab when one is named, is what the address says is showing. A page's
+ * first tab is not written in the address, so a tab that is not there counts as not showing.
+ */
+export function viewIsShowing(view: string, tab?: string): boolean {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  if ((params.get("view") ?? "home") !== view) return false;
+  return !tab || params.get(view === "setup" ? "mode" : "tab") === tab;
+}
+
 /** Opening the notification centre from anywhere (M36): Home's "could not tell you" item shows what. */
 export const openNotificationsEvent = "boxpilot:open-notifications";
 

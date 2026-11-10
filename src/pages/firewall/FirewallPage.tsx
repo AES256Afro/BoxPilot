@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { relativeTime } from "../../home/format";
@@ -93,8 +93,10 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
     }
   }, []);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    // A quiet read (a job ended somewhere) changes nothing but the facts: Check again does not spin,
+    // and what is on screen, an error included, stays until the answer is in.
+    if (!quiet) setLoading(true);
     void readFail2ban();
     try {
       const response = await fetch("/api/v1/firewall/overview");
@@ -106,12 +108,12 @@ export default function FirewallPage({ csrfToken, role = "owner", now = Date.now
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The firewall could not be read");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [readFail2ban]);
   useEffect(() => { void refresh(); }, [refresh]);
-  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
+  // The bar's Refresh is Check again; a job ending anywhere (Activity, the command bar, a schedule) reads it again quietly.
+  useEffect(() => onPageRefresh({ asked: () => refresh(), job: () => refresh({ quiet: true }) }), [refresh]);
 
   // The profile sheet starts from what is in force, until the owner changes it themselves.
   useEffect(() => {

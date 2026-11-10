@@ -6,8 +6,8 @@ import { createStateStore } from "../server/state.mjs";
 import { resetPasswordFromConsole } from "../server/security.mjs";
 
 const usage = [
-  "Usage: npm run owner:token",
-  "       sudo node scripts/boxpilot-owner.mjs reset-password <user name> [--password-stdin]",
+  "Usage: sudo -u boxpilot env BOXPILOT_STATE_DIRECTORY=/var/lib/boxpilot /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs create-bootstrap-token",
+  "       sudo /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs reset-password <user name> [--password-stdin]",
 ].join("\n");
 
 /** The service's database, where server/state.mjs looks for it. */
@@ -86,12 +86,12 @@ async function resetPassword(argv) {
   const fromStdin = argv.includes("--password-stdin");
   const names = argv.filter((value) => value !== "--password-stdin");
   if (names.length !== 1 || names[0].startsWith("-")) { console.error(usage); return 2; }
-  if (process.getuid?.() !== 0) { console.error("Run this as root on the server itself: sudo node scripts/boxpilot-owner.mjs reset-password <user name>"); return 1; }
+  if (process.getuid?.() !== 0) { console.error("Run this as root on the server itself: sudo /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs reset-password <user name>"); return 1; }
   becomeDatabaseOwner(databasePath());
   const store = createStateStore();
   try {
     // Before asking for anything: a name that is not an account is said at once, and only that.
-    if (!store.findOwnerByUsername(names[0])) { console.error("No such account."); return 1; }
+    if (!store.findOwnerByUsername(names[0])) { console.error("No such account. Nothing was changed."); return 1; }
     const result = await resetPasswordFromConsole({ store, username: names[0], password: await newPassword(fromStdin) });
     if (!result.ok) { console.error(`${result.error} Nothing was changed.`); return 1; }
     const ended = result.sessionsEnded === 1 ? "1 session was ended" : `${result.sessionsEnded} sessions were ended`;
@@ -120,7 +120,7 @@ if (command === "reset-password") {
     console.log("BoxPilot one-time setup code (valid for 15 minutes):");
     console.log(result.token);
     console.log(`Expires: ${result.expiresAt}`);
-    console.log("Open BoxPilot and finish owner setup. Do not paste this token into chat or logs.");
+    console.log("Open BoxPilot and finish owner setup. Do not paste this setup code into chat or logs.");
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

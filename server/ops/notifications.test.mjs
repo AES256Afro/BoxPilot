@@ -50,7 +50,7 @@ describe("sending alerts to the ntfy on this server (M35)", () => {
   });
 
   it("says what to do when ntfy is not there, not running, or asks for a login", async () => {
-    await expect(operation.run({}, deps({ installed: false }))).rejects.toThrow("install it from the App catalog first");
+    await expect(operation.run({}, deps({ installed: false }))).rejects.toThrow("install it from Apps first");
     await expect(operation.run({}, deps({ running: false }))).rejects.toThrow("not running; start it");
     await expect(operation.run({}, deps({ answer: { ok: false, status: 403 } }))).rejects.toThrow("asks for a login (it answered 403)");
     await expect(operation.run({}, deps({ answer: { ok: false, status: 500 } }))).rejects.toThrow("did not accept the test (it answered 500). Nothing was changed.");

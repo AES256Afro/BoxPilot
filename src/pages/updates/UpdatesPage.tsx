@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import SnapshotFirstButton from "../../SnapshotFirstButton";
 import { countOf } from "../../data";
@@ -58,9 +58,10 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [customPackages, setCustomPackages] = useState("");
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    // A quiet read (a job ended somewhere) changes nothing but the facts: Check again does not spin,
+    // and what is on screen, an error included, stays until the answer is in.
+    if (!quiet) { setLoading(true); setError(null); }
     try {
       const [upgradable, unattendedResult, curatedResult] = await Promise.all([
         inspectOperation<UpgradableReport>("apt.upgradable.inspect"),
@@ -72,15 +73,16 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
       setUnattended(unattendedResult?.result && typeof unattendedResult.result.enabled === "boolean" ? unattendedResult.result : null);
       setCurated(curatedResult?.result && Array.isArray(curatedResult.result.packages) ? curatedResult.result : null);
       setSelected((current) => new Set([...current].filter((name) => result.upgradable.some((item) => item.name === name))));
+      if (quiet) setError(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read available updates");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
-  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
+  // The bar's Refresh is Check again; a job ending anywhere (Activity, the command bar, a schedule) reads it again quietly.
+  useEffect(() => onPageRefresh({ asked: () => refresh(), job: () => refresh({ quiet: true }) }), [refresh]);
 
   const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
   const may = (operationId: string) => mayStart(role, operationId);
@@ -103,7 +105,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
   const restarts = report?.servicesNeedingRestart ?? [];
   const toolsInstalled = curated?.packages.filter((tool) => tool.installed).length ?? 0;
 
-  const reboot = () => start({ operationId: "system.reboot", title: "Reboot the server", parameters: {}, preview: <span>First stops the apps using BoxPilot's drives and unmounts the drives, saying in the log which let go cleanly, then reboots 5 seconds later. Running VMs and containers stop and the apps start again by themselves; reconnect when this server is back.</span> });
+  const reboot = () => start({ operationId: "system.reboot", title: "Restart the server", parameters: {}, preview: <span>First stops the apps using BoxPilot's drives and unmounts the drives, saying in the log which let go cleanly, then restarts the server 5 seconds later. Running VMs and containers stop and the apps start again by themselves; reconnect when this server is back.</span> });
   const setAutomatic = (enabled: boolean) => start({
     operationId: "apt.unattended.set",
     title: enabled ? "Turn on automatic updates" : "Turn off automatic updates",
@@ -161,7 +163,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
       <PageHeader
         title="Updates"
         status={verdict}
-        meta={report ? <><b>{report.count}</b> upgradable · <b>{securityCount}</b> security · reboot <b>{report.rebootRequired ? "required" : "not needed"}</b>{unattended ? <> · automatic updates <b>{unattended.enabled ? "on" : "off"}</b></> : null}</> : undefined}
+        meta={report ? <><b>{report.count}</b> upgradable · <b>{securityCount}</b> security · restart <b>{report.rebootRequired ? "required" : "not needed"}</b>{unattended ? <> · automatic updates <b>{unattended.enabled ? "on" : "off"}</b></> : null}</> : undefined}
         actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(report)}>Check again</Button>}
         about={<>
           <p>What Ubuntu wants to update, and a way to install it: all of it, or the packages you tick. Automatic updates install security fixes every night by themselves.</p>
@@ -169,7 +171,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
         </>}
       />
 
-      <MetricStrip label="Updates, reboot and automatic updates" minTile="14rem" className="updates-strip">
+      <MetricStrip label="Updates, restart and automatic updates" minTile="14rem" className="updates-strip">
         <MetricTile
           label="Available updates"
           value={loading && !report ? "…" : report?.count ?? "—"}
@@ -177,12 +179,12 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
           status={verdict.status}
         />
         <MetricTile
-          label="Reboot"
+          label="Restart"
           value={!report ? "—" : report.rebootRequired ? "Required" : "Not needed"}
           caption={!report ? (loading ? "Checking for updates" : "Not read") : report.rebootRequired ? "A kernel or core library changed" : "Nothing pending a restart"}
           status={!report ? "unknown" : report.rebootRequired ? "warning" : "good"}
         >
-          {report?.rebootRequired && may("system.reboot") && <Button risk={riskOf("system.reboot")} onClick={reboot}>Reboot now</Button>}
+          {report?.rebootRequired && may("system.reboot") && <Button risk={riskOf("system.reboot")} onClick={reboot}>Restart now</Button>}
         </MetricTile>
         <MetricTile
           label="Automatic updates"
@@ -210,17 +212,17 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
           title="Running old libraries"
           count={{ status: "warning", label: `${restarts.length} to restart` }}
           meta={report?.needrestartCheckedAt ? `checked ${new Date(report.needrestartCheckedAt).toLocaleString()}` : undefined}
-          footer="These kept the pre-upgrade code in memory: restart them when convenient, or reboot to refresh everything."
+          footer="These kept the pre-upgrade code in memory: restart them when convenient, or restart the server to refresh everything."
         >
           <ul className="updates-restarts__list">
             {restarts.map((unit) => (
               <li key={unit} className="updates-restarts__row">
                 <code>{unit}</code>
                 {unit === "systemd-manager"
-                  ? may("system.manager.reexec") && <Button risk={riskOf("system.manager.reexec")} onClick={() => start({ operationId: "system.manager.reexec", title: "Finish applying system updates", parameters: {}, preview: <span>Starts the system manager again on the updated libraries. It keeps its state, and every service keeps running.</span> })}>Refresh systemd manager</Button>
+                  ? may("system.manager.reexec") && <Button risk={riskOf("system.manager.reexec")} onClick={() => start({ operationId: "system.manager.reexec", title: "Finish applying system updates", parameters: {}, preview: <span>Starts the system manager again on the updated libraries. It keeps its state, and every service keeps running.</span> })}>Finish applying updates</Button>
                   : !restartable(unit)
-                    ? <span className="updates-note">Reboot the server to refresh this process.</span>
-                    : may("service.action") && <Button risk={riskOf("service.action")} onClick={() => start({ operationId: "service.action", title: `Restart ${unit}`, parameters: { unit, action: "restart" }, preview: <span>Stops and starts {unit.replace(/\.service$/, "")}; anything using it is cut off for a moment.{/^(docker|containerd)(\.service)?$/.test(unit) ? " Every app restarts with it." : ""}</span> })}>Restart {unit}</Button>}
+                    ? <span className="updates-note">Restart the server to refresh this process.</span>
+                    : may("service.action") && <Button risk={riskOf("service.action")} onClick={() => start({ operationId: "service.action", title: `Restart ${unit}`, parameters: { unit, action: "restart" }, preview: <span>Stops and starts {unit.replace(/\.service$/, "")}; anything using it is cut off for a moment.{/^(docker|containerd)(\.service)?$/.test(unit) ? " Every app restarts with it." : ""}</span> })}>Restart {unit.replace(/\.service$/, "")}</Button>}
               </li>
             ))}
           </ul>
@@ -252,7 +254,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
                 rowStatus={(item) => (isSecurity(item) ? "warning" : undefined)}
                 empty={!report
                   ? (loading ? "Checking for updates…" : "The updates could not be read.")
-                  : <EmptyState title="Everything is up to date.">Refresh lists asks Ubuntu's mirrors again.</EmptyState>}
+                  : <EmptyState title="Everything is up to date">Refresh lists asks Ubuntu's mirrors again.</EmptyState>}
               />
             </Panel>
           ) : tab === "tools" ? (

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { followJobs, type Job } from "./operations";
-import { onRefresh } from "./shell/refresh";
+import { onRefresh, pageFollowsJob } from "./shell/refresh";
 
 class FakeSource {
   static last: FakeSource | null = null;
@@ -171,9 +171,10 @@ describe("a job finishing, wherever it was started", () => {
     const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn() });
     const source = FakeSource.last!;
     source.emit("snapshot", { jobs: [] });
-    source.emit("job", { job: { ...job, id: "a", state: "failed" } });
-    source.emit("job", { job: { ...job, id: "b", state: "completed" } });
-    source.emit("job", { job: { ...job, id: "c", state: "cancelled" } });
+    const justNow = new Date(Date.now() - 2000).toISOString();
+    source.emit("job", { job: { ...job, id: "a", state: "failed", updatedAt: justNow } });
+    source.emit("job", { job: { ...job, id: "b", state: "completed", updatedAt: justNow } });
+    source.emit("job", { job: { ...job, id: "c", state: "cancelled", updatedAt: justNow } });
     expect(read).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(999);
     expect(read).toHaveBeenCalledTimes(1);
@@ -184,11 +185,60 @@ describe("a job finishing, wherever it was started", () => {
     stop(); stopListening();
   });
 
+  // Dismissing a failure adds a step to a job that ended long ago, and the server says so like any
+  // other change. It is not a job ending: "Dismiss all N failed" re-read the page once a second.
+  it("does not take a step added to an old finished job for a job ending", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource); vi.stubGlobal("fetch", vi.fn());
+    await vi.advanceTimersByTimeAsync(30_000);
+    const clock = Date.parse("2026-11-10T12:00:00Z");
+    const read = vi.fn();
+    const stopListening = onRefresh(read);
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn(), now: () => clock });
+    const source = FakeSource.last!;
+    source.emit("snapshot", { jobs: [job] });
+    // From "Show older": not in the snapshot, failed last week, dismissed now.
+    for (const id of ["old-1", "old-2", "old-3"]) {
+      source.emit("job", { job: { ...job, id, state: "failed", updatedAt: "2026-11-03T08:00:00Z", steps: [{ name: "dismissed", state: "completed", detail: "Dismissed by sam.", createdAt: "2026-11-10T12:00:00Z" }] } });
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+    expect(read).not.toHaveBeenCalled();
+    // One this tab never saw running, ended a moment ago (started and finished between two looks): news.
+    source.emit("job", { job: { ...job, id: "quick", state: "completed", updatedAt: "2026-11-10T11:59:57Z" } });
+    expect(read).toHaveBeenCalledTimes(1);
+    // One it watched run is news whatever its record says.
+    source.emit("job", { job: { ...job, id: "slow", state: "applying" } });
+    source.emit("job", { job: { ...job, id: "slow", state: "failed", updatedAt: "2026-11-10T09:00:00Z" } });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(read).toHaveBeenCalledTimes(2);
+    stop(); stopListening();
+  });
+
+  // A page's own job: its dialog hands it the finished job, and the feed does not ask for a second read.
+  it("leaves a job its own page is following to that page", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource); vi.stubGlobal("fetch", vi.fn());
+    await vi.advanceTimersByTimeAsync(45_000);
+    const read = vi.fn();
+    const stopListening = onRefresh(read);
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn() });
+    const source = FakeSource.last!;
+    source.emit("snapshot", { jobs: [running] });
+    const release = pageFollowsJob(running.id);
+    source.emit("job", { job: { ...running, state: "completed" } });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(read).not.toHaveBeenCalled();
+    // Once the page has gone, the next job is everyone's again.
+    release();
+    source.emit("job", { job: { ...running, id: "job-9", state: "applying" } });
+    source.emit("job", { job: { ...running, id: "job-9", state: "completed" } });
+    expect(read).toHaveBeenCalledTimes(1);
+    stop(); stopListening();
+  });
+
   it("notices one that turns up finished in a later snapshot, where the stream is buffered", async () => {
     vi.useFakeTimers(); vi.stubGlobal("EventSource", undefined);
     let jobs: Job[] = [running];
     vi.stubGlobal("fetch", vi.fn(async () => response({ jobs })));
-    await vi.advanceTimersByTimeAsync(40_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const read = vi.fn();
     const stopListening = onRefresh(read);
     const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn() });
@@ -202,12 +252,12 @@ describe("a job finishing, wherever it was started", () => {
 
   it("loads nothing again when no page listens", () => {
     vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource); vi.stubGlobal("fetch", vi.fn());
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(80_000);
     const seen = vi.fn();
     window.addEventListener("boxpilot:refresh", seen);
     const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn() });
     FakeSource.last!.emit("snapshot", { jobs: [] });
-    FakeSource.last!.emit("job", { job });
+    FakeSource.last!.emit("job", { job: { ...job, updatedAt: new Date().toISOString() } });
     expect(seen).toHaveBeenCalledTimes(1);
     window.removeEventListener("boxpilot:refresh", seen);
     stop();

@@ -23,7 +23,7 @@ const guidance = {
     category: "Apps with no backup",
     view: "catalog",
     steps: [
-      "Open the App catalog. Each card says whether that app has ever been backed up.",
+      "Open Apps. Each app says whether that app has ever been backed up.",
       "Back it up from the card, then use Rehearse weekly so a broken backup does not stay unnoticed.",
       "Mirror the backups off this server from the Backups page.",
     ],
@@ -128,7 +128,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
         evidence: [item.evidence, `Check state: ${item.state}.`],
         recommendation: {
           view: fixed.view,
-          title: `Open ${fixed.view === "repairs" ? "Repair Center" : fixed.view[0].toUpperCase() + fixed.view.slice(1)}`,
+          title: `Open ${fixed.view === "repairs" ? "Repair" : fixed.view[0].toUpperCase() + fixed.view.slice(1)}`,
           steps: fixed.steps,
         },
         boundary: boundary(),
@@ -183,7 +183,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
           title: "Could not read the drives",
           summary: "BoxPilot could not read this server's mounts just now, so it cannot say whether the drives are healthy.",
           evidence: ["The mount list could not be read."],
-          recommendation: { view: "ops", title: "Open Ops", steps: ["Open Ops and press Read again.", "If it still fails, check the BoxPilot service on the Services page."] },
+          recommendation: { view: "ops", title: "Open Ops", steps: ["Open Ops and press Check again.", "If it still fails, check the BoxPilot service on the Services page."] },
           boundary: boundary(),
         });
       } else {
@@ -290,7 +290,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: "A package install was interrupted",
             summary: "Ubuntu's package system was left mid-operation. Nothing else can install until it is put right.",
             evidence: [`${maintenance.packageManager.pendingUpdateFragments ?? "Unknown"} pending update(s) were detected.`],
-            recommendation: { view: "repairs", title: "Open Repair Center", steps: ["Do not start another install or update until this is fixed.", "Open Repair: BoxPilot offers to finish the interrupted operation."] },
+            recommendation: { view: "repairs", title: "Open Repair", steps: ["Do not start another install or update until this is fixed.", "Open Repair: BoxPilot offers to finish the interrupted operation."] },
             boundary: boundary(),
           });
         }
@@ -327,7 +327,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: "Could not read the server's update state",
             summary: "BoxPilot could not read whether updates, a reboot, or failed services are pending.",
             evidence: ["One of the update checks could not be read."],
-            recommendation: { view: "ops", title: "Open Ops", steps: ["Open Ops and press Read again.", "If it still cannot read them, check the BoxPilot service on the Services page."] },
+            recommendation: { view: "ops", title: "Open Ops", steps: ["Open Ops and press Check again.", "If it still cannot read them, check the BoxPilot service on the Services page."] },
             boundary: boundary(),
           });
         }
@@ -339,7 +339,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
             title: "The package lists are out of date",
             summary: "Ubuntu's list of available updates is more than a week old, so what it shows may be stale.",
             evidence: [`APT metadata age: ${maintenance.aptMetadata.ageHours ?? "unknown"} hours.`],
-            recommendation: { view: "repairs", title: "Open Repair Center", steps: ["Check the server is online.", "Refresh the package lists from the Updates page."] },
+            recommendation: { view: "repairs", title: "Open Repair", steps: ["Check the server is online.", "Refresh the package lists from the Updates page."] },
             boundary: boundary(),
           });
         }
@@ -383,7 +383,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
         title: "Nothing could be read from this host",
         summary: "Disk health, power protection and update state could not be read, so none of them is being reported either way.",
         evidence: ["The server inventory could not be read."],
-        recommendation: { view: "ops", title: "Open Ops", steps: ["Read Ops again.", "Check that the BoxPilot helper service is running.", "Read this page again once evidence returns."] },
+        recommendation: { view: "ops", title: "Open Ops", steps: ["Open Ops and press Check again.", "Check that BoxPilot's admin service (boxpilot-helper) is running on the Services page.", "Press Check again here once it answers."] },
         boundary: boundary(),
       });
     }

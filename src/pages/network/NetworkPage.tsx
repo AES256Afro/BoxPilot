@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { Button, KeyValue, Notice, PageHeader, Tabs, useUrlParam, type Status } from "../../ui";
@@ -96,8 +96,10 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
     setTailnetError(!tailnetRead);
   }, []);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    // A quiet read (a job ended somewhere) changes nothing but the facts: Check again does not spin,
+    // and what is on screen, an error included, stays until the answer is in.
+    if (!quiet) setLoading(true);
     void readAround();
     try {
       const next = await readJson<Topology>(await fetch("/api/v1/network/topology"));
@@ -107,12 +109,12 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The network could not be read");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [readAround]);
   useEffect(() => { void refresh(); }, [refresh]);
-  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
+  // The bar's Refresh is Check again; a job ending anywhere (Activity, the command bar, a schedule) reads it again quietly.
+  useEffect(() => onPageRefresh({ asked: () => refresh(), job: () => refresh({ quiet: true }) }), [refresh]);
 
   const { start, dialog } = useOperation(csrfToken, () => { setRefreshKey((key) => key + 1); void readAround(); void refresh(); void readResilience(true); });
 

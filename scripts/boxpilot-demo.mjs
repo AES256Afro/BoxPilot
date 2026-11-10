@@ -744,7 +744,7 @@ api.get("/settings/notifications", (_request, response) => json(response, { conf
 api.get("/settings/watch", (_request, response) => json(response, { targetConfigured: true, activeCount: 0, conditions: [
   ["storage.root.full", "Root disk nearly full"], ["storage.mount.full", "A mounted filesystem is nearly full"], ["storage.forecast", "A filesystem is on track to fill soon"],
   ["storage.smart", "A disk reports SMART problems"], ["smart.errors", "A disk's error count is climbing"], ["smart.wear", "An SSD is nearing its write-endurance limit"],
-  ["power.ups", "UPS on battery or low"], ["system.services", "System services have failed"], ["system.reboot", "A reboot is required"],
+  ["power.ups", "UPS on battery or low"], ["system.services", "System services have failed"], ["system.reboot", "A restart is required"],
   ["docker.unhealthy", "A container is unhealthy"], ["docker.restarting", "A container keeps restarting (crash-looping)"], ["schedule.overdue", "A scheduled task (such as a backup) has stopped running"],
   ["schedule.failed", "A scheduled task failed or did not run"], ["flow.failed", "An automation stopped or did not run"], ["record.failed", "A job ran but its result was not saved"],
   ["power.lost", "The server lost power or stopped without shutting down"],
@@ -910,14 +910,14 @@ api.get("/flows", (_request, response) => json(response, {
   ],
   shelf: [
     { slug: "update-night", name: "Update night", description: "Snapshot, refresh, then install every update.", steps: [{ operationId: "host.snapshot.create", parameters: {} }, { operationId: "apt.refresh", parameters: {} }, { operationId: "apt.upgrade", parameters: {}, retry: 1 }] },
-    { slug: "belt-and-braces", name: "Belt and braces", description: "Back up the database, then mirror it off-box.", steps: [{ operationId: "controller.backup.create", parameters: {} }, { operationId: "backup.sync", parameters: {} }] },
+    { slug: "belt-and-braces", name: "Belt and braces", description: "Back up the database, then copy it off this server.", steps: [{ operationId: "controller.backup.create", parameters: {} }, { operationId: "backup.sync", parameters: {} }] },
     { slug: "tidy-docker", name: "Tidy up Docker", description: "Reclaim disk from unused images and layers.", steps: [{ operationId: "docker.prune", parameters: {} }] },
   ],
   palette: [
     { operationId: "host.snapshot.create", title: "Create a machine snapshot", risk: "medium", description: "", fields: [] },
     { operationId: "apt.refresh", title: "Refresh package lists", risk: "low", description: "", fields: [] },
     { operationId: "apt.upgrade", title: "Install package updates", risk: "medium", description: "", fields: [] },
-    { operationId: "controller.backup.create", title: "Back up the BoxPilot database", risk: "low", description: "", fields: [] },
+    { operationId: "controller.backup.create", title: "Back up BoxPilot's database", risk: "low", description: "", fields: [] },
     { operationId: "backup.sync", title: "Copy backups to the backup drive", risk: "medium", description: "", fields: [] },
     { operationId: "docker.prune", title: "Clean up Docker disk space", risk: "medium", description: "", fields: [] },
     { operationId: "homepage.sync", title: "Sync Homepage with installed apps", risk: "low", description: "", fields: [{ name: "host", type: "string", optional: true, enum: null, default: null }] },
@@ -1265,7 +1265,7 @@ const troubleWords = {
 };
 
 /** The same server, described by the routes that report what it can currently reach. */
-const backupNotice = (job) => ({ ...job, type: "op:controller.backup.create", title: "Back up the BoxPilot database", result: { warnings: ["The new database backup passed verification, but old local copies could not all be checked or removed. They may still use disk space. Check backup-directory access and free space before retrying a backup."] } });
+const backupNotice = (job) => ({ ...job, type: "op:controller.backup.create", title: "Back up BoxPilot's database", result: { warnings: ["The new database backup passed verification, but old local copies could not all be checked or removed. They may still use disk space. Check backup-directory access and free space before retrying a backup."] } });
 // M30.2/M30.3: a pull that ran out of time, and a sync a restart cut off that BoxPilot ran again.
 const troubleJobs = [
   { id: "t1", type: "op:app.update", title: "Update Immich", state: "failed", risk: "medium", result: null, createdAt: ago(0.5), approvals: [],
@@ -1294,7 +1294,7 @@ const troubleRest = {
     tunnel: { ...body.tunnel, running: false, status: "exited", since: null, connections: null, lastProblem: null },
     domains: body.domains.map((domain) => (domain.state !== "up" ? domain : {
       ...domain, state: "down", headline: "Cloudflare cannot reach this server (HTTP 530)", problems: ["Cloudflare cannot reach this server (HTTP 530)", "the tunnel app is not running"],
-      advice: `Cloudflare answered for ${domain.hostname} with HTTP 530, which means it could not get an answer from this server. The Cloudflare Tunnel app is not running on this server, so Cloudflare has nowhere to send visitors. Start it from its Overview tab in the App catalog.`,
+      advice: `Cloudflare answered for ${domain.hostname} with HTTP 530, which means it could not get an answer from this server. The Cloudflare Tunnel app is not running on this server, so Cloudflare has nowhere to send visitors. Start it from its Overview tab in Apps.`,
       outside: { outcome: "answered", status: 530, ms: 88, server: "cloudflare", error: null, skipped: null }, uptime: { day: 91.7, week: 98.8, checks: domain.uptime.checks },
     })),
   }),

@@ -743,7 +743,7 @@ beforeAll(async () => {
   // A power cut the owner has seen and said "Got it" to: who said it is theirs to see.
   state.setSetting("powerOutages", [{ id: "7a0b2f1c3d4e5f60718293a4b5c6d7e8", stoppedAt: "2026-09-29T18:41:02.000Z", backAt: "2026-09-29T22:18:00.000Z", offForMs: 13_018_000, cause: "power", dnsApps: ["Pi-hole"], ups: false, evidence: ["its last entry: sshd: Accepted publickey for alex from 192.0.2.7"], detectedAt: checkedAt, acknowledged: { at: checkedAt, by: owner.id } }]);
   state.setSetting("healthAlertsState", {
-    "system.reboot": { title: "A reboot is required", since: checkedAt, notified: true },
+    "system.reboot": { title: "A restart is required", since: checkedAt, notified: true },
     [`schedule.failed:${ownerSchedule.id}`]: { title: "Scheduled task failed: owner-marker", since: checkedAt, notified: false },
     [`schedule.failed:${operatorSchedule.id}`]: { title: "Scheduled task failed: operator-marker", since: checkedAt, notified: false },
     "record.failed:apt.refresh": { title: "Result not saved: Refresh package lists (owner-marker)", since: checkedAt, notified: false },

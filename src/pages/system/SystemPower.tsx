@@ -87,7 +87,7 @@ function RestartPanel({ role, start }: Pick<SystemPowerProps, "role" | "start">)
   });
   return (
     <Panel padded title="Restart" label="Restart the server"
-      actions={<Button risk={riskOf("system.reboot")} onClick={restart}>Restart the server…</Button>}>
+      actions={<Button risk={riskOf("system.reboot")} onClick={restart}>Restart the server</Button>}>
       <p className="system-note">Every app, VM and share stops while the server restarts, and BoxPilot stops answering for a minute or two. The apps come back by themselves; a VM comes back if it is set to start with the server.</p>
     </Panel>
   );

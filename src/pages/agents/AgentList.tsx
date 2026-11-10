@@ -96,7 +96,7 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
     },
   ];
 
-  // Cards "Done with all" could not change: said above the list, where they still are.
+  // Cards "Mark all done" could not change: said above the list, where they still are.
   const [cardsRefused, setCardsRefused] = useState(0);
   const openRun = (agentId: string, runId: string) => onOpen(agentId, "test", runId);
 

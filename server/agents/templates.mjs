@@ -170,7 +170,7 @@ export const agentTemplates = Object.freeze([
     // TheySpy's findings, read through its own read-only summary (theyspy.mjs, app.theyspy.inspect).
     id: "spyware-watch",
     title: "Spyware watch",
-    summary: "Reads what TheySpy found every morning: devices that looked up spyware or ad-intelligence addresses, traces found on a device, and exploited bugs in software a device runs. Says plainly when all is quiet and tells the owner at once when a lookup got through. Needs TheySpy from the App catalog.",
+    summary: "Reads what TheySpy found every morning: devices that looked up spyware or ad-intelligence addresses, traces found on a device, and exploited bugs in software a device runs. Says plainly when all is quiet and tells the owner at once when a lookup got through. Needs TheySpy from Apps.",
     spec: {
       name: "Spyware watch",
       purpose: "Tells the owner when TheySpy sees signs of ad-delivered spyware on the network, and stays quiet otherwise.",
@@ -214,7 +214,7 @@ export const agentTemplates = Object.freeze([
   {
     id: "backup-auditor",
     title: "Backup Auditor",
-    summary: "Checks every night that backups ran, restore checks passed and the off-box copy is recent, and proposes the fix when one did not.",
+    summary: "Checks every night that backups ran, restore checks passed and the copy off this server is recent, and proposes the fix when one did not.",
     spec: {
       name: "Backup Auditor",
       purpose: "Makes sure every app worth keeping has a recent backup that restores, and a copy off this server.",
@@ -222,13 +222,13 @@ export const agentTemplates = Object.freeze([
       successCriteria: [
         "Lists each app never backed up, or whose last backup failed.",
         "Proposes the registered backup for each gap, never runs it.",
-        "Says when the off-box copy is older than two days.",
+        "Says when the copy off this server is older than two days.",
       ],
       prompt: {
         rules: ["A backup job that failed, or an app never backed up, is a finding.", "An app backups.coverage says keeps no data worth backing up needs no backup: say so in a word, and propose nothing for it.", "Work out ages with time.calc."],
         // Since M47.6 backups.coverage answers "never backed up" and "no schedule" for every app;
         // backups.status keeps the restore checks and the copy off this server.
-        steps: ["Use apps.list for the apps installed, then backups.coverage for which hold data with no backup or no schedule, backups.status for the recent backups, their restore checks and the copy off this server, and jobs.recent for failed backup jobs.", "For each app: when it was last backed up, whether its restore check passed, whether there is an off-box copy newer than two days.", "Keep a note of which apps you have seen, so you notice a new app with no backup."],
+        steps: ["Use apps.list for the apps installed, then backups.coverage for which hold data with no backup or no schedule, backups.status for the recent backups, their restore checks and the copy off this server, and jobs.recent for failed backup jobs.", "For each app: when it was last backed up, whether its restore check passed, whether there is a copy off this server newer than two days.", "Keep a note of which apps you have seen, so you notice a new app with no backup."],
         output: { format: "text", style: "The gaps first, one line each; then what is fine, in one line." },
         escalate: ["An app that holds passwords or documents with no backup at all."],
       },
@@ -476,7 +476,7 @@ export const agentTemplates = Object.freeze([
           "Use apps.usage's numbers as it gives them: a share of one core for the processor, bytes for memory. Work out totals and shares with calc.",
           "An app busy because it is working (a transcode, a backup, a scan, a model answering) is not a fault: say what it is doing when apps.list or its log says, and propose nothing.",
           "An app above a whole core that apps.list says is restarting or unhealthy is the finding that matters most: propose app.action restart for it, once.",
-          "Memory nearly full with swap in use is the other finding that matters: name the two biggest apps and point to the Performance page; propose a pause only for an app the owner's instructions say may pause.",
+          "Memory nearly full with swap in use is the other finding that matters: name the two biggest apps and point to the Metrics page; propose a pause only for an app the owner's instructions say may pause.",
           "Keep one note titled \"Readings\": the machine's load, memory and swap and each app's share, with today's date. Your notes come with the request; compare with them, then write it again.",
           "Report only what a tool showed. When all is quiet, say so in a few words.",
         ],

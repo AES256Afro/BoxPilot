@@ -20,7 +20,7 @@ describe("whether running a failure again can work", () => {
     // The unwell demo's Immich backup, and the owner's reason for this: the same refusal, three times.
     expect(adviseRetry("tar failed: No space left on device")).toEqual({ retry: false, next: { label: "Free up space", view: "system", tab: "housekeeping" } });
     expect(adviseRetry("Port 3001 is already in use by tailscaled. Move Uptime Kuma to a free port in its Settings.")).toMatchObject({ retry: false, next: { view: "repairs" } });
-    expect(adviseRetry("Docker Engine is not available; install it from Repair Center first")).toMatchObject({ retry: false, next: { view: "repairs" } });
+    expect(adviseRetry("Docker Engine is not available; install it from Repair first")).toMatchObject({ retry: false, next: { view: "repairs" } });
     expect(adviseRetry("fsck.exfat is not installed, so nothing was stopped or unmounted. Install the drive check tools from Repair first.")).toMatchObject({ retry: false, next: { view: "repairs" } });
     expect(adviseRetry("rclone is not installed; install it from the Backups page first")).toMatchObject({ retry: false, next: { view: "backups", tab: "offbox" } });
     expect(adviseRetry("There is nothing to mirror yet: take a backup or a machine snapshot first, then run this again.")).toMatchObject({ retry: false, next: { view: "backups" } });
@@ -29,7 +29,7 @@ describe("whether running a failure again can work", () => {
     expect(adviseRetry("/mnt/media is not mounted, so there is nothing to check yet. Reconnect the drive first.")).toMatchObject({ retry: false, next: { view: "storage" } });
     expect(adviseRetry("Immich is already installed; use reconfigure or update")).toMatchObject({ retry: false, next: { view: "catalog" } });
     // The server's words since 1.240, and the ones a job from before it still carries.
-    expect(adviseRetry("Immich is already installed. Open it in the App catalog to change its settings or update it.")).toMatchObject({ retry: false, next: { view: "catalog" } });
+    expect(adviseRetry("Immich is already installed. Open it in Apps to change its settings or update it.")).toMatchObject({ retry: false, next: { view: "catalog" } });
   });
 
   it("offers nothing to run when nothing BoxPilot runs would change it", () => {

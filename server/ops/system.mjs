@@ -63,8 +63,8 @@ export function systemOperations() {
       },
     }),
     defineOperation({
-      id: "system.runtime.inspect", title: "Check BoxPilot helper resource use", risk: "low", readOnly: true, timeoutMs: 10_000,
-      description: "Reads the helper process memory, CPU and Linux pressure counters. Starts no disk scans or child processes.",
+      id: "system.runtime.inspect", title: "Check the resource use of BoxPilot's admin service", risk: "low", readOnly: true, timeoutMs: 10_000,
+      description: "Reads the admin service's memory, CPU and Linux pressure counters. Starts no disk scans or child processes.",
       // And where BoxPilot's own drained restart stands (self-restart.mjs): the health check raises
       // "BoxPilot needs a restart" from one that gave up or failed (sweep 5).
       run: async (_parameters, /** @type {{ selfRestart?: { status?: () => unknown } }} */ { selfRestart } = {}) => ({ ...await runtimeDiagnostics.inspect(), selfRestart: selfRestart?.status?.() ?? null }),
@@ -87,8 +87,8 @@ export function systemOperations() {
     defineOperation({
       // Up to two and a half minutes of getting the drives ready (rebootPreparationBudgetMs), then
       // the few seconds of scheduling; the budgets leave room for both and for the runner itself.
-      id: "system.reboot", title: "Reboot the server", risk: "high", timeoutMs: 5 * 60_000, restartsService: true,
-      description: "Stops Docker if its apps use a drive BoxPilot mounted, unmounts those drives and says in the log which let go cleanly and what held on to any that did not, then reboots a few seconds later. Running VMs and containers stop; their restart policies bring the apps back, and BoxPilot comes back when the host does.",
+      id: "system.reboot", title: "Restart the server", risk: "high", timeoutMs: 5 * 60_000, restartsService: true,
+      description: "Stops Docker if its apps use a drive BoxPilot mounted, unmounts those drives and says in the log which let go cleanly and what held on to any that did not, then restarts the server a few seconds later. Running VMs and containers stop; their restart policies bring the apps back, and BoxPilot comes back when the host does.",
       parameters: { fields: { delaySeconds: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 2 && value <= 300 ? null : "must be a whole number of seconds between 2 and 300") } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.reboot", { delaySeconds: parameters.delaySeconds ?? 5 }, { timeoutMs: 4 * 60_000, logPath: jobLog?.path ?? null }),
     }),

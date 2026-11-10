@@ -37,7 +37,7 @@ describe("the team chat panel", () => {
     serve(base);
     render(<ZulipPanel csrfToken="csrf" role="owner" now={now} onStart={() => {}} refreshKey={0} />);
     expect(await screen.findByText("Not installed")).toBeTruthy();
-    expect((screen.getByRole("link", { name: "App catalog" }) as HTMLAnchorElement).getAttribute("href")).toBe("?view=catalog&app=zulip");
+    expect((screen.getByRole("link", { name: "Apps" }) as HTMLAnchorElement).getAttribute("href")).toBe("?view=catalog&app=zulip");
     expect(screen.queryByRole("button", { name: /Connect/ })).toBeNull();
     for (const name of ["#agent-findings", "#agent-logs", "#agent-knowledge", "#agent-files"]) expect(screen.getByText(name)).toBeTruthy();
   });
@@ -50,7 +50,7 @@ describe("the team chat panel", () => {
     expect(connect.getAttribute("data-risk")).toBe("medium");
     fireEvent.click(connect);
     expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ operationId: "agents.zulip.connect", parameters: { boxpilotUrl: window.location.origin } }));
-    expect(screen.getByText(/Create your organization from its sheet in the App catalog first/)).toBeTruthy();
+    expect(screen.getByText(/Create your organization from its sheet in Apps first/)).toBeTruthy();
   });
 
   it("shows the connection, the last post, what came in from #agent-files and the last posts; and reads #agent-files now", async () => {

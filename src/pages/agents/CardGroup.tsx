@@ -47,7 +47,7 @@ export interface CardGroupProps {
   onStage: (operation: PendingOperation) => void;
   onDecided: (proposal: Proposal) => void;
   onOpenRun?: (agentId: string, runId: string) => void;
-  /** How many of "Done with all" the server refused: the list says it, since this head goes once one card is left. */
+  /** How many of "Mark all done" the server refused: the list says it, since this head goes once one card is left. */
   onAllDone: (failed: number) => void;
 }
 
@@ -90,7 +90,7 @@ export function CardGroup({ cards, csrfToken, role, now, onStage, onDecided, onO
       <footer className="agents-cardgroup__foot">
         <Button variant="ghost" aria-expanded={shown} onClick={() => setShown((value) => !value)}>{shown ? "Hide the cards" : `Show all ${count}`}</Button>
         <Button busy={progress !== null} onClick={() => void doneWithAll()}>
-          {progress ? `Marking done, ${progress.done} of ${progress.of}` : `Done with all ${count}`}
+          {progress ? `Marking done, ${progress.done} of ${progress.of}` : `Mark all ${count} done`}
         </Button>
       </footer>
       {shown && (

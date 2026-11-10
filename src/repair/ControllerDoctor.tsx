@@ -58,8 +58,8 @@ export default function ControllerDoctor({ onOpenBackups }: { onOpenBackups?: ()
     <Panel title="Installation" label="BoxPilot installation health" meta={meta}
       count={report ? { status: problems.length ? "warning" : "good", label: problems.length ? `${problems.length} to review` : "ok" } : undefined}
       actions={<>
-        <Button onClick={() => void check()} busy={busy}>{busy ? "Checking installation..." : "Check BoxPilot installation"}</Button>
-        <Button onClick={() => void checkDatabase()} busy={databaseBusy}>{databaseBusy ? "Checking database..." : "Check database"}</Button>
+        <Button onClick={() => void check()} busy={busy}>{busy ? "Checking installation…" : "Check BoxPilot installation"}</Button>
+        <Button onClick={() => void checkDatabase()} busy={databaseBusy}>{databaseBusy ? "Checking database…" : "Check database"}</Button>
       </>}>
       {error && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
       {!report && !error && <p className="rp-quiet">Services, permissions, release files and room for the database. The database check is read-only, with a 15-second budget.</p>}

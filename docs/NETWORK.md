@@ -1,4 +1,4 @@
-# Network and DNS
+# Network
 
 The Network page answers three questions: how this server reaches the internet, what it answers
 DNS for, and what else is on your LAN. Everything it shows is read from the server; the page
@@ -31,8 +31,7 @@ Turning either on writes a sysctl drop-in for IP forwarding.
 
 ## Where an installed app is reachable from
 
-Every app in the catalog carries one of two settings, switched from its card on the App catalog
-page.
+Every app in the catalog carries one of two settings, switched from its Reach tab in Apps.
 
 **Home network** publishes its ports on this server's network address. Anything on your LAN can
 reach them and the firewall is the only thing deciding who does, which matters, because several
@@ -44,7 +43,7 @@ front a web interface:
 
 | The port speaks | Where it goes | Who can reach it |
 | --- | --- | --- |
-| HTTP (the app's web UI) | bound to this server only; Tailscale Serve publishes it as `https://<host>.ts.net:<port>` | anyone Tailscale authenticates, with a real certificate |
+| HTTP (the app's web UI) | bound to this server only; Tailscale Serve publishes it as `https://<host>.<tailnet>.ts.net:<port>` | anyone Tailscale authenticates, with a real certificate |
 | something else. Git over SSH, Syncthing's sync port, RTSP, a game protocol | bound to this server's tailnet address | anything on your tailnet |
 | a service the home network depends on. DNS on 53, a reverse proxy's 80 and 443, UniFi's inform port | left on the LAN address | unchanged |
 
@@ -59,7 +58,7 @@ open it, say a friend picking up a file from Pingvin Share, BoxPilot can publish
 app over HTTPS at a name on your own domain, and no port is opened on your router. Your domain has
 to be on Cloudflare (its free plan is enough).
 
-Everything happens on the **Tunnel** tab of the Cloudflare Tunnel app, in the App catalog. Only the
+Everything happens on the **Tunnel** tab of the Cloudflare Tunnel app, in Apps. Only the
 owner sees it.
 
 1. **Make an API token.** On Cloudflare's [API tokens page](https://dash.cloudflare.com/profile/api-tokens),

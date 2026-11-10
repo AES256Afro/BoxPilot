@@ -91,16 +91,16 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
       // treating it as outstanding meant the Action Center could never report a quiet box.
       check("controller.source", "informational", "Exact BoxPilot source and install notes", `This kit records BoxPilot ${version}. Rebuilding needs the release itself, which lives on GitHub rather than on this server.`, "Keep the release tag, your Ubuntu install notes and the Tailscale command with your other recovery material."),
       !applicationInventoryAvailable
-        ? check("applications.backup", "unavailable", "Catalog application backups", "Catalog application inventory is unavailable, so backup coverage cannot be evaluated.", "Restore the helper connection and regenerate the kit.")
+        ? check("applications.backup", "unavailable", "Catalog application backups", "Catalog application inventory is unavailable, so backup coverage cannot be evaluated.", "Check that BoxPilot's admin service is running, then generate the kit again.")
         : installedApplications.length === 0
         ? check("applications.backup", "not-applicable", "Catalog application backups", "No catalog application is currently installed.", "Re-run this kit after installing an application.")
         : !backupCountsKnown
-        ? check("applications.backup", "unavailable", "Catalog application backups", "The application backup folder could not be read, so how many backups each app has is unknown.", "Check that the BoxPilot helper is running, then generate the kit again.")
+        ? check("applications.backup", "unavailable", "Catalog application backups", "The application backup folder could not be read, so how many backups each app has is unknown.", "Check that BoxPilot's admin service is running, then generate the kit again.")
         : unbackedApplications.length > 0
           ? check("applications.backup", "action-required", "Catalog application backups", `${unbackedApplications.length} of ${installedApplications.length} installed application(s) have no recorded backup: ${unbackedApplications.map((item) => item.id).join(", ")}.`, "Back up each listed application from its catalog card, or schedule recurring backups on the System page.")
           : check("applications.backup", "verified", "Catalog application backups", `All ${installedApplications.length} installed application(s) have at least one recorded checksummed backup archive. Folders you pointed an app at yourself are not inside those archives.`, "Copy the application backup directory to independent storage, keep backup schedules enabled, and make sure any media or photo folders you chose are backed up too."),
       domainInventory.connected !== true
-        ? check("virtualization.backup", "unavailable", "Virtual-machine recovery", "Libvirt domain inventory is unavailable, so VM coverage cannot be evaluated.", "Restore restricted-helper libvirt access and regenerate the kit.")
+        ? check("virtualization.backup", "unavailable", "Virtual-machine recovery", "Libvirt domain inventory is unavailable, so VM coverage cannot be evaluated.", "Check that BoxPilot's admin service can reach libvirt, then generate the kit again.")
         : domains.length === 0
           ? check("virtualization.backup", "not-applicable", "Virtual-machine recovery", "No libvirt domains are currently detected.", "Re-run this kit after creating or importing a VM.")
           : unprotectedDomains.length === 0
@@ -110,7 +110,7 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
         ? check("host.prerequisites", "unavailable", "Host prerequisite review", "Prerequisite inventory is unavailable.", "Restore the read-only prerequisite collector and regenerate the kit before recovery work.")
         : nonReadyPrerequisites.length === 0
         ? check("host.prerequisites", "verified", "Host prerequisite review", `${prerequisiteInventory.checks.length} reported prerequisite checks are ready.`, "Re-run the inspection before a recovery or high-impact change.")
-        : check("host.prerequisites", "operator-check", "Host prerequisite review", `${nonReadyPrerequisites.length} prerequisite check(s) need review; some checks are feature-specific rather than global failures.`, "Open Repair Center and resolve only the requirements for the recovery operation you intend to perform."),
+        : check("host.prerequisites", "operator-check", "Host prerequisite review", `${nonReadyPrerequisites.length} prerequisite check(s) need review; some checks are feature-specific rather than global failures.`, "Open Repair and resolve only the requirements for the recovery operation you intend to perform."),
     ];
 
     const summary = {

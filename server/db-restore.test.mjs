@@ -25,8 +25,14 @@ async function setup() {
   copy.exec("CREATE TABLE owners (username TEXT); INSERT INTO owners VALUES ('then-alex'); CREATE TABLE sessions (id TEXT); INSERT INTO sessions VALUES ('revoked-since');");
   copy.close();
   const calls = [];
-  const run = vi.fn(async (binary, args) => { calls.push(args.join(" ")); return { ok: true, stderr: "" }; });
-  return { directory, database, copyName, run, calls, log: vi.fn() };
+  // The model gateway is not running unless a test says so (`gateway.running`): is-active answers for it and is not counted as a change.
+  const gateway = { running: false };
+  const run = vi.fn(async (binary, args) => {
+    if (args[0] === "is-active") return { ok: gateway.running, stderr: "" };
+    calls.push(args.join(" "));
+    return { ok: true, stderr: "" };
+  });
+  return { directory, database, copyName, run, calls, gateway, log: vi.fn() };
 }
 
 describe.skipIf(onWindows)("putting a database copy back", () => {
@@ -45,6 +51,13 @@ describe.skipIf(onWindows)("putting a database copy back", () => {
     const left = await readdir(directory);
     expect(left.filter((name) => /-wal$|-shm$|\.restoring$/.test(name))).toEqual([]);
     expect(log.mock.calls.map(([line]) => line).every((line) => line.startsWith("[boxpilot-db-restore] "))).toBe(true);
+  });
+
+  it("starts the model gateway again with BoxPilot when it was running, since it stops with it", async () => {
+    const { database, copyName, run, calls, gateway } = await setup();
+    gateway.running = true;
+    await restoreDatabaseCopy({ database, copyName, version: "1.151.0", stamp: "20261019T130000Z", run, healthy: async () => true, log: () => {} });
+    expect(calls).toEqual(["stop boxpilot.service", "start boxpilot.service", "start boxpilot-model-gateway.service"]);
   });
 
   it("puts the database back when BoxPilot does not answer on the copy", async () => {
@@ -91,7 +104,7 @@ describe.skipIf(onWindows)("putting a database copy back", () => {
     await expect(restoreDatabaseCopy({ database, copyName, version: "1.151.0", stamp: "20261019T130000Z", run, healthy: async () => true, log: () => {} })).rejects.toThrow("left as it was");
     expect(await readdir(elsewhere)).toEqual([]);
     expect(owners(database)).toEqual(["now-alex", "now-sam"]);
-    expect(run.mock.calls.map(([, args]) => args[0])).toEqual(["stop", "start"]);
+    expect(run.mock.calls.map(([, args]) => args[0]).filter((verb) => verb !== "is-active")).toEqual(["stop", "start"]);
 
     // A copy that is a link to some other file is refused before anything stops.
     run.mockClear();

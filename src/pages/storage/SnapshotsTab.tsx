@@ -73,7 +73,7 @@ export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnaps
               title: `Roll back to ${snapshot.name}`,
               parameters: { path: snapshot.path },
               confirmText: snapshot.name,
-              preview: <span>Puts the volume back as it was when the snapshot was taken. <strong>Everything written to {snapshot.origin ?? "the volume"} since {snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : "the snapshot"} is discarded.</strong> For the root volume the merge runs during the next reboot, so reboot the server when convenient. The snapshot is consumed by the merge.</span>,
+              preview: <span>Puts the volume back as it was when the snapshot was taken. <strong>Everything written to {snapshot.origin ?? "the volume"} since {snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : "the snapshot"} is discarded.</strong> For the root volume, the system volume goes back at the next restart, so restart the server when convenient. The snapshot is used up.</span>,
             })}>Roll back</Button>
           )}
           {may("storage.lvm.snapshot.delete") && (
@@ -126,7 +126,7 @@ export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnaps
   ];
 
   const takeButton = may("storage.lvm.snapshot.create") && origins.length > 0
-    ? <Button variant="primary" risk={riskOf("storage.lvm.snapshot.create")} onClick={() => setLvmForm({ origin: defaultOrigin?.volume.path ?? "", size: "10", label: "" })}>Take a snapshot</Button>
+    ? <Button variant="primary" risk={riskOf("storage.lvm.snapshot.create")} onClick={() => setLvmForm({ origin: defaultOrigin?.volume.path ?? "", size: "10", label: "" })}>Take a snapshot…</Button>
     : null;
 
   return (
@@ -157,7 +157,7 @@ export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnaps
           title="btrfs and ZFS snapshots"
           count={fsRows.length}
           meta={<><b>{targets.length}</b> {targets.length === 1 ? "filesystem" : "filesystems"} · deleting one never touches the live data</>}
-          actions={may("storage.fs-snapshot.create") && targets.length > 0 ? <Button risk={riskOf("storage.fs-snapshot.create")} onClick={() => setFsForm({ key: `${targets[0].kind}:${targets[0].target}`, name: "" })}>Take a snapshot</Button> : undefined}
+          actions={may("storage.fs-snapshot.create") && targets.length > 0 ? <Button risk={riskOf("storage.fs-snapshot.create")} onClick={() => setFsForm({ key: `${targets[0].kind}:${targets[0].target}`, name: "" })}>Take a snapshot…</Button> : undefined}
         >
           <Table
             caption="btrfs and ZFS snapshots"

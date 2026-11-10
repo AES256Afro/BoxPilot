@@ -146,7 +146,7 @@ describe("quality of life (M48.7)", () => {
     const cards = within(group).getAllByRole("article");
     expect(cards).toHaveLength(3);
     expect(cards[0].textContent).toContain("left 3 days ago · lapses in 4 days");
-    fireEvent.click(within(group).getByRole("button", { name: "Done with all 3" }));
+    fireEvent.click(within(group).getByRole("button", { name: "Mark all 3 done" }));
     await waitFor(() => expect(calls.filter((call) => call.path.endsWith("/decide")).map((call) => call.path.split("/")[5])).toEqual(["look-1", "look-2", "look-3"]));
     // The one the server refused is said, and stays: a single card now, with its own Done.
     expect(await screen.findByText(/1 card could not be marked done/)).toBeTruthy();
@@ -454,11 +454,11 @@ describe("the builder's steps", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Usage" }));
     expect(screen.getByRole("tab", { name: "Build" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText("Your changes are not saved")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(screen.queryByText("Your changes are not saved")).toBeNull();
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Keeper");
     fireEvent.click(screen.getByRole("tab", { name: "Usage" }));
-    fireEvent.click(screen.getByRole("button", { name: "Leave without saving" }));
+    fireEvent.click(screen.getByRole("button", { name: "Drop the changes" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Usage" }).getAttribute("aria-selected")).toBe("true"));
     expect(closing()).toBe(false);
     // With nothing unsaved, a tab is a tab.
@@ -501,11 +501,11 @@ describe("the builder's steps", () => {
     fireEvent.click(within(asked).getByRole("button", { name: "Make a new URL" }));
     expect(await within(webhook).findByText("Copy it now")).toBeTruthy();
     expect(changes()).toEqual(["POST"]);
-    fireEvent.click(within(webhook).getByRole("button", { name: "Take it away" }));
-    asked = screen.getByRole("dialog", { name: "Take the URL away?" });
+    fireEvent.click(within(webhook).getByRole("button", { name: "Remove the URL" }));
+    asked = screen.getByRole("dialog", { name: "Remove the URL?" });
     expect(asked.textContent).toContain("Nothing can start Server Keeper from outside until you make a new one.");
     expect(changes()).toEqual(["POST"]);
-    fireEvent.click(within(asked).getByRole("button", { name: "Take it away" }));
+    fireEvent.click(within(asked).getByRole("button", { name: "Remove the URL" }));
     await waitFor(() => expect(changes()).toEqual(["POST", "DELETE"]));
   });
 
@@ -902,7 +902,7 @@ describe("a runner that is not running", () => {
     const asked = await screen.findByText("Your changes are not saved");
     expect(asked.closest(".ui-notice")?.textContent).toContain("Leaving the Usage tab drops them");
     expect(screen.getByRole("tab", { name: "Usage" }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     // The password sheet says what failed under the field, and nowhere else.
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "wrong" } });
@@ -910,7 +910,7 @@ describe("a runner that is not running", () => {
     await waitFor(() => expect(screen.getAllByText("That password is not right")).toHaveLength(1));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("tab", { name: /^Agents/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Leave without saving" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Drop the changes" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^Agents/ }).getAttribute("aria-selected")).toBe("true"));
   });
 

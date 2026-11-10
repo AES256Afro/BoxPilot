@@ -11,7 +11,7 @@ import { appHealth, reachOf } from "./needs";
 /*
  * An app's sheet (M33.2): what the Launcher shows when a tile is pressed. Its state, who can reach
  * it, its update and its backups, with the app's own page one click away and the few things worth
- * doing from here, each with its tier. Everything else is on its card in the App catalog.
+ * doing from here, each with its tier. Everything else is on its sheet in Apps.
  *
  * M33.14 draws it on the kit's Sheet, in the console's look (look-console): Home's root keeps the
  * Launcher's tokens, and this is the same drawer the approval dialog it hands over to sits beside.
@@ -52,7 +52,7 @@ export function AppSheet({ app, protection, now, role, onClose, onNavigate, onSt
   return (
     <Sheet kicker="App" title={app.name} className="look-console app-sheet" onClose={onClose}
       footer={<>
-        <Button variant="ghost" onClick={() => { onClose(); onNavigate("catalog", { app: app.id }); }}>Manage in the App catalog</Button>
+        <Button variant="ghost" onClick={() => { onClose(); onNavigate("catalog", { app: app.id }); }}>Manage in Apps</Button>
         {actions}
         {app.url && (app.running || app.paused) && (
           <a className="ui-button ui-button--primary app-sheet__open" href={app.url} target="_blank" rel="noreferrer">

@@ -49,7 +49,7 @@ export async function databaseCopyRestore({ name, database } = {}, {
   const args = ["--quiet", "--unit", unit, "--description", `BoxPilot: put back ${name}`, nodeBinary, path.join(installDir, "scripts", "boxpilot-db-restore.mjs"), name, database, version, stamp];
   log?.(`$ systemd-run ${args.join(" ")}`, "stdout");
   const started = await run("/usr/bin/systemd-run", args, { timeout: 30_000 });
-  if (!started.ok) throw new Error(`Could not start the unit that puts the copy back: ${String(started.stderr ?? "").split("\n").slice(-2).join(" ")}`);
+  if (!started.ok) throw new Error(`Could not start the service that puts the copy back: ${String(started.stderr ?? "").split("\n").slice(-2).join(" ")}`);
   log?.("BoxPilot stops for a moment, the copy goes in, and BoxPilot starts again. If it does not answer, the database it had is put back.", "stdout");
   return { started: true, unit, name, saved: `boxpilot-rollback-${version}-${stamp}.sqlite3` };
 }

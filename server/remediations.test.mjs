@@ -969,8 +969,8 @@ describe("releases nothing checks", () => {
   it("is a warning naming what an unsigned update can do, with what to do about it", () => {
     const [found] = releasesNotChecked({ releaseSigner: { available: true, signer: null } });
     expect(found).toMatchObject({ id: "releases-not-checked", severity: "warning", fix: null, fixes: [] });
-    expect(found.detail).toContain("as root");
-    expect(found.manual).toContain("Require signed releases");
+    expect(found.detail).toContain("with admin rights");
+    expect(found.manual).toContain("press Release key…");
     expect(found.evidence).toContain("no release signing key is set on this server");
   });
 

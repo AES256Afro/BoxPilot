@@ -421,7 +421,7 @@ describe("durable job executor", () => {
       expect(store.getJobOutput(first.id)).toBeNull();
       expect(helper.request).not.toHaveBeenCalledWith("job.output.release", expect.anything(), expect.anything());
       expect(send).toHaveBeenCalledTimes(1);
-      expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Job output cannot be read", message: expect.stringContaining("The helper wrote the output of Refresh package lists, but BoxPilot could not open it: permission denied"), priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
+      expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Job output cannot be read", message: expect.stringContaining("BoxPilot's admin service wrote the output of Refresh package lists, but BoxPilot could not open it: permission denied"), priority: "high" }, expect.objectContaining({ key: expect.any(String) }));
       expect(Object.keys(state())).toEqual([jobLogAlertKey]);
 
       // Every job after it is the same failure, and the same one push.
@@ -550,7 +550,7 @@ describe("durable job executor", () => {
         const jobs = createJobService(store, helper, fast);
         const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
         expect((await jobs.approveAndRun(job.id, owner.id, {})).state).toBe("completed");
-        expect(store.getJob(job.id).steps.find((step) => step.name === "queue")?.detail).toBe("BoxPilot's helper is not answering, so this has not started; it is sent again once it is back");
+        expect(store.getJob(job.id).steps.find((step) => step.name === "queue")?.detail).toBe("BoxPilot's admin service is not answering, so this has not started; it is sent again once it is back");
       } finally { store.close(); }
     });
 

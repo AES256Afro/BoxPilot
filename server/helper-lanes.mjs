@@ -193,7 +193,7 @@ export function createConcurrencyGate(limit, { maxWaiting = limit * 4 } = {}) {
   async function run(task, { signal } = {}) {
     if (signal?.aborted) throw abandoned();
     if (running >= limit) {
-      if (waiting.length >= maxWaiting) throw Object.assign(new Error("The helper inspection queue is full. Wait for current checks to finish, then retry."), { code: "HELPER_BUSY" });
+      if (waiting.length >= maxWaiting) throw Object.assign(new Error("BoxPilot's admin service has too many checks waiting. Wait for the current ones to finish, then try again."), { code: "HELPER_BUSY" });
       await new Promise((resolve, reject) => {
         const entry = { resolve, cleanup: () => signal?.removeEventListener("abort", abort) };
         const abort = () => {
@@ -225,7 +225,7 @@ export function createAdmission(limit) {
   if (!Number.isInteger(limit) || limit < 1) throw new Error("Invalid helper admission limit");
   let held = 0;
   function enter() {
-    if (held >= limit) throw Object.assign(new Error(`${limit} operations are already running or waiting for the helper. Nothing was changed; run this again once some of them finish.`), { code: "HELPER_BUSY" });
+    if (held >= limit) throw Object.assign(new Error(`${limit} operations are already running or waiting for BoxPilot's admin service. Nothing was changed; run this again once some of them finish.`), { code: "HELPER_BUSY" });
     held += 1;
     let left = false;
     return () => { if (!left) { left = true; held -= 1; } };

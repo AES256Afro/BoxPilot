@@ -117,9 +117,9 @@ describe("local names and the DNS change assessment", () => {
   });
 
   it("says why there is nothing to write names to", async () => {
-    openDns(working, undefined, { [names]: { operation: "dns.names.inspect", result: { available: false, reason: "Install Pi-hole from the App catalog.", platform: null, records: [], apps: [] } } });
+    openDns(working, undefined, { [names]: { operation: "dns.names.inspect", result: { available: false, reason: "Install Pi-hole from Apps.", platform: null, records: [], apps: [] } } });
     const panel = await screen.findByRole("region", { name: "Local names" });
-    expect(await within(panel).findByText("Install Pi-hole from the App catalog.")).toBeTruthy();
+    expect(await within(panel).findByText("Install Pi-hole from Apps.")).toBeTruthy();
     expect(within(panel).queryByRole("button", { name: /names/ })).toBeNull();
   });
 

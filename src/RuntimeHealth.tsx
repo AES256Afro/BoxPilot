@@ -48,19 +48,19 @@ export default function RuntimeHealth() {
   const columns: Array<TableColumn<Row>> = [
     { id: "what", header: "Measurement", cell: (row) => row.label, className: "rp-cell-wrap" },
     { id: "web", header: "Web", numeric: true, cell: (row) => row.web },
-    { id: "helper", header: "Helper", numeric: true, cell: (row) => row.helper },
+    { id: "helper", header: "Admin service", numeric: true, cell: (row) => row.helper },
   ];
   return (
-    <Panel title="Resource use" label="BoxPilot's own resource use" meta={report ? (report.helperAvailable ? "web and helper" : "web only") : "read on request"}
-      actions={<Button onClick={() => void check()} busy={busy}>{busy ? "Checking resources..." : "Check resource use"}</Button>}>
+    <Panel title="Resource use" label="BoxPilot's own resource use" meta={report ? (report.helperAvailable ? "web and admin service" : "web only") : "read on request"}
+      actions={<Button onClick={() => void check()} busy={busy}>{busy ? "Checking resources…" : "Check resource use"}</Button>}>
       {error && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
-      {!report && !error && <p className="rp-quiet">The web service's and the helper's own memory and CPU, without starting a disk scan.</p>}
+      {!report && !error && <p className="rp-quiet">The memory and CPU of the web service and BoxPilot's admin service, without starting a disk scan.</p>}
       {report && <>
-        {!report.helperAvailable && <p className="rp-note" data-tone="warning" role="status">The helper did not answer. Available web-service readings are shown below.</p>}
+        {!report.helperAvailable && <p className="rp-note" data-tone="warning" role="status">BoxPilot's admin service did not answer. Available web-service readings are shown below.</p>}
         <Table caption="BoxPilot's own resource use" columns={columns} rows={rows} rowKey={(row) => row.id} />
         <p className="rp-quiet">
           These overlap, so do not add them up; Linux reclaims file cache when apps need memory, and a leak needs a trend, not one reading.
-          {report.transport ? ` ${report.transport.active} helper requests active; ${report.transport.completed} completed and ${report.transport.failed} failed since the web service started.` : ""}
+          {report.transport ? ` ${report.transport.active} requests to BoxPilot's admin service active; ${report.transport.completed} completed and ${report.transport.failed} failed since the web service started.` : ""}
         </p>
       </>}
     </Panel>

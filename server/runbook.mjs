@@ -357,7 +357,7 @@ function renderApps(facts, lines) {
     if (!(app.ports ?? []).length) lines.push("  - No ports.");
     lines.push(`- Data:${(app.data ?? []).length ? "" : " no folders."}`);
     for (const folder of app.data ?? []) lines.push(renderDataFolder(folder));
-    const pointer = `App catalog → ${clean(app.name) || clean(app.id)}`;
+    const pointer = `Apps → ${clean(app.name) || clean(app.id)}`;
     if (app.signIn) lines.push(`- Sign-in: ${pointer} → Sign in. The password is in the app's \`.env\`; BoxPilot shows it there to the owner, after the owner's password.${app.signIn.note ? ` ${sentence(app.signIn.note)}` : ""}`);
     else lines.push("- Sign-in: set up in the app itself; BoxPilot keeps no sign-in for it.");
     if ((app.secretNames ?? []).length) lines.push(`- Secrets it holds: ${app.secretNames.map((name) => code(name)).join(", ")}, kept in its \`.env\`; ${pointer} → Secrets shows them to the owner.`);
@@ -574,7 +574,7 @@ function renderRestoreApp(facts, app, lines, operations) {
   }
   if (chosen.length) steps.push(`${chosen.map((folder) => code(folder.path)).join(", ")} ${chosen.length === 1 ? "is" : "are"} not in its backups: ${chosen.length === 1 ? "it comes" : "they come"} back with ${chosen.length === 1 ? "its" : "their"} drive, or from however you back that drive up.`);
   const url = (app.ports ?? []).find((port) => port.tailnetHttps)?.tailnetHttps;
-  steps.push(`Open it${url ? ` at ${clean(url)}` : ""} and sign in${app.signIn ? `: App catalog → ${name} → Sign in shows the password to the owner` : ""}.`);
+  steps.push(`Open it${url ? ` at ${clean(url)}` : ""} and sign in${app.signIn ? `: Apps → ${name} → Sign in shows the password to the owner` : ""}.`);
   lines.push(`### ${name}`, "");
   steps.forEach((step, index) => lines.push(`${index + 1}. ${step}`));
   lines.push("");

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { bootWords } from "../../home/hostFacts";
@@ -56,8 +56,10 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
   const [scope, setScope] = useState<Scope>("common");
   const [journal, setJournal] = useState<{ unit: string; lines: string[] | null; error: string | null } | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    // A quiet read (a job ended somewhere) changes nothing but the facts: Check again does not spin,
+    // and what is on screen, an error included, stays until the answer is in.
+    if (!quiet) setLoading(true);
     try {
       const { result } = await inspectOperation<ServiceList>("service.list");
       setData(result);
@@ -65,12 +67,12 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The service list could not be read");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
-  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
+  // The bar's Refresh is Check again; a job ending anywhere (Activity, the command bar, a schedule) reads it again quietly.
+  useEffect(() => onPageRefresh({ asked: () => refresh(), job: () => refresh({ quiet: true }) }), [refresh]);
 
   const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
   const canAct = mayStart(role, "service.action");

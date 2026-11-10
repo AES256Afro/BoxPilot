@@ -85,7 +85,7 @@ export function createToolRunner({ state, store, registry, helper = null, invent
     if (operation.minimumRole === "owner" && readRole !== "owner") throw new ToolError(`${operation.title} is the owner's to read`);
     const problem = registry.validate(operationId, parameters);
     if (problem) throw new ToolError(problem);
-    if (!helper) throw new ToolError("The helper is not available");
+    if (!helper) throw new ToolError("BoxPilot's admin service is not available");
     return helper.request(operationId, parameters, { timeoutMs: Math.min(operation.timeoutMs ?? helperTimeoutMs, helperTimeoutMs) });
   }
 
@@ -111,7 +111,7 @@ export function createToolRunner({ state, store, registry, helper = null, invent
       const units = Array.isArray(listed?.units) ? listed.units : [];
       if (unit) {
         const found = units.find((entry) => entry.unit === unit);
-        return found ? `${found.unit}: ${found.active} (${found.sub}), ${found.enabled}${found.description ? ` - ${found.description}` : ""}.` : `${unit} is not a unit on this server.`;
+        return found ? `${found.unit}: ${found.active} (${found.sub}), ${found.enabled}${found.description ? ` - ${found.description}` : ""}.` : `${unit} is not a service on this server.`;
       }
       const failed = units.filter((entry) => entry.active === "failed");
       return [

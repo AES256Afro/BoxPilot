@@ -26,7 +26,7 @@ You pick how it looks: thirteen looks in Settings → Appearance, from frosted g
 
 ## Install
 
-On a fresh Ubuntu Server (22.04 or newer):
+On a fresh Ubuntu Server 22.04, 24.04 or 26.04 LTS, the three releases CI tests on (most host tests run on 24.04 and 26.04 only):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.239.0
@@ -44,7 +44,7 @@ When a new release is out, BoxPilot says so. Installing it takes one click and y
 | **Ops** | The same facts all at once for a big screen: each drive's health, the battery backup (UPS), key services, the job queue, which apps are backed up where, and the setup checklist. |
 | **Today** | The morning view: what is waiting for your approval, what needs a look, what ran overnight, and the agents' digest. Built for a phone first. |
 | **Apps** | The catalog: search, install, set up, update, back up, restore, remove. |
-| **Storage** | Disks and partitions, grow the system drive into free space, snapshots to roll back a bad update, mount drives and network shares so they come back after a reboot, share folders with other computers. |
+| **Storage** | Disks and partitions, grow the system drive into free space, snapshots to roll back a bad update, mount drives and network shares so they come back after a restart, share folders with other computers. |
 | **Network** | Your router, DNS, the devices on your network (with wake-up), Tailscale, and a VPN to send chosen apps through. Checks whether your whole network loses the internet when this server is off, and gives the router steps to fix that. |
 | **Hosted domains** | Every public name this server answers for, through the Cloudflare tunnel or a proxy: does it resolve, does it answer from the internet and from inside, is the certificate good, is the tunnel up, is the app behind it backed up. Checked on a schedule you set; a name that goes down, or a certificate near its end, reaches your phone. |
 | **Firewall** | Choose who can reach what. Suggestions come from what is actually listening. Ban addresses that keep failing to log in. SSH, Tailscale and BoxPilot itself can never be blocked. |
@@ -63,6 +63,8 @@ When a new release is out, BoxPilot says so. Installing it takes one click and y
 | **Settings** | How much approval each kind of change needs, alerts, the heartbeat, sign-in, the phone app, and Appearance: thirteen looks, light or dark, accent colour, wallpaper and row size, kept per browser so a phone and a wall screen can differ. |
 
 Sign in with a password, a passkey, your Tailscale account, or GitHub.
+
+Locked out? Run `sudo /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs reset-password <user name>` on the server.
 
 ### Today, and on your phone
 
@@ -217,7 +219,7 @@ A backup counts only after a restore test passes. A machine snapshot holds every
 
 ### Network
 
-![Network and DNS](docs/screenshots/network.jpg)
+![Network](docs/screenshots/network.jpg)
 
 <!-- every-look:network -->
 <details><summary>Network in every look</summary>
@@ -234,7 +236,7 @@ A backup counts only after a restore test passes. A machine snapshot holds every
 
 ### Updates
 
-![Updates and packages](docs/screenshots/updates.jpg)
+![Updates](docs/screenshots/updates.jpg)
 
 <!-- every-look:updates -->
 <details><summary>Updates in every look</summary>
@@ -287,7 +289,7 @@ Finds what is wrong and offers the fix for each one: a drive that dropped off an
 
 ## Apps
 
-![App catalog](docs/screenshots/catalog.jpg)
+![Apps](docs/screenshots/catalog.jpg)
 
 <!-- every-look:catalog -->
 <details><summary>Apps in every look</summary>
@@ -305,7 +307,7 @@ Finds what is wrong and offers the fix for each one: a drive that dropped off an
 175 apps and game servers, each installed and managed the same way:
 
 - **Sign in**: its address, username and password, and a way to change them.
-- **Performance**: live CPU, memory, temperature and disk use, with pause and stop.
+- **Metrics**: each app's live CPU and memory on the Metrics page, with pause and stop.
 - **Reach**: one switch puts an app on your home network, or keeps it on Tailscale only. Both use HTTPS with a real certificate.
 - **Backups**: Home names any app that has never been backed up, or has no copy off the server, and one button fixes each.
 - **Models**: for apps that run language models, list, add and remove models.
@@ -355,8 +357,9 @@ Each app is a short description file plus a Docker Compose template, so installi
 | `boxpilot-helper.service` | Does the admin work (installs, mounts, firewall, backups) for jobs you approved. Runs as root, locked down, and reachable only through a local socket. | Always |
 | `boxpilot-storage-scan.timer` | Reads drive health and file-system errors. Changes nothing. | Every six hours |
 | `boxpilot-agents.service` | Runs the agents, capped as described above. | Only once you turn Agents on |
+| `boxpilot-model-gateway.service` | Holds the Claude key. | Only once you connect Claude |
 | `boxpilot-heartbeat.timer` | Sends one bare request to your check-in address, with nothing about the server in it. | Only once you turn it on; every five minutes |
-| `boxpilot-run@.service` and the `*-install` services | Fixed root tasks the helper starts for approved jobs: refreshing the package list, and installing Docker, restic, the drive-check tools or the VM tools. | Only when a job needs one |
+| `boxpilot-run@.service` and the `*-install` services | Fixed root tasks the admin service starts for approved jobs: refreshing the package list, and installing Docker, restic, the drive-check tools or the VM tools. | Only when a job needs one |
 
 Apps run in Docker. Beyond Node 24 and BoxPilot, nothing is installed until a job you approved installs it, Docker included.
 
@@ -408,7 +411,7 @@ Open the HTTPS address from any device on your tailnet. Keep Funnel off. BoxPilo
 
 - [Roadmap](docs/ROADMAP-V2.md) · [Decisions](docs/DECISIONS.md) · [Architecture](docs/ARCHITECTURE.md)
 - [Virtual machines](docs/VIRTUALIZATION.md) · [Backups](docs/BACKUPS.md) · [Recovery kit](docs/RECOVERY.md) · [Network](docs/NETWORK.md)
-- [Ubuntu Server installation runbook](UBUNTU-SERVER-INSTALL-RUNBOOK.md)
+- [Ubuntu Server installation runbook](UBUNTU-SERVER-INSTALL-RUNBOOK.md) · [A forgotten password](docs/AUTHENTICATION-RECOVERY.md#a-forgotten-password)
 - [Legacy documentation](docs/legacy/README.md), kept for history
 
 ## Contributing

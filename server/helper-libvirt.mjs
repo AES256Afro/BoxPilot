@@ -18,7 +18,7 @@ export function createHelperLibvirtService({ helper }) {
     try {
       return await helper.request("virtualization.inventory.inspect", { scope });
     } catch {
-      throw new Error("Restricted virtualization helper is unavailable");
+      throw new Error("BoxPilot's admin service cannot reach libvirt");
     }
   }
 
@@ -31,7 +31,7 @@ export function createHelperLibvirtService({ helper }) {
         architecture: process.arch,
         connectionUri: "qemu:///system",
         ready: false,
-        checks: [{ id: "helper", label: "Restricted helper libvirt access", ok: false, detail: error.message }],
+        checks: [{ id: "helper", label: "Admin service access to libvirt", ok: false, detail: error.message }],
         resources: { network: { exists: false, active: false }, pool: { exists: false, active: false } },
         tailscale: { installed: false, connected: false, dnsName: null, serveUrls: [] },
         setupPlan: getSetupPlan(),
@@ -60,7 +60,7 @@ export function createHelperLibvirtService({ helper }) {
   async function getDomain(name) {
     if (!validateDomainName(name)) return null;
     const result = await listDomains();
-    if (!result.connected) throw new Error(result.error ?? "Restricted virtualization helper is unavailable");
+    if (!result.connected) throw new Error(result.error ?? "BoxPilot's admin service cannot reach libvirt");
     return result.domains.find((domain) => domain.name === name) ?? null;
   }
 

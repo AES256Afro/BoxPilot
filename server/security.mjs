@@ -389,7 +389,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
     // and this route has no session to throttle against, so hashing first let anyone who could
     // reach the port stall the setup screen with junk tokens.
     if (!store.bootstrapTokenUsable(bootstrapToken)) {
-      response.status(401).json({ error: "Bootstrap token is invalid or expired", code: "bootstrap_rejected" });
+      response.status(401).json({ error: "That setup code is not valid or has run out", code: "bootstrap_rejected" });
       return;
     }
     try {

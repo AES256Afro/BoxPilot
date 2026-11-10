@@ -71,7 +71,7 @@ describe("Home", () => {
     expect(screen.queryByRole("dialog", { name: "Jellyfin" })).toBeNull();
 
     fireEvent.click(jellyfin);
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Jellyfin" })).getByRole("button", { name: "Manage in the App catalog" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Jellyfin" })).getByRole("button", { name: "Manage in Apps" }));
     expect(onNavigate).toHaveBeenCalledWith("catalog", { app: "jellyfin" });
   });
 

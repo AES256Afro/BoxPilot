@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { inspectOperation } from "../../operations";
@@ -61,8 +61,10 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
   const updateTarget = useRef<string | null>(null);
   const operator = role === "owner" || role === "operator";
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    // A quiet read (a job ended somewhere) changes nothing but the facts: Check again does not spin,
+    // and what is on screen, an error included, stays until the answer is in.
+    if (!quiet) setLoading(true);
     try {
       const [{ result }, docker] = await Promise.all([
         inspectOperation<SystemSettings>("system.settings.inspect"),
@@ -76,12 +78,10 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read system settings");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
-  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
 
   const loadRelease = useCallback(async (again = false) => {
     setCheckingRelease(true);
@@ -203,6 +203,16 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
     return () => { window.clearInterval(timer); window.clearInterval(watch); };
   }, [updating]);
 
+  // Check again: the settings, the release, what can be cleaned up, the UPS and the power settings,
+  // and the hardware where that tab is open. The bar's Refresh is this same function (it read the
+  // settings alone); a job ending anywhere reads the settings again quietly.
+  const checkAgain = useCallback(() => {
+    void loadRelease(); void scan(); void lookForUps(); void loadPower();
+    if (tab === "power") void readHardware();
+    return refresh();
+  }, [refresh, loadRelease, scan, lookForUps, loadPower, readHardware, tab]);
+  useEffect(() => onPageRefresh({ asked: checkAgain, job: () => refresh({ quiet: true }) }), [checkAgain, refresh]);
+
   const { start, dialog } = useOperation(csrfToken, (job) => {
     if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) { setUpdateOutcome(null); setUpdating(updateTarget.current); }
     if (job.type === "op:system.update.signer.set" && job.state === "completed") inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => setUpdateStatus(result && Array.isArray(result.log) ? result : null)).catch(() => {});
@@ -266,7 +276,7 @@ export default function SystemPage({ csrfToken, role = "owner", onOpenAppearance
         title="System"
         status={verdict}
         meta={settings ? <><b>{settings.hostname.live ?? "—"}</b> · {settings.timezone ?? "time zone unknown"} · <b>{gibFromKib(memory?.memAvailableKiB)}</b> free of {gibFromKib(memory?.memTotalKiB)} · BoxPilot <b>{release?.current.version ?? __BOXPILOT_VERSION__}</b></> : undefined}
-        actions={<Button variant="ghost" busy={loading && Boolean(settings)} onClick={() => { void refresh(); void loadRelease(); void scan(); void lookForUps(); void loadPower(); if (tab === "power") void readHardware(); }}>Check again</Button>}
+        actions={<Button variant="ghost" busy={loading && Boolean(settings)} onClick={() => void checkAgain()}>Check again</Button>}
         about={<>
           <p>This server's own settings: BoxPilot's update, what can be cleaned up, the name, time zone and language, memory, swap and SSD trim, power (a UPS, the watchdog, and starting again after a power cut), and what runs on a schedule.</p>
           <p>Every change is a job with its tier: renaming, the time zone, swap and cleanup ask you to confirm; updating BoxPilot asks for your password and the release's tag typed out.</p>

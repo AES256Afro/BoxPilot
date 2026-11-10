@@ -22,7 +22,7 @@ export const healthConditions = Object.freeze({
   "storage.mount.readonly": "A filesystem hit errors and has gone read-only",
   "power.ups": "UPS on battery or low",
   "system.services": "System services have failed",
-  "system.reboot": "A reboot is required",
+  "system.reboot": "A restart is required",
   "boxpilot.restart": "BoxPilot needs a restart it could not make itself",
   "docker.unhealthy": "A container is unhealthy",
   "docker.restarting": "A container keeps restarting (crash-looping)",
@@ -189,7 +189,7 @@ export function evaluateHealth(inventory) {
     alerts.push({ key: "system.services", priority: "default", title: `${maintenance.system.failedServiceCount} system service${maintenance.system.failedServiceCount === 1 ? "" : "s"} failed`, message: "Open Services in BoxPilot to see which units failed and restart them." });
   }
   if (maintenance?.reboot?.required) {
-    alerts.push({ key: "system.reboot", priority: "default", title: "A reboot is required", message: "Updates were installed that need a restart. Reboot from the System page when convenient." });
+    alerts.push({ key: "system.reboot", priority: "default", title: "A restart is required", message: "Updates were installed that need a restart. Restart the server from System, Power when convenient." });
   }
   // BoxPilot's own restart after an update or a KVM install that gave up (the server was never idle
   // for hours) or failed: it used to be said only in the journal (sweep 5). Which units, from the
@@ -207,11 +207,11 @@ export function evaluateHealth(inventory) {
     // "restarting"/"dead" means Docker keeps trying to start something that keeps dying. A stopped
     // container is "exited", not "restarting", so an intentional stop does not trip this.
     if (container.state === "restarting" || container.state === "dead") {
-      alerts.push({ key: `docker.restarting:${container.name}`, priority: "default", title: `Container ${container.name} keeps restarting`, message: `It is crash-looping${container.status ? ` (${container.status})` : ""}. Open the app's Logs on the App catalog page to see why it will not stay up.` });
+      alerts.push({ key: `docker.restarting:${container.name}`, priority: "default", title: `Container ${container.name} keeps restarting`, message: `It is crash-looping${container.status ? ` (${container.status})` : ""}. Open the app's Logs tab in Apps to see why it will not stay up.` });
       continue; // one alert per container; a crash-looping one is not also reported as unhealthy
     }
     if (container.health === "unhealthy") {
-      alerts.push({ key: `docker.unhealthy:${container.name}`, priority: "default", title: `Container ${container.name} is unhealthy`, message: "Its health check is failing. Open the app's Logs on the App catalog page." });
+      alerts.push({ key: `docker.unhealthy:${container.name}`, priority: "default", title: `Container ${container.name} is unhealthy`, message: "Its health check is failing. Open the app's Logs tab in Apps." });
     }
   }
   return alerts;

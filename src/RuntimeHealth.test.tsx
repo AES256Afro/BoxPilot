@@ -8,7 +8,7 @@ it("waits for a manual check and keeps web metrics visible when the helper is do
   render(<RuntimeHealth />);
   expect(fetchMock).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Check resource use" }));
-  expect(await screen.findByText(/The helper did not answer/)).toBeTruthy();
+  expect(await screen.findByText(/BoxPilot's admin service did not answer/)).toBeTruthy();
   expect(screen.getByText("JavaScript heap used")).toBeTruthy();
   expect(screen.getByText("Linux file cache")).toBeTruthy();
   expect(screen.getByText("4,096 MiB")).toBeTruthy();

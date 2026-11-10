@@ -33,7 +33,7 @@ export default function PackageRecovery({ csrfToken }: { csrfToken: string }) {
   return (
     <Panel title="Packages" label="Interrupted package recovery" meta={report ? `checked ${new Date(report.checkedAt).toLocaleTimeString()}` : "read on request"}
       count={report ? { status: tones[report.status], label: report.status.replace("-", " ") } : undefined}
-      actions={<Button onClick={() => void check()} busy={busy}>{busy ? "Checking packages..." : "Check package recovery"}</Button>}>
+      actions={<Button onClick={() => void check()} busy={busy}>{busy ? "Checking packages…" : "Check package recovery"}</Button>}>
       {error && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
       {!report && !error && <p className="rp-quiet">For an update or install that stopped partway: reads package state and previews the dependency repair.</p>}
       {report && (

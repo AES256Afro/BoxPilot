@@ -184,7 +184,7 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
         {unseen > 0 && <span className="bar-badge" aria-hidden="true">{unseen > 99 ? "99+" : unseen}</span>}
       </button>
       {open && (
-        <Sheet title="Notifications" kicker={unseen ? `${unseen} new` : "The last thirty days"} side="right" className="look-console notifications-sheet" onClose={() => setOpen(false)}>
+        <Sheet title="Notifications" kicker={unseen ? `${unseen} new` : "The last thirty days"} side="right" className="look-console notifications-sheet" focusFirstField={false} onClose={() => setOpen(false)}>
           {(list || unseen > 0) && (
             <div className="notifications-head">
               {list && <Facts><b>{list.entries.length}</b> {list.entries.length === 1 ? "entry" : "entries"} · <b>{unseen}</b> new · target <b>{list.targetConfigured ? "set" : "not set"}</b></Facts>}

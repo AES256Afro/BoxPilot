@@ -537,7 +537,7 @@ export function createHousekeepingService({
       {
         id: "app-backups",
         title: "Older application backups",
-        summary: `Backup archives beyond the newest ${keepBackupsPerApp} for each app. The newest ${keepBackupsPerApp} backups and the newest ${keepBackupsPerApp} pre-change checkpoints are always kept, as is any backup a kept machine snapshot restores from, and any copy already mirrored off this server is unaffected.`,
+        summary: `Backup archives beyond the newest ${keepBackupsPerApp} for each app. The newest ${keepBackupsPerApp} backups and the newest ${keepBackupsPerApp} backups taken before a change are always kept, as is any backup a kept machine snapshot restores from, and any copy already mirrored off this server is unaffected.`,
         items: backups.length,
         bytes: backups.reduce((sum, entry) => sum + entry.bytes, 0),
         detail: [...new Set(backups.map((entry) => entry.app))].map((app) => `${app}: ${backups.filter((entry) => entry.app === app).length} archive(s)`),

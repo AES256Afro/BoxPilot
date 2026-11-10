@@ -41,9 +41,9 @@ describe("when quiet hours are", () => {
   });
 
   it("sum up what waited in one push, urgent if any of it was", () => {
-    const summary = summaryOf([{ title: "BoxPilot: A reboot is required", priority: "default" }, { title: "BoxPilot: Backup failed", priority: "high" }]);
+    const summary = summaryOf([{ title: "BoxPilot: A restart is required", priority: "default" }, { title: "BoxPilot: Backup failed", priority: "high" }]);
     expect(summary.title).toBe("BoxPilot: 2 notifications during quiet hours");
-    expect(summary.message).toContain("- A reboot is required\n- Backup failed");
+    expect(summary.message).toContain("- A restart is required\n- Backup failed");
     expect(summary.priority).toBe("high");
     expect(summaryOf(Array.from({ length: 15 }, (_, index) => ({ title: `n${index}` }))).message).toContain("…and 3 earlier");
   });
@@ -70,7 +70,7 @@ async function setup() {
 describe("pushes during quiet hours", () => {
   it("hold until the quiet ends, then go as one summary; urgent ones and the test button go at once", async () => {
     const { service, sent, setClock } = await setup();
-    expect(await service.send({ title: "BoxPilot: A reboot is required", message: "m" })).toMatchObject({ sent: false, held: true });
+    expect(await service.send({ title: "BoxPilot: A restart is required", message: "m" })).toMatchObject({ sent: false, held: true });
     expect(await service.send({ title: "BoxPilot: Disk failing", message: "m", priority: "high" })).toMatchObject({ sent: true });
     expect(await service.send({ title: "BoxPilot test notification", message: "m" }, { immediate: true })).toMatchObject({ sent: true });
     expect(sent.map((options) => options.headers.Title)).toEqual(["BoxPilot: Disk failing", "BoxPilot test notification"]);
@@ -82,7 +82,7 @@ describe("pushes during quiet hours", () => {
     setClock("07:00");
     expect(await service.flushHeld()).toEqual({ sent: true, count: 1 });
     expect(sent.at(-1).headers.Title).toBe("BoxPilot: 1 notification during quiet hours");
-    expect(sent.at(-1).body).toContain("- A reboot is required");
+    expect(sent.at(-1).body).toContain("- A restart is required");
     expect(service.quietHours().held).toBe(0);
     expect(await service.flushHeld()).toEqual({ sent: false, count: 0 });
   });

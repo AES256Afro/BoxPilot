@@ -49,7 +49,7 @@ export function notificationOperations() {
       run: async (_parameters, { apps, run, runUnit, jobLog, progress }) => {
         const { applications = [] } = await apps.inspect({ id: "ntfy" });
         const app = applications.find((entry) => entry.id === "ntfy");
-        if (!app?.installed) throw new Error("ntfy is not installed on this server; install it from the App catalog first");
+        if (!app?.installed) throw new Error("ntfy is not installed on this server; install it from Apps first");
         if (!app.container?.running) throw new Error("ntfy is installed but not running; start it, then try again");
         const port = app.urls?.[0]?.host;
         if (!Number.isInteger(port)) throw new Error("ntfy has no web port BoxPilot can send to");

@@ -296,7 +296,7 @@ signal_case() { # signal_case <what> <signal> <TERM again during the rollback: y
   out="$(cat "${WORK}/out")"
   show "$out"
   check "${what}: the upgrade exited non-zero" '[ "$status" -ne 0 ]'
-  check "${what}: it rolled back" 'grep -q "rolling back to previous tree" <<<"$out"'
+  check "${what}: it rolled back" 'grep -q "rolling back to the previous version.s files" <<<"$out"'
   check "${what}: the old tree is back in place" '[ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ]'
   check "${what}: the new tree is kept as evidence" 'ls -d "${FAKE}"/opt/boxpilot.failed.* >/dev/null 2>&1'
   check "${what}: it restarted the old helper and web service" 'restarted_after_rollback'
@@ -609,7 +609,7 @@ last_line() { printf '%s\n' "$out" | tail -n 1; }
 fresh_box 'BOXPILOT_PORT=8787'
 run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health STUB_TREE="${FAKE}/opt/boxpilot" BOXPILOT_HELPER_SOCKET=missing.sock
 show "$out"
-check "rolled back, the old version answers: it failed, and its last line says 1.0.0 answers again" '[ "$status" -ne 0 ] && last_line | grep -q "ERROR: upgrade failed; previous tree restored, and BoxPilot 1.0.0 answers at http://127.0.0.1:8787/api/v1/health"'
+check "rolled back, the old version answers: it failed, and its last line says 1.0.0 answers again" '[ "$status" -ne 0 ] && last_line | grep -q "ERROR: update failed; previous version.s files restored, and BoxPilot 1.0.0 answers at http://127.0.0.1:8787/api/v1/health"'
 check "rolled back, the old version answers: it asked once for 2.0.0 and once more after the rollback's restart" '[ "$(grep -cx http://127.0.0.1:8787/api/v1/health "${STUB_LOG}/curl")" -eq 2 ] && [ "$(version_at "${FAKE}/opt/boxpilot")" = 1.0.0 ]'
 check "rolled back, the old helper's socket missing: its last line says boxpilot-helper is not up" 'last_line | grep -q "answers at http://127.0.0.1:8787/api/v1/health, but boxpilot-helper is not up with its socket at missing.sock"'
 # The helper's unit is not active (its socket left behind): not up either.
@@ -621,18 +621,18 @@ check "rolled back, the old helper's unit not active: it says boxpilot-helper is
 fresh_box 'BOXPILOT_PORT=8787'
 run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health STUB_VERSION=1.0.0
 show "$out"
-check "rolled back, the old version and its helper up: it says 1.0.0 answers, and nothing about the helper" '[ "$status" -ne 0 ] && last_line | grep -q "previous tree restored, and BoxPilot 1.0.0 answers at http://127.0.0.1:8787/api/v1/health (failed tree kept at" && ! last_line | grep -q "boxpilot-helper"'
+check "rolled back, the old version and its helper up: it says 1.0.0 answers, and nothing about the helper" '[ "$status" -ne 0 ] && last_line | grep -q "previous version.s files restored, and BoxPilot 1.0.0 answers at http://127.0.0.1:8787/api/v1/health (failed version.s files kept at" && ! last_line | grep -q "boxpilot-helper"'
 # Nothing answers, before or after.
 fresh_box 'BOXPILOT_PORT=8787'
 run_upgrade STUB_LISTEN=
 show "$out"
-check "rolled back, nothing answers: it says so rather than that all is well" '[ "$status" -ne 0 ] && last_line | grep -q "previous tree restored, but BoxPilot 1.0.0 did not answer at http://127.0.0.1:8787/api/v1/health" && ! grep -q "1.0.0 answers" <<<"$out"'
+check "rolled back, nothing answers: it says so rather than that all is well" '[ "$status" -ne 0 ] && last_line | grep -q "previous version.s files restored, but BoxPilot 1.0.0 did not answer at http://127.0.0.1:8787/api/v1/health" && ! grep -q "1.0.0 answers" <<<"$out"'
 # The old tree cannot be moved back.
 fresh_box 'BOXPILOT_PORT=8787'
 run_upgrade STUB_LISTEN= STUB_MV_FAIL=prev
 show "$out"
 check "rolled back, the old tree cannot be moved back: it never claims it was restored" '[ "$status" -ne 0 ] && ! grep -q "restored" <<<"$out"'
-check "rolled back, the old tree cannot be moved back: it says plainly where both trees are" 'last_line | grep -q "ERROR: upgrade failed and the previous tree could not be put back: it is at .*/opt/boxpilot\.prev\.[0-9TZ]*; .*/opt/boxpilot is missing, the new tree is at .*/opt/boxpilot\.failed\.[0-9TZ]*\." && [ -d "$(ls -d "${FAKE}"/opt/boxpilot.prev.* | head -n 1)" ]'
+check "rolled back, the old tree cannot be moved back: it says plainly where both trees are" 'last_line | grep -q "ERROR: update failed and the previous version.s files could not be put back: they are at .*/opt/boxpilot\.prev\.[0-9TZ]*; .*/opt/boxpilot is missing, the new version.s files are at .*/opt/boxpilot\.failed\.[0-9TZ]*\." && [ -d "$(ls -d "${FAKE}"/opt/boxpilot.prev.* | head -n 1)" ]'
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"

@@ -105,7 +105,7 @@ describe("the verdict on one name", () => {
     expect(verdict.state).toBe("down");
     expect(verdict.headline).toBe("Cloudflare cannot reach this server (HTTP 530)");
     expect(verdict.problems).toEqual(["Cloudflare cannot reach this server (HTTP 530)", "the tunnel app is not running", "Pingvin Share is not running", "Pingvin Share does not answer on this server"]);
-    expect(verdict.advice).toContain("Start it from its Overview tab in the App catalog");
+    expect(verdict.advice).toContain("Start it from its Overview tab in Apps");
     expect(verdict.advice).toContain("http://127.0.0.1:3022");
   });
 

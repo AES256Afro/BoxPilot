@@ -97,6 +97,11 @@ def boxpilot_connect():
         existing = Stream.objects.filter(realm=realm, name__iexact=entry["name"]).first()
         if existing is None or getattr(existing, "creator_id", None) == owner.id:
             continue
+        # Someone else's channel that is open to the whole organization: making sure nobody is in
+        # it now says nothing about who reads it tomorrow, and what goes there is the agents' work.
+        if not existing.invite_only:
+            boxpilot_result(error="channel-public", realm=realm.name, channel=existing.name)
+            return
         members = set(
             Subscription.objects.filter(
                 recipient_id=existing.recipient_id, active=True, user_profile__is_active=True
@@ -126,11 +131,7 @@ def boxpilot_connect():
         if not bot.is_active:
             do_reactivate_user(bot, acting_user=owner)
             reactivated = True
-        # A new key on every connect: whatever key existed before this run is void from here.
-        api_key = do_regenerate_api_key(bot, owner)
-        if not isinstance(api_key, str) or not api_key:
-            bot.refresh_from_db()
-            api_key = bot.api_key
+        api_key = None
 
     made = []
     for entry in channels:
@@ -145,6 +146,14 @@ def boxpilot_connect():
         )
         bulk_add_subscriptions(realm, [stream], [owner, bot], acting_user=owner)
         made.append({"name": stream.name, "created": created, "private": bool(stream.invite_only)})
+
+    if api_key is None:
+        # A new key on every connect: whatever key existed before this run is void from here. Last,
+        # so that a channel step that fails leaves the key BoxPilot holds still good.
+        api_key = do_regenerate_api_key(bot, owner)
+        if not isinstance(api_key, str) or not api_key:
+            bot.refresh_from_db()
+            api_key = bot.api_key
 
     boxpilot_result(
         realm=realm.name,

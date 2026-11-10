@@ -24,7 +24,7 @@ describe("suggesting an automation", () => {
 
   it("puts it differently when a destination is set up but never used", () => {
     const [suggestion] = suggestFlows({ shelf, flows: [], facts: { ...noFacts, backups: { total: 3 }, offBox: { configured: true, lastSyncAt: null } } });
-    expect(suggestion.because).toBe("3 backups are on this box and the off-box destination has never been used.");
+    expect(suggestion.because).toBe("3 backups are on this server, and the destination off this server has never been used.");
   });
 
   it("stops making the case once the mirror is actually running", () => {

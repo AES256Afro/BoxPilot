@@ -55,7 +55,7 @@ describe("Notification settings", () => {
 
     expect(await screen.findByText("Off")).toBeTruthy();
     // Nothing to send to yet, and neither ntfy nor Gotify installed: where to get one is one press.
-    expect(await screen.findByText("No notification server yet.")).toBeTruthy();
+    expect(await screen.findByText("No notification server yet")).toBeTruthy();
     expect(screen.getByText("Install ntfy on this server, or use an ntfy server you already have.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open ntfy in Apps" }));
     expect(opened).toHaveBeenCalledWith({ view: "catalog", options: { app: "ntfy" } });
@@ -72,7 +72,7 @@ describe("Notification settings", () => {
     expect(await screen.findByText("Saved, and a test was sent. Check your device.")).toBeTruthy();
     expect(tests).toBe(1);
     expect(screen.getByText("On · ntfy")).toBeTruthy();
-    expect(screen.queryByText("No notification server yet.")).toBeNull();
+    expect(screen.queryByText("No notification server yet")).toBeNull();
     expect(JSON.parse(saved ?? "{}")).toEqual({ target: { kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" }, password: "correct horse battery" });
   });
 
@@ -98,7 +98,7 @@ describe("Notification settings", () => {
     // Publishing it on the tailnet is done on its catalog card: a button, not a pointer in prose.
     const opened = vi.fn((event: Event) => (event as CustomEvent).detail);
     window.addEventListener(openViewEvent, opened);
-    fireEvent.click(screen.getByRole("button", { name: "Open ntfy in the catalog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open ntfy in Apps" }));
     window.removeEventListener(openViewEvent, opened);
     expect(opened.mock.results[0].value).toEqual({ view: "catalog", options: { app: "ntfy" } });
 

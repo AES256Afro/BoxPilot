@@ -325,6 +325,22 @@ describe("a sheet that is a form", () => {
     expect(document.activeElement).toBe(more);
   });
 
+  // Activity's first input is "Filter jobs": on a phone, opening it raised the keyboard over the list.
+  it("leaves the keyboard down on a touch device, and in a sheet that asks to keep focus on itself", () => {
+    const body = <><input aria-label="Filter jobs" type="search" /><p>Jobs</p></>;
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+    render(<Sheet title="Add a user" onClose={() => undefined}>{body}</Sheet>);
+    expect(document.activeElement).toBe(screen.getByRole("dialog", { name: "Add a user" }));
+    cleanup();
+    vi.unstubAllGlobals();
+    // A mouse and a keyboard: the first field still, unless the sheet is one that is read, not filled in.
+    render(<Sheet title="Add a user" onClose={() => undefined}>{body}</Sheet>);
+    expect(document.activeElement).toBe(screen.getByRole("searchbox", { name: "Filter jobs" }));
+    cleanup();
+    render(<Sheet title="Activity" focusFirstField={false} onClose={() => undefined}>{body}</Sheet>);
+    expect(document.activeElement).toBe(screen.getByRole("dialog", { name: "Activity" }));
+  });
+
   it("submits on Enter through its main button, and not while that button is disabled", () => {
     const onSubmit = vi.fn();
     function Harness() {

@@ -339,10 +339,10 @@ export function judgeDomain(domain, checks = {}, { now = new Date() } = {}) {
   const problems = [];
   const { dns = null, certificate = null, outside = null, inside = null, tunnel = null, app = null } = checks;
   const tunnelAdvice = tunnel?.installed && !tunnel.running
-    ? "The Cloudflare Tunnel app is not running on this server, so Cloudflare has nowhere to send visitors. Start it from its Overview tab in the App catalog."
+    ? "The Cloudflare Tunnel app is not running on this server, so Cloudflare has nowhere to send visitors. Start it from its Overview tab in Apps."
     : tunnel?.installed && tunnel.connections === 0
-      ? "The Cloudflare Tunnel app is running but holds no connection to Cloudflare; its Logs on the App catalog page say why (the tunnel's token, or no way out to the internet)."
-      : "Cloudflare could not reach the tunnel on this server. Check the Cloudflare Tunnel app is running and connected (its Logs on the App catalog page), and that this server has a way out to the internet.";
+      ? "The Cloudflare Tunnel app is running but holds no connection to Cloudflare; its Logs tab in Apps says why (the tunnel's token, or no way out to the internet)."
+      : "Cloudflare could not reach the tunnel on this server. Check the Cloudflare Tunnel app is running and connected (its Logs tab in Apps), and that this server has a way out to the internet.";
 
   if (!dns || !dns.resolved) {
     problems.push({ severity: "down", text: "does not resolve", advice: `${name} has no address in DNS, so nobody can reach it. ${viaTunnel ? "In Cloudflare's DNS it needs a proxied CNAME to the tunnel; publishing the app from the Cloudflare Tunnel app's Tunnel tab adds one." : "Add an A or CNAME record for it at your DNS provider."}` });
@@ -365,7 +365,7 @@ export function judgeDomain(domain, checks = {}, { now = new Date() } = {}) {
   } else if (answered && status >= 520 && status <= 530) {
     problems.push({ severity: "down", text: `Cloudflare cannot reach this server (HTTP ${status})`, advice: `Cloudflare answered for ${name} with HTTP ${status}, which means it could not get an answer from this server. ${tunnelAdvice}` });
   } else if (answered && status >= 500) {
-    problems.push({ severity: "down", text: `answers with an error (HTTP ${status})`, advice: `${appName} answered visitors with HTTP ${status}. Open its Logs on the App catalog page; a restart from there often clears it.` });
+    problems.push({ severity: "down", text: `answers with an error (HTTP ${status})`, advice: `${appName} answered visitors with HTTP ${status}. Open its Logs tab in Apps; a restart from there often clears it.` });
   } else if (answered && status === 404) {
     problems.push({ severity: "degraded", text: "answers HTTP 404", advice: `${name} answers, but ${appName} says its front page does not exist. A tunnel route or proxy pointed at the wrong port on this server looks like this; check where ${name} is sent.` });
   } else if (answered && status >= 400 && status !== 401 && status !== 403) {
@@ -373,13 +373,13 @@ export function judgeDomain(domain, checks = {}, { now = new Date() } = {}) {
   }
 
   if (viaTunnel && tunnel?.installed && !tunnel.running) {
-    problems.push({ severity: healthy ? "degraded" : "down", text: "the tunnel app is not running", advice: healthy ? `${name} still answers (Cloudflare serves a cached copy), but the Cloudflare Tunnel app is not running here, so anything not cached fails. Start it from its Overview tab in the App catalog.` : tunnelAdvice });
+    problems.push({ severity: healthy ? "degraded" : "down", text: "the tunnel app is not running", advice: healthy ? `${name} still answers (Cloudflare serves a cached copy), but the Cloudflare Tunnel app is not running here, so anything not cached fails. Start it from its Overview tab in Apps.` : tunnelAdvice });
   } else if (viaTunnel && tunnel?.installed && tunnel.running && tunnel.connections === 0 && !throughTunnel && !problems.some((problem) => problem.advice === tunnelAdvice)) {
     problems.push({ severity: "down", text: "the tunnel is not connected", advice: tunnelAdvice });
   }
 
   if (app?.installed && app.running === false) {
-    problems.push({ severity: healthy ? "degraded" : "down", text: `${appName} is not running`, advice: `${appName} is stopped on this server${healthy ? ", so visitors get whatever Cloudflare cached and nothing more" : ", so there is nothing to show visitors"}. Start it from the App catalog.` });
+    problems.push({ severity: healthy ? "degraded" : "down", text: `${appName} is not running`, advice: `${appName} is stopped on this server${healthy ? ", so visitors get whatever Cloudflare cached and nothing more" : ", so there is nothing to show visitors"}. Start it from Apps.` });
   } else if (app && !app.installed && domain.appId) {
     problems.push({ severity: healthy ? "degraded" : "down", text: `${appName} is not installed`, advice: `${name} is set up to reach ${appName}, which is not installed on this server any more. Install it again, or stop publishing the name.` });
   }
@@ -387,7 +387,7 @@ export function judgeDomain(domain, checks = {}, { now = new Date() } = {}) {
   if (inside && inside.outcome !== "answered") {
     problems.push({ severity: healthy ? "degraded" : "down", text: `${appName} does not answer on this server`, advice: `BoxPilot asked ${domain.service} on this server itself, where the tunnel sends visitors, and got ${inside.error ?? "no answer"}. ${appName} may be starting, stopped or listening on another port.` });
   } else if (inside && (inside.status ?? 0) >= 500) {
-    problems.push({ severity: "degraded", text: `${appName} answers with an error here (HTTP ${inside.status})`, advice: `Asked directly on this server, ${appName} answered HTTP ${inside.status}. Its Logs on the App catalog page say why.` });
+    problems.push({ severity: "degraded", text: `${appName} answers with an error here (HTTP ${inside.status})`, advice: `Asked directly on this server, ${appName} answered HTTP ${inside.status}. Its Logs tab in Apps says why.` });
   }
 
   if (certificate?.validTo) {
@@ -517,6 +517,9 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
   }
 
   /** The alerts a verdict earns or clears: down twice running (or once, at the slowest cadences), and a certificate in its last fortnight. */
+  // An alert is read by every role (and sent to a phone): the address the app answers at on this
+  // server is an operator's to know, as it is on the page.
+  const alertWords = (advice) => (typeof advice === "string" ? advice.replace(/https?:\/\/(?:127(?:\.\d{1,3}){3}|localhost|\[::1\])(?::\d+)?[^\s,;)]*/g, "the app's own address") : advice);
   async function announce(result, intervalMinutes) {
     if (!alerts) return;
     const downKey = `${alertFamilies.down}:${result.hostname}`;
@@ -524,10 +527,10 @@ export function createHostedDomainsService({ store, helper = null, catalog = nul
     const streak = result.state === "down" ? (downStreak.get(result.hostname) ?? 0) + 1 : 0;
     downStreak.set(result.hostname, streak);
     try {
-      if (streak >= 2 || (streak === 1 && intervalMinutes >= 30)) await alerts.raise({ key: downKey, priority: "high", title: `${result.hostname} is down`, message: result.advice ?? `${result.hostname} does not answer from the internet.` });
+      if (streak >= 2 || (streak === 1 && intervalMinutes >= 30)) await alerts.raise({ key: downKey, priority: "high", title: `${result.hostname} is down`, message: alertWords(result.advice) ?? `${result.hostname} does not answer from the internet.` });
       else if (streak === 0) await alerts.clear(downKey);
       const days = result.certificate?.daysLeft ?? null;
-      if (days !== null && days <= certificateWarningDays) await alerts.raise({ key: certificateKey, priority: "default", title: days < 0 ? `${result.hostname}'s certificate has expired` : `${result.hostname}'s certificate expires in ${plural(days, "day")}`, message: result.advice ?? "" });
+      if (days !== null && days <= certificateWarningDays) await alerts.raise({ key: certificateKey, priority: "default", title: days < 0 ? `${result.hostname}'s certificate has expired` : `${result.hostname}'s certificate expires in ${plural(days, "day")}`, message: alertWords(result.advice) ?? "" });
       else if (days !== null) await alerts.clear(certificateKey, { quietly: true });
     } catch { /* the verdict stands; the ledger's own audit says what failed */ }
   }

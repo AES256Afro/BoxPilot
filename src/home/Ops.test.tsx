@@ -58,7 +58,7 @@ describe("Ops", () => {
     renderOps();
     const inbox = await screen.findByRole("region", { name: /Action inbox/ });
     const high = await within(inbox).findByRole("region", { name: "high risk" });
-    expect(within(high).getByRole("button", { name: "Reboot: A reboot is pending" }).getAttribute("data-risk")).toBe("high");
+    expect(within(high).getByRole("button", { name: "Restart: A restart is pending" }).getAttribute("data-risk")).toBe("high");
     const medium = within(inbox).getByRole("region", { name: "medium risk" });
     expect(within(medium).getByRole("button", { name: "Install: 4 updates available" }).getAttribute("data-risk")).toBe("medium");
     expect(within(medium).getByRole("button", { name: "Update: An update for Jellyfin" })).toBeTruthy();

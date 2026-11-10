@@ -865,7 +865,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
 
   const findOpenProposal = (source, title) => proposalOf(prepare("SELECT * FROM agent_proposals WHERE source = ? AND title = ? AND state = 'open'").get(source, title));
   /** An agent's open "needs you to look" card that already says exactly this. */
-  const findOpenEscalation = (agentId, reason) => proposalOf(prepare("SELECT * FROM agent_proposals WHERE agent_id = ? AND kind = 'escalation' AND reason = ? AND state = 'open' LIMIT 1").get(agentId, reason));
+  const findOpenEscalation = (agentId, reason, forRole) => proposalOf(prepare("SELECT * FROM agent_proposals WHERE agent_id = ? AND kind = 'escalation' AND reason = ? AND for_role = ? AND state = 'open' LIMIT 1").get(agentId, reason, forRole));
   const listProposalsForRun = (runId) => prepare("SELECT * FROM agent_proposals WHERE run_id = ? ORDER BY created_at, rowid LIMIT 10").all(runId).map(proposalOf);
 
   // ---- documents ----

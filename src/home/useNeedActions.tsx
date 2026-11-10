@@ -52,7 +52,7 @@ export function useNeedActions({ csrfToken, refresh, accept, navigate }: { csrfT
       .catch((error: unknown) => {
         const why = error instanceof Error ? error.message : "that did not work";
         setSeen(need.id, { busy: false, problem: `That was not recorded: ${why}. Try again.` });
-        if (!rowDrawn(need.id)) setProblem(`Could not mark "${need.title}" as seen: ${why}`);
+        if (!rowDrawn(need.id)) setProblem(`Could not mark “${need.title}” as seen: ${why}`);
       });
   }, [csrfToken, refresh]);
   const act = useCallback((need: Need, action: NeedAction | null = need.action) => {

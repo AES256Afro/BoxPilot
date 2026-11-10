@@ -26,7 +26,7 @@ function check(id, group, name, status, summary, repair = null) {
  */
 export function driveToolsCheck(inspection) {
   const row = (status, summary, repair = null) => check("storage.drive-tools", "Storage", "Drive check tools", status, summary, repair);
-  if (!inspection) return row("unavailable", "The drive check tools could not be inspected", { kind: "manual", description: "Check again once the helper answers" });
+  if (!inspection) return row("unavailable", "The drive check tools could not be inspected", { kind: "manual", description: "Check again once BoxPilot's admin service answers" });
   if (inspection.installed) return row("ready", "smartctl reads each disk's SMART health and fsck.exfat can check an exFAT drive");
   const named = (names) => names.join(" and ");
   const are = (names) => (names.length === 1 ? "is" : "are");
@@ -140,15 +140,15 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
       checks.push(check(
         "helper.boundary",
         "BoxPilot",
-        "Root helper",
+        "BoxPilot's admin service",
         ready ? "ready" : "conflict",
-        !result?.verified ? "The helper's answer was not what BoxPilot expected"
-          : logsReadable === false ? `The helper answers, but the logs it writes are not readable by BoxPilot (mode ${result.jobLog.mode?.toString(8) ?? "unknown"}), so every install and backup would report no output`
-          : `The helper answers (version ${result.helperVersion})${logsReadable ? " and its job logs are readable" : ""}`,
-        ready ? null : { kind: "guided", description: logsReadable === false ? "The helper's job-log files must be group-readable: check UMask in boxpilot-helper.service and restart the helper" : "Restart the helper and check its socket permissions" },
+        !result?.verified ? "The admin service's answer was not what BoxPilot expected"
+          : logsReadable === false ? `The admin service answers, but the logs it writes are not readable by BoxPilot (mode ${result.jobLog.mode?.toString(8) ?? "unknown"}), so every install and backup would report no output`
+          : `The admin service answers (version ${result.helperVersion})${logsReadable ? " and its job logs are readable" : ""}`,
+        ready ? null : { kind: "guided", description: logsReadable === false ? "The admin service's job-log files must be group-readable: check UMask in boxpilot-helper.service and restart it" : "Restart BoxPilot's admin service (boxpilot-helper.service) and check its socket permissions" },
       ));
     } catch {
-      checks.push(check("helper.boundary", "BoxPilot", "Restricted helper", "repairable", "The local helper socket is unavailable", { kind: "guided", description: "Start or repair boxpilot-helper.service" }));
+      checks.push(check("helper.boundary", "BoxPilot", "BoxPilot's admin service", "repairable", "BoxPilot's admin service is not answering", { kind: "guided", description: "Start or repair boxpilot-helper.service" }));
     }
 
     // smartctl reads each disk's SMART health; fsck.exfat checks an exFAT drive after it drops off.
@@ -224,7 +224,7 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
             ? "A partial or inactive virtualization provider is present and will not be replaced automatically"
             : virtualization && !virtualization.kvmDeviceAvailable
               ? "The KVM kernel interface is unavailable"
-              : "The virtualization package candidates or helper inspection are unavailable",
+              : "The virtualization package candidates could not be read, or BoxPilot's admin service did not answer",
       virtualization?.installed ? null : virtualization?.repairAvailable
         ? { kind: "approved", description: "Review the exact five-package Ubuntu virtualization plan, reauthenticate, and verify KVM plus qemu:///system" }
         : { kind: "manual", description: virtualization && !virtualization.kvmDeviceAvailable ? "Enable hardware virtualization in firmware and verify the KVM kernel interface before planning installation" : "Repair the existing provider or configured Ubuntu package metadata before planning installation" },

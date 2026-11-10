@@ -210,7 +210,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
             {facts.catalog.state === "failed" && (
               <p className="lx-quiet">Which apps are installed could not be read. <Button variant="ghost" onClick={() => refresh(["catalog"])}>Try again</Button></p>
             )}
-            {catalog && !catalog.liveKnown && <p className="lx-quiet">Docker did not say which apps are installed, so none are shown. The App catalog has the details.</p>}
+            {catalog && !catalog.liveKnown && <p className="lx-quiet">Docker did not say which apps are installed, so none are shown. Apps has the details.</p>}
             {catalog && catalog.liveKnown && apps.length === 0 && (
               <p className="lx-quiet">No apps are installed yet.{values.setup?.firstRun ? <> <Button variant="primary" onClick={() => onNavigate("setup")}>Choose a setup profile</Button></> : null}</p>
             )}

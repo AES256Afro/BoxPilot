@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, CopyButton, Field, Notice, Panel, SecretInput, Select, Table, Tag, TextInput, type TableColumn } from "../../ui";
+import { Button, CopyButton, Field, Notice, Panel, SecretInput, Select, Sheet, Table, Tag, TextInput, type TableColumn } from "../../ui";
+import { passwordAsked, passwordAskedWords, useOwnerPassword, useSessionFacts, type OwnerPassword } from "../../ownerPassword";
 
-/** People (M5.4): owners add operators and viewers, change roles, and disable accounts. Owner-only. */
+/**
+ * People (M5.4): owners add operators and viewers, change roles, disable accounts, and set a new
+ * password for someone who forgot theirs. Owner-only. Each change asks for the owner's password,
+ * unless one typed a moment ago still stands (ownerPassword.tsx).
+ */
 
 interface Person { id: string; username: string; role: "owner" | "operator" | "viewer" | "disabled"; createdAt: string }
 
@@ -18,6 +23,11 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ username: "", newPassword: "", role: "operator", password: "" });
   const [busy, setBusy] = useState(false);
+  const owner = useOwnerPassword();
+  const { accountId } = useSessionFacts();
+  // Whose password is being set anew, and what was said once it was.
+  const [resetting, setResetting] = useState<Person | null>(null);
+  const [resetDone, setResetDone] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -46,10 +56,14 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
     }).catch(() => setAddresses([]));
   };
   const call = async (method: string, url: string, body: unknown, at: "confirm" | "add") => {
-    setBusy(true); setError(null); setAdded(null); setErrorAt(at);
+    setBusy(true); setError(null); setAdded(null); setResetDone(null); setErrorAt(at);
     try {
-      const response = await fetch(url, { method, headers, body: JSON.stringify(body) });
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      // Inside the window a password already opened, none is sent.
+      const sent = owner.free ? Object.fromEntries(Object.entries(body as Record<string, unknown>).filter(([name]) => name !== "password")) : body;
+      const response = await fetch(url, { method, headers, body: JSON.stringify(sent) });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string; code?: string };
+      // The window ended since: the password field shows, and the same change is sent again with it.
+      if (owner.free && passwordAsked(response, payload)) { owner.refused(); return false; }
       if (!response.ok) throw new Error(payload.error ?? `Request failed (${response.status})`);
       await load();
       return true;
@@ -75,7 +89,7 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
   const cancelPending = () => { setPending(null); setError(null); window.requestAnimationFrame(() => { if (askedFrom.current?.isConnected) askedFrom.current.focus(); }); };
 
   const confirmPending = async () => {
-    if (!pending || !pending.password) return;
+    if (!pending || (!owner.free && !pending.password)) return;
     const done = pending.kind === "role" || pending.kind === "enable"
       ? await call("PUT", `/api/v1/people/${pending.id}`, { role: pending.role, password: pending.password }, "confirm")
       : await call("DELETE", `/api/v1/people/${pending.id}`, { password: pending.password }, "confirm");
@@ -99,7 +113,10 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
     { id: "since", header: "Since", hideOnPhone: true, sortValue: (person) => person.createdAt, cell: (person) => new Date(person.createdAt).toLocaleDateString() },
     {
       id: "action", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "settings-cell-action", cell: (person) => person.role !== "disabled"
-        ? <Button variant="ghost" className="settings-danger" disabled={busy} onClick={() => ask({ id: person.id, username: person.username, kind: "disable", password: "" })}>Disable</Button>
+        ? <span className="settings-actions">
+            {person.id !== accountId && <Button variant="ghost" disabled={busy} aria-label={`Set a new password for ${person.username}`} onClick={() => { setResetDone(null); setResetting(person); }}>Set a new password…</Button>}
+            <Button variant="ghost" className="settings-danger" disabled={busy} onClick={() => ask({ id: person.id, username: person.username, kind: "disable", password: "" })}>Disable</Button>
+          </span>
         : <Button variant="ghost" disabled={busy} aria-label={`Re-enable ${person.username}`} onClick={() => ask({ id: person.id, username: person.username, kind: "enable", role: "viewer", password: "" })}>Re-enable</Button>,
     },
   ];
@@ -113,6 +130,8 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
       className="settings-panel settings-panel--wide"
     >
       {error && errorAt === "list" && <div className="settings-body"><Notice tone="danger" live>{error}</Notice></div>}
+      {resetDone && <div className="settings-body"><Notice tone="success" live onDismiss={() => setResetDone(null)}>{resetDone}</Notice></div>}
+      {resetting && <NewPasswordSheet person={resetting} csrfToken={csrfToken} owner={owner} onClose={() => setResetting(null)} onDone={(said) => { setResetting(null); setResetDone(said); }} />}
       <Table caption="Accounts on this server" columns={columns} rows={list} rowKey={(person) => person.id} rowStatus={(person) => (person.role === "disabled" ? "neutral" : undefined)} empty={people === null ? "Reading…" : "No accounts."} />
       {pending && (
         <form className="settings-body settings-confirm" onSubmit={(event) => { event.preventDefault(); void confirmPending(); }}>
@@ -125,11 +144,15 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
                 <Select options={[roles[2], roles[1], roles[0]]} value={pending.role ?? "viewer"} onValueChange={(role) => setPending({ ...pending, role })} />
               </Field>
             )}
-            <Field label="Your password, to confirm this change">
-              <SecretInput autoComplete="current-password" value={pending.password} onValueChange={(password) => setPending({ ...pending, password })} autoFocus />
-            </Field>
+            {owner.free
+              ? <p className="settings-quiet">{owner.note}</p>
+              : (
+                <Field label="Your password, to confirm this change" hint={owner.asked ? passwordAskedWords : undefined}>
+                  <SecretInput autoComplete="current-password" value={pending.password} onValueChange={(password) => setPending({ ...pending, password })} autoFocus />
+                </Field>
+              )}
             <div className="settings-actions">
-              <Button variant="primary" type="submit" disabled={busy || !pending.password}>{pending.kind === "role" ? `Make ${pending.username} ${becomes(pending.role)}` : pending.kind === "enable" ? `Re-enable ${pending.username} as ${becomes(pending.role)}` : `Disable ${pending.username}`}</Button>
+              <Button variant="primary" type="submit" disabled={busy || (!owner.free && !pending.password)}>{pending.kind === "role" ? `Make ${pending.username} ${becomes(pending.role)}` : pending.kind === "enable" ? `Re-enable ${pending.username} as ${becomes(pending.role)}` : `Disable ${pending.username}`}</Button>
               <Button variant="ghost" onClick={cancelPending}>Cancel</Button>
             </div>
           </div>
@@ -148,10 +171,13 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
           <Field label="New account role" hint={roleHelp[form.role]}>
             <Select options={[roles[1], roles[2], roles[0]]} value={form.role} onValueChange={(role) => setForm({ ...form, role })} />
           </Field>
-          <Field label="Your owner password">
-            <SecretInput autoComplete="current-password" value={form.password} onValueChange={(password) => setForm({ ...form, password })} required />
-          </Field>
+          {!owner.free && (
+            <Field label="Your owner password" hint={owner.asked ? passwordAskedWords : undefined}>
+              <SecretInput autoComplete="current-password" value={form.password} onValueChange={(password) => setForm({ ...form, password })} required />
+            </Field>
+          )}
         </div>
+        {owner.free && <p className="settings-quiet">{owner.note}</p>}
         <div className="settings-actions"><Button type="submit" busy={busy}>Add person</Button></div>
         {error && errorAt === "add" && <Notice tone="danger" live>{error}</Notice>}
         {added && <Notice tone="success" live onDismiss={() => setAdded(null)}>{added}</Notice>}
@@ -167,5 +193,60 @@ export default function PeoplePanel({ csrfToken }: { csrfToken: string }) {
         )}
       </form>
     </Panel>
+  );
+}
+
+/**
+ * A new password for someone who forgot theirs: typed twice, twelve characters or more. Their
+ * sessions end with the old one, and the notice says how many.
+ */
+function NewPasswordSheet({ person, csrfToken, owner, onClose, onDone }: { person: Person; csrfToken: string; owner: OwnerPassword; onClose: () => void; onDone: (said: string) => void }) {
+  const [newPassword, setNewPassword] = useState("");
+  const [again, setAgain] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const short = newPassword.length > 0 && newPassword.length < 12;
+  const differs = again.length > 0 && again !== newPassword;
+  const ready = newPassword.length >= 12 && again === newPassword && (owner.free || password.length > 0) && !saving;
+  const save = async () => {
+    if (!ready) return;
+    setSaving(true); setProblem(null);
+    try {
+      const response = await fetch(`/api/v1/people/${encodeURIComponent(person.id)}/password`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ newPassword, ...(owner.free ? {} : { password }) }) });
+      const body = (await response.json().catch(() => ({}))) as { account?: { username?: string }; sessionsEnded?: number; error?: string; code?: string };
+      if (owner.free && passwordAsked(response, body)) { owner.refused(); return; }
+      if (!response.ok) throw new Error(body.error ?? `The password could not be set (${response.status})`);
+      const ended = typeof body.sessionsEnded === "number" ? body.sessionsEnded : 0;
+      onDone(`${body.account?.username ?? person.username} has a new password and was signed out everywhere (${ended} ${ended === 1 ? "session" : "sessions"}).`);
+    } catch (requestError) {
+      setProblem(requestError instanceof Error ? requestError.message : "The password could not be set");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Sheet kicker={person.username} title="Set a new password" side="center" size="sm" onClose={onClose} onSubmit={() => void save()} footer={<>
+      <Button variant="ghost" onClick={onClose}>Cancel</Button>
+      <Button variant="primary" type="submit" disabled={!ready} busy={saving}>Set the password</Button>
+    </>}>
+      <div className="settings-form">
+        <p className="settings-quiet">{person.username} signs in with it from now on, and is signed out everywhere. Tell them the new one yourself: BoxPilot does not send it.</p>
+        <Field label="New password" hint="Twelve characters or more." error={short ? "At least 12 characters." : undefined}>
+          <SecretInput autoComplete="new-password" value={newPassword} onValueChange={setNewPassword} />
+        </Field>
+        <Field label="New password, again" error={differs ? "The two do not match." : undefined}>
+          <SecretInput autoComplete="new-password" value={again} onValueChange={setAgain} />
+        </Field>
+        {owner.free
+          ? <p className="settings-quiet">{owner.note}</p>
+          : (
+            <Field label="Your owner password" hint={owner.asked ? passwordAskedWords : "Setting someone's password asks for yours."}>
+              <SecretInput autoComplete="current-password" value={password} onValueChange={setPassword} />
+            </Field>
+          )}
+        {problem && <Notice tone="danger" live title="Not changed">{problem}</Notice>}
+      </div>
+    </Sheet>
   );
 }

@@ -87,7 +87,7 @@ export function createTheyspyReader({ run, apps = null, dockerBinary = process.e
   async function inspect() {
     const where = await locate();
     const base = { ...where, readAt: now().toISOString() };
-    if (where.placement === "absent") return { ...base, available: false, reason: "TheySpy is not installed on this server (App catalog → TheySpy)." };
+    if (where.placement === "absent") return { ...base, available: false, reason: "TheySpy is not installed on this server (Apps → TheySpy)." };
     if (!where.running) return { ...base, available: false, reason: `The ${where.container} container is not running.` };
     const result = await run(dockerBinary, ["exec", where.container, "node", "server/summary.mjs", "7"], { timeout: 45_000, maxBuffer: 256 * 1024 }).catch(() => ({ ok: false, stdout: "" }));
     const summary = checkSummary(result.stdout ?? "");

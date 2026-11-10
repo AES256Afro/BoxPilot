@@ -3,6 +3,7 @@ import { Button, Checkbox, Field, KeyValue, Notice, Panel, SecretInput, Select, 
 import HeartbeatPanel from "./HeartbeatPanel";
 import { openView } from "../../activityEvents";
 import { watchView } from "../../home/needs";
+import { passwordAsked, passwordAskedWords, useOwnerPassword } from "../../ownerPassword";
 
 interface NotificationState { configured: boolean; kind: "ntfy" | "gotify" | "webhook" | null; url: string | null; topic: string | null; hasToken: boolean }
 interface WatchCondition { key: string; label: string; active: boolean; details: Array<{ title: string; since: string | null }> }
@@ -155,7 +156,7 @@ function QuietHours({ csrfToken }: { csrfToken: string }) {
 
 /**
  * Settings → Notifications: where alerts and the weekly report go (ntfy, Gotify or a webhook; ntfy
- * and Gotify are both in the app catalog, so the target can live on this very server), what BoxPilot
+ * and Gotify are both in Apps, so the target can live on this very server), what BoxPilot
  * watches for, and the weekly report. Owner-only (ADR-003): the target and its token are the box's.
  */
 export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken: string; /** The target changed: the page reads its facts again. */ onChange?: () => void }) {
@@ -166,6 +167,9 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
   const [topic, setTopic] = useState("boxpilot");
   const [token, setToken] = useState("");
   const [password, setPassword] = useState("");
+  // Inside the window a password already opened, none is asked for (ownerPassword.tsx).
+  const owner = useOwnerPassword();
+  const passwordReady = owner.free || password.length >= 12;
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -224,8 +228,10 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
   const save = async (target: { kind: string; url: string; topic?: string; token?: string } | null) => {
     setBusy(true); setError(null); setMessage(null);
     try {
-      const response = await fetch("/api/v1/settings/notifications", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ target, password }) });
-      const body = (await response.json()) as NotificationState & { error?: string };
+      const response = await fetch("/api/v1/settings/notifications", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ target, ...(owner.free ? {} : { password }) }) });
+      const body = (await response.json()) as NotificationState & { error?: string; code?: string };
+      // Sent without the password, inside a window that has since ended: the field shows, to send it again.
+      if (owner.free && passwordAsked(response, body)) { owner.refused(); return; }
       if (!response.ok) throw new Error(body.error ?? "Could not save the notification target");
       setCurrent(body); setEditing(false); setPassword(""); setToken("");
       onChange?.();
@@ -296,15 +302,15 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
             </Notice>
           )}
           {localServer && url === localServer.sendUrl && (
-            <p className="settings-quiet">Alerts will be sent to the {localServer.name} on this server. To get them on your phone, open the {localServer.name} app and subscribe to {kind === "ntfy" ? <>topic <code>{topic || "boxpilot"}</code></> : "this server"}{localServer.reachAddress ? <> at <code>{localServer.reachAddress}</code></> : ""}. If the app is only reachable from this server, publish it on your tailnet first. <Button variant="ghost" onClick={() => openView("catalog", { app: localServer.kind })}>Open {localServer.name} in the catalog</Button></p>
+            <p className="settings-quiet">Alerts will be sent to the {localServer.name} on this server. To get them on your phone, open the {localServer.name} app and subscribe to {kind === "ntfy" ? <>topic <code>{topic || "boxpilot"}</code></> : "this server"}{localServer.reachAddress ? <> at <code>{localServer.reachAddress}</code></> : ""}. If the app is only reachable from this server, publish it on your tailnet first. <Button variant="ghost" onClick={() => openView("catalog", { app: localServer.kind })}>Open {localServer.name} in Apps</Button></p>
           )}
           {form && current && !configured && noServer && (
-            <Notice tone="info" title="No notification server yet." action={<Button onClick={() => openView("catalog", { app: "ntfy" })}>Open ntfy in Apps</Button>}>
+            <Notice tone="info" title="No notification server yet" action={<Button onClick={() => openView("catalog", { app: "ntfy" })}>Open ntfy in Apps</Button>}>
               Install ntfy on this server, or use an ntfy server you already have.
             </Notice>
           )}
           {form && current && (
-            <form className="settings-form" onSubmit={(event) => { event.preventDefault(); if (password.length >= 12 && url) void save({ kind, url, ...(kind === "ntfy" ? { topic } : {}), ...(token ? { token } : {}) }); }}>
+            <form className="settings-form" onSubmit={(event) => { event.preventDefault(); if (passwordReady && url) void save({ kind, url, ...(kind === "ntfy" ? { topic } : {}), ...(token ? { token } : {}) }); }}>
               <div className="settings-grid-form">
                 <Field label="Notification service">
                   <Select options={services} value={kind} onValueChange={(value) => setKind(value as typeof kind)} />
@@ -323,17 +329,19 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
               </div>
               <p className="settings-quiet">The address and any token are kept on this server so alerts can be sent while you are away, and they are included in BoxPilot's own database backups. Use a token scoped to sending notifications rather than one that can do more.</p>
               <div className="settings-form settings-form--row">
-                <Field label="Owner password" hint="Changing where alerts go asks for it.">
-                  <SecretInput autoComplete="current-password" value={password} onValueChange={setPassword} />
-                </Field>
+                {!owner.free && (
+                  <Field label="Owner password" hint={owner.asked ? passwordAskedWords : "Changing where alerts go asks for it."}>
+                    <SecretInput autoComplete="current-password" value={password} onValueChange={setPassword} />
+                  </Field>
+                )}
                 <div className="settings-actions">
-                  <Button variant="primary" type="submit" disabled={busy || password.length < 12 || !url}>{busy ? "Saving..." : "Save"}</Button>
-                  {configured && <Button disabled={busy || password.length < 12} onClick={() => void save(null)}>Turn off</Button>}
+                  <Button variant="primary" type="submit" disabled={busy || !passwordReady || !url}>{busy ? "Saving…" : "Save"}</Button>
+                  {configured && <Button disabled={busy || !passwordReady} onClick={() => void save(null)}>Turn off</Button>}
                   {editing && <Button variant="ghost" onClick={() => { setEditing(false); setPassword(""); }}>Cancel</Button>}
                 </div>
               </div>
               {/* Not greyed buttons with no reason: say what they wait for. */}
-              {!busy && password.length < 12 && <p className="settings-quiet">Type your password to save.</p>}
+              {owner.free ? <p className="settings-quiet">{owner.note}</p> : !busy && password.length < 12 && <p className="settings-quiet">Type your password to save.</p>}
             </form>
           )}
           {message && <Notice tone="success" live>{message}</Notice>}

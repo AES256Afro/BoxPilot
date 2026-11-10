@@ -43,8 +43,8 @@ Three more units are installed with BoxPilot and stay off until the owner asks f
 
 - **`boxpilot-agents.service`**, the agents' runner (ADR-005). It is enabled when the owner turns
   Agents on, runs as its own user (`boxpilot-agents`) and asks the web service for work with a
-  token systemd hands it; the local model server is its child. It is capped (four processors at
-  idle priority, 8 GB of memory, no swap) and may reach this machine only (`IPAddressAllow=localhost`).
+  token systemd hands it; the local model server is its child. It is capped (four processors in
+  the background, up to eight while you wait, 8 GB of memory, no swap) and may reach this machine only (`IPAddressAllow=localhost`).
 - **`boxpilot-model-gateway.service`**, the one process that holds the Claude key (ADR-013). It is
   enabled when the owner connects Claude, runs as `boxpilot-model-gateway`, and gets the key from a
   root-only file through `LoadCredential`. The web service reaches it over a Unix socket; it sends
@@ -92,7 +92,8 @@ parameter spec: jobs stage what it finds, and schedules and flows refuse to stor
 A catalog app is a YAML manifest plus a Compose template ([`catalog/`](../catalog)). Install,
 update, reconfigure, back up, restore and uninstall are generic: no app has its own code path.
 Manifests are validated strictly. Unknown keys are errors, image tags are pinned, and an app that
-reaches the Docker socket, the host network, or kernel capabilities cannot be marked low risk.
+reaches the Docker socket, the host network, or kernel capabilities cannot be marked low risk. An
+app handed the Docker socket to write to, or a writable folder that holds the backups, is high risk.
 
 Each app lives in `/var/lib/boxpilot-managed/catalog/<id>/` with its own `.env`, Compose file and
 volumes. Ports bind to the LAN address or to loopback, as the manifest says.
@@ -106,7 +107,7 @@ two operations on the same app never overlap.
 
 ## Identity and roles
 
-Sign in with a local password, a **Tailscale** identity, or **GitHub** (device flow, no client
+Sign in with a local password, a passkey, a **Tailscale** identity, or **GitHub** (device flow, no client
 secret, no callback URL). Identities are linked per account: a login signs in as the account that
 linked it. The first Tailscale sign-in in a browser also asks for the password once, because
 anything able to reach the loopback port could otherwise claim a tailnet address.
@@ -125,14 +126,14 @@ required on every change. Repeated wrong passwords throttle that account.
 | Path | Contents |
 | --- | --- |
 | `/opt/boxpilot` | the release; replaced wholesale by an update, with the previous tree kept for rollback |
-| `/var/lib/boxpilot` | SQLite database, job logs, audit log (root-only) |
+| `/var/lib/boxpilot` | SQLite database, job logs, audit log (the boxpilot user only) |
 | `/var/lib/boxpilot-managed` | app projects, app backups, machine snapshots |
 | `/etc/boxpilot/secrets` | credentials for shares and cloud destinations (0600, root) |
 | `/run/boxpilot` | the helper socket and one spec file per running root task |
 
 ## Updating
 
-*System → BoxPilot updates* checks GitHub for a newer release. The update downloads the reviewed
+*System → BoxPilot update* checks GitHub for a newer release. The update downloads the reviewed
 commit (not the tag, which can move), builds it, swaps `/opt/boxpilot`, restarts both services and
 health-checks the result, rolling back to the previous tree if the new version does not answer.
 

@@ -169,6 +169,15 @@ async function putBack({ database, copyName, version, stamp, run, healthy, log =
     signEveryoneOut(chosen);
 
     say(`stopping BoxPilot to put back ${copyName}`);
+    // The model gateway is part of the web service (it stops with it, so its view of the sockets
+    // is made again), and a stop then a start does not bring it back: it is started again below
+    // wherever BoxPilot is, if it was running.
+    const gatewayWasRunning = (await run("/usr/bin/systemctl", ["is-active", "--quiet", "boxpilot-model-gateway.service"])).ok;
+    const startBoxPilot = async () => {
+      const started = await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
+      if (gatewayWasRunning) await run("/usr/bin/systemctl", ["start", "boxpilot-model-gateway.service"]);
+      return started;
+    };
     const stopped = await run("/usr/bin/systemctl", ["stop", "boxpilot.service"]);
     if (!stopped.ok) throw new Error(`BoxPilot would not stop (${stopped.stderr?.trim() || "systemctl failed"}). Nothing was changed.`);
 
@@ -178,7 +187,7 @@ async function putBack({ database, copyName, version, stamp, run, healthy, log =
       await copyInto(before, path.join(directory, savedName), 0o600);
       say(`database copy: ${path.join(directory, savedName)} (the database as it was before this)`);
     } catch (error) {
-      await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
+      await startBoxPilot();
       throw new Error(`the current database could not be saved first, so it was left as it was: ${error.message}`);
     }
 
@@ -188,11 +197,11 @@ async function putBack({ database, copyName, version, stamp, run, healthy, log =
       // Out of space, most likely. Whatever stage it stopped at, the database before is put back.
       say(`ERROR: could not write ${copyName} in place (${error.message}); putting back the database it had`);
       await replaceWith(before, database, owner).catch((again) => say(`ERROR: could not put it back either (${again.message})`));
-      await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
+      await startBoxPilot();
       throw new Error(`${copyName} could not be written in place (${error.message}); the database it had was put back and BoxPilot started again`);
     }
     say(`${copyName} is the database now; starting BoxPilot`);
-    await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
+    await startBoxPilot();
     if (await healthy()) {
       say(`RESTORED: BoxPilot answers on ${copyName}; everyone was signed out; the database before this is ${savedName}`);
       return { restored: copyName, saved: savedName, rolledBack: false };
@@ -203,7 +212,7 @@ async function putBack({ database, copyName, version, stamp, run, healthy, log =
     try {
       await replaceWith(before, database, owner);
     } finally {
-      await run("/usr/bin/systemctl", ["start", "boxpilot.service"]);
+      await startBoxPilot();
     }
     const back = await healthy();
     throw Object.assign(new Error(`BoxPilot did not answer on ${copyName}, so the database it had was put back${back ? " and BoxPilot answers again" : "; BoxPilot does not answer on it either, see the service log"}`), { rolledBack: true });

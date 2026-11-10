@@ -1,6 +1,6 @@
 /** Client for the operation registry and the generic job path (ADR-001). */
 import { readJson } from "./http";
-import { refreshAfterJob } from "./shell/refresh";
+import { pageIsFollowing, refreshAfterJob } from "./shell/refresh";
 
 export type RiskTier = "low" | "medium" | "high";
 
@@ -174,7 +174,7 @@ function readableJob(value: unknown): value is Job {
   return Boolean(value && typeof value === "object" && "id" in value && typeof value.id === "string" && "title" in value && typeof value.title === "string" && "state" in value && typeof value.state === "string" && "steps" in value && Array.isArray(value.steps));
 }
 
-interface JobFeedListener { onSnapshot: (jobs: Job[]) => void; onJob: (job: Job) => void; onStatus?: (status: JobFeedStatus) => void; pollAfterMs?: number; pollEveryMs?: number }
+interface JobFeedListener { onSnapshot: (jobs: Job[]) => void; onJob: (job: Job) => void; onStatus?: (status: JobFeedStatus) => void; pollAfterMs?: number; pollEveryMs?: number; /** The clock (the first follower's), for telling a job that has just ended from an old one. */ now?: () => number }
 
 /*
  * One feed per tab (M50.2 left this for later): Activity follows jobs for the whole session and
@@ -188,19 +188,37 @@ const feed: { listeners: Set<JobFeedListener>; stop: (() => void) | null; jobs: 
  * Which jobs the feed has already seen finished, so a page is told once when one ends (refresh.ts).
  * The first snapshot is history, not news. A job is news when it reaches a finished state after
  * that, by event or, where the stream is buffered, by turning up finished in a later snapshot.
+ *
+ * And only when it really has just ended: this tab saw it waiting or running, or its record was last
+ * written in the last few seconds. A finished job older than the snapshot holds is not in
+ * `seenFinished`, and anything said of it (a step added when its failure is dismissed, which does not
+ * touch `updatedAt`) arrived looking like a job ending: "Dismiss all 40 failed" made the page
+ * underneath read itself once a second for the whole run.
  */
 let seenFinished: Set<string> | null = null;
-function noteFinished(jobs: Job[], snapshot: boolean): void {
-  const finished = jobs.filter((job) => terminalJobStates.has(job.state)).map((job) => job.id);
+const seenUnfinished = new Set<string>();
+const justEndedMs = 10_000;
+function noteFinished(jobs: Job[], snapshot: boolean, now: () => number): void {
+  const finishedJobs = jobs.filter((job) => terminalJobStates.has(job.state));
+  const finished = finishedJobs.map((job) => job.id);
+  const unfinished = jobs.filter((job) => !terminalJobStates.has(job.state)).map((job) => job.id);
   if (!seenFinished) {
-    if (snapshot) seenFinished = new Set(finished);
+    if (snapshot) { seenFinished = new Set(finished); for (const id of unfinished) seenUnfinished.add(id); }
     return;
   }
-  const fresh = finished.filter((id) => !seenFinished!.has(id));
+  const fresh = finishedJobs.filter((job) => !seenFinished!.has(job.id));
   // A snapshot is the whole recent history: ids that have left it are forgotten with it.
   if (snapshot) seenFinished = new Set(finished);
-  else for (const id of fresh) seenFinished.add(id);
-  if (fresh.length > 0) refreshAfterJob();
+  else for (const job of fresh) seenFinished.add(job.id);
+  const news = fresh.filter((job) => {
+    const ended = Date.parse(job.updatedAt ?? "");
+    // A later snapshot holds only recent jobs, so one newly finished in it did end since the last.
+    return snapshot || seenUnfinished.has(job.id) || (Number.isFinite(ended) && Math.abs(now() - ended) <= justEndedMs);
+  });
+  for (const id of finished) seenUnfinished.delete(id);
+  for (const id of unfinished) seenUnfinished.add(id);
+  // A job its own page is following to the end is that page's to read for (refresh.ts).
+  if (news.some((job) => !pageIsFollowing(job.id))) refreshAfterJob();
 }
 
 const newestFirst = (jobs: Job[]) => [...jobs].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, 50);
@@ -213,13 +231,15 @@ export function followJobs(listener: JobFeedListener): () => void {
   if (!feed.stop) {
     feed.jobs = null;
     seenFinished = null;
+    seenUnfinished.clear();
     feed.status = "loading";
+    const now = listener.now ?? Date.now;
     const each = (call: (entry: JobFeedListener) => void) => { for (const entry of [...feed.listeners]) call(entry); };
     feed.stop = openJobFeed({
-      onSnapshot: (jobs) => { feed.jobs = jobs; noteFinished(jobs, true); each((entry) => entry.onSnapshot(jobs)); },
+      onSnapshot: (jobs) => { feed.jobs = jobs; noteFinished(jobs, true, now); each((entry) => entry.onSnapshot(jobs)); },
       onJob: (job) => {
         if (feed.jobs) feed.jobs = newestFirst(feed.jobs.some((entry) => entry.id === job.id) ? feed.jobs.map((entry) => (entry.id === job.id ? job : entry)) : [job, ...feed.jobs]);
-        noteFinished([job], false);
+        noteFinished([job], false, now);
         each((entry) => entry.onJob(job));
       },
       onStatus: (status) => { feed.status = status; each((entry) => entry.onStatus?.(status)); },
@@ -240,11 +260,12 @@ export function followJobs(listener: JobFeedListener): () => void {
     feed.stop = null;
     feed.jobs = null;
     seenFinished = null;
+    seenUnfinished.clear();
     stop?.();
   };
 }
 
-function openJobFeed({ onSnapshot, onJob, onStatus = () => {}, pollAfterMs = 2500, pollEveryMs = 5000 }: JobFeedListener): () => void {
+function openJobFeed({ onSnapshot, onJob, onStatus = () => {}, pollAfterMs = 2500, pollEveryMs = 5000 }: Omit<JobFeedListener, "now">): () => void {
   let stopped = false;
   let polling = false;
   let source: EventSource | null = null;

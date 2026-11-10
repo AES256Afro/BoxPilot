@@ -271,7 +271,7 @@ describe("apps that are not running, on the owner's real server", () => {
     const needs = buildNeeds(catalog(absent), { now, role: "owner" });
     expect(needs).toHaveLength(1);
     expect(needs[0]).toMatchObject({ id: "apps-missing", severity: "warning", view: "catalog", title: "AnythingLLM, AuDHDMAP and 4 more have lost their containers", action: null });
-    expect(needs[0].detail).toContain("Start each from the App catalog");
+    expect(needs[0].detail).toContain("Start each from Apps");
     expect(needs[0].appId).toBeUndefined();
     expect(appHealth(absent[0], undefined, now)).toMatchObject({ status: "warning", label: "No container" });
     const [one] = buildNeeds(catalog([absent[2]]), { now, role: "owner" });

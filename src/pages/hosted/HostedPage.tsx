@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { useCallback, useEffect, useMemo, useState, type ClipboardEvent, type FormEvent } from "react";
+import { onPageRefresh } from "../../shell/refresh";
 import { openView } from "../../activityEvents";
 import { readJson } from "../../http";
 import { relativeTime } from "../../home/format";
@@ -79,7 +79,8 @@ function tunnelWords(tunnel: TunnelFacts | null, clock: number): Figure {
  * The name out of what was typed or pasted: `https://News.Example.com/path` is `news.example.com`.
  * The server takes a bare lower-case name with no port, so the scheme, the sign-in part, the port and
  * the path go as they arrive. A dot at the end stays while typing ("news." is on its way to
- * "news.example.com") and goes when the name is sent, or at once from a pasted address.
+ * "news.example.com") and goes when the name is sent, or at once from a pasted address. The form
+ * applies it to what is pasted, when the field is left and as the name is sent, never as it is typed.
  */
 export function hostnameFrom(typed: string, done = false): string {
   let name = typed.trim().toLowerCase();
@@ -125,8 +126,10 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
   const [savingInterval, setSavingInterval] = useState(false);
   const canChange = role === "owner" || role === "operator";
 
-  const read = useCallback(async (fresh = false) => {
-    if (fresh) setChecking(true); else setLoading(true);
+  const read = useCallback(async (fresh = false, { quiet = false }: { quiet?: boolean } = {}) => {
+    // A quiet read (a job ended somewhere) changes nothing but the facts: Check again does not spin,
+    // and what is on screen, an error included, stays until the answer is in.
+    if (fresh) setChecking(true); else if (!quiet) setLoading(true);
     try {
       const body = await readJson<HostedStatus>(await fetch(`/api/v1/hosted-domains${fresh ? "?fresh=1" : ""}`));
       if (!isHostedStatus(body)) throw new Error("The hosted domains came back in a shape this page cannot read.");
@@ -135,13 +138,15 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The hosted domains could not be read");
     } finally {
-      setLoading(false);
-      setChecking(false);
+      if (!quiet) setLoading(false);
+      if (fresh) setChecking(false);
     }
   }, []);
   useEffect(() => { void read(); }, [read]);
-  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(() => { void read(); }), [read]);
+  // One button, "Check again": a fresh round of checks for those who may ask for one, the last round read again for a viewer.
+  const checkAgain = useCallback(() => read(canChange), [read, canChange]);
+  // The bar's Refresh is Check again; a job ending anywhere (Activity, the command bar, a schedule) reads the last round again quietly.
+  useEffect(() => onPageRefresh({ asked: checkAgain, job: () => read(false, { quiet: true }) }), [read, checkAgain]);
   // The first round after a start is still running: read again shortly, until it has an answer.
   useEffect(() => {
     if (!status || (!status.checking && status.checkedAt)) return undefined;
@@ -189,8 +194,6 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
   const unchecked = domains.filter((domain) => domain.state === "unknown").length;
   const tunnel = tunnelWords(status?.tunnel ?? null, clock);
   const checked = relativeTime(status?.checkedAt, clock);
-  // One button, "Check again": a fresh round of checks for those who may ask for one, the last round read again for a viewer.
-  const checkAgain = () => void read(canChange);
 
   const verdict: { status: Status; label: string } = error && !status ? { status: "unknown", label: "Not read" }
     : !status ? { status: "unknown", label: "Reading…" }
@@ -262,7 +265,7 @@ export default function HostedPage({ csrfToken, role = "owner", now = Date.now }
         </> : undefined}
         actions={<>
           {canChange && <Button onClick={() => setAdding(true)}>Add a domain…</Button>}
-          <Button variant="ghost" onClick={checkAgain} busy={checking || (loading && Boolean(status))}>Check again</Button>
+          <Button variant="ghost" onClick={() => void checkAgain()} busy={checking || (loading && Boolean(status))}>Check again</Button>
         </>}
         about={<>
           <p>Every public name this server answers for, and whether it does.</p>
@@ -375,6 +378,16 @@ function AddDomainSheet({ onClose, send, onAdded }: { onClose: () => void; send:
     }).catch(() => { if (!gone) setAppsUnread(true); });
     return () => { gone = true; };
   }, []);
+  // A pasted address is cut down to its name at once, wherever in the field it lands.
+  const pasteName = (event: ClipboardEvent<HTMLInputElement>) => {
+    const pasted = event.clipboardData?.getData("text") ?? "";
+    if (!pasted) return;
+    event.preventDefault();
+    const field = event.currentTarget;
+    const from = field.selectionStart ?? field.value.length;
+    const to = field.selectionEnd ?? from;
+    setHostname(hostnameFrom(`${field.value.slice(0, from)}${pasted}${field.value.slice(to)}`, true));
+  };
   const ready = hostnameFrom(hostname, true).length > 0 && !saving;
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -397,7 +410,8 @@ function AddDomainSheet({ onClose, send, onAdded }: { onClose: () => void; send:
       <form className="hosted-form" onSubmit={(event) => void submit(event)}>
         {problem && <Notice tone="danger" live title="Not added">{problem}</Notice>}
         <Field label="Name" hint="The public name, as people type it: news.example.com. A pasted address is cut down to its name." required>
-          <TextInput mono autoFocus placeholder="news.example.com" value={hostname} onValueChange={(value) => setHostname(hostnameFrom(value))} autoComplete="off" autoCapitalize="off" spellCheck={false} />
+          {/* Typed, it is kept as typed: cut down on every keystroke, "https://news…" lost its "://" a character at a time and ended as "httpsnews…", a name that never resolves. */}
+          <TextInput mono autoFocus placeholder="news.example.com" value={hostname} onValueChange={setHostname} onPaste={pasteName} onBlur={() => setHostname((typed) => hostnameFrom(typed, true))} autoComplete="off" autoCapitalize="off" spellCheck={false} />
         </Field>
         <Field label="Answered on this server at" hint="Where the tunnel or proxy sends visitors here, so BoxPilot can ask the app directly too: http://127.0.0.1:4321." optional>
           <TextInput mono placeholder="http://127.0.0.1:4321" value={service} onValueChange={setService} autoComplete="off" spellCheck={false} />

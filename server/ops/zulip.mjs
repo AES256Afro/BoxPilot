@@ -80,12 +80,12 @@ export function zulipOperations() {
     }),
     defineOperation({
       id: "agents.zulip.connect", title: "Connect the agents to Zulip", risk: "medium", minimumRole: "owner", timeoutMs: minutes(5),
-      description: "Runs one fixed script with Zulip's own manage.py inside the Zulip container, as the zulip user: it makes a bot for BoxPilot's agents owned by your organization's owner (or reuses the one it made before, with a new key), and makes four private channels only you and the bot are in - #agent-findings, #agent-logs, #agent-knowledge and #agent-files. The bot's key goes straight into BoxPilot's credential store; it is never shown or logged. Then it checks the key with Zulip and says hello in #agent-findings. Safe to run again: it repairs what is missing and changes nothing that is right.",
+      description: "Makes a bot for BoxPilot's agents in your Zulip, and four private channels only you and the bot are in. The bot's key goes straight into BoxPilot's credential store and is never shown. Safe to run again. The channels are #agent-findings, #agent-logs, #agent-knowledge and #agent-files, and the bot says hello in the first when it is done.",
       parameters: { exact: true, fields: { boxpilotUrl: { type: "string", optional: true, nullable: true, maxLength: 200, pattern: /^https?:\/\/[A-Za-z0-9.-]{1,180}(?::\d{1,5})?$/ } } },
       run: async (_parameters, { apps, credentials, runUnit, jobLog, progress }) => {
         const { applications = [] } = await apps.inspect({ id: zulipAppId });
         const app = applications.find((entry) => entry.id === zulipAppId);
-        if (!app?.installed) throw new Error("Zulip is not installed; install it from the App catalog first");
+        if (!app?.installed) throw new Error("Zulip is not installed; install it from Apps first");
         if (!app.container?.running) throw new Error("Zulip is installed but not running; start it, then connect");
         const port = app.urls?.[0]?.host;
         if (!Number.isInteger(port)) throw new Error("Zulip has no web port BoxPilot can reach");
@@ -96,15 +96,16 @@ export function zulipOperations() {
         if (!made.ok) throw failure(made, "Zulip's manage.py");
         const found = readConnectResult(made.stdout);
         if (!found) throw new Error("Zulip's manage.py finished without saying what it made; check the Zulip app's logs");
-        if (found.error === "no-organization") throw new Error("Zulip has no organization yet. On Zulip's sheet in the App catalog, choose Create your organization and finish it in Zulip, then connect.");
+        if (found.error === "no-organization") throw new Error("Zulip has no organization yet. On Zulip's sheet in Apps, choose Create your organization and finish it in Zulip, then connect.");
         if (found.error === "no-owner") throw new Error("Zulip's organization has no active owner to own the bot; make someone its owner in Zulip, then connect");
         if (found.error === "address-taken") throw new Error(`A person's account already has the bot's address (${found.bot}); rename or remove it in Zulip, then connect`);
         // Someone else's bot or channel under the agents' names: any member of the organization can
         // make one first, and would keep the bot's key or sit in the private channels. Nothing was changed.
         if (found.error === "bot-not-yours") throw new Error(`A bot with the address ${shown(found.bot, 120)} already exists in Zulip and does not belong to the organization's owner. Remove it in Zulip, or make the owner its owner there, then connect again.`);
         if (found.error === "channel-shared") throw new Error(`The channel #${shown(found.channel, 60)} already exists in Zulip, the organization's owner did not make it, and ${found.others === 1 ? "someone else is" : "other people are"} in it. Remove them from it or rename it in Zulip, then connect again.`);
+        if (found.error === "channel-public") throw new Error(`The channel #${shown(found.channel, 60)} already exists in Zulip, the organization's owner did not make it, and it is open to everyone there. Make it private or rename it in Zulip, then connect again.`);
         if (found.error === "key-not-renewed") throw new Error("This Zulip gave BoxPilot no way to give the bot a new key, so the bot that is already there was left alone. Remove the bot in Zulip, then connect again.");
-        if (typeof found.error === "string") throw new Error("Zulip's manage.py refused for a reason BoxPilot does not recognise; check the Zulip app's logs");
+        if (typeof found.error === "string") throw new Error("Zulip refused, and BoxPilot does not recognise why. Open Zulip's Logs in Apps.");
         if (typeof found.apiKey !== "string" || !/^[A-Za-z0-9]{16,64}$/.test(found.apiKey) || typeof found.url !== "string") throw new Error("Zulip's manage.py did not give a bot key BoxPilot recognises");
         const site = new URL(found.url);
         await credentials.set({ name: zulipCredentialName, value: found.apiKey });

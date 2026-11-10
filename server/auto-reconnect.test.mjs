@@ -155,7 +155,7 @@ describe("what the owner is told when it worked", () => {
   it("does not bury an app that would not restart", () => {
     const notice = reconnectedNotice({ name: "media", what: "lost its drive", result: reconnected({ restarted: ["bp-plex"], restartFailed: ["bp-sonarr"] }) });
     expect(notice.title).toBe("Reconnected /mnt/media; 1 app did not restart");
-    expect(notice.message).toContain("Could not restart sonarr; restart it from the App catalog.");
+    expect(notice.message).toContain("Could not restart sonarr; restart it from Apps.");
     expect(notice.priority).toBe("high");
   });
 });
@@ -253,6 +253,29 @@ describe("auto-reconnect", () => {
     await service.onRound({ active: [] });   // mounted again by hand, outside any reconnect job
     expect(store.getSetting("healthAlertsState", {})[`flow.failed:${flow.id}`]).toBeUndefined();
     expect(titles().filter((title) => title.startsWith("BoxPilot: resolved."))).toEqual([]);
+  });
+
+  it("leaves the automation's own failure, a held drive, and a round that could not read the drives alone", async () => {
+    const { service, store, alerts } = setup();
+    const flow = await service.arm("media", "owner-1");
+    const key = `flow.failed:${flow.id}`;
+    const standing = () => store.getSetting("healthAlertsState", {})[key];
+    // The automation stopped at a step: its own failure, not a reconnect that did not happen.
+    await alerts.raise({ key, title: "Automation stopped: Reconnect /mnt/media when it drops", message: "It stopped at a step.", priority: "high" });
+    await service.onRound({ active: [] });
+    expect(standing()).toMatchObject({ title: "Automation stopped: Reconnect /mnt/media when it drops" });
+    // The refusal itself, on a round with no evidence about the drives: left as it was.
+    await alerts.clear(key, { quietly: true });
+    await alerts.raise({ key, title: "Did not reconnect /mnt/media", message: "capped", priority: "high" });
+    await service.onRound({ active: [], availability: { "storage.mount.detached": false, "storage.mount.readonly": true } });
+    expect(standing()).toMatchObject({ title: "Did not reconnect /mnt/media" });
+    // While the drive is held for a person, nothing about it is cleared.
+    store.setSetting("driveReconnects", { media: { attempts: [], heldSince: "2026-09-28T02:00:00.000Z", heldBecause: "the last automatic reconnect did not work" } }, { updatedBy: null });
+    await service.onRound({ active: [], availability: { "storage.mount.detached": true, "storage.mount.readonly": true } });
+    expect(standing()).toMatchObject({ title: "Did not reconnect /mnt/media" });
+    store.setSetting("driveReconnects", { media: { attempts: [] } }, { updatedBy: null });
+    await service.onRound({ active: [], availability: { "storage.mount.detached": true, "storage.mount.readonly": true } });
+    expect(standing()).toBeUndefined();
   });
 
   it("stops after a reconnect that failed, tells the owner once, and waits until it is reconnected by hand", async () => {

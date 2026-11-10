@@ -206,7 +206,7 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   // Listed as installed, with no container at all: on the owner's server, every app they had stopped,
   // deleted by the nightly clean-up's `docker system prune`. One item for all of them rather than a
   // problem each, said by what happened; Repair puts each back in one click (M35), and without its
-  // scan the App catalog's Start builds the container again.
+  // scan Start in Apps builds the container again.
   const repairFindings = facts.repairs?.findings ?? [];
   const missingFindings = repairFindings.filter((finding) => finding.id.startsWith("app-missing:"));
   const listedOnRepair = missingFindings.length > 0;
@@ -219,7 +219,7 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
       title: cleanup ? `${named} ${one ? "was" : "were"} removed by ${cleanup}` : `${named} ${one ? "has" : "have"} lost ${one ? "its container" : "their containers"}`,
       detail: listedOnRepair
         ? `Your data is intact. Repair puts ${one ? "it" : "each"} back in one click; ${one ? "an app" : "apps"} you had stopped come${one ? "s" : ""} back stopped.`
-        : `${one ? "Its" : "Their"} data is still here. Start ${one ? "it" : "each"} from the App catalog to build ${one ? "its container" : "their containers"} again, or uninstall ${one ? "it" : "the ones"} you no longer want.`, action: null });
+        : `${one ? "Its" : "Their"} data is still here. Start ${one ? "it" : "each"} from Apps to build ${one ? "its container" : "their containers"} again, or uninstall ${one ? "it" : "the ones"} you no longer want.`, action: null });
   }
 
   if ((facts.services?.failed ?? 0) > 0) {
@@ -285,8 +285,8 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   // ── Updates. ──
   const updates = facts.updates;
   if (updates?.rebootRequired) {
-    needs.push({ id: "reboot", kind: "updates", severity: "warning", title: "A reboot is pending", detail: "A kernel or core library changed", view: "updates",
-      action: act("system.reboot", "Reboot", "Reboot the server", {}, "First stops the apps using BoxPilot's drives and unmounts the drives, saying in the log which let go cleanly, then reboots 5 seconds later. Running VMs and containers stop and the apps start again by themselves; reconnect when this server is back.") });
+    needs.push({ id: "reboot", kind: "updates", severity: "warning", title: "A restart is pending", detail: "A kernel or core library changed", view: "updates",
+      action: act("system.reboot", "Restart", "Restart the server", {}, "First stops the apps using BoxPilot's drives and unmounts the drives, saying in the log which let go cleanly, then restarts the server 5 seconds later. Running VMs and containers stop and the apps start again by themselves; reconnect when this server is back.") });
   }
   if (updates && updates.count > 0) {
     needs.push({ id: "updates", kind: "updates", severity: updates.security > 0 ? "warning" : "neutral", title: `${countOf(updates.count, "update")} available`,
@@ -371,7 +371,7 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     if (days === null || days > 7) {
       needs.push({ id: "database", kind: "backup", severity: "warning", title: days === null ? "BoxPilot's own database has no backup yet" : `BoxPilot's database was last backed up ${countOf(days, "day")} ago`,
         detail: "It holds your schedules, jobs, people and settings", view: "backups",
-        action: act("controller.backup.create", "Back up now", "Back up the BoxPilot database", {}, "Takes a copy of the live database without stopping BoxPilot, then opens the copy to prove it restores before keeping it.") });
+        action: act("controller.backup.create", "Back up now", "Back up BoxPilot's database", {}, "Takes a copy of the live database without stopping BoxPilot, then opens the copy to prove it restores before keeping it.") });
     }
   }
 

@@ -537,7 +537,7 @@ export async function storageLvmSnapshotRollback({ path: snapshot } = {}, { run 
   // An origin that is in use (a mounted /) merges on its next activation, which is a reboot; one that
   // is not merges now. LVM says which; only a deferred merge needs the reboot.
   const deferred = /next activation|delaying merge|can't merge|will merge|will occur/i.test(output);
-  log?.(deferred ? "The merge is scheduled; reboot to apply it. The snapshot is consumed by the merge." : "Merged; no reboot is needed. The snapshot was consumed by the merge.", "stdout");
+  log?.(deferred ? "The system volume goes back at the next restart, so restart the server when convenient. The snapshot is used up." : "The volume is back as it was; no restart is needed. The snapshot is used up.", "stdout");
   return { rollbackScheduled: true, path: snapshot, rebootRequired: deferred, detail: output.split("\n").filter(Boolean).slice(-2).join(" ") };
 }
 

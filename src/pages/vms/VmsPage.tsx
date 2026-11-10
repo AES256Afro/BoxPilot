@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { Button, EmptyState, Notice, PageHeader, Panel, StatusChip, Table, Tabs, Tag, mayStart, riskOf, useUrlParam, type TableColumn } from "../../ui";
@@ -54,8 +54,10 @@ export default function VmsPage({ csrfToken = "", role = "owner", onOpenRepair =
   const [tab, setTab] = useUrlParam<TabId>("tab", tabIds, "machines");
   const rates = useVmStats();
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    // A quiet read (a job ended somewhere) changes nothing but the facts: Check again does not spin,
+    // and what is on screen, an error included, stays until the answer is in.
+    if (!quiet) setLoading(true);
     try {
       const [[nextStatus, nextDomains, nextResources, nextGuidance], nextFoundation, exportsRead, protectionRead, recoveriesRead, retentionRead] = await Promise.all([
         fetchVirtualization(),
@@ -94,12 +96,12 @@ export default function VmsPage({ csrfToken = "", role = "owner", onOpenRepair =
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load virtualization status");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
-  // A job ending anywhere (Activity, the command bar, a schedule) and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(() => { void refresh(); }), [refresh]);
+  // The bar's Refresh is Check again; a job ending anywhere (Activity, the command bar, a schedule) reads it again quietly.
+  useEffect(() => onPageRefresh({ asked: () => refresh(), job: () => refresh({ quiet: true }) }), [refresh]);
 
   const { start: startOperation, dialog } = useOperation(csrfToken, () => { void refresh(); setMediaKey((key) => key + 1); });
   // Starting anything closes the sheet it was pressed in, so the approval dialog is alone on screen.

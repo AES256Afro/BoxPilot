@@ -1,5 +1,7 @@
 # Ubuntu Server Headless Docker and VM Installation Runbook
 
+BoxPilot's Setup page does stages 9 to 12 for you: do stages 0 to 8, then run the installer in the README.
+
 This runbook covers the complete process from inserting the USB installer through a verified headless Ubuntu Server with:
 
 - A reserved LAN address (`<server-ip>`)
@@ -42,7 +44,7 @@ The router's DHCP reservation provides the fixed address. Leave Ubuntu on automa
 
 1. Shut down the future server.
 2. Disconnect any external backup disks, recovery disks, or disks that must not be erased.
-3. If the failed old disk might be sent for data recovery, disconnect it before installing Ubuntu.
+3. If the machine holds a disk whose data you may still need, disconnect it before installing Ubuntu.
 4. Leave connected only:
    - The new intended system disk
    - Monitor
@@ -387,12 +389,12 @@ In the Tailscale admin console:
 1. Open **DNS**.
 2. Keep **Override DNS servers** off.
 3. Keep MagicDNS on.
-4. Find the dead global nameserver (a 100.x address).
+4. Find any global nameserver that no longer exists (a 100.x address).
 5. Open its three-dot menu and remove it.
 6. Do not add `<server-ip>` as a DNS server unless a real DNS service is later installed and tested on this machine.
-7. Do not enable an exit node during the rebuild.
+7. Do not enable an exit node during the installation.
 
-The failed server's old exit-node role and its old DNS-server role are separate dependencies. Neither should be restored until the replacement server is stable and a failure fallback exists.
+Being an exit node and being a DNS server are separate roles. If this server replaces one that had either, set neither up until the new server is stable and there is a fallback for when it is off.
 
 ## Stage 8: Install and verify Tailscale
 
@@ -414,7 +416,7 @@ tailscale ip -4
 tailscale status
 ```
 
-The new server will receive a new `100.x.x.x` Tailscale address. Do not assume it will reclaim the old server's address.
+The server receives a new `100.x.x.x` Tailscale address. A server that replaces another does not take over the other's address.
 
 From the Mac, test:
 
@@ -429,7 +431,7 @@ After the new server survives a reboot and remote access is proven:
 
 1. Open Tailscale **Machines**.
 2. Confirm `<hostname>` is connected.
-3. Remove the previous offline node associated with the failed installation when it is no longer needed. Compare the node's last-seen time and Tailscale address before removing it.
+3. If this server replaces another, remove that one's offline node when it is no longer needed. Compare the node's last-seen time and Tailscale address before removing it.
 4. Optionally disable key expiry for the new trusted always-on server. This improves continuity but increases the importance of revoking the node promptly if the server is lost or compromised.
 
 ## Stage 9: Configure the host firewall
@@ -592,7 +594,11 @@ Use libvirt's default NAT network for the first VMs. Do not convert the physical
 
 ### Hand off virtualization to BoxPilot
 
-After the final server acceptance test passes, follow [BoxPilot QEMU/KVM setup and operation](docs/VIRTUALIZATION.md) to install the native service. Run `sudo -u boxpilot npm run doctor`, open **Virtual Machines**, and confirm every host preflight item before enabling lifecycle controls. BoxPilot can create a reviewed VM plan, but `0.3.0` intentionally cannot apply that plan or create a guest.
+After the final server acceptance test passes, run the install command in the [README](README.md#install), then open **Virtual Machines** and press **Set them up**. To check the installation from the console:
+
+```bash
+cd /opt/boxpilot && sudo -u boxpilot npm run doctor
+```
 
 ### Optional: Create the first VM in Cockpit
 
@@ -629,7 +635,7 @@ systemctl status unattended-upgrades --no-pager
 
 Automatic updates do not replace planned maintenance. Check periodically for `/var/run/reboot-required`.
 
-## Stage 13: Check the replacement disk
+## Stage 13: Check the disk
 
 Identify the storage devices:
 
@@ -662,7 +668,7 @@ Do not blindly copy `/dev/sdX`. Replace it with the exact device reported by `sm
 
 ## Stage 14: Prepare backups before deploying workloads
 
-The previous disk failure makes this a release gate. Before important services are placed on the server, arrange an off-server destination such as a NAS, external disk that is disconnected between backups, or an encrypted cloud repository.
+Do this before anything else goes on the server. Before important services are placed on it, arrange an off-server destination such as a NAS, external disk that is disconnected between backups, or an encrypted cloud repository.
 
 Back up at least:
 
@@ -726,7 +732,7 @@ Acceptance criteria:
 - After the router reservation is configured, the host returns as `<server-ip>` after reboot. Before then, use the current address reported by `ip -br address`.
 - SSH works from the LAN using a key.
 - SSH also works over Tailscale.
-- DNS resolves normally without depending on the failed server's old Tailscale address.
+- DNS resolves normally without depending on any other server's Tailscale address.
 - UFW is enabled and only intended host services are allowed.
 - Docker starts automatically and runs `hello-world`.
 - KVM acceleration is available.

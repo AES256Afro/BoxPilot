@@ -119,7 +119,7 @@ describe("where the copy sits in the upgrade", () => {
     const asked = rollback.indexOf('case "$(curl -fsS --max-time 2 "$HEALTH_URL" 2>/dev/null)" in');
     expect(asked).toBeGreaterThan(rollback.indexOf("systemctl restart boxpilot.service"));
     expect(asked).toBeGreaterThan(rollback.indexOf('if [ "$RESTORED" -ne 1 ]; then'));
-    expect(asked).toBeLessThan(rollback.indexOf('fail "upgrade failed; previous tree restored, ${back}'));
+    expect(asked).toBeLessThan(rollback.indexOf('fail "update failed; previous version\'s files restored, ${back}'));
     expect(rollback).toMatch(/while \[ -z "\$back" \] && \[ "\$attempt" -lt 10 \]; do/);
   });
 
@@ -192,7 +192,7 @@ describe("where the copy sits in the upgrade", () => {
     expect(at("trap 'exit 1' HUP INT TERM PIPE\n")).toBeLessThan(at("systemctl stop boxpilot.service 2>/dev/null || true\n  mv \"$INSTALL_DIR\" \"$PREVIOUS\""));
     const rollback = script.slice(at("rollback() {"), at("HAD_PREVIOUS=0"));
     // Before its first line is written: a terminal or pipe that has gone cannot end it there.
-    const firstLine = rollback.indexOf('log "rolling back to previous tree"');
+    const firstLine = rollback.indexOf('log "rolling back to the previous version\'s files"');
     for (const shield of ["\n  set +e\n", "\n  trap '' HUP INT TERM PIPE\n"]) {
       expect(rollback.indexOf(shield), shield).toBeGreaterThan(0);
       expect(rollback.indexOf(shield), shield).toBeLessThan(firstLine);

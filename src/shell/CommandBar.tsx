@@ -108,6 +108,10 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role, onSignOu
   const [assistant, setAssistant] = useState<AssistantStatus | "failed" | null>(null);
   const [asked, setAsked] = useState<{ question: string; result: AskResult | null; error: string | null } | null>(null);
   const asking = useRef<AbortController | null>(null);
+  // Sign out asks first, here in the bar: it was the first result for "si" and Enter ended the session.
+  const [leaving, setLeaving] = useState(false);
+  const leaveRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { if (leaving) leaveRef.current?.querySelector("button")?.focus(); }, [leaving]);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,11 +142,14 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role, onSignOu
   // asked (answered or still being answered) Escape goes back to the list, and the next one closes.
   const answering = useRef(false);
   answering.current = asked !== null;
+  const leavingNow = useRef(false);
+  leavingNow.current = leaving;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      if (answering.current) { asking.current?.abort(); setAsked(null); inputRef.current?.focus(); }
+      if (leavingNow.current) { setLeaving(false); inputRef.current?.focus(); }
+      else if (answering.current) { asking.current?.abort(); setAsked(null); inputRef.current?.focus(); }
       else onClose();
     };
     document.addEventListener("keydown", onKey);
@@ -188,19 +195,23 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role, onSignOu
     if (!option) return;
     if (option.kind === "ask") { void ask(option.question); return; }
     const { command } = option;
+    // Sign out is asked about first, with the bar still open; nothing else here ends anything.
+    if (command.shell === "sign-out") { setLeaving(true); return; }
     onClose();
     // An action goes through the ordinary approval dialog, at its own tier; nothing runs from here.
     if (command.action) { onStart({ operationId: command.action.operationId, title: command.action.title, parameters: command.action.parameters, preview: <span>{command.action.preview}</span> }); return; }
     if (command.job) { openActivity(command.job); return; }
     if (command.shell === "activity") { openActivity(); return; }
     if (command.shell === "notifications") { openNotifications(); return; }
-    if (command.shell === "sign-out") { onSignOut?.(); return; }
     if (command.href) window.open(command.href, "_blank", "noopener,noreferrer");
     else if (command.view) onNavigate(command.view, command.app || command.tab ? { app: command.app, tab: command.tab, ...(command.sheet ? { sheet: command.sheet } : {}) } : undefined);
   };
 
+  const stay = () => { setLeaving(false); inputRef.current?.focus(); };
+  const leave = () => { onClose(); onSignOut?.(); };
+
   const onInputKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (asked) return;
+    if (asked || leaving) return;
     if (event.key === "ArrowDown") { event.preventDefault(); setActive((index) => Math.min(index + 1, options.length - 1)); }
     else if (event.key === "ArrowUp") { event.preventDefault(); setActive((index) => Math.max(index - 1, 0)); }
     else if (event.key === "Enter") { event.preventDefault(); choose(options[active]); }
@@ -229,7 +240,7 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role, onSignOu
         : `The local assistant is not set up, so this only searches.${assistant.problem?.message ? ` ${assistant.problem.message}` : ""}`;
 
   return createPortal(
-    <div className="command-overlay" role="presentation" onMouseDown={() => { if (!asked) onClose(); }}>
+    <div className="command-overlay" role="presentation" onMouseDown={() => { if (!asked && !leaving) onClose(); }}>
       <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Search BoxPilot" className="command-dialog" onMouseDown={(event) => event.stopPropagation()}>
         <div className="command-input">
           <SearchIcon className="command-input__icon" />
@@ -237,22 +248,31 @@ function CommandDialog({ csrfToken, onClose, onNavigate, onStart, role, onSignOu
             ref={inputRef}
             role="combobox"
             aria-label="Search pages, apps and settings"
-            aria-expanded={!asked && options.length > 0}
+            aria-expanded={!asked && !leaving && options.length > 0}
             aria-controls={listId}
             aria-autocomplete="list"
-            aria-activedescendant={!asked && options.length > 0 ? optionId(active) : undefined}
+            aria-activedescendant={!asked && !leaving && options.length > 0 ? optionId(active) : undefined}
             placeholder={ready ? "Search, or ask the assistant" : "Search pages, apps and settings"}
             autoComplete="off"
             spellCheck={false}
             value={query}
-            readOnly={Boolean(asked)}
+            readOnly={Boolean(asked) || leaving}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onInputKey}
           />
           <button className="command-close" type="button" aria-label="Close dialog" onClick={onClose}>Esc</button>
         </div>
 
-        {asked ? (
+        {leaving ? (
+          <div className="command-answer" role="group" aria-labelledby={`${listId}-leave`}>
+            <p id={`${listId}-leave`} className="command-answer__question">Sign out of BoxPilot on this device?</p>
+            <div className="command-answer__actions" ref={leaveRef}>
+              {/* Enter confirms only once the question is showing: the press that chose "Sign out", held, does nothing here. */}
+              <Button variant="primary" onClick={leave} onKeyDown={(event) => { if (event.key !== "Enter") return; event.preventDefault(); if (!event.repeat) leave(); }}>Sign out</Button>
+              <Button variant="ghost" onClick={stay}>Stay signed in</Button>
+            </div>
+          </div>
+        ) : asked ? (
           <div className="command-answer" aria-live="polite" aria-busy={!asked.result && !asked.error}>
             <p className="command-answer__question">{asked.question}</p>
             {!asked.result && !asked.error && <p className="command-answer__wait">Asking {model}. On a processor without a GPU an answer can take a minute.</p>}

@@ -233,7 +233,7 @@ export default function ToyboxHome({ csrfToken, role, onNavigate, now = Date.now
       <section className="toybox-card toybox-apps" aria-labelledby="toybox-apps-title">
         <h2 className="toybox-card__title" id="toybox-apps-title">Your apps</h2>
         {facts.catalog.state === "failed" && <p className="toybox-quiet">Which apps are installed could not be read. <Button onClick={() => refresh(["catalog"])}>Try again</Button></p>}
-        {catalog && !catalog.liveKnown && <p className="toybox-quiet">Docker did not say which apps are installed, so none are shown. The App catalog has the details.</p>}
+        {catalog && !catalog.liveKnown && <p className="toybox-quiet">Docker did not say which apps are installed, so none are shown. Apps has the details.</p>}
         <ul className="toybox-apps__grid">
           {healths.map(({ app, health }) => {
             const needsLook = health.status === "warning" || health.status === "danger";

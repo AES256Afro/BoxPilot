@@ -18,10 +18,10 @@ describe("Panel", () => {
 
 describe("Button", () => {
   it("keeps the action as its name and reads the tier as its description", () => {
-    render(<><Button risk="low">Refresh lists</Button><Button risk="medium">Install all updates</Button><Button risk="high">Reboot now</Button><Button>Cancel</Button></>);
+    render(<><Button risk="low">Refresh lists</Button><Button risk="medium">Install all updates</Button><Button risk="high">Restart now</Button><Button>Cancel</Button></>);
     const low = screen.getByRole("button", { name: "Refresh lists" });
     const medium = screen.getByRole("button", { name: "Install all updates" });
-    const high = screen.getByRole("button", { name: "Reboot now" });
+    const high = screen.getByRole("button", { name: "Restart now" });
     expect(low.getAttribute("data-risk")).toBe("low");
     expect(medium.getAttribute("data-risk")).toBe("medium");
     expect(document.getElementById(medium.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Medium risk: shows a preview and asks you to confirm.");
@@ -39,8 +39,8 @@ describe("Button", () => {
   });
 
   it("draws a lock and says Password on a high-risk button, and nothing extra on a low one", () => {
-    render(<><Button risk="high">Reboot now</Button><Button risk="low">Refresh lists</Button></>);
-    const high = screen.getByRole("button", { name: "Reboot now" });
+    render(<><Button risk="high">Restart now</Button><Button risk="low">Refresh lists</Button></>);
+    const high = screen.getByRole("button", { name: "Restart now" });
     expect(high.querySelector("svg.ui-button__lock")).not.toBeNull();
     expect(high.querySelector(".ui-button__tier")?.textContent).toBe("Password");
     expect(high.querySelector(".ui-button__tier")?.getAttribute("aria-hidden")).toBe("true");

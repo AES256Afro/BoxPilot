@@ -1,7 +1,7 @@
 import PageErrorBoundary from "./shell/PageErrorBoundary";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { viewLabel, type ViewName } from "./data";
-import { openViewEvent, type OpenViewOptions } from "./activityEvents";
+import { openViewEvent, viewIsShowing, type OpenViewOptions } from "./activityEvents";
 import { viewCopy } from "./pageCopy";
 import SignInPage, { SignInLoading, SignInUnavailable } from "./pages/signin/SignInPage";
 import ActivityDrawer from "./shell/ActivityDrawer";
@@ -34,6 +34,7 @@ import { applyLook, applyLookChoice, useLook } from "./looks/useLook";
 import { ShellHost } from "./shell/ShellHost";
 import { TopBarSlotProvider } from "./shell/TopBarSlot";
 import { PageHeader } from "./ui/PageHeader";
+import { SessionProvider } from "./ownerPassword";
 
 // Every page is its own chunk, fetched the first time it is opened. All eighteen used to ride in
 // the one bundle: 688 KB of JavaScript to show the first page, about sixty percent of it pages the
@@ -121,9 +122,10 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     const next: ViewName = Object.hasOwn(viewCopy, asked) ? asked : "home";
     const changedPage = next !== shown.current;
     shown.current = next;
-    // A page reads its tab from the address as it opens. Asked for a tab while it is already
-    // showing (the command bar's "Schedules" on System), it opens again, at that tab.
-    if (!changedPage && options.tab && next !== "settings") setTabRequest((count) => count + 1);
+    // A page reads its tab from the address as it opens. Asked for another tab while it is already
+    // showing (the command bar's "Schedules" on System), it opens again, at that tab. Asked for the
+    // tab it is on, nothing opens again: a form on it (the share a NAS just refused) keeps what it holds.
+    if (!changedPage && options.tab && next !== "settings" && !viewIsShowing(next, options.tab)) setTabRequest((count) => count + 1);
     setViewState(next);
     setFocusApp(options.app ?? null);
     if (options.app) setFocusRequest((count) => count + 1);
@@ -271,6 +273,9 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 
   // Where Home and every console page draw the start of the top bar (src/shell/TopBarSlot.tsx).
   const [topBarSlot, setTopBarSlot] = useState<HTMLDivElement | null>(null);
+  // What a settings form needs of the session: whether a password already typed still stands, and whose it is.
+  const elevatedUntil = authStatus.elevatedUntil ?? null;
+  const sessionFacts = useMemo(() => ({ elevatedUntil, accountId }), [elevatedUntil, accountId]);
 
   return (
     <FactsProvider>
@@ -317,7 +322,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
               {!ownHeader.has(view) && <PageHeader title={copy.title} about={copy.description} />}
               {/* Keyed by the page, so the page left behind unmounts at once rather than waiting, hidden,
                   behind the next one's loading: its name in the bar would otherwise linger. */}
-              <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense key={`${view}:${tabRequest}`} fallback={<PageLoading name={viewLabel(view)} />}>{pageContent}</Suspense></PageErrorBoundary>
+              <SessionProvider value={sessionFacts}><PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense key={`${view}:${tabRequest}`} fallback={<PageLoading name={viewLabel(view)} />}>{pageContent}</Suspense></PageErrorBoundary></SessionProvider>
             </>}
           </div>
         </main>

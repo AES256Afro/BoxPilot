@@ -196,7 +196,7 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
         meta={canRead ? <>{kindWords[kind]} <b>{shownName}</b> · last <b>{lines}</b> lines · {sinceWords}{appliedFilter.trim() ? <> · matching <b>{appliedFilter.trim()}</b></> : null}</> : undefined}
         actions={canRead ? <Button onClick={() => void downloadBundle()} busy={bundling}>Download support bundle</Button> : undefined}
         about={<>
-          <p>Any journal group, systemd unit or container: the newest lines, a time window, a filter, and following as new lines arrive. Download saves what is shown.</p>
+          <p>Any journal group, service or container: the newest lines, a time window, a filter, and following as new lines arrive. Download saves what is shown.</p>
           <p>The support bundle is BoxPilot's own state with secrets removed, for when someone is helping you.</p>
         </>}
       />

@@ -25,6 +25,8 @@ export interface RestoreTabProps {
   /** What earlier restores staged for review; null when it could not be read. */
   restores: RestoreReview[] | null;
   onChanged: () => void;
+  /** Turns the page to its Apps' data tab, in place. */
+  onOpenApps: () => void;
 }
 
 /** Where an app's data archive was found: this server, the backup drive, or beside a snapshot found on another drive. */
@@ -83,7 +85,7 @@ const formatStaged = (name: string): string => {
   return new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`).toLocaleString();
 };
 
-export default function RestoreTab({ csrfToken, role, restores, onChanged }: RestoreTabProps) {
+export default function RestoreTab({ csrfToken, role, restores, onChanged, onOpenApps }: RestoreTabProps) {
   const { start, dialog } = useOperation(csrfToken, () => { void refresh(); onChanged(); });
   const canRead = role === "owner" || role === "operator";
   const canRestore = mayStart(role, "host.snapshot.restore");
@@ -212,7 +214,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
         actions={canRead ? <Button variant="ghost" busy={reading} onClick={() => void refresh()}>Check again</Button> : undefined}
         footer={<span className="backups-foot backups-foot--row">
           <span className="backups-foot__text">One app, or one file from it: open the app's Backups.</span>
-          <span className="backups-links"><Button variant="ghost" className="backups-inline" onClick={() => openView("backups", { tab: "apps" })}>Apps' data</Button></span>
+          <span className="backups-links"><Button variant="ghost" className="backups-inline" onClick={onOpenApps}>Apps' data</Button></span>
         </span>}
       >
         {!canRead ? (

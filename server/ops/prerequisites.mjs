@@ -28,14 +28,14 @@ export function prerequisiteOperations() {
   return [
     defineOperation({
       id: "canary.verify", title: "Check that BoxPilot can do root work", risk: "low", readOnly: true, parameters: noParameters,
-      description: "Confirms the helper socket answers and reports its version.",
+      description: "Confirms BoxPilot's admin service answers and reports its version.",
       // Answering the socket is half the check. The other half is the one that was missing when the
       // helper's umask made every job log unreadable to the web service for three weeks: write a
       // line as the helper does, and let the caller - the web service - prove it can read it back.
       run: async (_parameters, { createProbeWriter = createJobLogWriter, inspectProbe = stat, now = () => new Date() } = {}) => {
         const jobId = "00000000-0000-4000-8000-00000000c0de";   // one fixed probe, rewritten each time
         const writer = createProbeWriter({ jobId, gid: serviceGroupId(), replaceExisting: true });
-        if (!await writer.append(`canary ${now().toISOString()}`, "stdout")) throw new Error("BoxPilot's helper answered but could not write a job log, so a job would run with nothing to show for it. Restart BoxPilot, then check again.");
+        if (!await writer.append(`canary ${now().toISOString()}`, "stdout")) throw new Error("BoxPilot's admin service answered but could not write a job log, so a job would run with nothing to show for it. Restart BoxPilot, then check again.");
         const path = jobLogPath(jobId);
         const mode = await inspectProbe(path).then((entry) => entry.mode & 0o777, () => null);
         return { verified: true, helperVersion: productVersion, mutationPerformed: false, jobLog: { path, mode } };
@@ -58,7 +58,7 @@ export function prerequisiteOperations() {
     defineOperation({ id: "prerequisite.restic.inspect", title: "Inspect restic", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectRestic() }),
     defineOperation({ id: "prerequisite.restic.install", title: "Install restic", risk: "medium", description: "Installs restic from Ubuntu's archive. It is the engine behind the encrypted, independent copies of your backups.", timeoutMs: minutes(15), parameters: exactVersion, run: (parameters, { prerequisites }) => prerequisites.installRestic(parameters) }),
     defineOperation({ id: "prerequisite.docker.inspect", title: "Inspect Docker Engine", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectDocker() }),
-    defineOperation({ id: "prerequisite.docker.install", title: "Install Docker Engine", risk: "medium", description: "Installs Docker Engine from Ubuntu's archive. Every catalog application runs on it, so nothing from the App catalog can be installed until this is present.", timeoutMs: minutes(15), parameters: exactVersion, run: (parameters, { prerequisites }) => prerequisites.installDocker(parameters) }),
+    defineOperation({ id: "prerequisite.docker.install", title: "Install Docker Engine", risk: "medium", description: "Installs Docker Engine from Ubuntu's archive. Every catalog application runs on it, so nothing in Apps can be installed until this is present.", timeoutMs: minutes(15), parameters: exactVersion, run: (parameters, { prerequisites }) => prerequisites.installDocker(parameters) }),
     defineOperation({ id: "prerequisite.nvidia.inspect", title: "Inspect NVIDIA GPU support", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectNvidia() }),
     defineOperation({ id: "prerequisite.virtualization.inspect", title: "Inspect KVM/QEMU/libvirt", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectVirtualization() }),
     defineOperation({
@@ -70,10 +70,10 @@ export function prerequisiteOperations() {
       run: async (parameters, { prerequisites, selfRestart, progress }) => {
         const { helperRestartNeeded = false, ...result } = await prerequisites.installVirtualization(parameters);
         if (!helperRestartNeeded) return result;
-        const scheduled = selfRestart?.request(["boxpilot-helper.service"], { reason: "KVM was installed, and the helper must restart to write to /var/lib/libvirt" }) === true;
+        const scheduled = selfRestart?.request(["boxpilot-helper.service"], { reason: "KVM was installed, and BoxPilot's admin service must restart to write to /var/lib/libvirt" }) === true;
         progress?.(scheduled
-          ? "BoxPilot's helper restarts once this job and any work running beside it have finished, so virtual machine work can write to /var/lib/libvirt."
-          : "BoxPilot's helper needs a restart before virtual machines can be created, and none could be arranged. Restart boxpilot-helper.service from the Services page.", scheduled ? "stdout" : "stderr");
+          ? "BoxPilot's admin service restarts once this job and any work running beside it have finished, so virtual machine work can write to /var/lib/libvirt."
+          : "BoxPilot's admin service needs a restart before virtual machines can be created, and none could be arranged. Restart boxpilot-helper.service from the Services page.", scheduled ? "stdout" : "stderr");
         return { ...result, helperRestartScheduled: scheduled };
       },
     }),

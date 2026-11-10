@@ -18,7 +18,7 @@ describe("self-update operations", () => {
 
   it("classifies running, failed, and unknown outcomes", () => {
     expect(updateOutcome(parseUpdateUnits("boxpilot-update-1T.service loaded active running x"), [])).toBe("running");
-    expect(updateOutcome([], ["a [boxpilot-upgrade] ERROR: upgrade failed; previous tree restored"])).toBe("failed");
+    expect(updateOutcome([], ["a [boxpilot-upgrade] ERROR: update failed; previous version's files restored"])).toBe("failed");
     expect(updateOutcome(parseUpdateUnits("boxpilot-update-1T.service loaded failed failed x"), ["a [boxpilot-upgrade] downloading"])).toBe("failed");
     expect(updateOutcome([], ["a [boxpilot-upgrade] building BoxPilot 0.62.0"])).toBe("running");
     expect(updateOutcome([], [])).toBeNull();

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { onRefresh } from "../../shell/refresh";
+import { onPageRefresh } from "../../shell/refresh";
 import { useAutoReconnect } from "../../AutoReconnect";
 import type { ViewName } from "../../data";
 import { readJson } from "../../http";
@@ -110,15 +110,16 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
   const { refresh: refreshSamba } = samba;
   const { refresh: refreshNfs } = nfs;
   const { refresh: refreshReconnect } = autoReconnect;
-  const refreshAll = useCallback(() => {
-    void readOverview();
+  const readAll = useCallback(({ quiet = false }: { quiet?: boolean } = {}) => {
     readExtras();
     void refreshSamba();
     void refreshNfs();
     void refreshReconnect();
+    return readOverview({ quiet });
   }, [readOverview, readExtras, refreshSamba, refreshNfs, refreshReconnect]);
-  // A job ending anywhere and the bar's Refresh read it again in place.
-  useEffect(() => onRefresh(refreshAll), [refreshAll]);
+  const refreshAll = useCallback(() => { void readAll(); }, [readAll]);
+  // The bar's Refresh is Check again; a job ending anywhere reads the same again, quietly.
+  useEffect(() => onPageRefresh({ asked: () => readAll(), job: () => readAll({ quiet: true }) }), [readAll]);
 
   const mapShares: MapSambaShare[] = samba.state?.config?.shares ?? [];
   const shareHost = samba.state ? (samba.state.config?.scope === "lan" ? samba.state.lanAddress ?? samba.state.tailscaleDnsName : samba.state.tailscaleDnsName ?? samba.state.lanAddress) ?? null : null;
@@ -167,7 +168,7 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
         about={<>
           <p>The disks in this server and what is mounted from them, folders mounted from a NAS, the folders this server shares with your other devices, and snapshots to roll back to.</p>
           <p>A drive is checked before it is mounted and mounts again at every boot; a missing drive or a NAS that is off never stops the server starting. Format erases everything on a drive, and the system disk is never offered. Mounting a share only connects out: nothing is opened to your LAN.</p>
-          <p>To reach shares from your phone or laptop anywhere, install File Browser from the App catalog, point it at <code>/mnt</code>, and serve it on your tailnet: nothing is exposed on your LAN or the internet.</p>
+          <p>To reach shares from your phone or laptop anywhere, install File Browser from Apps, point it at <code>/mnt</code>, and serve it on your tailnet: nothing is exposed on your LAN or the internet.</p>
         </>}
       />
 

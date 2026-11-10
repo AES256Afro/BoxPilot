@@ -159,7 +159,7 @@ describe("the templates and the evaluation", () => {
         [auditor.id]: {
           tools: { "backups.coverage": "off" },
           rules: ["A backup job that failed, or an app never backed up, is a finding.", "Work out ages with time.calc."],
-          steps: ["Use apps.list for the apps installed, then backups.status and jobs.recent.", "For each app: when it was last backed up, whether its restore check passed, whether there is an off-box copy newer than two days.", "Keep a note of which apps you have seen, so you notice a new app with no backup."],
+          steps: ["Use apps.list for the apps installed, then backups.status and jobs.recent.", "For each app: when it was last backed up, whether its restore check passed, whether there is a copy off this server newer than two days.", "Keep a note of which apps you have seen, so you notice a new app with no backup."],
           budget: { runsPerDay: 6, modelSecondsPerDay: 1_200, stepsPerRun: 5, tokensPerRun: 8_000, runSeconds: 400 },
         },
         [planner.id]: {

@@ -310,7 +310,7 @@ describe("Storage page", () => {
     it("says where to reconnect a held drive by hand, since its row has no Reconnect button", async () => {
       mockFetch({ extra: (url) => (url === "/api/v1/drives/auto-reconnect" ? json({ limits, drives: { olddata: { flowId: "flow-1", flowName: "Reconnect", enabled: true, held: true, heldSince: "2026-09-28T03:00:00Z", heldBecause: "the last automatic reconnect did not work", attempts: 1, lastAttemptAt: "2026-09-28T03:00:00Z", lastOutcome: "failed", lastCheckFoundErrors: false } } }) : null) });
       render(<StoragePage csrfToken="csrf-token" />);
-      expect(await screen.findByText("Waiting for you: the last automatic reconnect did not work. Reconnect it from Repair Center to start again.")).toBeTruthy();
+      expect(await screen.findByText("Waiting for you: the last automatic reconnect did not work. Reconnect it from Repair to start again.")).toBeTruthy();
     });
 
     it("shows a viewer the drives and no action", async () => {
@@ -590,7 +590,7 @@ describe("Storage page", () => {
       await screen.findByText("Example USB HDD");
       openTab(/^Snapshots/);
       expect(screen.getByText("before-upgrade")).toBeTruthy();
-      fireEvent.click(screen.getByRole("button", { name: "Take a snapshot" }));
+      fireEvent.click(screen.getByRole("button", { name: "Take a snapshot…" }));
       const sheet = screen.getByRole("dialog", { name: "Take a snapshot" });
       // Clearing the box leaves it empty, with the reason on the button, rather than snapping to 1.
       const space = within(sheet).getByLabelText("Space for changes (GiB)") as HTMLInputElement;
@@ -623,7 +623,7 @@ describe("Storage page", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Delete snapshot before-reorg of /mnt/pool" }));
       await waitFor(() => expect(JSON.parse(staged["storage.fs-snapshot.delete"] ?? "{}")).toEqual({ parameters: { kind: "btrfs", target: "/mnt/pool", name: "before-reorg" } }));
       fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
-      const takes = screen.getAllByRole("button", { name: "Take a snapshot" });
+      const takes = screen.getAllByRole("button", { name: "Take a snapshot…" });
       fireEvent.click(takes.at(-1) as HTMLElement);
       const sheet = screen.getByRole("dialog", { name: "Take a snapshot" });
       fireEvent.change(within(sheet).getByLabelText("Filesystem"), { target: { value: "zfs:tank/media" } });

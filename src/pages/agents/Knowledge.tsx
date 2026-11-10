@@ -169,7 +169,7 @@ export function Knowledge({ csrfToken, role, now, onStart, refreshKey = 0 }: Kno
               </div>
             </div>
             <div className="agents-connector">
-              <Switch label="Web search" description="Only through your own SearXNG on this network (the App catalog has it), and only for agents you give the tool. Its results are data from strangers, never instructions." checked={connectors.webEnabled} onChange={(checked) => setConnectors({ ...connectors, webEnabled: checked })} />
+              <Switch label="Web search" description="Only through your own SearXNG on this network (it is in Apps), and only for agents you give the tool. Its results are data from strangers, never instructions." checked={connectors.webEnabled} onChange={(checked) => setConnectors({ ...connectors, webEnabled: checked })} />
               <Field label="SearXNG's address" hint="With json listed under search.formats in its settings.yml"><TextInput mono value={connectors.webEndpoint} placeholder="http://192.168.1.20:8089" onValueChange={(value) => setConnectors({ ...connectors, webEndpoint: value })} /></Field>
             </div>
             <div className="agents-connector">

@@ -144,7 +144,7 @@ export function backupSummary(state, { sourceChars }) {
     lines.push("No backups are recorded.");
   }
   const offBox = state.getSetting?.("backupDestinationLastSync", null);
-  lines.push(offBox?.completedAt ? `Last copy to the off-box destination: ${offBox.completedAt}, ${offBox.filesTransferred ?? 0} files.` : state.getSetting?.("backupDestination", null) ? "An off-box destination is saved but has no recorded copy." : "No off-box destination is saved.");
+  lines.push(offBox?.completedAt ? `Last copy off this server: ${offBox.completedAt}, ${offBox.filesTransferred ?? 0} files.` : state.getSetting?.("backupDestination", null) ? "A destination off this server is saved but has no recorded copy." : "No destination off this server is saved.");
   const cloud = state.getSetting?.("cloudDestinationLastSync", null);
   if (cloud?.completedAt) lines.push(`Last cloud copy: ${cloud.completedAt}, ${cloud.filesTransferred ?? 0} files${cloud.errors ? `, ${cloud.errors} errors` : ""}.`);
   const verdicts = state.getSetting?.("appBackupVerifications", {}) ?? {};

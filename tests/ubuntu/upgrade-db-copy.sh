@@ -99,7 +99,7 @@ show "$out"
 copy3="$(newest_copy)"
 check "the upgrade failed" '[ "$status" -ne 0 ]'
 check "it took a copy of its own first" '[ -n "$copy3" ] && [ "$copy3" != "$copy" ]'
-check "it rolled back" 'grep -q "rolling back to previous tree" <<<"$out"'
+check "it rolled back" 'grep -q "rolling back to the previous version.s files" <<<"$out"'
 check "the rollback named the copy that matches ${VERSION}" 'grep -q "the database as ${VERSION} left it is ${copy3}" <<<"$out"'
 check "the rollback said how to put it back" 'grep -q "copy that file over ${DB}" <<<"$out"'
 check "the previous tree answers again" 'answers "$VERSION"'
@@ -132,8 +132,8 @@ out="$(BOXPILOT_NODE_BIN="$NODE" BOXPILOT_HELPER_SOCKET=/run/boxpilot/not-the-he
 show "$out"
 check "the upgrade failed" '[ "$status" -ne 0 ]'
 check "it said the helper did not stay up" 'grep -q "boxpilot-helper did not stay up with its socket at /run/boxpilot/not-the-helper.sock" <<<"$out"'
-check "it rolled back" 'grep -q "rolling back to previous tree" <<<"$out"'
-check "the rollback asked the restored version, and said it answers" 'grep -q "ERROR: upgrade failed; previous tree restored, and BoxPilot ${VERSION} answers at http://127.0.0.1:8787/api/v1/health" <<<"$out"'
+check "it rolled back" 'grep -q "rolling back to the previous version.s files" <<<"$out"'
+check "the rollback asked the restored version, and said it answers" 'grep -q "ERROR: update failed; previous version.s files restored, and BoxPilot ${VERSION} answers at http://127.0.0.1:8787/api/v1/health" <<<"$out"'
 check "the previous tree answers again" 'answers "$VERSION"'
 check "the helper is up again, with its socket" 'systemctl is-active --quiet boxpilot-helper.service && [ -S /run/boxpilot/helper.sock ]'
 
