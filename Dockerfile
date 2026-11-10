@@ -27,6 +27,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY server ./server
 COPY packages ./packages
 COPY scripts ./scripts
+# The server reads the app manifests from /app/catalog (server/catalog/index.mjs): without them the App catalog is empty.
+COPY catalog ./catalog
 COPY --from=build /app/dist ./dist
 
 USER node

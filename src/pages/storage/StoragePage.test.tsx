@@ -251,7 +251,9 @@ describe("Storage page", () => {
       mockFetch();
       render(<StoragePage csrfToken="csrf-token" role="viewer" />);
       await screen.findByText("Example USB HDD");
-      expect(screen.queryByRole("button", { name: /^(Mount|Erase|Check|Unmount|Share)/ })).toBeNull();
+      // (The header's "Check again" reads the page again and is everyone's.)
+      expect(screen.queryByRole("button", { name: /^(Mount|Erase|Check(?! again$)|Unmount|Share)/ })).toBeNull();
+      expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Use the rest of the disk" })).toBeNull();
       expect(screen.getByRole("switch", { name: "Reconnect if it drops: /mnt/olddata" })).toHaveProperty("disabled", true);
     });

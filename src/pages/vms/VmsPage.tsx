@@ -169,7 +169,7 @@ export default function VmsPage({ csrfToken = "", role = "owner", onOpenRepair =
         status={verdict}
         meta={status ? <><b>{domains.length}</b> {domains.length === 1 ? "VM" : "VMs"} · <b>{running}</b> running · <b>{passed}/{status.checks.length}</b> checks · {status.connectionUri}</> : undefined}
         actions={<>
-          <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(status)}>Read again</Button>
+          <Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(status)}>Check again</Button>
           {newButtons}
         </>}
         about={<>

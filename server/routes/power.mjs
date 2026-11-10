@@ -13,7 +13,7 @@ import { readPowerEvents, readPowerPolicy } from "../power-events.mjs";
 import { powerOnGuidance, readBoardVendor } from "../power-on-guidance.mjs";
 import { createUpsService, unavailableUpsEvidence } from "../ups.mjs";
 import { acknowledgeOutage, outagesSetting } from "../power-loss.mjs";
-import { callerId, withOwnActors } from "./access.mjs";
+import { callerId, readsThroughHelper, withOwnActors } from "./access.mjs";
 
 const outageIdPattern = /^[0-9a-f]{32}$/;
 
@@ -47,8 +47,11 @@ export function createPowerRouter({
   if (!state) return router;
 
   // Every role may read when the server went down and for how long; who said "Got it" is the owner's.
+  // The evidence is lines of the system journal (the boot's last entry, the kernel's own words), which
+  // only an operator may have read for them (ADR-003): a viewer is told the outage, not shown the journal.
   router.get("/power/outages", (request, response) => {
-    const outages = (state.getSetting(outagesSetting, []) ?? []).filter((entry) => entry && typeof entry.id === "string");
+    const recorded = (state.getSetting(outagesSetting, []) ?? []).filter((entry) => entry && typeof entry.id === "string");
+    const outages = readsThroughHelper(request) ? recorded : recorded.map(({ evidence: _journal, ...outage }) => outage);
     response.json(withOwnActors(request, { outages, unacknowledged: outages.filter((entry) => !entry.acknowledged).length }));
   });
 

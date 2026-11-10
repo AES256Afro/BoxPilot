@@ -68,6 +68,10 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
+    // The server lists apps from /app/catalog: the stage that runs it has to hold the manifests, not only the stage that builds the UI.
+    const runtime = dockerfile.slice(dockerfile.indexOf(" AS runtime"));
+    expect(runtime).toContain("COPY catalog ./catalog");
+    expect(runtime).toContain("COPY server ./server");
     expect(compose).toContain(`image: boxpilot:${productVersion}`);
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");

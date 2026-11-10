@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { createPrerequisiteService, driveToolsCheck, port53Occupied } from "./prerequisites.mjs";
+import { createPrerequisiteService, driveToolsCheck, port53Occupied, port53Served } from "./prerequisites.mjs";
 
 describe("prerequisite inventory", () => {
   it("reports live readiness without returning raw peer or listener output", async () => {
@@ -37,7 +37,8 @@ describe("prerequisite inventory", () => {
     expect(result.checks.find((item) => item.id === "storage.drive-tools")).toMatchObject({ status: "ready", summary: expect.stringContaining("fsck.exfat"), repair: null });
     expect(result.checks.find((item) => item.id === "backup.restic")).toMatchObject({ status: "ready", summary: expect.stringContaining("0.18.1-1") });
     expect(result.checks.find((item) => item.id === "host.apt-metadata")).toMatchObject({ status: "ready", summary: expect.stringContaining("dpkg state is ready") });
-    expect(result.checks.find((item) => item.id === "dns.port53")).toMatchObject({ status: "conflict" });
+    // Something answering DNS for the network is the port in use as intended, not a conflict.
+    expect(result.checks.find((item) => item.id === "dns.port53")).toMatchObject({ status: "ready", summary: expect.stringContaining("A DNS server on this server answers"), repair: null });
     expect(JSON.stringify(result)).not.toContain("SECRET PEER DATA");
   });
 
@@ -103,6 +104,12 @@ describe("reading port 53 from ss output", () => {
     expect(port53Occupied("tcp LISTEN 0 4096 127.0.0.1:5353 0.0.0.0:*")).toBe(false);
     expect(port53Occupied("tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:*")).toBe(false);
     expect(port53Occupied("")).toBe(false);
+    // A DNS server answering the network is the port in use as intended; the loopback stub alone is not.
+    expect(port53Served("udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:*")).toBe(true);
+    expect(port53Served("tcp LISTEN 0 32 [::]:53 [::]:*")).toBe(true);
+    expect(port53Served("udp UNCONN 0 0 192.168.1.10:53 0.0.0.0:*")).toBe(true);
+    expect(port53Served("udp   UNCONN 0 0 127.0.0.53%lo:53 0.0.0.0:*\nudp UNCONN 0 0 127.0.0.54:53 0.0.0.0:*\ntcp LISTEN 0 4096 [::1]:53 [::]:*")).toBe(false);
+    expect(port53Served("tcp LISTEN 0 4096 0.0.0.0:5353 0.0.0.0:*")).toBe(false);
   });
 });
 

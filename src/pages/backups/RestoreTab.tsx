@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { openView } from "../../activityEvents";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { formatBytes } from "../../formatBytes";
@@ -170,9 +171,11 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
       title: `Restore ${countOf(apps.length, "app")} from snapshot`,
       parameters: { source: option.source, artifact: option.snapshot.artifact, ...(option.root ? { root: option.root } : {}), apps, restoreData, ...(toAllow.length ? { allowCompose } : {}) },
       preview: <>
-        <span>Reinstalls {apps.map(nameOf).join(", ")} from <code>{option.snapshot.artifact}</code>{option.root ? <> on <code>{option.where}</code></> : null}{restoreData ? " and restores each one's data from the archive the snapshot names, or an older one it lists where that one is gone (a safety copy of any existing data is taken first)" : " without touching data"}. Apps already installed on this box are skipped.</span>
+        <span>Reinstalls {apps.map(nameOf).join(", ")} from {option.snapshot.createdAt ? `the snapshot of ${when(option.snapshot.createdAt)}` : <code>{option.snapshot.artifact}</code>}{option.root ? <> on <code>{option.where}</code></> : null}{restoreData ? " and restores each one's data from the archive the snapshot names, or an older one it lists where that one is gone (a safety copy of any existing data is taken first)" : " without touching data"}. Apps already installed on this box are skipped.</span>
         {toAllow.map((app) => <ComposeAllowance key={app.id} name={nameOf(app.id)} review={app.compose!} />)}
       </>,
+      // The sheet closes for the approval, and comes back with the same apps ticked unless the job completed.
+      onClosed: (job) => { if (job?.state !== "completed") setChosen(option); },
     });
   };
 
@@ -201,7 +204,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
         title="Restore from a machine snapshot"
         count={canRead && sources ? options.length : undefined}
         meta={canRead ? <>apps come back with their settings and secrets, then their data as the snapshot found it</> : undefined}
-        actions={canRead ? <Button variant="ghost" busy={reading} onClick={() => void refresh()}>Read again</Button> : undefined}
+        actions={canRead ? <Button variant="ghost" busy={reading} onClick={() => void refresh()}>Check again</Button> : undefined}
       >
         {!canRead ? (
           <EmptyState title="Restoring needs an operator or the owner">A snapshot lists every app's settings and secrets, so reading one is kept to those who can restore it.</EmptyState>
@@ -223,7 +226,7 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
               defaultSort={{ column: "taken", direction: "descending" }}
               empty={!sources && !error
                 ? "Reading the snapshots…"
-                : <EmptyState title="No machine snapshots to restore from">{sources?.mount && !sources.mount.mounted && sources.mount.blocker ? sources.mount.blocker : "If you have one on a drive or a network share, mount it on the Storage page and read again: a rebuilt server finds it that way."}</EmptyState>}
+                : <EmptyState title="No machine snapshots to restore from" action={<Button onClick={() => openView("storage")}>Open Storage</Button>}>{sources?.mount && !sources.mount.mounted && sources.mount.blocker ? sources.mount.blocker : "If you have one on a drive or a network share, mount it there and it is listed here: a rebuilt server finds it that way."}</EmptyState>}
             />
           </>
         )}
@@ -284,9 +287,9 @@ export default function RestoreTab({ csrfToken, role, restores, onChanged }: Res
           {described && (
             <>
               <Table
-                caption={`Apps in ${chosen.snapshot.artifact}`}
+                caption={chosen.snapshot.createdAt ? `Apps in the snapshot of ${when(chosen.snapshot.createdAt)}` : `Apps in ${chosen.snapshot.artifact}`}
                 columns={[
-                  { id: "pick", header: <span className="ui-visually-hidden">Restore</span>, label: "Restore", className: "backups-pick", cell: (app) => <Checkbox label={<span className="ui-visually-hidden">Restore {app.id}</span>} checked={selected.has(app.id)} disabled={!canRestore} onChange={(on) => setSelected((current) => { const next = new Set(current); if (on) next.add(app.id); else next.delete(app.id); return next; })} /> },
+                  { id: "pick", header: <span className="ui-visually-hidden">Restore</span>, label: "Restore", className: "backups-pick", cell: (app) => <Checkbox label={<span className="ui-visually-hidden">Restore {nameOf(app.id)}</span>} checked={selected.has(app.id)} disabled={!canRestore} onChange={(on) => setSelected((current) => { const next = new Set(current); if (on) next.add(app.id); else next.delete(app.id); return next; })} /> },
                   { id: "app", header: "App", sortValue: (app) => nameOf(app.id), cell: (app) => nameOf(app.id) },
                   { id: "installed", header: "In snapshot", cell: (app) => (app.installed ? "installed" : "not installed") },
                   { id: "data", header: "Data archive", cell: (app) => <DataArchive app={app} /> },

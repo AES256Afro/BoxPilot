@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { openViewEvent } from "../../activityEvents";
 import SchedulesPanel from "./SchedulesPanel";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -32,6 +33,9 @@ describe("Schedules panel", () => {
 
     expect(await screen.findByText("daily at 03:00")).toBeTruthy();
     expect(screen.getByText(/^ran /)).toBeTruthy();
+    // The app the schedule is for, by its name rather than its id.
+    expect((await screen.findByText("Jellyfin")).className).toBe("automations-what__for");
+    expect(screen.queryByText("jellyfin")).toBeNull();
     expect(screen.getByRole("columnheader", { name: /When \(Europe\/Berlin\)/ })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Add a schedule" }));
@@ -71,12 +75,46 @@ describe("Schedules panel", () => {
     const blocked = { ...schedule, id: "s2", lastResult: "blocked-by-approval-mode", lastOutcome: "did-not-run", lastReason: "Approvals are set to always ask" };
     vi.stubGlobal("fetch", answer([blocked]));
     render(<SchedulesPanel csrfToken="csrf-token" />);
-    expect(await screen.findByText("did not run: Always-ask approvals")).toBeTruthy();
-    // Not a dead end: the row says what stops it and where that is changed.
-    expect(screen.getByText("Schedules are skipped while approvals always ask for the password. Change that in Settings, under Approvals.")).toBeTruthy();
+    expect(await screen.findByText("did not run: approvals always ask for the password")).toBeTruthy();
+    // Not a dead end: the row says what stops it, and where that is changed is a button away.
+    expect(screen.getByText(/^Schedules are skipped while approvals always ask for the password\./)).toBeTruthy();
+    const opened: unknown[] = [];
+    const onOpen = (event: Event) => opened.push((event as CustomEvent).detail);
+    window.addEventListener(openViewEvent, onOpen);
+    fireEvent.click(screen.getByRole("button", { name: "Open Approvals" }));
+    window.removeEventListener(openViewEvent, onOpen);
+    expect(opened).toEqual([{ view: "settings", options: { tab: "approvals" } }]);
+    // The catalog no longer knows this app: its id stands in.
+    expect(screen.getByText("jellyfin").tagName).toBe("CODE");
     // Each row's buttons say which schedule they act on.
     expect(screen.getByRole("button", { name: "Pause Back up application data" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete the schedule: Back up application data" })).toBeTruthy();
+  });
+
+  it("pauses once however often the button is pressed, and says when the apps could not be listed", async () => {
+    const puts: string[] = [];
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (init?.method === "PUT") { puts.push(String(init.body)); await gate; return json({ schedule: { ...schedule, enabled: false } }); }
+      if (url.endsWith("/api/v1/schedules")) return json({ schedules: [{ ...schedule, enabled: puts.length === 0 }] });
+      if (url.includes("/api/v1/catalog")) return json({ error: "the catalog could not be read" }, 500);
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<SchedulesPanel csrfToken="csrf-token" />);
+    const pause = await screen.findByRole("button", { name: "Pause Back up application data" });
+    fireEvent.click(pause);
+    await vi.waitFor(() => expect(pause.getAttribute("aria-busy")).toBe("true"));
+    fireEvent.click(pause);
+    expect((screen.getByRole("button", { name: "Delete the schedule: Back up application data" }) as HTMLButtonElement).disabled).toBe(true);
+    release();
+    expect(await screen.findByRole("button", { name: "Resume Back up application data" })).toBeTruthy();
+    expect(puts).toEqual([JSON.stringify({ enabled: false })]);
+    // "What to run" has no app's backup to offer, and says why.
+    fireEvent.click(screen.getByRole("button", { name: "Add a schedule" }));
+    const sheet = await screen.findByRole("dialog", { name: "Run something on its own" });
+    expect(await within(sheet).findByText("The installed apps could not be listed, so their backups are not offered. Close and open this again.")).toBeTruthy();
   });
 
   it("shows a run whose job failed as failed, and one that could not start as did not run (M27.2)", async () => {

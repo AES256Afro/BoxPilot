@@ -42,7 +42,7 @@ export function backupCloudOperations() {
     }),
     defineOperation({
       id: "backup.cloud.setup", title: "Save the cloud backup destination", risk: "medium", minimumRole: "owner", timeoutMs: minutes(2),
-      description: "Writes the rclone configuration for the destination under /etc/boxpilot/secrets (root only), with an encrypted remote over it keyed by your passphrase. Keys, tokens and the passphrase are kept in memory until this job runs and are never stored in the database.",
+      description: "Writes the rclone configuration for the destination under /etc/boxpilot/secrets (root only), with an encrypted remote over it keyed by your passphrase. A folder that already holds sealed copies keeps the passphrase that sealed them: to change it, choose a new folder. Keys, tokens and the passphrase are kept in memory until this job runs and are never stored in the database.",
       parameters: { fields: { ...destinationFields, ...secretFields, provider: { ...destinationFields.provider, validate: (_value, parameters) => validate(parameters) } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("backup.cloud.setup", parameters, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
@@ -54,7 +54,7 @@ export function backupCloudOperations() {
     }),
     defineOperation({
       id: "backup.cloud.sync", title: "Mirror local backups to the cloud destination", risk: "medium", minimumRole: "owner", timeoutMs: 6 * 60 * 60_000,
-      description: "rclone copies the database backups, application backups, and machine snapshots to the destination, encrypted with your passphrase before they leave, with checksum verification. Refuses a destination saved without a passphrase. Nothing is ever deleted there.",
+      description: "rclone copies the database backups, application backups, and machine snapshots to the destination, encrypted with your passphrase before they leave. A file already there is compared by size, since its contents are sealed. Refuses a destination saved without a passphrase. Nothing is ever deleted there.",
       parameters: { fields: { ...destinationFields, provider: { ...destinationFields.provider, validate: (_value, parameters) => validate(parameters) } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("backup.cloud.sync", pick(parameters), { timeoutMs: 6 * 60 * 60_000 - 60_000, logPath: jobLog?.path ?? null }),
     }),

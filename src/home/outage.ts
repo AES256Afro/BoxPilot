@@ -55,15 +55,14 @@ export function outageTitle(outage: OutageFact, hostname: string, clock: Clock):
   return `${hostname} ${what}${at}${off}.`;
 }
 
-/** What went down with it, and what would help next time, in two sentences a row can hold. */
+/**
+ * What went down with it, and the one thing only a person at the machine can do. The rest of the
+ * advice (a UPS, a second DNS server for the router) is a button on the row, which opens where it
+ * is done (needs.ts), so it is not spelled out here as well.
+ */
 export function outageDetail(outage: OutageFact): string {
   const dns = outage.dnsApps;
   const down = dns.length ? `${dns.join(" and ")} ${dns.length === 1 ? "was" : "were"} down with it, so devices using ${dns.length === 1 ? "it" : "them"} had no DNS. ` : "";
   if (outage.cause === "overheated") return `${down}Check that its fans turn and its vents are free of dust.`;
-  const steps = [
-    "set “Restore on AC power loss” to Power On in its BIOS",
-    outage.ups ? "check the UPS, which did not shut it down cleanly" : "add a UPS",
-    ...(dns.length ? ["give your router a second DNS server"] : []),
-  ];
-  return `${down}Next time: ${steps.length > 1 ? `${steps.slice(0, -1).join(", ")} and ${steps.at(-1)}` : steps[0]}.`;
+  return `${down}${outage.ups ? "The UPS did not shut it down cleanly. " : ""}To have it start by itself when power returns, set “Restore on AC power loss” to Power On in its BIOS.`;
 }

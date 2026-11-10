@@ -193,3 +193,26 @@ describe("failed-job notifications", () => {
     store.close();
   });
 });
+
+describe("what the second sweep of 2026-11 found", () => {
+  it("does not push a failure again when it is dismissed after a restart", async () => {
+    const requests = [];
+    const store = { getSetting: () => ({ kind: "webhook", url: "http://127.0.0.1:9000/hook" }), recordAudit: vi.fn() };
+    const service = createNotificationService({ store, fetcher: vi.fn(async (url, options) => { requests.push({ url, options }); return { ok: true, status: 200 }; }) });
+    service.onJob({ id: "20000000-0000-4000-8000-000000000009", state: "failed", title: "Back up Vaultwarden", error: "disk full", steps: [{ name: "apply", state: "failed" }, { name: "dismissed", state: "completed" }] });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(requests).toEqual([]);
+  });
+
+  it("sends an ntfy title that is not plain ASCII as a header fetch will carry", () => {
+    const target = { kind: "ntfy", url: "https://ntfy.example", topic: "box" };
+    expect(buildRequest(target, { title: "BoxPilot: Back up Jellyfin failed", message: "m" }).options.headers.Title).toBe("BoxPilot: Back up Jellyfin failed");
+    for (const title of ["Nightly — backups failed", "夜间备份 failed", "Baïkal failed"]) {
+      const { url, options } = buildRequest(target, { title, message: "m" });
+      expect(() => new Request(url, options)).not.toThrow();
+      const sent = options.headers.Title;
+      expect(sent).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
+      expect(Buffer.from(sent.slice(10, -2), "base64").toString("utf8")).toBe(title);
+    }
+  });
+});

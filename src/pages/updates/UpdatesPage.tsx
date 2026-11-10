@@ -106,8 +106,8 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
     title: enabled ? "Turn on automatic updates" : "Turn off automatic updates",
     parameters: { enabled },
     preview: enabled
-      ? <span>{unattended?.installed ? "" : "Installs unattended-upgrades, then "}sets <code>APT::Periodic::Unattended-Upgrade "1"</code> so security updates install nightly.</span>
-      : <span>Sets <code>APT::Periodic::Unattended-Upgrade "0"</code>. You install updates from this page instead.</span>,
+      ? <span>Security updates install by themselves every night.{unattended?.installed ? "" : " Ubuntu's tool for that is installed first."}</span>
+      : <span>Security updates stop installing by themselves. You install them from this page instead.</span>,
   });
 
   const packageColumns: Array<TableColumn<UpgradablePackage>> = [
@@ -140,7 +140,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
         <span className="updates-actions">
           {tool.installed
             ? may("apt.remove") && <Button risk={riskOf("apt.remove")} aria-label={`Remove ${tool.name}`} onClick={() => start({ operationId: "apt.remove", title: `Remove ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span>Removes {tool.name} ({tool.version}) and anything only it needed.</span> })}>Remove</Button>
-            : may("apt.install") && <Button risk={riskOf("apt.install")} aria-label={`Install ${tool.name}`} onClick={() => start({ operationId: "apt.install", title: `Install ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span><code>apt-get install --no-install-recommends {tool.name}</code></span> })}>Install</Button>}
+            : may("apt.install") && <Button risk={riskOf("apt.install")} aria-label={`Install ${tool.name}`} onClick={() => start({ operationId: "apt.install", title: `Install ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span>Installs {tool.name} from Ubuntu, with what it needs to run and none of the optional extras.</span> })}>Install</Button>}
         </span>
       ),
     },
@@ -159,7 +159,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
         title="Updates"
         status={verdict}
         meta={report ? <><b>{report.count}</b> upgradable · <b>{securityCount}</b> security · reboot <b>{report.rebootRequired ? "required" : "not needed"}</b>{unattended ? <> · automatic updates <b>{unattended.enabled ? "on" : "off"}</b></> : null}</> : undefined}
-        actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(report)}>Read again</Button>}
+        actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(report)}>Check again</Button>}
         about={<>
           <p>What Ubuntu wants to update, and a way to install it: all of it, or the packages you tick. Automatic updates install security fixes every night by themselves.</p>
           <p>Common tools installs the packages most servers want with one confirmation; Install takes any other package by name, without its recommends.</p>
@@ -198,7 +198,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
       {error && <Notice tone="danger" live title="Available updates could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{error}</Notice>}
 
       {report?.needrestartPresent && report.servicesNeedingRestart === null && (
-        <Notice tone="warning" title="The running-library check did not finish">Read again to try it once more. The package updates below are still current.</Notice>
+        <Notice tone="warning" title="The running-library check did not finish">Check again to try it once more. The package updates below are still current.</Notice>
       )}
 
       {restarts.length > 0 && (
@@ -214,10 +214,10 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
               <li key={unit} className="updates-restarts__row">
                 <code>{unit}</code>
                 {unit === "systemd-manager"
-                  ? may("system.manager.reexec") && <Button risk={riskOf("system.manager.reexec")} onClick={() => start({ operationId: "system.manager.reexec", title: "Refresh systemd manager", parameters: {}, preview: <span>Re-executes the system manager to load updated libraries while preserving its state. Runs <code>systemctl daemon-reexec</code>.</span> })}>Refresh systemd manager</Button>
+                  ? may("system.manager.reexec") && <Button risk={riskOf("system.manager.reexec")} onClick={() => start({ operationId: "system.manager.reexec", title: "Refresh systemd manager", parameters: {}, preview: <span>Starts the system manager again on the updated libraries. It keeps its state, and every service keeps running.</span> })}>Refresh systemd manager</Button>
                   : !restartable(unit)
                     ? <span className="updates-note">Reboot the server to refresh this process.</span>
-                    : may("service.action") && <Button risk={riskOf("service.action")} onClick={() => start({ operationId: "service.action", title: `Restart ${unit}`, parameters: { unit, action: "restart" }, preview: <span><code>systemctl restart {unit}</code></span> })}>Restart {unit}</Button>}
+                    : may("service.action") && <Button risk={riskOf("service.action")} onClick={() => start({ operationId: "service.action", title: `Restart ${unit}`, parameters: { unit, action: "restart" }, preview: <span>Stops and starts {unit.replace(/\.service$/, "")}; anything using it is cut off for a moment.{/^(docker|containerd)(\.service)?$/.test(unit) ? " Every app restarts with it." : ""}</span> })}>Restart {unit}</Button>}
               </li>
             ))}
           </ul>
@@ -234,10 +234,10 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
                   className="updates-toolbar"
                   filters={may("apt.upgrade") ? <Checkbox label={<>Select all<span className="ui-visually-hidden"> packages</span></>} checked={allSelected} indeterminate={someSelected} disabled={packages.length === 0} onChange={toggleAll} /> : undefined}
                   actions={<>
-                    {may("apt.refresh") && <Button risk={riskOf("apt.refresh")} disabled={loading} onClick={() => start({ operationId: "apt.refresh", title: "Refresh package lists", parameters: {}, preview: <span>Runs <code>apt-get update</code>. Installs nothing.</span> })}>Refresh lists</Button>}
+                    {may("apt.refresh") && <Button risk={riskOf("apt.refresh")} disabled={loading} onClick={() => start({ operationId: "apt.refresh", title: "Refresh package lists", parameters: {}, preview: <span>Asks Ubuntu's mirrors what is new. Installs nothing.</span> })}>Refresh lists</Button>}
                     {may("storage.lvm.snapshot.create") && <SnapshotFirstButton start={start} />}
                     {may("apt.upgrade") && <Button risk={riskOf("apt.upgrade")} disabled={selectedList.length === 0} onClick={() => start({ operationId: "apt.upgrade", title: `Upgrade ${countOf(selectedList.length, "selected package")}`, parameters: { packages: selectedList }, preview: <span>{selectedList.join(", ")}</span> })}>Upgrade selected ({selectedList.length})</Button>}
-                    {may("apt.upgrade") && <Button variant="primary" risk={riskOf("apt.upgrade")} disabled={loading || !report?.count} onClick={() => start({ operationId: "apt.upgrade", title: "Install all updates", parameters: {}, preview: <span>Upgrades {countOf(report?.count ?? 0, "package")} with <code>apt-get upgrade --with-new-pkgs</code> after refreshing the lists.</span> })}>Install all updates</Button>}
+                    {may("apt.upgrade") && <Button variant="primary" risk={riskOf("apt.upgrade")} disabled={loading || !report?.count} onClick={() => start({ operationId: "apt.upgrade", title: "Install all updates", parameters: {}, preview: <span>Installs {report?.count === 1 ? "the 1 waiting update" : `all ${report?.count ?? 0} waiting updates`}, after asking Ubuntu for the newest list.</span> })}>Install all updates</Button>}
                   </>}
                 />
               )}
@@ -268,9 +268,9 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
                 <TextInput mono placeholder="htop git tmux" value={customPackages} onValueChange={setCustomPackages} autoCapitalize="off" spellCheck={false} />
               </Field>
               <div className="updates-install__actions">
-                {may("apt.install") && <Button variant="primary" risk={riskOf("apt.install")} disabled={customList.length === 0} onClick={() => start({ operationId: "apt.install", title: `Install ${customList.join(", ")}`, parameters: { packages: customList }, preview: <span><code>apt-get install --no-install-recommends {customList.join(" ")}</code></span> })}>Install</Button>}
+                {may("apt.install") && <Button variant="primary" risk={riskOf("apt.install")} disabled={customList.length === 0} onClick={() => start({ operationId: "apt.install", title: `Install ${customList.join(", ")}`, parameters: { packages: customList }, preview: <span>Installs {customList.join(", ")} from Ubuntu, with what {customList.length === 1 ? "it needs" : "they need"} to run and none of the optional extras.</span> })}>Install</Button>}
                 {may("apt.remove") && <Button risk={riskOf("apt.remove")} disabled={customList.length === 0} onClick={() => start({ operationId: "apt.remove", title: `Remove ${customList.join(", ")}`, parameters: { packages: customList }, preview: <span>Removes the packages and anything only they needed. Configuration files are kept.</span> })}>Remove</Button>}
-                {may("apt.autoremove") && <Button risk={riskOf("apt.autoremove")} onClick={() => start({ operationId: "apt.autoremove", title: "Remove unused packages", parameters: {}, preview: <span><code>apt-get autoremove --purge</code></span> })}>Remove unused packages</Button>}
+                {may("apt.autoremove") && <Button risk={riskOf("apt.autoremove")} onClick={() => start({ operationId: "apt.autoremove", title: "Remove unused packages", parameters: {}, preview: <span>Removes packages nothing needs any more, with their settings.</span> })}>Remove unused packages</Button>}
               </div>
               {!may("apt.install") && <p className="updates-note">Installing and removing packages needs an operator.</p>}
             </Panel>

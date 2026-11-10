@@ -77,6 +77,9 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
   const [confirmKill, setConfirmKill] = useState(false);
   const [busy, setBusy] = useState(false);
   const [jobsFinished, setJobsFinished] = useState(0);
+  // The Build tab's form holds changes that are not saved; another tab would drop them, so it asks.
+  const [buildDirty, setBuildDirty] = useState(false);
+  const [leavingFor, setLeavingFor] = useState<Tab | null>(null);
 
   const setAgentId = useCallback((id: string | null) => { setAgentIdState(id); writeAgentParam(id); }, []);
 
@@ -225,20 +228,33 @@ export default function AgentsPage({ csrfToken, role = "owner", now = Date.now }
       {error && <Notice tone="danger" live onDismiss={() => setError(null)}>{error}</Notice>}
       {notice && <Notice tone="success" live onDismiss={() => setNotice(null)}>{notice}</Notice>}
 
-      <Tabs<Tab> label="Agents" tabs={tabs} value={shown} onChange={(next) => { setTab(next); if (next !== "test") setRunId(null); }}>
+      {leavingFor && buildDirty && shown === "build" && (
+        <Notice tone="warning" live title="Your changes are not saved"
+          action={<>
+            <Button variant="primary" onClick={() => setLeavingFor(null)}>Stay</Button>
+            <Button variant="ghost" onClick={() => { const next = leavingFor; setLeavingFor(null); setBuildDirty(false); setTab(next); if (next !== "test") setRunId(null); }}>Leave without saving</Button>
+          </>}>
+          Leaving the Build tab drops them; the saved version stays as it is. Save is at the foot of the form.
+        </Notice>
+      )}
+
+      <Tabs<Tab> label="Agents" tabs={tabs} value={shown} onChange={(next) => {
+        if (shown === "build" && buildDirty && next !== "build") { setLeavingFor(next); return; }
+        setLeavingFor(null); setTab(next); if (next !== "test") setRunId(null);
+      }}>
         {(current) => {
           if (current === "build") {
             return <Builder agentId={selected} agents={agents} catalog={catalog} canCreate={can.create} canGrant={can.configure} csrfToken={csrfToken} now={now()}
               onCreated={(id) => { setAgentId(id); setNotice("Made. Change anything below; each save is a version you can roll back."); void refresh(); }}
               onChanged={() => void refresh()} onDeleted={() => { setAgentId(null); setTab("agents"); setNotice("Deleted."); void refresh(); }}
-              onTest={(id) => open(id, "test")} onPick={setAgentId} onNew={() => setAgentId(null)} />;
+              onTest={(id) => open(id, "test")} onPick={setAgentId} onNew={() => setAgentId(null)} onDirty={(dirty) => { setBuildDirty(dirty); if (!dirty) setLeavingFor(null); }} />;
           }
           if (current === "test") {
             return <Console agents={agents} agentId={selected} runId={runId} csrfToken={csrfToken} role={role} now={now()} module={module} tools={catalog?.tools ?? null} runnerWait={runnerWait}
               canPause={can.pause} owner={owner} onResumeAll={resumeAll} onResumeAgent={resumeAgent}
               onSelectAgent={(id) => { setAgentId(id); setRunId(null); }} onStage={start} onRunFinished={() => void refresh()} />;
           }
-          if (current === "memory") return <Memory agents={agents} agentId={selected} csrfToken={csrfToken} role={role} now={now()} tools={catalog?.tools ?? null} onSelectAgent={setAgentId} />;
+          if (current === "memory") return <Memory agents={agents} agentId={selected} csrfToken={csrfToken} role={role} now={now()} tools={catalog?.tools ?? null} onSelectAgent={setAgentId} onOpenBuild={can.create ? (id) => open(id, "build") : undefined} />;
           if (current === "knowledge") return <Knowledge csrfToken={csrfToken} role={role} now={now()} onStart={start} refreshKey={jobsFinished} />;
           if (current === "usage") return <Usage module={module} csrfToken={csrfToken} role={role} now={now()} onStart={start} onModuleChanged={() => void refresh()} refreshKey={jobsFinished} />;
           if (current === "evaluation") {

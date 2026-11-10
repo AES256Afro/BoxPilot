@@ -68,4 +68,43 @@ describe("app Settings", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
     expect(onSubmit.mock.calls[1][0]).toEqual({ ports: {}, env: { TS_NVD_API_KEY: "a-new-key" }, volumes: {} });
   });
+
+  it("lets a port be emptied and retyped, and says why Save waits meanwhile", async () => {
+    const onSubmit = open();
+    const port = screen.getByDisplayValue("8797") as HTMLInputElement;
+    const apply = screen.getByRole("button", { name: /Apply settings/ }) as HTMLButtonElement;
+    fireEvent.change(port, { target: { value: "" } });
+    expect(port.value).toBe(""); // not "0" put back
+    expect(apply.disabled).toBe(true);
+    expect(screen.getByText("Still needed: a port number from 1 to 65535 for Dashboard.")).toBeTruthy();
+    save();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.change(port, { target: { value: "70000" } });
+    expect(apply.disabled).toBe(true);
+    fireEvent.change(port, { target: { value: "9000" } });
+    expect(apply.disabled).toBe(false);
+    expect(screen.queryByText(/Still needed/)).toBeNull();
+    save();
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0]).toEqual({ ports: { web: 9000 }, env: {}, volumes: {} });
+  });
+
+  it("draws a named option by its label, says the chosen one's hint, and sends its value", async () => {
+    const named = { ...manifest, env: [env("MODE", { label: "Listening mode", description: "Which addresses it answers on.", default: "all", options: ["all", "bind"], optionLabels: [{ value: "all", label: "Everyone who asks", hint: "Answers on every address." }, { value: "bind", label: "The main connection, leaving other addresses free", hint: "Holds the port on the main interface alone." }] }), env("LEVEL", { default: "info", options: ["info", "debug"] })] } as unknown as Manifest;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, errors: [], conflicts: [] }), { headers: { "Content-Type": "application/json" } })));
+    const onSubmit = vi.fn<(values: Values, form: Values) => void>();
+    render(<ConfigSheet manifest={named} live={null} mode="install" csrfToken="t" onSubmit={onSubmit} onCancel={() => {}} />);
+    const mode = screen.getByLabelText("Listening mode") as HTMLSelectElement;
+    expect([...mode.options].map((option) => [option.value, option.textContent])).toEqual([["all", "Everyone who asks"], ["bind", "The main connection, leaving other addresses free"]]);
+    expect(screen.getByText(/Answers on every address\./)).toBeTruthy();
+    // A setting whose options are plain values is drawn as before.
+    expect([...(screen.getByLabelText("LEVEL") as HTMLSelectElement).options].map((option) => option.textContent)).toEqual(["info", "debug"]);
+    fireEvent.change(mode, { target: { value: "bind" } });
+    expect(screen.getByText(/Holds the port on the main interface alone\./)).toBeTruthy();
+    expect(screen.queryByText(/Answers on every address\./)).toBeNull();
+    save();
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].env).toEqual({ MODE: "bind" });
+  });
 });

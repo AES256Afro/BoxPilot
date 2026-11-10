@@ -140,7 +140,7 @@ export default function NetworkPage({ csrfToken, role = "owner", now = Date.now 
           <b>{collectorsRead}</b> of <b>{collectorsTotal}</b> read · <b>{topology.devices?.length ?? 0}</b> on the LAN
           {tailnet?.available ? <> · <b>{online}</b> of <b>{nodes.length}</b> on the tailnet</> : null}
         </> : undefined}
-        actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(topology)}>Read again</Button>}
+        actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(topology)}>Check again</Button>}
         about={<>
           <p>Gateway, DNS, devices on your LAN, and Tailscale.</p>
           <p>The network as this server sees it: its way out, its resolvers, the devices around it on the LAN and the tailnet, and every way to reach BoxPilot. The router tab reads your router and the DNS change is an assessment: nothing here writes to the router.</p>

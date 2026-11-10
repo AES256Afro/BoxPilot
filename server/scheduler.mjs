@@ -4,6 +4,7 @@ import { defaultApprovalMode, normalizeApprovalMode } from "./ops/risk.mjs";
 import { overdueScheduleIds } from "./schedule-freshness.mjs";
 import { asSentence } from "./health-alerts.mjs";
 import { recordFailed } from "./jobs.mjs";
+import { logged } from "./logged-loop.mjs";
 
 /**
  * Operation scheduler (M6.1): runs registered low/medium-risk operations on a cadence,
@@ -17,7 +18,9 @@ export const frequencies = Object.freeze(["hourly", "daily", "weekly"]);
  * Next local-time occurrence strictly after `from`. Weekday: 0 = Sunday.
  *
  * Across a daylight-saving change: an hourly run moves on by elapsed time, so the hour the clocks
- * repeat in autumn runs twice rather than being skipped. A daily or weekly run picks the day first
+ * repeat in autumn runs twice rather than being skipped. Inside the second pass of that hour,
+ * setting the minute lands in the first pass, an hour back: one hour on was still not after
+ * `from`, so the run came due again at every tick, sixty times that hour. A daily or weekly run picks the day first
  * and only then sets the time on it; setting the time first and then moving the date carried a
  * time the spring change had shifted (02:30 -> 03:30) into every later run.
  */
@@ -25,7 +28,9 @@ export function computeNextRun({ frequency, minute, hour = null, weekday = null 
   if (frequency === "hourly") {
     const next = new Date(from.getTime());
     next.setMinutes(minute, 0, 0);
-    return next <= from ? new Date(next.getTime() + 60 * 60_000) : next;
+    let due = next.getTime();
+    while (due <= from.getTime()) due += 60 * 60_000;
+    return new Date(due);
   }
   // Noon is never inside a DST transition, so moving the date from there cannot slip a day.
   const onDay = (days) => {
@@ -239,6 +244,9 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
     assertMayManage(schedule, actorId);
     // Re-enabled schedules start from the next occurrence, not a backlog of missed runs.
     const nextDueAt = enabled ? computeNextRun(schedule, now()).toISOString() : null;
+    // Paused, it will not run again to clear a failure it raised: without this "… failed" stood on
+    // Home with a growing "Since" for as long as the schedule stayed off.
+    if (!enabled) settle(id, { quietly: true });
     return store.setScheduleEnabled(id, enabled, { actorId, nextDueAt });
   }
 
@@ -367,7 +375,7 @@ export function createSchedulerService({ store, jobs, secretEnvNamesFor = async 
 
   function start(intervalMs = 60_000) {
     const unsubscribe = typeof store.subscribeJobs === "function" ? store.subscribeJobs(onJob) : () => {};
-    const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
+    const timer = setInterval(() => { tick().catch(logged("scheduler")); }, intervalMs);
     timer.unref?.();
     return () => { clearInterval(timer); unsubscribe(); };
   }
