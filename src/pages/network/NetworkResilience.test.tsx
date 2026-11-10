@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { openViewEvent } from "../../activityEvents";
 import NetworkPage from "./NetworkPage";
 import { mockFetch, now, resilience, singlePoint, unproven } from "./testData";
 
@@ -82,6 +83,26 @@ describe("whether the house keeps its DNS when this server is off", () => {
     const panel = await screen.findByRole("region", { name: /If this server is off/ });
     fireEvent.click(within(panel).getByRole("button", { name: "Check again" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url) === `${route}?fresh=1`)).toBe(true));
+  });
+
+  it("opens Notifications for the heartbeat from a button, for the owner who can open it", async () => {
+    open("dns", resilience);
+    const panel = await screen.findByRole("region", { name: /If this server is off/ });
+    const opened: unknown[] = [];
+    const onOpen = (event: Event) => opened.push((event as CustomEvent).detail);
+    window.addEventListener(openViewEvent, onOpen);
+    fireEvent.click(await within(panel).findByRole("button", { name: "Open Notifications" }));
+    window.removeEventListener(openViewEvent, onOpen);
+    expect(opened).toEqual([{ view: "settings", options: { tab: "notifications" } }]);
+    // The page's own refresh has the name the panel's has.
+    expect(screen.getAllByRole("button", { name: "Check again" })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Read again" })).toBeNull();
+    cleanup();
+    open("dns", resilience, { role: "operator" });
+    const theirs = await screen.findByRole("region", { name: /If this server is off/ });
+    await within(theirs).findByRole("table", { name: "DNS servers your devices are given" });
+    expect(within(theirs).queryByRole("button", { name: "Open Notifications" })).toBeNull();
+    expect(theirs.textContent).toContain("The owner can turn on a heartbeat, to hear when this server goes down.");
   });
 
   it("shows the last rehearsal and what was checked after an outage", async () => {

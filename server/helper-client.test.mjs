@@ -3,7 +3,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createHelperClient } from "./helper-client.mjs";
+import { createHelperClient, heldReadMs } from "./helper-client.mjs";
 
 let server = null; let dir = null;
 const sockets = new Set();
@@ -156,6 +156,20 @@ describe("sharing helper reads", () => {
     // Everything else is still shared only while in flight.
     expect(await client.request("app.inspect")).toEqual({ calls: 4 });
     expect(await client.request("app.inspect")).toEqual({ calls: 5 });
+  });
+
+  it("holds live performance for less than a poll, so two tabs a moment apart share one docker stats", async () => {
+    let calls = 0;
+    let clock = 0;
+    const socketPath = await helperSocket(async () => { calls += 1; return { calls }; });
+    const client = createHelperClient({ socketPath, now: () => clock });
+    expect(await client.request("system.performance.inspect")).toEqual({ calls: 1 });
+    clock += 2_000;
+    expect(await client.request("system.performance.inspect")).toEqual({ calls: 1 });
+    // A tab's own next poll, three seconds on, is always a fresh reading.
+    clock += 1_000;
+    expect(await client.request("system.performance.inspect")).toEqual({ calls: 2 });
+    expect(heldReadMs["system.performance.inspect"]).toBeLessThan(3_000);
   });
 
   it("reads fresh once the previous read has finished", async () => {

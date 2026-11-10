@@ -27,8 +27,16 @@ export const cloudflareRanges = Object.freeze([
   "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
 ]);
 
-/** Addresses nothing on the internet should resolve to: the house, the box itself, the link, the tailnet. */
-const privateRanges = Object.freeze(["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "::/128", "::1/128", "fc00::/7", "fe80::/10"]);
+/**
+ * Addresses nothing on the internet should resolve to: the house, the box itself, the link, the
+ * tailnet; and the ranges that are nobody's host or another way of writing one of those: the
+ * benchmarking block, multicast, the reserved top of IPv4, and the IPv6 forms that carry an IPv4
+ * address inside them (`::a.b.c.d`, NAT64, 6to4), site-local and multicast.
+ */
+const privateRanges = Object.freeze([
+  "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4",
+  "::/96", "64:ff9b::/96", "2002::/16", "fc00::/7", "fe80::/10", "fec0::/10", "ff00::/8",
+]);
 
 /** An address as a 128-bit number, IPv4 mapped into the v6 space so one comparison serves both. */
 function toBigInt(address) {
@@ -112,14 +120,27 @@ function describeCertificate(socket) {
  * server is asked at 127.0.0.1 with the public name in Host, the way the tunnel asks it. A redirect
  * is reported with its status and not followed; a certificate that would not verify is reported,
  * not refused, because "answers, but a browser will warn" is the finding.
- * @param {{ url: string, hostHeader?: string | null, timeoutMs?: number }} probe
+ *
+ * `addresses` are the ones the name was just resolved to and judged by. Given them, the connection
+ * goes to one of those and the name is not looked up a second time: a name that answers the check
+ * with a public address and the connection with one inside the house reaches nothing. The name is
+ * still what the request is for (Host, and the certificate asked for).
+ * @param {{ url: string, hostHeader?: string | null, addresses?: string[] | null, timeoutMs?: number }} probe
  * @returns {Promise<{ outcome: "answered" | "timeout" | "refused" | "error", status: number | null, ms: number, server: string | null, tls: ReturnType<typeof describeCertificate> | null, error: string | null }>}
  */
-export function probeUrl({ url, hostHeader = null, timeoutMs = 10_000 }) {
+export function probeUrl({ url, hostHeader = null, addresses = null, timeoutMs = 10_000 }) {
   return new Promise((resolve) => {
     let target;
     try { target = new URL(url); } catch { return resolve({ outcome: "error", status: null, ms: 0, server: null, tls: null, error: "not a valid address" }); }
     if (!["http:", "https:"].includes(target.protocol)) return resolve({ outcome: "error", status: null, ms: 0, server: null, tls: null, error: "only http and https are probed" });
+    const pinned = Array.isArray(addresses) ? addresses.filter((address) => typeof address === "string" && isIP(address) !== 0).map((address) => ({ address, family: isIP(address) })) : null;
+    if (pinned && !pinned.length) return resolve({ outcome: "error", status: null, ms: 0, server: null, tls: null, error: "no address to connect to" });
+    /** The lookup the connection is given in place of the system's: the addresses already judged, and no others. */
+    const lookup = pinned ? (_hostname, options, callback) => {
+      const wanted = options?.family === 4 || options?.family === 6 ? pinned.filter((entry) => entry.family === options.family) : pinned;
+      if (!wanted.length) return callback(Object.assign(new Error("no address of that family"), { code: "ENOTFOUND" }));
+      return options?.all ? callback(null, wanted) : callback(null, wanted[0].address, wanted[0].family);
+    } : undefined;
     const started = Date.now();
     const secure = target.protocol === "https:";
     const transport = secure ? https : http;
@@ -127,7 +148,7 @@ export function probeUrl({ url, hostHeader = null, timeoutMs = 10_000 }) {
     let settled = false;
     const finish = (result) => { if (!settled) { settled = true; resolve(result); } };
     const headers = { "user-agent": `BoxPilot/${productVersion} (hosted-domains check)`, accept: "text/html,*/*;q=0.5", ...(hostHeader ? { host: hostHeader } : {}) };
-    const request = transport.request(target, { method: "GET", headers, timeout: timeoutMs, rejectUnauthorized: false, servername: secure ? (hostHeader ?? target.hostname) : undefined, agent: false }, (response) => {
+    const request = transport.request(target, { method: "GET", headers, timeout: timeoutMs, rejectUnauthorized: false, servername: secure ? (hostHeader ?? target.hostname) : undefined, agent: false, ...(lookup ? { lookup } : {}) }, (response) => {
       response.resume();
       finish({ outcome: "answered", status: response.statusCode ?? null, ms: Date.now() - started, server: typeof response.headers.server === "string" ? response.headers.server.slice(0, 40) : null, tls, error: null });
     });

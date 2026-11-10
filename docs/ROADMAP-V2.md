@@ -3275,7 +3275,7 @@ ranked by what the owner would feel first. The rest of the milestone works throu
   stand-in know "working the processor hardest". "free" alone no longer hints the clean-up. The acting
   export boxes a refused tool's words as the model saw them and calls a prompt kept only when no
   finding was added by meaning after it. The stand-ins replace a name inside a hyphenated or
-  underscored identifier ("chris-laptop") and private IPv6 addresses (unique local, a tailnet's,
+  underscored identifier ("alex-laptop") and private IPv6 addresses (unique local, a tailnet's,
   link-local) with RFC 3849 stand-ins. A boot-partition check that stopped at more than the mark is
   remembered from its failed job's own words: Repair's evidence says what it found and the fix is not
   offered again (the manual step remains). Repair and `backups.coverage` share one answer to which

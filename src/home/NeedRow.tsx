@@ -1,8 +1,9 @@
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useSyncExternalStore, type ReactNode } from "react";
 import type { FixRun } from "../repair/useRepairFixes";
 import { Button, RiskTag } from "../ui";
 import { cx } from "../ui/types";
 import { actionsOf, runs, type Need, type NeedAction, type NeedSeverity } from "./needs";
+import { claimRow, seenState, subscribeSeen } from "./seen";
 import { runWords } from "./useNeedActions";
 
 const severityWords: Record<NeedSeverity, string> = { danger: "Problem", warning: "Needs a look", neutral: "Suggestion" };
@@ -39,6 +40,9 @@ export function NeedRow({ need, onOpen, onAct, icon, tier, run }: NeedRowProps) 
   const tag = tier && runnable ? <span className="need__tier-tag" aria-hidden="true"><RiskTag risk={runnable.risk} short={tier === "lead"} /></span> : null;
   const actions = actionsOf(need);
   const busy = run && ["queued", "running", "checking"].includes(run.phase);
+  // "Got it" on its way, and why it was not taken: said here, in the row it was pressed in.
+  const seen = useSyncExternalStore(subscribeSeen, () => seenState(need.id), () => undefined);
+  useEffect(() => claimRow(need.id), [need.id]);
   return (
     <li className={cx("need", icon !== undefined && "need--icon", tier === "lead" && "need--lead")} data-severity={need.severity}>
       {tier === "lead" && tag}
@@ -55,6 +59,7 @@ export function NeedRow({ need, onOpen, onAct, icon, tier, run }: NeedRowProps) 
         </span>
         {need.detail && <span className="need__detail" id={detailId}>{need.detail}</span>}
         {run && <span className="need__run" role="status" data-phase={run.phase}>{runWords(run)}</span>}
+        {seen?.problem && <span className="need__run" role="alert" data-phase="failed">{seen.problem}</span>}
       </div>
       {need.risk && !need.action && <RiskTag risk={need.risk} className="need__tier" />}
       {actions.length > 0 && (
@@ -63,7 +68,7 @@ export function NeedRow({ need, onOpen, onAct, icon, tier, run }: NeedRowProps) 
             ? <Button key="dismiss" variant="ghost" className="need__act need__dismiss" aria-label={`Dismiss: ${need.title}`} onClick={() => onAct(need, action)}>Dismiss</Button>
             // "Got it" on something already over (a power cut): it runs nothing, and says it has been seen.
             : action.kind === "acknowledge"
-              ? <Button key="acknowledge" variant="ghost" className="need__act need__dismiss" aria-label={`${action.label}: ${need.title}`} onClick={() => onAct(need, action)}>{action.label}</Button>
+              ? <Button key="acknowledge" variant="ghost" className="need__act need__dismiss" aria-label={`${action.label}: ${need.title}`} busy={Boolean(seen?.busy)} onClick={() => onAct(need, action)}>{action.label}</Button>
             // Opens the page where the fix is: it runs nothing, so it carries no tier.
             : action.kind === "open"
               ? <Button key={`open:${action.label}`} className="need__act" aria-label={`${action.label}: ${need.title}`} onClick={() => onAct(need, action)}>{action.label}</Button>

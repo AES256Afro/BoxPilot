@@ -14,6 +14,13 @@ describe("apps stopped on purpose", () => {
     const stopped = { plex: { at: "2026-09-28T22:10:20.000Z", by: "owner-1" }, farspace: { at: "2026-09-28T22:02:06.000Z", by: "owner-1" } };
     expect(foldAppStop(stopped, job("app.update.many", { ids: ["plex", "jellyfin"] }))).toEqual({ farspace: stopped.farspace });
     expect(foldAppStop(stopped, job("app.update.many", { ids: ["jellyfin"] }))).toBe(stopped);
+    // The nightly update names its apps only in its result: an app stopped on purpose and then updated
+    // by it stayed "stopped on purpose" for good.
+    const nightly = (apps) => ({ ...job("app.update.available", { exclude: [] }), result: { updated: apps.length > 0, apps } });
+    expect(foldAppStop(stopped, nightly(["plex", "jellyfin"]))).toEqual({ farspace: stopped.farspace });
+    expect(foldAppStop(stopped, nightly(["jellyfin"]))).toBe(stopped);
+    expect(foldAppStop(stopped, nightly([]))).toBe(stopped);
+    expect(foldAppStop(stopped, job("app.update.available", { exclude: [] }))).toBe(stopped);
   });
 
   it("forgets it when the app is brought back or replaced", () => {
@@ -21,7 +28,8 @@ describe("apps stopped on purpose", () => {
     for (const action of ["start", "restart", "unpause"]) {
       expect(foldAppStop(stopped, job("app.action", { id: "plex", action }))).toEqual({ farspace: stopped.farspace });
     }
-    for (const operation of appStopClearingOperations) {
+    // Each names its app in `id`, but for the nightly update, which is folded from its result (above).
+    for (const operation of appStopClearingOperations.filter((entry) => entry !== "app.update.available")) {
       expect(foldAppStop(stopped, job(operation, { id: "plex" }))).toEqual({ farspace: stopped.farspace });
     }
   });

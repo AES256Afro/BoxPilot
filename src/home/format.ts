@@ -51,8 +51,9 @@ export function uptime(seconds: number): string {
 export function size(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return "—";
   const gib = bytes / 1024 ** 3;
-  if (gib >= 1000) return `${(gib / 1024).toFixed(1)} TB`;
-  if (gib >= 1) return `${gib.toFixed(1)} GB`;
+  // Each step is taken where the smaller unit would round up into it ("1024 MB", "1000.0 GB").
+  if (gib >= 999.95) return `${(gib / 1024).toFixed(1)} TB`;
+  if (bytes / 1024 ** 2 >= 1023.5) return `${Math.max(1, gib).toFixed(1)} GB`;
   return `${Math.round(bytes / 1024 ** 2)} MB`;
 }
 

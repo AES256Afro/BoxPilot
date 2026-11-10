@@ -252,7 +252,7 @@ describe("reading the host", () => {
  * A server in memory for the reboot steps: fstab, what PID 1 has mounted, Docker and its
  * containers' processes, and a clock that moves only when something waits.
  */
-function rebootHost({ fstab = OWNER_FSTAB, mounted = { "/mnt/the-dump": "/dev/sda2 exfat 8:2" }, containers = [], liveRestore = false, busy = {}, elsewhere = {}, dirty = false, dockerStops = true, ignoresSignal = [], smbConf = "", sharedUntilClosed = false } = {}) {
+function rebootHost({ fstab = OWNER_FSTAB, mounted = { "/mnt/the-dump": "/dev/sda2 exfat 8:2" }, containers = [], liveRestore = false, busy = {}, elsewhere = {}, dirty = false, dockerStops = true, ignoresSignal = [], stopsAfterMs = {}, smbConf = "", sharedUntilClosed = false } = {}) {
   let now = 0;
   const calls = [];
   const running = new Set(containers.map((container) => container.id));
@@ -286,11 +286,14 @@ function rebootHost({ fstab = OWNER_FSTAB, mounted = { "/mnt/the-dump": "/dev/sd
     if (name === "smbcontrol") { closed = true; return { ok: true, stdout: "", stderr: "" }; }
     return { ok: true, stdout: "", stderr: "" };
   });
+  // `stopsAfterMs`: a container that takes that long to write out after its stop signal, then exits by itself.
+  const exitsAt = new Map();
   const host = {
-    running: vi.fn(async (container) => running.has(container.id)),
+    running: vi.fn(async (container) => { if (exitsAt.has(container.id) && now >= exitsAt.get(container.id)) running.delete(container.id); return running.has(container.id); }),
     signal: vi.fn((pid, signal) => {
       signals.push([pid, signal]);
       const container = containers.find((entry) => entry.pid === pid);
+      if (container && signal !== "SIGKILL" && container.name in stopsAfterMs) { exitsAt.set(container.id, now + stopsAfterMs[container.name]); return true; }
       if (container && (signal === "SIGKILL" || !ignoresSignal.includes(container.name))) running.delete(container.id);
       return true;
     }),
@@ -337,6 +340,22 @@ describe("getting the drives ready before a reboot", () => {
     expect(summary.containers).toEqual({ stopped: ["bp-plex"], signalled: ["bp-plex", "bp-qbittorrent"], killed: ["bp-qbittorrent"], stillRunning: [] });
     expect(server.log).toHaveBeenCalledWith(expect.stringContaining("kept running after Docker stopped (live-restore is on)"), "stdout");
     expect(summary.drives[0].state).toBe("unmounted");
+  });
+
+  it("with live-restore on, gives a container the stop timeout its app asked for, not thirty seconds of it", async () => {
+    // A model engine with a two-minute stop grace period (catalog stopGracePeriod) that needs one of them to
+    // unload was killed at thirty seconds, mid-write.
+    const engine = { id: "d".repeat(64), name: "bp-strata", pid: 4545, stopTimeout: 120, binds: ["/mnt/the-dump/models"] };
+    const server = rebootHost({ containers: [engine], liveRestore: true, stopsAfterMs: { "bp-strata": 60_000 } });
+    const summary = await prepareDrivesForReboot({}, server.options);
+    expect(server.signals).toEqual([[4545, "SIGTERM"]]);
+    expect(summary.containers).toEqual({ stopped: ["bp-strata"], signalled: ["bp-strata"], killed: [], stillRunning: [] });
+    // The reboot is still not kept waiting: one that outstays the budget, less what the drives need, is killed.
+    const stuck = rebootHost({ containers: [{ ...engine, stopTimeout: 600 }], liveRestore: true, ignoresSignal: ["bp-strata"] });
+    const forced = await prepareDrivesForReboot({}, stuck.options);
+    expect(stuck.signals).toEqual([[4545, "SIGTERM"], [4545, "SIGKILL"]]);
+    expect(forced.containers.killed).toEqual(["bp-strata"]);
+    expect(forced.drives[0].state).toBe("unmounted");
   });
 
   it("leaves Docker running when no container uses a drive", async () => {

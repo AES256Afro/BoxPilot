@@ -7,6 +7,7 @@
  * and alerts on the movement — errors that are climbing, or wear on track to reach the limit — so
  * there is time to copy data off and order a replacement. Pure and clock-injected; a sampler feeds it.
  */
+import { logged } from "./logged-loop.mjs";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEAR_WARN_DAYS = 180; // an SSD projected to hit its endurance limit within six months
@@ -52,6 +53,9 @@ function slopePerDay(samples, key, { now, minSamples = 3, minSpanDays = 2, windo
   const first = Date.parse(points[0].at);
   const last = Date.parse(points[points.length - 1].at);
   if ((last - first) / DAY_MS < minSpanDays) return null;
+  // A disk not read for over a week is gone (pulled, replaced): its old trend kept "is developing
+  // errors" standing for a month after. A sleeping drive is read weekly at the least, hence eight days.
+  if ((at - last) / DAY_MS > 8) return null;
   const xs = points.map((sample) => (Date.parse(sample.at) - first) / DAY_MS);
   const ys = points.map((sample) => sample[key]);
   const n = xs.length;
@@ -150,7 +154,7 @@ export function createSmartSampler({ inventory, store, now = () => new Date(), i
     return { sampled: entries.length };
   }
   function start() {
-    const safeSample = () => sample().catch(() => {});
+    const safeSample = () => sample().catch(logged("drive health sample"));
     const first = delay(safeSample, initialDelayMs);
     first.unref?.();
     const timer = schedule(safeSample, intervalMs);

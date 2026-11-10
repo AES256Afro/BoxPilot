@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadCatalog } from "./index.mjs";
 import { renderCompose, resolveDevices, wantsGpu } from "./compose.mjs";
-import { resolveValues, sanitizeStoredValues, validateManifest } from "./schema.mjs";
+import { longestStopBudgetMs, resolveValues, sanitizeStoredValues, stopBudgetMs, validateManifest } from "./schema.mjs";
 
 const base = { schemaVersion: 2, id: "demo", name: "Demo", category: "Test", description: "A demo", image: { reference: "nginx:1.27" } };
 const directories = [];
@@ -30,6 +30,36 @@ describe("manifest schema", () => {
     expect(validateManifest({ ...base, env: [{ name: "M", optionsFrom: "ollama-models", options: ["a"] }] }).errors).toContainEqual(expect.stringContaining("not both"));
     expect(validateManifest({ ...base, env: [{ name: "M", optionsFrom: "ollama-models", type: "number" }] }).errors).toContainEqual(expect.stringContaining("only string settings"));
     expect(validateManifest({ ...base, env: [{ name: "M" }] }).manifest.env[0].optionsFrom).toBeNull();
+  });
+
+  it("lets an option carry a label and a hint, and still stores, compares and writes only its value", () => {
+    // Plain values, as every manifest before this wrote them.
+    const plain = validateManifest({ ...base, env: [{ name: "MODE", options: ["a", "b"], default: "a" }] });
+    expect(plain.errors).toEqual([]);
+    expect(plain.manifest.env[0]).toMatchObject({ options: ["a", "b"], optionLabels: null });
+
+    const { manifest, errors } = validateManifest({ ...base, env: [{ name: "DNS", default: "9.9.9.9;149.112.112.112", options: [{ value: "9.9.9.9;149.112.112.112", label: "Quad9", hint: "A public resolver." }, { value: "unbound#53", label: "The bundled resolver" }, "custom"] }] });
+    expect(errors).toEqual([]);
+    expect(manifest.env[0].options).toEqual(["9.9.9.9;149.112.112.112", "unbound#53", "custom"]);
+    expect(manifest.env[0].optionLabels).toEqual([{ value: "9.9.9.9;149.112.112.112", label: "Quad9", hint: "A public resolver." }, { value: "unbound#53", label: "The bundled resolver", hint: null }, { value: "custom", label: "custom", hint: null }]);
+    expect(resolveValues(manifest, {}).values.env.DNS).toBe("9.9.9.9;149.112.112.112");
+    const chosen = resolveValues(manifest, { env: { DNS: "unbound#53" } });
+    expect(chosen.errors).toEqual([]);
+    expect(renderCompose(manifest, chosen.values).envFile + renderCompose(manifest, chosen.values).composeYaml).toContain("unbound#53");
+    // A label is what a person reads, never something to submit.
+    expect(resolveValues(manifest, { env: { DNS: "Quad9" } }).errors).toEqual(["values.env.DNS: must be one of 9.9.9.9;149.112.112.112, unbound#53, custom"]);
+
+    const refused = (env) => validateManifest({ ...base, env: [env] }).errors;
+    expect(refused({ name: "M", options: ["a", { value: "a", label: "A again" }] })).toContainEqual(expect.stringContaining('env[0].options[1]: repeats the value "a"'));
+    expect(refused({ name: "M", options: ["a", "a"] })).toContainEqual(expect.stringContaining("repeats the value"));
+    expect(refused({ name: "M", options: [{ value: "a", label: "  " }] })).toContainEqual(expect.stringContaining("env[0].options[0].label"));
+    expect(refused({ name: "M", options: [{ value: "a" }] })).toContainEqual(expect.stringContaining("env[0].options[0].label: is required"));
+    expect(refused({ name: "M", options: [{ value: "a", label: "A", hint: "" }] })).toContainEqual(expect.stringContaining("env[0].options[0].hint"));
+    expect(refused({ name: "M", options: [{ value: "a", label: "A", colour: "red" }] })).toContainEqual(expect.stringContaining("options[0].colour: is not a recognised field"));
+    expect(refused({ name: "M", options: [{ value: 1, label: "One" }] })).toContainEqual(expect.stringContaining("env[0].options[0].value"));
+    expect(refused({ name: "M", options: [7] })).toContainEqual(expect.stringContaining("env[0].options[0]"));
+    expect(refused({ name: "M", options: "a" })).toContainEqual(expect.stringContaining("env[0].options"));
+    expect(refused({ name: "M", default: "c", options: ["a", { value: "b", label: "B" }] })).toContainEqual("manifest.env[0].default: must be one of the options");
   });
 
   it("accepts a minimal manifest and fills defaults", () => {
@@ -68,6 +98,17 @@ describe("manifest schema", () => {
     expect(validateManifest({ ...base, env: [{ name: "TZ", default: "x" }, { name: "TZ", default: "y" }] }).errors).toContainEqual(expect.stringContaining("env[1].name"));
     expect(validateManifest({ ...base, capabilities: ["NET_ADMIN"] }).errors).toContainEqual(expect.stringContaining("CAP_"));
     expect(validateManifest({ ...base, schemaVersion: 1 }).errors).toContainEqual(expect.stringContaining("schemaVersion"));
+    // stopGracePeriod: how long docker stop waits before killing; a model engine needs minutes to unload.
+    expect(validateManifest({ ...base, stopGracePeriod: "2m" }).manifest.stopGracePeriod).toBe("2m");
+    expect(validateManifest({ ...base }).manifest.stopGracePeriod).toBeNull();
+    for (const bad of ["2", "120", "15m", "2h", "0s", 120]) expect(validateManifest({ ...base, stopGracePeriod: bad }).errors, String(bad)).toContainEqual(expect.stringContaining("stopGracePeriod"));
+    // What BoxPilot waits for the stop: the grace period and a margin, never less than the wait it had before.
+    expect(stopBudgetMs({ stopGracePeriod: null })).toBe(120_000);
+    expect(stopBudgetMs({ stopGracePeriod: "30s" })).toBe(120_000);
+    expect(stopBudgetMs({ stopGracePeriod: "2m" })).toBe(180_000);
+    expect(stopBudgetMs({ stopGracePeriod: "2m" }, 180_000)).toBe(180_000);
+    expect(stopBudgetMs({ stopGracePeriod: "10m" }, 180_000)).toBe(longestStopBudgetMs);
+    expect(stopBudgetMs(undefined)).toBe(120_000);
   });
 
   it("resolves values with defaults and rejects bad input", () => {

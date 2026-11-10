@@ -46,6 +46,25 @@ describe("steps, tool calls and tokens a run", () => {
     expect(h.fake.calls().at(-1).cachedTokens).toBeGreaterThan(h.fake.calls().at(-2).promptTokens);
   });
 
+  it("leaves one card for a limit it meets run after run, not a card a run", async () => {
+    await setup();
+    // The surveyor escalates a limit it reaches (the support agents leave that rule off).
+    const agent = withBudget(make("environment-scout"), { stepsPerRun: 3 });
+    h.fake.state.script = (body) => (body.tool_choice === "none" ? { content: "Out of steps, so here is what I have [T1]." } : toolHungry(body));
+    const cards = () => h.store.listProposals({ states: ["open"], limit: 50 }).filter((card) => card.kind === "escalation");
+    const escalated = () => h.state.listAudit(50).filter((event) => event.type === "agents.escalated").length;
+    for (let night = 0; night < 3; night += 1) { h.service.startRun(h.caller("owner"), agent.id, { kind: "manual" }); await h.runNext(); }
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0].reason).toMatch(/reached its limit of 3 steps a run/);
+    expect(escalated()).toBe(3);   // each is still on the audit trail
+    // Once the owner has dealt with the card, the next time is news again.
+    h.store.decideProposal(cards()[0].id, { state: "dismissed", decidedBy: "owner-1" });
+    h.service.startRun(h.caller("owner"), agent.id, { kind: "manual" });
+    await h.runNext();
+    expect(cards()).toHaveLength(1);
+    expect(escalated()).toBe(4);
+  });
+
   it("refuses tool calls past the run's allowance, whatever the runner asks", async () => {
     await setup();
     const agent = withBudget(make("it-support"), { stepsPerRun: 1 });

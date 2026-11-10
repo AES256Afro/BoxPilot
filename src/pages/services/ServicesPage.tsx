@@ -159,7 +159,7 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
         title="Services"
         status={verdict}
         meta={data ? <><b>{data.counts.total}</b> {data.counts.total === 1 ? "unit" : "units"} · <b>{data.counts.active}</b> active · <b>{failed}</b> failed · <b>{timers}</b> {timers === 1 ? "timer" : "timers"} · <b>{protectedUnits}</b> protected</> : undefined}
-        actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Read again</Button>}
+        actions={<Button variant="ghost" onClick={() => void refresh()} busy={loading && Boolean(data)}>Check again</Button>}
         about={<>
           <p>The system services and timers systemd knows about: start, stop, restart, enable or disable them, and read each one's journal.</p>
           <p>BoxPilot, SSH, systemd and Tailscale are protected: they cannot be stopped or disabled from here, so this page cannot cut off the way back in. A unit the firewall manages is changed on the Firewall page.</p>
@@ -200,7 +200,7 @@ export default function ServicesPage({ csrfToken, role = "owner" }: ServicesPage
           title={journal.unit}
           size="lg"
           onClose={() => setJournal(null)}
-          footer={<Button onClick={() => void readJournal(journal.unit)} busy={journal.lines === null && !journal.error}>Read again</Button>}
+          footer={<Button onClick={() => void readJournal(journal.unit)} busy={journal.lines === null && !journal.error}>Check again</Button>}
         >
           {journal.error
             ? <Notice tone="danger" live title="The journal could not be read">{journal.error}</Notice>

@@ -21,7 +21,7 @@ function harness({ loginFails = false, denyAt = null } = {}) {
     if (body.method === "call" && body.params[1] === "system") return { result: { model: "GL-MT6000", firmware_version: "4.7.0" } };
     if (body.method === "call" && body.params[1] === "clients") {
       return { result: { clients: [
-        { name: "chris-laptop", ip: "192.168.1.26", mac: "aa:bb:cc:dd:ee:01", online: true, is_static: false },
+        { name: "alex-laptop", ip: "192.168.1.26", mac: "aa:bb:cc:dd:ee:01", online: true, is_static: false },
         { name: "homebox", ip: "192.168.1.10", mac: "aa:bb:cc:dd:ee:02", online: true, is_static: true },
         { name: "ghost", ip: null, mac: "aa:bb:cc:dd:ee:03", online: false },  // no address: not a lease
       ] } };
@@ -155,7 +155,7 @@ describe("reading what the router knows", () => {
     await routerConnect({ kind: "glinet", host: "192.168.1.1", username: "root", password: "s3cret" }, { run, fetchJson, files });
     const { leases } = await routerLeases({}, { run, fetchJson, files });
     expect(leases).toEqual([
-      { name: "chris-laptop", address: "192.168.1.26", mac: "aa:bb:cc:dd:ee:01", online: true, reserved: false },
+      { name: "alex-laptop", address: "192.168.1.26", mac: "aa:bb:cc:dd:ee:01", online: true, reserved: false },
       { name: "homebox", address: "192.168.1.10", mac: "aa:bb:cc:dd:ee:02", online: true, reserved: true },
     ]);
   });

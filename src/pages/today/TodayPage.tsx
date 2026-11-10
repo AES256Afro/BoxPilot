@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { openActivity, openNotifications } from "../../activityEvents";
 import { countOf, type ViewName } from "../../data";
 import { useFacts } from "../../home/facts";
-import { relativeTime } from "../../home/format";
 import { useJobHistory, useMergedJobs } from "../../home/jobHistory";
 import { useCheckAgain } from "../../home/useCheckAgain";
 import { NeedRow } from "../../home/NeedRow";
@@ -13,7 +12,7 @@ import { readLastKnown, saveLastKnown } from "../../pwa/lastKnown";
 import { pushSupport, thisDeviceId } from "../../pwa/push";
 import { runningInstalled } from "../../pwa/register";
 import { onRefresh } from "../../shell/refresh";
-import { Button, Facts, MetricStrip, MetricTile, Notice, PageHeader, Panel, StatusChip } from "../../ui";
+import { Button, Facts, MetricStrip, MetricTile, Notice, PageHeader, Panel, RelativeTime, StatusChip } from "../../ui";
 import { AgentsGlance } from "../agents/AgentsGlance";
 import { AppGlancePanel, useAppGlances } from "./AppGlances";
 import { offlineCopy, todayModel, type RanGroup, type TodayModel } from "./today";
@@ -54,7 +53,7 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
   const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
   const [allAttention, setAllAttention] = useState(false);
   // Apps the server reads for Today (M51): one card each, read with the page and again on Check again.
-  const { glances, reload: reloadGlances } = useAppGlances();
+  const { glances, unread: glancesUnread, reload: reloadGlances } = useAppGlances();
 
   // Kept for offline reads once everything has been read, and only while BoxPilot is answering.
   const liveKey = JSON.stringify(offlineCopy(live));
@@ -120,6 +119,11 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
           )}
         </Panel>
 
+        {!stale && glancesUnread && (
+          <Notice tone="warning" title="The apps' figures could not be read" action={<Button onClick={() => void reloadGlances()}>Try again</Button>}>
+            {glances.length ? "The cards below are from the last time they were read." : "An app with figures for this page shows them here once they can be read."}
+          </Notice>
+        )}
         {!stale && glances.map((glance) => <AppGlancePanel key={glance.app} glance={glance} apps={facts.catalog.value?.apps ?? []} clock={clock} />)}
 
         {!stale && <AgentsGlance variant="ops" role={role} onOpen={() => onNavigate("agents")} now={now} />}
@@ -162,7 +166,7 @@ function RanList({ group, clock }: { group: RanGroup; clock: number }) {
               </span>
               <span className="today-run__meta">
                 <StatusChip status={job.status}>{job.label}</StatusChip>
-                <time dateTime={job.at}>{relativeTime(job.at, clock) ?? ""}</time>
+                <RelativeTime at={job.at} now={clock} />
               </span>
             </button>
           </li>

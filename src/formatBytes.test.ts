@@ -18,3 +18,12 @@ describe("formatBytes", () => {
     expect(formatBytes(-1)).toBe("—");
   });
 });
+
+describe("a size just under the next unit", () => {
+  it("is written in the next unit, never as 1024 of the smaller one", () => {
+    expect(formatBytes(1024 ** 2 - 1)).toBe("1.0 MiB");
+    expect(formatBytes(1024 ** 3 - 1)).toBe("1.0 GiB");
+    expect(formatBytes(1023)).toBe("1023 B");
+    expect(formatBytes(1024 ** 2 - 60 * 1024)).toBe("964.0 KiB");
+  });
+});
