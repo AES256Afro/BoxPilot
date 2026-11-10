@@ -142,12 +142,12 @@ describe("the catalog summary view", () => {
     volumes: [{ id: "data", label: "Data", hostPath: "/mnt/dump", configurable: true, container: "/data" }, { id: "config", container: "/config", path: "config", backup: true }],
     env: [{ name: "BIG", default: "x".repeat(2000) }], notes: "long".repeat(500), setup: [{ step: 1 }], files: [{ path: "a" }], sha256: "f".repeat(64) };
 
-  const serve = async ({ settings = {}, live = [] } = {}) => {
+  const serve = async ({ settings = {}, live = [], catalogService = { all: async () => ({ manifests: [manifest], problems: [] }) } } = {}) => {
     const [{ default: express }, { createHostRouter }] = await Promise.all([import("express"), import("./host.mjs")]);
     const app = express();
     app.use("/api/v1", createHostRouter({
       state: { getSetting: (key, fallback) => settings[key] ?? fallback }, helper: { request: async () => ({ applications: live }) },
-      catalogService: { all: async () => ({ manifests: [manifest], problems: [] }) }, inventory: { inspect: async () => ({}) },
+      catalogService, inventory: { inspect: async () => ({}) },
       network: {}, controllerProtection: {}, controllerRetention: {}, githubProvenance: {}, releaseUpdates: {},
       setup: {}, supportBundle: {}, audit: {}, auth: { requireCsrf: (_q, _s, next) => next(), requireRole: () => (_q, _s, next) => next() },
     }));
@@ -170,6 +170,34 @@ describe("the catalog summary view", () => {
       expect(slim.ports[0]).toEqual({ id: "web", label: "Web", host: 8080, protocol: "tcp", exposure: "lan" });
       for (const dropped of ["env", "notes", "setup", "files", "sha256"]) expect(slim[dropped]).toBeUndefined();
       expect(JSON.stringify(summary).length).toBeLessThan(JSON.stringify(full).length / 4);
+    } finally { close(); }
+  });
+
+  it("summarises a loaded catalog once, gives the same bytes every time, and matches each app's live row by id", async () => {
+    // Every Overview and Storage load built every manifest's summary again and searched the live rows once per manifest.
+    let summarised = 0;
+    const counted = (id) => ({ ...manifest, id, name: id, get ports() { summarised += 1; return manifest.ports; } });
+    let catalog = { manifests: [counted("alpha"), counted("beta"), counted("gamma")], problems: [] };
+    const live = [{ id: "gamma", installed: true, container: { running: true } }, { id: "alpha", installed: true, container: { running: false } }, { id: "alpha", installed: false }, { id: "not-in-the-catalog", installed: true }];
+    const { base, close } = await serve({ live, catalogService: { all: async () => catalog } });
+    try {
+      const first = await (await fetch(`${base}/api/v1/catalog?view=summary`)).text();
+      expect(summarised).toBe(3);
+      expect(await (await fetch(`${base}/api/v1/catalog?view=summary`)).text()).toBe(first);
+      expect(summarised).toBe(3);
+      const applications = JSON.parse(first).applications;
+      expect(applications.map((entry) => [entry.manifest.id, entry.live?.installed ?? null, entry.live?.container?.running ?? null])).toEqual([["alpha", true, false], ["beta", null, null], ["gamma", true, true]]);
+      expect(applications[1].live).toBeNull();
+      // The full view is the manifests themselves, and is not what was held for the summary.
+      const full = JSON.parse(await (await fetch(`${base}/api/v1/catalog`)).text());
+      expect(full.applications[0].manifest.env).toBeTruthy();
+      expect(full.applications.map((entry) => entry.live?.installed ?? null)).toEqual([true, null, true]);
+      // The catalog loaded again (a manifest changed on disk) is summarised again.
+      catalog = { manifests: [counted("alpha"), counted("delta")], problems: [] };
+      summarised = 0;
+      const reloaded = JSON.parse(await (await fetch(`${base}/api/v1/catalog?view=summary`)).text());
+      expect(reloaded.applications.map((entry) => entry.manifest.id)).toEqual(["alpha", "delta"]);
+      expect(summarised).toBe(2);
     } finally { close(); }
   });
 

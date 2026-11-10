@@ -737,6 +737,32 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     const rows = prepare(`SELECT kind, item_id, model, vector, text_hash FROM agent_vectors WHERE kind IN (${kinds.map(() => "?").join(", ")})`).all(...kinds);
     return new Map(rows.map((row) => [`${row.kind}:${row.item_id}`, { model: row.model, vector: row.vector, textHash: row.text_hash }]));
   }
+  /**
+   * The stored vectors of these items alone, by their own keys (`${kind}:${id}`, the table's primary key): a search
+   * over one agent's notes reads those notes' vectors, not every agent's. Asked a fixed number at a time, the last
+   * lot padded with its own last id, so one compiled statement serves every size.
+   */
+  const vectorLot = 200;
+  function vectorsFor(keys) {
+    const byKind = new Map();
+    for (const key of new Set(keys)) {
+      const cut = String(key).indexOf(":");
+      if (cut < 1) continue;
+      const kind = key.slice(0, cut);
+      if (!byKind.has(kind)) byKind.set(kind, []);
+      byKind.get(kind).push(key.slice(cut + 1));
+    }
+    const found = new Map();
+    const select = prepare(`SELECT kind, item_id, model, vector, text_hash FROM agent_vectors WHERE kind = ? AND item_id IN (${Array.from({ length: vectorLot }, () => "?").join(", ")})`);
+    for (const [kind, ids] of byKind) {
+      for (let start = 0; start < ids.length; start += vectorLot) {
+        const lot = ids.slice(start, start + vectorLot);
+        while (lot.length < vectorLot) lot.push(lot[lot.length - 1]);
+        for (const row of select.all(kind, ...lot)) found.set(`${row.kind}:${row.item_id}`, { model: row.model, vector: row.vector, textHash: row.text_hash });
+      }
+    }
+    return found;
+  }
   const deleteVector = (kind, itemId) => prepare("DELETE FROM agent_vectors WHERE kind = ? AND item_id = ?").run(kind, itemId);
   const deleteVectorsLike = (kind, prefix) => prepare("DELETE FROM agent_vectors WHERE kind = ? AND item_id LIKE ?").run(kind, `${prefix}%`);
   const countVectors = () => Number(prepare("SELECT COUNT(*) AS count FROM agent_vectors").get().count);
@@ -839,6 +865,8 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     : []);
 
   const findOpenProposal = (source, title) => proposalOf(prepare("SELECT * FROM agent_proposals WHERE source = ? AND title = ? AND state = 'open'").get(source, title));
+  /** An agent's open "needs you to look" card that already says exactly this. */
+  const findOpenEscalation = (agentId, reason) => proposalOf(prepare("SELECT * FROM agent_proposals WHERE agent_id = ? AND kind = 'escalation' AND reason = ? AND state = 'open' LIMIT 1").get(agentId, reason));
   const listProposalsForRun = (runId) => prepare("SELECT * FROM agent_proposals WHERE run_id = ? ORDER BY created_at, rowid LIMIT 10").all(runId).map(proposalOf);
 
   // ---- documents ----
@@ -1051,10 +1079,10 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
     writeFinding, listFindings, deleteFindings,
     getThread, saveThread, deleteThread,
     addEpisode, listEpisodes, deleteEpisode,
-    setVector, vectorsOf, deleteVector, deleteVectorsLike, countVectors,
+    setVector, vectorsOf, vectorsFor, deleteVector, deleteVectorsLike, countVectors,
     addExample, listExamples, listAllExamples, countExamples, getExample, deleteExample, deleteExampleOfRun,
     setFeedback, getFeedback, listFeedback,
-    createProposal, getProposal, listProposals, decideProposal, findOpenProposal, listProposalsForRun, setProposalStepJob, listOpenProposalsForJob,
+    createProposal, getProposal, listProposals, decideProposal, findOpenProposal, findOpenEscalation, listProposalsForRun, setProposalStepJob, listOpenProposalsForJob,
     latestAnsweredPost, vectorKeys, countOutputs, trainingStamp, countRunsWithLimit,
     addDocument, upsertDocument, listDocuments, countDocuments, getDocument, findDocument, setDocumentEnabled, setDocumentPinned, deleteDocument,
     getDocumentMedia, listUndescribed, describeDocument, countImageDocuments,

@@ -293,7 +293,7 @@ describe("updating several apps in one job (M36)", () => {
   });
 
   it("starts no app it could not finish in the time left, and names the ones it left alone", async () => {
-    // Each update takes three hours on this clock; the job has twelve, and an update may take 110 minutes.
+    // Each update takes three hours on this clock; the job has twelve, and an update may take 120 minutes.
     let clock = 0;
     const apps = { update: vi.fn(async () => { clock += 3 * 60 * 60_000; return {}; }) };
     const ids = ["a1", "a2", "a3", "a4", "a5", "a6"];
@@ -328,6 +328,17 @@ describe("updating several apps in one job (M36)", () => {
     const spec = operations["app.update.available"].parameters;
     expect(validateParameters(spec, {}, "t")).toBeNull();
     expect(validateParameters(spec, { exclude: ["../etc"] }, "t")).toContain("up to 50");
+  });
+
+  it("names the apps past the twentieth as left for the next run, rather than dropping them", async () => {
+    // The 21st and later were cut off silently and the job still said every app was updated.
+    const ids = Array.from({ length: 23 }, (_, index) => `a${index + 1}`);
+    const apps = { inspect: async () => ({ applications: ids.map((id) => ({ id, installed: true, updateAvailable: true })) }), update: vi.fn(async () => ({ updated: true })) };
+    const progress = vi.fn();
+    const result = await operations["app.update.available"].run({}, { apps, progress, timeScale: 1, now: () => 0 });
+    expect(apps.update).toHaveBeenCalledTimes(20);
+    expect(result).toEqual({ updated: true, apps: ids.slice(0, 20), left: ["a21", "a22", "a23"] });
+    expect(progress).toHaveBeenCalledWith("Left for the next run, which takes twenty apps at a time: a21, a22, a23", "stdout");
   });
 
   it("takes 1 to 20 different apps, and devices only as /dev paths per named app", () => {

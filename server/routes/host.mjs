@@ -101,6 +101,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
 
 
   // Catalog: manifests come from the working tree; live state comes from the helper (tolerated when unavailable).
+  /** The summary view of each catalog the service has loaded, by that catalog object itself. */
+  const summaries = new WeakMap();
   router.get("/catalog", async (request, response) => {
     // Three unrelated questions - what is in the catalog, what is running, and how to reach this
     // box - so they are asked at once. Only the first is required; the other two degrade.
@@ -126,7 +128,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // itself shows. ?view=summary hands those five what they use: about a tenth of the bytes, on
     // every Overview and Storage load. The catalog page keeps the whole manifest.
     const summary = request.query.view === "summary";
-    const project = (manifest) => (summary ? {
+    // The summaries are the same for as long as the catalog is: made once per catalog the service
+    // loaded (it hands back the same object until the files change), not on every page's every load.
+    const summarize = (manifest) => ({
       id: manifest.id, name: manifest.name, category: manifest.category, icon: manifest.icon ?? null, website: manifest.website ?? null,
       description: manifest.description, image: { version: manifest.image?.version ?? null },
       ports: (manifest.ports ?? []).map((port) => ({ id: port.id, label: port.label, host: port.host, protocol: port.protocol, exposure: port.exposure })),
@@ -134,11 +138,16 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       // Whether an app backup archives anything of it, sidecars included, so the command bar offers
       // a quick "Back up X" (M36) only where it means something.
       keepsBackup: keepsBackupData(manifest),
-    } : manifest);
+    });
+    if (summary && !summaries.has(catalog)) summaries.set(catalog, manifests.map(summarize));
+    const projected = summary ? summaries.get(catalog) : manifests;
+    // Each app's live row by id, the first of any that share one, found once rather than by a search per manifest.
+    const liveById = new Map();
+    for (const row of live?.applications ?? []) if (!liveById.has(row.id)) liveById.set(row.id, row);
     // The verdicts say who ran the drill; only the owner is told when that was another account.
-    const applications = manifests.map((manifest) => {
-      const entry = live?.applications?.find((row) => row.id === manifest.id) ?? null;
-      return { manifest: project(manifest), live: entry ? { ...entry, backupVerification: withOwnActors(request, verifications[manifest.id] ?? null), killSwitchDrill: withOwnActors(request, drills[manifest.id] ?? null), stoppedOnPurpose: stops[manifest.id] ? { at: stops[manifest.id].at ?? null } : null } : null };
+    const applications = manifests.map((manifest, index) => {
+      const entry = liveById.get(manifest.id) ?? null;
+      return { manifest: projected[index], live: entry ? { ...entry, backupVerification: withOwnActors(request, verifications[manifest.id] ?? null), killSwitchDrill: withOwnActors(request, drills[manifest.id] ?? null), stoppedOnPurpose: stops[manifest.id] ? { at: stops[manifest.id].at ?? null } : null } : null };
     });
     response.json({ applications, // The catalog is read on both sides, so the same file would otherwise be reported twice.
       problems: [...new Map([...problems, ...(live?.problems ?? [])].map((problem) => [problem.file, problem])).values()], liveError, host });

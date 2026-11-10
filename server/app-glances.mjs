@@ -12,6 +12,7 @@
  * (PrivateNetwork=true), so the web service does, as it reads SearXNG for the agents.
  */
 import { baselinewatchAppId, createBaselineWatchReader, describeDigest } from "./baselinewatch.mjs";
+import { shared } from "./cache.mjs";
 
 /** Every app with a reader: the card's title, the window its figures cover, and how to read it. */
 export const appReaders = Object.freeze({
@@ -39,7 +40,15 @@ export function reachableUrl(application) {
   return `http://${host}:${web.host}`;
 }
 
-export function createAppGlances({ helper = null, fetcher = fetch, now = () => new Date(), helperTimeoutMs = 30_000 } = {}) {
+/**
+ * How long the Today card's answer is held. Every role may ask, and each asking was a helper round trip and five
+ * requests to the app: the figures are "since yesterday", so half a minute old is the same news, and each says
+ * when it was read.
+ */
+export const glanceHoldMs = 30_000;
+
+/** @param {{ helper?: any, fetcher?: typeof fetch, now?: () => Date, helperTimeoutMs?: number, holdMs?: number }} [options] */
+export function createAppGlances({ helper = null, fetcher = fetch, now = () => new Date(), helperTimeoutMs = 30_000, holdMs = glanceHoldMs } = {}) {
   const readers = Object.fromEntries(Object.entries(appReaders).map(([id, entry]) => [id, { ...entry, reader: entry.create({ fetcher, now }) }]));
 
   /** The installed apps that have a reader, from the helper's own record; none when it cannot say. */
@@ -49,8 +58,8 @@ export function createAppGlances({ helper = null, fetcher = fetch, now = () => n
     return (Array.isArray(listed?.applications) ? listed.applications : []).filter((application) => application?.installed && readers[application.id]);
   }
 
-  /** What the Today page draws: one glance per installed app with a reader, in the registry's order. */
-  async function list() {
+  /** One reading of every installed app with a reader, in the registry's order. */
+  async function read() {
     const applications = await installed().catch(() => null);
     if (!applications) return { glances: [], liveKnown: false };
     const glances = await Promise.all(applications.map(async (application) => {
@@ -64,6 +73,18 @@ export function createAppGlances({ helper = null, fetcher = fetch, now = () => n
       return { ...base, ...read };
     }));
     return { glances, liveKnown: true };
+  }
+
+  /**
+   * What the Today page draws. Callers asking at once share one reading, and a good one is held for
+   * `holdMs`. One that could not say (the helper did not answer, an app is stopped or silent) is not
+   * held: the next caller asks again, so a card stops saying "not running" as soon as the app runs.
+   */
+  const reading = shared(read, { ttlMs: holdMs, now: () => now().getTime() });
+  async function list() {
+    const answer = await reading();
+    if (!answer.liveKnown || answer.glances.some((glance) => !glance.available)) reading.forget();
+    return answer;
   }
 
   /** The app's latest digest as an agent reads it, or why there is none. */

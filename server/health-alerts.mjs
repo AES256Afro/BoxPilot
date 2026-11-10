@@ -12,6 +12,7 @@ import { shared } from "./cache.mjs";
 import { evaluateScheduleFreshness } from "./schedule-freshness.mjs";
 import { evaluateDiskForecast } from "./disk-forecast.mjs";
 import { evaluateSmartTrends } from "./smart-trends.mjs";
+import { logged } from "./logged-loop.mjs";
 
 export const healthConditions = Object.freeze({
   "storage.root.full": "Root disk nearly full",
@@ -311,11 +312,16 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
         // Remember a condition only once it has actually been announced, or the owner who configures
         // notifications tomorrow would never hear about what broke today.
         // Entries written before this flag existed count as announced, so upgrading does not replay them.
-        if (seen && seen.notified !== false) { nextState[alert.key] = seen; continue; }
+        // One key covers a condition as it worsens (on battery, then battery low; a disk 90% full,
+        // then 95%): what was announced as ordinary and is now urgent is said again, since quiet
+        // hours hold the first and let the second through. An entry from before the priority was
+        // kept takes this round's as what it was told.
+        const worse = alert.priority === "high" && seen?.priority !== undefined && seen.priority !== "high";
+        if (seen && seen.notified !== false && !worse) { nextState[alert.key] = seen.priority === undefined ? { ...seen, priority: alert.priority ?? "default" } : seen; continue; }
         // A send that fails is kept as not announced, the same as having no target: the owner can
         // see it, and the next round tries again.
         const notified = await announce(alert.key, alert);
-        nextState[alert.key] = { since: seen?.since ?? now().toISOString(), title: alert.title, notified };
+        nextState[alert.key] = { since: seen?.since ?? now().toISOString(), title: alert.title, notified, priority: notified || !seen ? alert.priority ?? "default" : seen.priority ?? "default" };
         if (notified) sent.push(alert.key);
       }
       // The schedule table is always readable, so an overdue alert can clear the moment it catches up.
@@ -438,7 +444,7 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
   }
 
   function start() {
-    const safeCheck = () => check().catch(() => {});
+    const safeCheck = () => check().catch(logged("health check"));
     const first = delay(safeCheck, initialDelayMs);
     first.unref?.();
     const timer = schedule(safeCheck, intervalMs);

@@ -243,6 +243,18 @@ describe("auto-reconnect", () => {
     expect(titles()).toContain("BoxPilot: resolved. Did not reconnect /mnt/media");
   });
 
+  it("stops saying it did not reconnect a drive that a later round finds well, without a 'resolved' push", async () => {
+    const { service, store, titles, later } = setup();
+    const flow = await service.arm("media", "owner-1");
+    for (let round = 0; round < 3; round += 1) { await service.onRound(lost()); later(31); }
+    await service.onRound(lost());   // capped: the owner is told
+    expect(store.getSetting("healthAlertsState", {})[`flow.failed:${flow.id}`]).toMatchObject({ title: "Did not reconnect /mnt/media" });
+    later(60);
+    await service.onRound({ active: [] });   // mounted again by hand, outside any reconnect job
+    expect(store.getSetting("healthAlertsState", {})[`flow.failed:${flow.id}`]).toBeUndefined();
+    expect(titles().filter((title) => title.startsWith("BoxPilot: resolved."))).toEqual([]);
+  });
+
   it("stops after a reconnect that failed, tells the owner once, and waits until it is reconnected by hand", async () => {
     const { service, jobs, store, titles, pushes, later } = setup({ outcomes: [unplugged, { state: "completed", result: reconnected() }] });
     const flow = await service.arm("media", "owner-1");

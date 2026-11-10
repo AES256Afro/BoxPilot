@@ -10,7 +10,7 @@
  */
 export const appStopClearingOperations = Object.freeze(["app.install", "app.reinstall", "app.update", "app.update.many", "app.update.available", "app.reconfigure", "app.rollback", "app.uninstall", "app.purge"]);
 
-/** The record after `job`: a new object, or the same one when the job changes nothing. */
+/** The record after `job` (with its `result`, for a job that only names its apps there): a new object, or the same one when the job changes nothing. */
 export function foldAppStop(entries, job, { now = () => new Date() } = {}) {
   const current = entries && typeof entries === "object" ? entries : {};
   // Several apps updated in one job: each is replaced, as its own update would.
@@ -18,6 +18,12 @@ export function foldAppStop(entries, job, { now = () => new Date() } = {}) {
     const named = job.parameters.ids.filter((entry) => typeof entry === "string" && entry in current);
     if (!named.length) return current;
     return Object.fromEntries(Object.entries(current).filter(([key]) => !named.includes(key)));
+  }
+  // The nightly "update every app that has one" names no app when it is asked: the apps are the ones its result lists.
+  if (String(job?.type ?? "") === "op:app.update.available") {
+    const updated = (Array.isArray(job.result?.apps) ? job.result.apps : []).filter((entry) => typeof entry === "string" && entry in current);
+    if (!updated.length) return current;
+    return Object.fromEntries(Object.entries(current).filter(([key]) => !updated.includes(key)));
   }
   const id = job?.parameters?.id;
   if (typeof id !== "string" || !id) return current;
