@@ -494,7 +494,7 @@ describe("the runtime as the Agents section shows it", () => {
     h.service.noteRuntimeInstalled({ installed: true, version: "unsloth 2026.10.3; rm -rf /", installerSha256: "f".repeat(64) }, { actorId: null });
     const shown = await h.service.runtimeState(h.caller("owner"));
     expect(shown.unsloth).toMatchObject({ version: "unsloth 2026.10.3 rm -rf", installerSha256: "f".repeat(64), testedVersion: testedUnslothVersion });
-    expect(shown.library.map((model) => [model.id, model.fitsCap])).toEqual([["qwen3.5-4b", true], ["qwen3.5-2b", true], ["qwen3.5-9b", true]]);
+    expect(shown.library.map((model) => [model.id, model.fitsCap])).toEqual([["qwen3.5-4b", true], ["qwen3.5-2b", true]]);
     expect(shown.caps).toMatchObject({ cpuQuotaPercent: 400, modelThreads: 4 });
   });
 

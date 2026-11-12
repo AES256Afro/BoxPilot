@@ -4087,7 +4087,9 @@ no faster than four on it (137 against 136 tokens a second read, 21.5 against 21
   hours of model time a day (12, 32,000, half an hour, two hours); a new agent starts at 8 steps and
   24,000 tokens; every template has two to four more steps and twice the tokens; agents still at the
   old limits rise once, as a version BoxPilot made, and a limit the owner set stays. The runner's
-  memory cap is 12 GB (8), a new install's context 16,384 tokens (8,192), and the 9B model fits.
+  memory cap is 12 GB (8) and a new install's context 16,384 tokens (8,192). The 9B model is out of
+  the library (the owner's decision: it cannot do the work on a server without a graphics card, so
+  it should not be there to pick), and a newer Qwen is offered only up to 4B.
   The model library shows this server's own measured speed.
 - **M66: A prompt that fits** (1 week). The task has no budget against the context: eight notes at
   their cap are 2,900 tokens, more than the system message and the tools together. Notes chosen by
@@ -4106,7 +4108,8 @@ no faster than four on it (137 against 136 tokens a second read, 21.5 against 21
   template" is a diff and not a hand-written migration; parameters (the app, the drive) at creation;
   eight new ones on tools that exist (Restore Prover, First Hour Guide, Change Narrator, VM Keeper,
   DNS Resilience Watch, Media Librarian, Docker Tidy, Shares Helper) with the six readers they need.
-- **M70: Training that can be trusted** (2 weeks, off the server). The evaluation's own questions
+- **M70: Training that can be trusted** (2 weeks, off the server; deferred by the owner until the
+  server has moved and has a graphics card, when larger models are worth looking at again). The evaluation's own questions
   are in the example book it is graded on; a held-out split, size targets, three runs a side, the
   red-team set on the real adapter, and the weekly bench as a gate. `service.mjs` in five more
   factories and one shared typedef file ride along.

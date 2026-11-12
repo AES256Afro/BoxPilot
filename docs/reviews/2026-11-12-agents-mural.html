@@ -201,7 +201,7 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
         <li><b>A digest that is never raw tool output</b><span class="tag">M58</span><p>Already on the roadmap: composed in code, the model adds two sentences.</p></li>
         <li><b>One rolling health card per agent</b><span class="tag">M58</span><p>With the raise on the card itself.</p></li>
       </ul></div>
-      <div class="panel"><div class="band b-plan"><b>Planned</b><span>M67 to M70 · about 7 weeks</span></div><ul>
+      <div class="panel"><div class="band b-plan"><b>Planned</b><span>M67 to M69 · M70 after the move</span></div><ul>
         <li><b>The Agents page says what happened</b><span class="tag">M67</span><p>Plain names for the five limits, each drawn against what the last runs used; fourteen runs as a strip on every row.</p></li>
         <li><b>It knows the house it lives in</b><span class="tag">M68</span><p>A platform card built at release from the 21 pages and 247 operations; a tool that answers "where do I…" with the page and the button.</p></li>
         <li><b>Templates as a product</b><span class="tag">M69</span><p>"Behind its template" as a diff; pick the app or drive at creation; eight new templates.</p></li>
@@ -224,13 +224,13 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
     <div class="scroll" style="margin-top:18px"><table>
       <thead><tr><th>Model</th><th>Reads</th><th>Writes</th><th>Runs lost</th><th>Memory</th><th>Verdict</th></tr></thead>
       <tbody>
-        <tr><td><b>Qwen 3.5 2B</b><small>in use now</small></td><td class="n">136 tok/s</td><td class="n">21.8 tok/s</td><td class="n bad-t">12.5%</td><td class="n">3.7 GB</td><td>Fast, and loops. Today's fix may recover most of it: watch one week.</td></tr>
-        <tr><td><b>Qwen 3.5 4B</b><small>on disk</small></td><td class="n">57 tok/s</td><td class="n">8.5 tok/s</td><td class="n ok-t">2.3%</td><td class="n">6.2 GB</td><td><b>The better agent.</b> A scheduled run takes about 3 minutes instead of 80 seconds, which nobody is waiting on.</td></tr>
-        <tr><td><b>Qwen 3.5 9B</b><small>not downloaded</small></td><td class="n">about 25</td><td class="n">about 4</td><td class="n">unmeasured</td><td class="n">10.7 GB</td><td>Fits the new cap. Four minutes to read a long prompt: a weekly survey, not a question.</td></tr>
+        <tr><td><b>Qwen 3.5 2B</b><small>in use now</small></td><td class="n">136 tok/s</td><td class="n">21.8 tok/s</td><td class="n bad-t">12.5%</td><td class="n">3.7 GB</td><td>Fast, and loops. Kept in the library for a server with less memory.</td></tr>
+        <tr><td><b>Qwen 3.5 4B</b><small>on disk</small></td><td class="n">57 tok/s</td><td class="n">8.5 tok/s</td><td class="n ok-t">2.3%</td><td class="n">6.2 GB</td><td><b>The one to run, and your choice.</b> A scheduled run takes about 3 minutes instead of 80 seconds, which nobody is waiting on.</td></tr>
+        <tr><td><b>Qwen 3.5 9B</b><small>removed from the library</small></td><td class="n">about 25</td><td class="n">about 4</td><td class="n">unmeasured</td><td class="n">10.7 GB</td><td>Taken out, your decision: four minutes to read a long prompt without a graphics card. It can no longer be picked.</td></tr>
         <tr><td><b>Qwen 3.5 or 3.6 35B-A3B</b><small>mixture of experts</small></td><td class="n">unmeasured</td><td class="n">unmeasured</td><td class="n">unmeasured</td><td class="n">about 20 GB</td><td>Too close to all the memory there is, with eighteen apps beside it.</td></tr>
         <tr><td><b>Qwen 3.5 4B MTP</b><small>drafts several tokens at once</small></td><td class="n">as the 4B</td><td class="n">12 to 19?</td><td class="n">unmeasured</td><td class="n">about 6.5 GB</td><td>The one to trial: the 4B's judgement at nearer the 2B's pace, if Unsloth's figures hold on a CPU.</td></tr>
       </tbody></table></div>
-    <p class="verdict" style="margin-top:18px"><b>Recommendation:</b> more headroom comes from context and steps, which you now have, more than from a bigger model. Keep the 2B for one week on 1.242.0 and read its lost-run rate. If it is still above 5%, switch back to the 4B from Agents → Usage; it is already on disk. Trial the MTP 4B after M66.</p>
+    <p class="verdict" style="margin-top:18px"><b>Decided:</b> the 4B. No better 4B-class model exists for this job today: Qwen 3.5 4B is the newest small Qwen that calls tools and reads images, and its MTP build is the same model with a faster way of writing, worth a trial after M66. Bigger models wait for the graphics card.</p>
   </section>
 
   <section>
@@ -288,17 +288,17 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
       <div class="wk">now</div><div class="wk">wk 1</div><div class="wk">wk 2</div><div class="wk">wk 3</div><div class="wk">wk 4</div><div class="wk">wk 5</div><div class="wk">wk 6</div><div class="wk">wk 7</div><div class="wk">wk 8</div><div class="wk">wk 9</div>
       <div class="lane"><div class="m b-done" style="grid-column:1 / 2"><b>M65</b>Room, and the loop fixed</div><div class="m b-next" style="grid-column:2 / 3"><b>M66</b>A prompt that fits</div><div class="m b-next" style="grid-column:3 / 5"><b>M58</b>Agents worth leaving on</div></div>
       <div class="lane"><div class="m b-plan" style="grid-column:4 / 6"><b>M67</b>The page says what happened</div><div class="m b-plan" style="grid-column:6 / 8"><b>M68</b>It knows the house</div></div>
-      <div class="lane"><div class="m b-plan" style="grid-column:7 / 9"><b>M69</b>Templates as a product</div><div class="m b-plan" style="grid-column:9 / 11"><b>M70</b>Training you can trust</div></div>
+      <div class="lane"><div class="m b-plan" style="grid-column:7 / 9"><b>M69</b>Templates as a product</div><div class="m b-idea" style="grid-column:9 / 11"><b>M70</b>After the move and the graphics card</div></div>
     </div></div>
   </section>
 
   <section>
     <div class="sec-head"><div class="eyebrow">Yours to decide</div><h2>Four things I left alone.</h2></div>
     <div class="decide" style="margin-top:18px">
-      <div><b>2B or 4B.</b><p>You chose the 2B for speed. The numbers favour the 4B for scheduled work; today's fix may narrow the gap. One week of data settles it.</p></div>
+      <div><b>Bigger models, and M70.</b><p>Both wait until the server has moved and has a graphics card. The 9B is out of the library until then.</p></div>
       <div><b>Three untouched "New agent" rows.</b><p>They run nightly evaluations and nothing else. Deleting an agent is yours.</p></div>
       <div><b>Eight processors while you wait.</b><p>Measured: no faster than four on this server. Lowering it saves heat for nothing lost.</p></div>
-      <div><b>An adapter of your own.</b><p>Needs a machine with a graphics card for an afternoon. Worth it only after M70's gate exists.</p></div>
+      <div><b>An adapter of your own.</b><p>Part of M70, so after the move. The new card could train it on the server itself.</p></div>
     </div>
   </section>
 
