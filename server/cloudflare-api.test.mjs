@@ -28,6 +28,10 @@ describe("the Cloudflare client (M42)", () => {
     expect(error.message).not.toContain(token);
     const forbidden = createCloudflareApi({ token, fetcher: async () => new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }), { status: 401 }) });
     await expect(forbidden.findTunnel(fakeAccount.id, "boxpilot-x")).rejects.toThrow(/did not accept this token while looking for the tunnel/);
+    // The step says which of the three it needed: a token that reads tunnels and cannot make one is told Edit, not Read.
+    await expect(forbidden.findTunnel(fakeAccount.id, "boxpilot-x")).rejects.toThrow(/This step needs Account · Cloudflare Tunnel · Edit\. Check/);
+    await expect(forbidden.createTunnel(fakeAccount.id, "boxpilot-x")).rejects.toThrow(/while making the tunnel\. This step needs Account · Cloudflare Tunnel · Edit\. A token that may only read tunnels/);
+    await expect(forbidden.listZones()).rejects.toThrow(/This step needs Zone · Zone · Read\./);
   });
 
   it("scrubs the token out of anything Cloudflare or the network says back", async () => {

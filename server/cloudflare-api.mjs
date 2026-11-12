@@ -69,7 +69,10 @@ export function createCloudflareApi({ token, fetcher = fetch, timeoutMs = 20_000
     try { payload = JSON.parse(raw); } catch { payload = null; }
     const first = Array.isArray(payload?.errors) ? payload.errors.find(isObject) ?? null : null;
     if (response.status === 401 || response.status === 403) {
-      throw new CloudflareError(`${rejected} while ${what}. Check that it has the three permissions (${tokenPermissions.join("; ")}) and covers this account and domain.`, { status: response.status, code: first?.code ?? null });
+      // Which of the three this step uses, so the owner fixes one line of the token and not all of it.
+      const needs = route.includes("/dns_records") ? tokenPermissions[1] : route.startsWith("/zones") ? tokenPermissions[2] : tokenPermissions[0];
+      const readOnly = method !== "GET" && route.includes("/cfd_tunnel") ? " A token that may only read tunnels gets this far and no further: the permission must be Edit, not Read." : "";
+      throw new CloudflareError(`${rejected} while ${what}. This step needs ${needs}.${readOnly} Check that it has the three permissions (${tokenPermissions.join("; ")}) and covers this account and domain.`, { status: response.status, code: first?.code ?? null });
     }
     if (response.status >= 300 && response.status < 400) throw new CloudflareError(`Cloudflare answered with a redirect while ${what}, which BoxPilot does not follow with your token`, { status: response.status });
     if (response.ok && !isObject(payload)) throw new CloudflareError(`Cloudflare sent an answer BoxPilot could not read while ${what}`, { status: response.status });
