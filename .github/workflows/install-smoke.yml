@@ -70,7 +70,10 @@ jobs:
             -d "$(printf '{"username":"ci-owner","password":"correct horse battery staple","bootstrapToken":"%s"}' "$token")" >/dev/null
           status="$(curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/auth/status)"
           echo "$status" | grep -q '"authenticated":true' || { echo "not authenticated after bootstrap: $status" >&2; exit 1; }
-          count="$(curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/operations | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).operations.length))')"
+          # No route lists the registry any more (M52.3), and this step asked the one that did: every
+          # release from 1.239.0 failed here with a 404 and was never published. The count is read
+          # from the installed tree, as the web service's own user.
+          count="$(sudo -u boxpilot /usr/local/bin/node --input-type=module -e 'import { registry } from "/opt/boxpilot/server/ops/index.mjs"; console.log(registry.list().length); process.exit(0)')"
           echo "registered operations: $count"
           [ "$count" -ge 80 ] || { echo "expected at least 80 registered operations" >&2; exit 1; }
           canary="$(curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/operations/canary.verify/inspect)"
