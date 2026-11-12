@@ -70,7 +70,11 @@ jobs:
             -d "$(printf '{"username":"ci-owner","password":"correct horse battery staple","bootstrapToken":"%s"}' "$token")" >/dev/null
           status="$(curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/auth/status)"
           echo "$status" | grep -q '"authenticated":true' || { echo "not authenticated after bootstrap: $status" >&2; exit 1; }
-          count="$(curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/operations | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).operations.length))')"
+          # GET /operations is gone (M52.3): it handed every role the ids of internal operations. Count
+          # the installed registry directly, and check the listing stays gone for a signed-in owner.
+          count="$(cd /opt/boxpilot && sudo -u boxpilot /usr/local/bin/node --input-type=module -e 'const { registry } = await import("/opt/boxpilot/server/ops/index.mjs"); console.log(registry.ids().length)')"
+          listing="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" http://127.0.0.1:8787/api/v1/operations)"
+          [ "$listing" = "404" ] || { echo "GET /api/v1/operations answered ${listing}; it should not exist (M52.3)" >&2; exit 1; }
           echo "registered operations: $count"
           [ "$count" -ge 80 ] || { echo "expected at least 80 registered operations" >&2; exit 1; }
           canary="$(curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/operations/canary.verify/inspect)"
