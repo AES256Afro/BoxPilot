@@ -329,14 +329,14 @@ describe("the nightly evaluation's model time (R2B1-7)", { timeout: 30_000 }, ()
     h.setTime(new Date(2026, 8, 30, 2, 30, 0));
     await h.service.tick();
     expect(active("eval")).toHaveLength(KEEPER_QUESTIONS);
-    // 3,100 s left, 1,800 kept for people.
+    // 4,900 s left (M65: 5,400 a day), 2,700 kept for people.
     const first = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
     expect(first.run.kind).toBe("eval");
-    expect(first.limits.remainingModelMs).toBe(1_300_000);
+    expect(first.limits.remainingModelMs).toBe(2_200_000);
     await h.service.runnerFinish(first.run.id, first.lease, { outcome: "completed", answer: "ok", usage: { modelMs: 1_000_000 } });
     const second = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
-    expect(second.limits.remainingModelMs).toBe(300_000);
-    await h.service.runnerFinish(second.run.id, second.lease, { outcome: "completed", answer: "ok", usage: { modelMs: 400_000 } });
+    expect(second.limits.remainingModelMs).toBe(1_200_000);
+    await h.service.runnerFinish(second.run.id, second.lease, { outcome: "completed", answer: "ok", usage: { modelMs: 1_300_000 } });
     // The half kept for people is not touched: none is left for the rest of the questions, which
     // are not handed out to fail for want of it (sweep 3, R3B1-6) but refused, and not graded.
     expect(await h.service.runnerNext(h.runnerId, { waitMs: 0 })).toBeNull();

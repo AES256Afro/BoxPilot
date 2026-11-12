@@ -44,7 +44,7 @@ Three more units are installed with BoxPilot and stay off until the owner asks f
 - **`boxpilot-agents.service`**, the agents' runner (ADR-005). It is enabled when the owner turns
   Agents on, runs as its own user (`boxpilot-agents`) and asks the web service for work with a
   token systemd hands it; the local model server is its child. It is capped (four processors in
-  the background, up to eight while you wait, 8 GB of memory, no swap) and may reach this machine only (`IPAddressAllow=localhost`).
+  the background, up to eight while you wait, 12 GB of memory, no swap) and may reach this machine only (`IPAddressAllow=localhost`).
 - **`boxpilot-model-gateway.service`**, the one process that holds the Claude key (ADR-013). It is
   enabled when the owner connects Claude, runs as `boxpilot-model-gateway`, and gets the key from a
   root-only file through `LoadCredential`. The web service reaches it over a Unix socket; it sends

@@ -86,9 +86,9 @@ export const serviceLimits = Object.freeze({
   notifyCooldownMs: 6 * 3600_000,
   notifyPerDay: 4,
   toolCallsPerStep: 3,
-  // Twelve steps (the most a spec may give) of three calls each (M44): at 24, the Environment
+  // Twenty steps (the most a spec may give) of three calls each (M44, M65): at 24, the Environment
   // Scout's ten steps would run out of calls before steps whenever it read three tools at once.
-  maxToolCallsPerRun: 36,
+  maxToolCallsPerRun: 60,
   proposalsPerRun: 2,
   noteWritesPerRun: 5,
   answerChars: 12_000,
@@ -97,7 +97,7 @@ export const serviceLimits = Object.freeze({
   stepTextChars: 6_000,
   // M46.8: the task message kept with the run (its notes, memories and findings around the question).
   promptChars: 16_000,
-  modelStepsPerRun: 40,
+  modelStepsPerRun: 64,
   proposalTtlMs: 7 * 86_400_000,
   asksPerHour: 30,
   runGraceMs: 60_000,
@@ -750,6 +750,13 @@ export function createAgentService({
     return entry && entry.promptPerSecond > 0 && entry.generatePerSecond > 0 ? { ...entry, model: saved.model, threads: nearest } : null;
   }
 
+  /** This server's own measured speed for a library model, when the last runs were on it; null for a model it has not run lately. */
+  function measuredSpeedOf(model) {
+    const saved = modelSpeed();
+    if (!saved || saved.model !== model.repo) return null;
+    return { promptPerSecond: saved.promptPerSecond, generatePerSecond: saved.generatePerSecond, threads: saved.threads ?? null, measuredAt: saved.measuredAt ?? null };
+  }
+
   /** Whether this runtime's model can see images, as it last said (M40.6); null when it has not, or it was another model. */
   function visionNow() {
     const saved = state.getSetting?.(visionKey, null);
@@ -1211,7 +1218,7 @@ export function createAgentService({
     const wanted = coresFor(run);
     const { background } = coresNow();
     const spec = ["index", "describe"].includes(run.kind) ? null : store.getVersion(run.agentId, run.version)?.spec;
-    const runSeconds = spec?.budget?.runSeconds ?? 600;
+    const runSeconds = spec?.budget?.runSeconds ?? budgetCeilings.runSeconds.default;
     const applied = await applyCpu(wanted, { resetAfterSeconds: runSeconds + limits.runGraceMs / 1000 + 60 });
     const processorsForRun = applied ? wanted : background;
     const threads = threadsFor(processorsForRun, physical);
@@ -1428,7 +1435,7 @@ export function createAgentService({
       const why = !roleAtLeast(run.readRole, tool.role) ? `it needs an ${tool.role}, and this run reads as a ${run.readRole}` : spec?.tools?.[tool.id] === "ask" ? "it is only used when a person asks" : "it is off for this agent";
       return answer("tool", { state: "refused", text: `${tool.title} was refused: ${why}.`, flags: { refused: true } });
     }
-    if (toolCount >= Math.min(limits.maxToolCallsPerRun, (spec?.budget?.stepsPerRun ?? 6) * limits.toolCallsPerStep)) return answer("tool", { state: "refused", text: "This run has used all its tool calls. Answer with what you have.", flags: { refused: true, limit: true } });
+    if (toolCount >= Math.min(limits.maxToolCallsPerRun, (spec?.budget?.stepsPerRun ?? budgetCeilings.stepsPerRun.default) * limits.toolCallsPerStep)) return answer("tool", { state: "refused", text: "This run has used all its tool calls. Answer with what you have.", flags: { refused: true, limit: true } });
     const { value, problem } = readToolInput(tool, rawInput);
     if (problem) return answer("tool", { state: "refused", text: problem, input: { raw: redact(clip(typeof rawInput === "string" ? rawInput : JSON.stringify(rawInput ?? {}), 400)) }, flags: { refused: true } });
     // `sources`: the owner's knowledge switches for every agent, which the tools hold the agent's own to.
@@ -2658,7 +2665,7 @@ export function createAgentService({
     const check = state.getSetting?.(runtimeCheckKey, null);
     return {
       settings: person.role === "owner" ? runtime : { driver: runtime.driver, repo: runtime.repo, file: runtime.file },
-      library: modelLibrary.map((model) => ({ ...model, preview: downloadPreview(model), fitsCap: model.memoryBytes <= runnerCaps.memoryMaxBytes, downloaded: Boolean(inspected?.models?.some((entry) => entry.repo === model.repo && entry.file === model.file && entry.complete)), current: model.repo === runtime.repo && model.file === runtime.file })),
+      library: modelLibrary.map((model) => ({ ...model, measured: measuredSpeedOf(model), preview: downloadPreview(model), fitsCap: model.memoryBytes <= runnerCaps.memoryMaxBytes, downloaded: Boolean(inspected?.models?.some((entry) => entry.repo === model.repo && entry.file === model.file && entry.complete)), current: model.repo === runtime.repo && model.file === runtime.file })),
       installed: inspected ? { runtime: inspected.runtime ?? null, service: inspected.service ?? null, models: inspected.models ?? [], diskFreeBytes: inspected.diskFreeBytes ?? null } : null,
       newer: check?.newer ?? null,
       checkedAt: check?.checkedAt ?? null,

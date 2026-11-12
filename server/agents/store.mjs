@@ -1021,7 +1021,7 @@ export function createAgentStore({ databasePath, now = () => new Date(), random 
       if (result.passed !== null || result.skipped) continue;
       const run = result.runId ? getRun(result.runId) : null;
       if (run && (!finishedStates.has(run.state) || run.state === "completed")) continue;
-      const notAsked = !evaluation.createdBy && ["refused", "cancelled", "killed"].includes(run?.state);
+      const notAsked = !evaluation.createdBy && ["refused", "cancelled", "killed", "interrupted", "timeout"].includes(run?.state);
       const grade = notAsked
         ? { passed: null, skipped: true, found: `${run.state === "refused" || !run.startedAt ? "Not asked" : "Not graded"}: ${run.reason ?? "there was no model time left for it"}` }
         : { passed: false, found: run ? `The run ended ${run.state}` : "The run was never queued" };

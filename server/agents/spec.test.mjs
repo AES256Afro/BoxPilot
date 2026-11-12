@@ -13,7 +13,7 @@ describe("an agent's spec", () => {
     expect(Object.keys(spec.tools)).toEqual(toolCatalog.map((tool) => tool.id));
     expect(Object.values(spec.tools).filter((permission) => permission !== "off")).toEqual(["auto"]);
     // Fifteen minutes a run by default, and a day's model time that holds two of them.
-    expect(spec.budget).toEqual({ runsPerDay: 12, modelSecondsPerDay: 1_800, stepsPerRun: 6, tokensPerRun: 12_000, runSeconds: 900 });
+    expect(spec.budget).toEqual({ runsPerDay: 12, modelSecondsPerDay: 3_600, stepsPerRun: 8, tokensPerRun: 24_000, runSeconds: 900 });
   });
 
   it("refuses what it does not know rather than guessing", () => {
@@ -43,8 +43,8 @@ describe("an agent's spec", () => {
   });
 
   it("keeps a budget inside its ceilings", () => {
-    expect(normalizeSpec({ ...minimal, budget: { stepsPerRun: 12, runSeconds: 1_800 } }).budget).toMatchObject({ stepsPerRun: 12, runSeconds: 1_800 });
-    expect(() => normalizeSpec({ ...minimal, budget: { runSeconds: 1_801 } })).toThrow(/Seconds a run/);
+    expect(normalizeSpec({ ...minimal, budget: { stepsPerRun: 20, runSeconds: 3_600 } }).budget).toMatchObject({ stepsPerRun: 20, runSeconds: 3_600 });
+    expect(() => normalizeSpec({ ...minimal, budget: { runSeconds: 3_601 } })).toThrow(/Seconds a run/);
   });
 
   it("turns a tool off when its output is off", () => {

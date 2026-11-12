@@ -15,7 +15,7 @@ const withRunSeconds = (agent, runSeconds) => h.service.updateAgent(h.caller("ow
 
 describe("the longest run's default", () => {
   it("is 15 minutes, with a day's model time that holds two such runs", () => {
-    expect(budgetCeilings.runSeconds).toEqual({ min: 30, max: 1_800, default: 900 });
+    expect(budgetCeilings.runSeconds).toEqual({ min: 30, max: 3_600, default: 900 });
     const spec = normalizeSpec({ name: "Watcher", job: "Watch the disks.", successCriteria: ["Says which disk is fullest."], triggers: { ask: true } });
     expect(spec.budget.runSeconds).toBe(900);
     expect(spec.budget.modelSecondsPerDay).toBeGreaterThanOrEqual(2 * spec.budget.runSeconds);
@@ -28,6 +28,8 @@ describe("the longest run's default", () => {
     const slow = withRunSeconds(h.service.createAgent(h.caller("owner"), { template: "blank" }), 1_200);
     expect(steve).toMatchObject({ version: 2, spec: { budget: { runSeconds: 600 } } });
 
+    // The later raise of every limit (M65) has its own test: here it has already run.
+    h.state.setSetting(agentsMigrationsKey, { headroom: {} }, { updatedBy: null });
     expect(h.service.migrateDefaults()).toBe(1);
     const moved = h.service.getAgent(h.caller("owner"), steve.id);
     expect(moved.version).toBe(3);
@@ -44,5 +46,23 @@ describe("the longest run's default", () => {
     withRunSeconds(moved, 600);
     expect(h.service.migrateDefaults()).toBe(0);
     expect(h.service.getAgent(h.caller("owner"), steve.id).spec.budget.runSeconds).toBe(600);
+  });
+
+  it("gives agents still at the old limits more room once, and leaves a limit the owner set (M65)", async () => {
+    h = await createAgentsHarness();
+    const owner = h.caller("owner");
+    const keeper = h.service.createAgent(owner, { template: "server-keeper" });
+    const cut = h.service.createAgent(owner, { template: "pihole-watcher" });
+    const former = { runsPerDay: 24, modelSecondsPerDay: 3_600, stepsPerRun: 6, tokensPerRun: 20_000, runSeconds: 1_200 };
+    h.service.updateAgent(owner, keeper.id, { spec: { ...h.store.getAgent(keeper.id).spec, budget: former } });
+    h.service.updateAgent(owner, cut.id, { spec: { ...h.store.getAgent(cut.id).spec, budget: { runsPerDay: 8, modelSecondsPerDay: 300, stepsPerRun: 3, tokensPerRun: 5_000, runSeconds: 200 } } });
+    h.state.setSetting(agentsMigrationsKey, { runSeconds: {}, sharing: {}, examples: {}, eyes: {}, surveyWide: {}, eyesMore: {} }, { updatedBy: null });
+    expect(h.service.migrateDefaults()).toBe(1);
+    const raised = h.service.getAgent(owner, keeper.id);
+    expect(raised.spec.budget).toEqual({ runsPerDay: 24, modelSecondsPerDay: 5_400, stepsPerRun: 10, tokensPerRun: 40_000, runSeconds: 1_500 });
+    expect(raised.versions[0]).toMatchObject({ note: "BoxPilot gave it more room: more steps, tokens and time for each run", createdBy: null });
+    expect(h.store.getAgent(cut.id).spec.budget).toMatchObject({ modelSecondsPerDay: 300, stepsPerRun: 3, tokensPerRun: 5_000, runSeconds: 200 });
+    expect(h.state.getSetting(agentsMigrationsKey)).toMatchObject({ headroom: { raised: 1 } });
+    expect(h.service.migrateDefaults()).toBe(0);
   });
 });

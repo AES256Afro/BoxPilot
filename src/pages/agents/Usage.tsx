@@ -146,7 +146,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
     },
     { id: "size", header: "Download", hideOnPhone: true, cell: (model) => <span className="agents-mono">{bytes(model.preview.bytes)} · {model.preview.fastMinutes}–{model.preview.slowMinutes} min</span> },
     { id: "memory", header: "Memory", cell: (model) => <span className="agents-mono" data-fits={model.fitsCap}>{bytes(model.memoryBytes)}{model.fitsCap ? "" : " · over the cap"}</span> },
-    { id: "speed", header: "Speed", hideOnPhone: true, cell: (model) => <span className="agents-mono">{model.tokensPerSecond} tok/s</span> },
+    { id: "speed", header: "Speed", hideOnPhone: true, cell: (model) => <span className="agents-mono">{model.measured ? `${Math.round(model.measured.generatePerSecond)} tokens/s on this server` : `${model.tokensPerSecond} tokens/s elsewhere`}</span> },
     {
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "agents-actions-cell", cell: (model) => (
         <span className="agents-actions">

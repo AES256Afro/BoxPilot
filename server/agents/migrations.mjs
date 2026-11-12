@@ -174,6 +174,41 @@ export function createAgentMigrations({ store, state, now, audit, nextRunFor, sh
       next.eyesMore = { at: now().toISOString(), given, seeded };
       changed += given + seeded;
     }
+    // M65: more room. The owner's server showed the limits, not the machine, were what stopped the
+    // work (2026-11: a quarter of the memory in use, load under one, and a limit reached in one run
+    // in six). An agent's steps, tokens and time a run and model time a day rise to its template's
+    // new ones (a blank one's, to the new defaults) where they still stand at what the template or
+    // the defaults gave before: a limit the owner set, lower or higher, stays (M48.4).
+    if (!done.headroom) {
+      let raised = 0;
+      const fields = ["modelSecondsPerDay", "stepsPerRun", "tokensPerRun", "runSeconds"];
+      const formerDefaults = { modelSecondsPerDay: 1_800, stepsPerRun: 6, tokensPerRun: 12_000, runSeconds: 900 };
+      const was = (modelSecondsPerDay, stepsPerRun, tokensPerRun, runSeconds) => ({ modelSecondsPerDay, stepsPerRun, tokensPerRun, runSeconds });
+      const formerBudgets = {
+        "server-keeper": was(3_600, 6, 20_000, 1_200), "environment-scout": was(3_000, 12, 32_000, 1_500), "pihole-watcher": was(600, 4, 6_000, 300),
+        "spyware-watch": was(900, 4, 10_000, 300), "backup-auditor": was(1_500, 7, 12_000, 600), "app-doctor": was(1_800, 8, 12_000, 900),
+        "storage-watch": was(1_200, 7, 10_000, 480), "update-planner": was(1_800, 8, 12_000, 900), "it-support": was(1_800, 4, 8_000, 300),
+        "security-reviewer": was(2_400, 10, 24_000, 1_200), "resource-watch": was(1_200, 6, 20_000, 600), "house-guide": was(1_800, 4, 8_000, 300),
+      };
+      for (const agent of store.listAgents()) {
+        const template = agent.template ? templateById(agent.template) : null;
+        const budget = { ...agent.spec?.budget };
+        const former = formerBudgets[agent.template] ?? {};
+        const raisedFields = fields.filter((field) => {
+          const floor = template?.spec?.budget?.[field] ?? budgetCeilings[field].default;
+          if (!((budget[field] ?? 0) < floor)) return false;
+          if (budget[field] !== former[field] && budget[field] !== formerDefaults[field]) return false;
+          budget[field] = floor;
+          return true;
+        });
+        if (!raisedFields.length) continue;
+        let spec;
+        try { spec = normalizeSpec({ ...agent.spec, budget, sharing: sharingFor(agent) }); } catch { continue; }
+        if (save(agent, spec, "BoxPilot gave it more room: more steps, tokens and time for each run", raisedFields.map((field) => `budget.${field}`))) raised += 1;
+      }
+      next.headroom = { at: now().toISOString(), raised };
+      changed += raised;
+    }
     // M46: agents made before the example book get their template's examples, once.
     if (!done.examples) {
       let seeded = 0;
@@ -181,7 +216,7 @@ export function createAgentMigrations({ store, state, now, audit, nextRunFor, sh
       next.examples = { at: now().toISOString(), seeded };
       changed += seeded;
     }
-    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.surveyWide !== done.surveyWide || next.eyesMore !== done.eyesMore) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
+    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.surveyWide !== done.surveyWide || next.eyesMore !== done.eyesMore || next.headroom !== done.headroom) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
     return changed;
   }
 

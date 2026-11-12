@@ -32,7 +32,7 @@ export const modelLibrary = Object.freeze([
     approxBytes: 2_900_000_000,
     approxProjectorBytes: 680_000_000,
     memoryBytes: 6_200_000_000, // 2.6 GB + 3.6 GB of files
-    contextTokens: 8_192,
+    contextTokens: 16_384,
     tokensPerSecond: 8,
     measuredAt: "4 threads (a four-processor GitHub runner)",
     vision: true,
@@ -52,7 +52,7 @@ export const modelLibrary = Object.freeze([
     approxBytes: 1_450_000_000,
     approxProjectorBytes: 550_000_000,
     memoryBytes: 3_700_000_000, // 1.7 GB + 2.0 GB of files
-    contextTokens: 8_192,
+    contextTokens: 16_384,
     tokensPerSecond: 8.3,
     measuredAt: "one processor (the spike)",
     vision: true,
@@ -71,14 +71,14 @@ export const modelLibrary = Object.freeze([
     projector: "mmproj-F16.gguf",
     approxBytes: 5_900_000_000,
     approxProjectorBytes: 920_000_000,
-    memoryBytes: 10_700_000_000, // 3.8 GB + 6.9 GB of files: more than the 8 GB cap
-    contextTokens: 8_192,
+    memoryBytes: 10_700_000_000, // 3.8 GB + 6.9 GB of files: inside the 12 GB cap, with little to spare
+    contextTokens: 16_384,
     tokensPerSecond: 2.3,
     measuredAt: "one processor (the spike)",
     vision: true,
     tools: true,
     recommended: false,
-    note: "Slow (about 2 words a second and four minutes to read a long prompt, measured on one processor), and with its 6.9 GB of files it needs more than the 8 GB memory cap: every word would read the disk. Not recommended.",
+    note: "The most careful of the three and the slowest (about 2 words a second and four minutes to read a long prompt, measured on one processor). With its 6.9 GB of files it fits the 12 GB memory cap with little to spare: for a server with memory free and runs nobody waits on.",
   },
 ]);
 

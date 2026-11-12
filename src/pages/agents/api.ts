@@ -195,7 +195,7 @@ export interface Usage {
 }
 
 export type RuntimeDriver = "unsloth" | "llama-server" | "external" | "fake";
-export interface LibraryModel { id: string; title: string; repo: string; file: string; projector: string | null; quant: string; parameters: number; memoryBytes: number; contextTokens: number; tokensPerSecond: number; vision: boolean; recommended: boolean; note: string; preview: { bytes: number; fastMinutes: number; slowMinutes: number; memoryBytes: number }; fitsCap: boolean; downloaded: boolean; current: boolean }
+export interface LibraryModel { measured?: { promptPerSecond: number; generatePerSecond: number; threads: number | null; measuredAt: string | null } | null; id: string; title: string; repo: string; file: string; projector: string | null; quant: string; parameters: number; memoryBytes: number; contextTokens: number; tokensPerSecond: number; vision: boolean; recommended: boolean; note: string; preview: { bytes: number; fastMinutes: number; slowMinutes: number; memoryBytes: number }; fitsCap: boolean; downloaded: boolean; current: boolean }
 export interface RuntimeSettings { driver: RuntimeDriver; repo: string; file: string; projector?: string | null; quant?: string; endpoint?: string | null; contextTokens?: number; idleStopMinutes?: number; maxTokens?: number; temperature?: number }
 export interface RuntimeState {
   settings: RuntimeSettings;

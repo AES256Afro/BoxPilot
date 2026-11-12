@@ -153,7 +153,7 @@ describe("the templates and the evaluation", () => {
       expect(h.service.migrateDefaults()).toBeGreaterThanOrEqual(2);
       const widened = h.store.getAgent(scout.id).spec;
       expect(widened.prompt.steps).toEqual(template.prompt.steps);
-      expect(widened.budget).toMatchObject({ stepsPerRun: 12, tokensPerRun: 32_000, runSeconds: 1_500, modelSecondsPerDay: 3_000 });
+      expect(widened.budget).toMatchObject({ stepsPerRun: 16, tokensPerRun: 64_000, runSeconds: 2_400, modelSecondsPerDay: 4_500 });
       expect(h.service.getAgent(h.caller("owner"), scout.id).versions[0].note).toMatch(/^BoxPilot widened its weekly survey/);
       expect(h.service.examplesOf(h.caller("owner"), keeper.id).examples.some((entry) => entry.tools.includes("firewall.status"))).toBe(true);
       // Once; and a Scout whose maker rewrote its steps around other tools is left alone.

@@ -17,7 +17,7 @@ describe("the model library", () => {
 
   it("says which fit the runner's memory cap, files and all: the 4B and the 2B, never the 9B", () => {
     expect(modelLibrary.map((model) => model.id)).toEqual(["qwen3.5-4b", "qwen3.5-2b", "qwen3.5-9b"]);
-    expect(modelLibrary.filter((model) => model.memoryBytes <= runnerCaps.memoryMaxBytes).map((model) => model.id)).toEqual(["qwen3.5-4b", "qwen3.5-2b"]);
+    expect(modelLibrary.filter((model) => model.memoryBytes <= runnerCaps.memoryMaxBytes).map((model) => model.id)).toEqual(["qwen3.5-4b", "qwen3.5-2b", "qwen3.5-9b"]);
     expect(modelLibrary.filter((model) => model.recommended).map((model) => model.id)).toEqual(["qwen3.5-4b"]);
     expect(modelById("qwen3.5-2b").tokensPerSecond).toBeGreaterThan(modelById("qwen3.5-4b").tokensPerSecond);
     expect(testedUnslothVersion).toMatch(/^\d{4}\.\d{1,2}\.\d+$/);

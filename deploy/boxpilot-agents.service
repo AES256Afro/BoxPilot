@@ -1,5 +1,5 @@
 [Unit]
-Description=BoxPilot agents runner (capped: idle priority, four processors, 8 GB, loopback only)
+Description=BoxPilot agents runner (capped: idle priority, four processors, 12 GB, loopback only)
 Documentation=https://github.com/AES256Afro/BoxPilot/blob/main/docs/DECISIONS.md
 # It asks the web service for work; without it there is nothing to do, so it waits for it.
 Wants=boxpilot.service
@@ -45,7 +45,7 @@ CPUWeight=1
 CPUWeight=idle
 Nice=19
 IOSchedulingClass=idle
-MemoryMax=8G
+MemoryMax=12G
 MemorySwapMax=0
 TasksMax=256
 LimitNOFILE=4096

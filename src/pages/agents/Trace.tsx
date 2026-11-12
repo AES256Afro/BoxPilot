@@ -266,12 +266,13 @@ export function RunView({ run, tools = null, onStopPlan }: { run: Run; tools?: T
         <Notice tone="warning" title="Facts only">
           {run.flags.degraded === "budget" ? "The agent had used its model time for today, so this is what its tools found, without the model's words."
             : run.flags.degraded === "timeout" ? "The model took too long, so this is what the tools found."
-              : "The model could not be reached, so this is what the tools found. The Usage tab says why."}
+              : run.flags.degraded === "model-error" ? "The model stopped without writing an answer, so this is what the tools found. The trace below shows where it stopped."
+                : "The model could not be reached, so this is what the tools found. The Usage tab says why."}
         </Notice>
       )}
       {run.flags?.injection && <Notice tone="warning" title="Something it read looked like an instruction">The agent was told to treat it as data. The step is marked in the trace.</Notice>}
       {run.flags?.actHeld && !run.flags?.injection && <Notice tone="info" title="It carried out nothing on what it read">Words in your notes or documents read like an instruction, so this run changed nothing, whatever leave the agent has. Reword them if they were only advice.</Notice>}
-      {run.reason && run.state !== "completed" && <p className="agents-run__reason">{run.reason}</p>}
+      {run.reason && run.state !== "completed" && !run.reason.startsWith("degraded:") && <p className="agents-run__reason">{run.reason}</p>}
       {run.answer && (
         <CiteContext.Provider value={hasTrace ? (id) => setReveal({ id, nonce: Date.now() }) : null}>
           <AnswerText text={run.answer} />

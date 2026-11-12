@@ -4064,6 +4064,53 @@ feature sweeps, in the order they earn their place. Sizes are a person-week unle
 - **Later, each a month:** names without ports (M3.8); adopt a compose file (M22.1); prepare a
   replacement server.
 
+## M65: Agents with room
+
+Asked for 2026-11-12 ("an audit of the agent platform: bugs, performance, code, the page, templates,
+how it learns the platform it lives in, agents that reach their limits, the best model for this
+server"). Five read-only sweeps, the owner's server's own month of runs (1,546), and a timing of the
+two models on its disk. What the month said: with the 4B model 2.3% of runs ended without the model's
+answer; since the switch to the 2B on 29 October, 12.5%, with a limit reached 105 times against 5.
+Tokens were the limit reached 6 times; steps and "asked again for the same output" 99. The machine was
+never the limit: a quarter of its memory in use, load under one. Eight model threads read and write
+no faster than four on it (137 against 136 tokens a second read, 21.5 against 21.8 written, for the
+2B; 57 and 8.5 for the 4B at either).
+
+- ✅ **M65.1 The run that ended with nothing** (1.242.0). Told to answer, the model asked for one
+  more tool, as text or as a call; the markup was taken out, nothing was left, and the run was
+  "the model stopped with an error" with raw tool output for an answer. It is asked once more, in
+  words. A tool that failed may be asked again (it was "already asked", and two retries ended the
+  run); a run out of context on its last step says context, not steps; a nightly question whose run
+  a restart interrupted is not graded as wrong; the trace says the model stopped, not that it could
+  not be reached.
+- ✅ **M65.2 More room** (1.242.0). A spec may give 20 steps, 96,000 tokens, an hour a run and six
+  hours of model time a day (12, 32,000, half an hour, two hours); a new agent starts at 8 steps and
+  24,000 tokens; every template has two to four more steps and twice the tokens; agents still at the
+  old limits rise once, as a version BoxPilot made, and a limit the owner set stays. The runner's
+  memory cap is 12 GB (8), a new install's context 16,384 tokens (8,192), and the 9B model fits.
+  The model library shows this server's own measured speed.
+- **M66: A prompt that fits** (1 week). The task has no budget against the context: eight notes at
+  their cap are 2,900 tokens, more than the system message and the tools together. Notes chosen by
+  the question, the task budgeted from the context, `Now:` last and the tools fixed per agent so the
+  prompt's head is reused from run to run, no planner call where the steps already name the tools,
+  no tool sent to a run that cannot use it. A template test that every template's reads fit.
+- **M67: The Agents page says what happened** (1 to 2 weeks). A limit card with the raise on it; the
+  five limits in plain words, each drawn against what the last runs used; how full the context was on
+  every run; fourteen runs as a strip on each agent's row; a name before an agent exists, and a way
+  to delete from the list; Guardrails as three sections. Joins M58's rolling health card.
+- **M68: It knows the house it lives in** (1 to 2 weeks). A platform card built at release from the
+  pages, their features and the 247 operations with their tiers, searched by meaning; a `help.where`
+  tool over the command bar's own index; a dismissed card is not proposed again for a while; release
+  notes indexed so answers follow the installed version.
+- **M69: Templates as a product** (2 weeks). A template's spec kept beside the agent, so "behind its
+  template" is a diff and not a hand-written migration; parameters (the app, the drive) at creation;
+  eight new ones on tools that exist (Restore Prover, First Hour Guide, Change Narrator, VM Keeper,
+  DNS Resilience Watch, Media Librarian, Docker Tidy, Shares Helper) with the six readers they need.
+- **M70: Training that can be trusted** (2 weeks, off the server). The evaluation's own questions
+  are in the example book it is graded on; a held-out split, size targets, three runs a side, the
+  red-team set on the real adapter, and the weekly bench as a gate. `service.mjs` in five more
+  factories and one shared typedef file ride along.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
