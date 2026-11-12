@@ -174,7 +174,9 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
     operationId: "cloudflare.connect",
     title: "Connect Cloudflare",
     parameters: { token },
-    preview: <span>Checks the token with Cloudflare and saves it on this server, readable by root only. Then BoxPilot uses the tunnel called <code>{state.tunnel?.name ?? state.plannedTunnelName}</code> in your Cloudflare account, or makes it if it is not there, and {appInstalled ? <>gives the Cloudflare Tunnel app that tunnel&apos;s key, <strong>replacing the token it runs with now</strong></> : <>installs the Cloudflare Tunnel app with that tunnel&apos;s key</>}. Nothing is published yet.</span>,
+    preview: <span>Checks the token with Cloudflare and saves it on this server, readable by root only. {appInstalled
+      ? <>Then, if the Cloudflare Tunnel app is already running a tunnel of yours that the token can reach, BoxPilot uses that tunnel and <strong>leaves its key and the names it serves as they are</strong>. If the token cannot reach the tunnel it runs, <strong>nothing is changed</strong> and BoxPilot says what to do</>
+      : <>Then BoxPilot uses the tunnel called <code>{state.tunnel?.name ?? state.plannedTunnelName}</code> in your Cloudflare account, or makes it if it is not there, and installs the Cloudflare Tunnel app with that tunnel&apos;s key</>}. Nothing is published yet.</span>,
   });
 
   const publish = () => {
@@ -231,7 +233,7 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
     const problem = tokenProblem(token);
     return (
       <div className="catalog-tab">
-        {state.problem && <Notice tone="danger" title="BoxPilot's Cloudflare record could not be read">{state.problem}</Notice>}
+        {state.problem && <Notice tone="danger" title="The tunnel needs your attention">{state.problem}</Notice>}
         <Panel level={3} title="Connect Cloudflare" padded className="catalog-tunnel">
           <p className="catalog-tunnel__lead">Publish an app on this server to the internet at a name on your own domain, such as <code>share.yourdomain.com</code>, without opening a port on your router. Cloudflare serves it over HTTPS and the tunnel connects out from this server. Your domain has to be on Cloudflare.</p>
           <p className="catalog-tunnel__lead">Make an API token at <a href={tokenPage} target="_blank" rel="noreferrer">Cloudflare&apos;s API tokens page</a> (Create Token, then Create Custom Token) with these three permissions, for your account and the domain you want to use:</p>
@@ -275,7 +277,7 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
     <div className="catalog-tab">
       {!appInstalled && <Notice tone="warning" title="The Cloudflare Tunnel app is not installed">Nothing published can be reached until it runs. Publishing an app installs it again with your tunnel&apos;s key.</Notice>}
       {appInstalled && !appRunning && <Notice tone="warning" title={`The Cloudflare Tunnel app is ${isPaused(live) ? "paused" : "not running"}`}>Nothing published can be reached until it runs. Start it from the Overview tab, or publish an app, which starts it.</Notice>}
-      {state.problem && <Notice tone="danger" title="BoxPilot's Cloudflare record could not be read">{state.problem}</Notice>}
+      {state.problem && <Notice tone="danger" title="The tunnel needs your attention">{state.problem}</Notice>}
       <KeyValue layout="rows" className="catalog-facts" items={facts} />
       <div className="catalog-sheet__actions">
         <Button busy={checking} onClick={() => void askCloudflare()}>Check with Cloudflare</Button>

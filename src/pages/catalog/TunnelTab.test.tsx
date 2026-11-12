@@ -168,14 +168,17 @@ describe("the Cloudflare Tunnel app's Tunnel tab", () => {
     expect(document.body.textContent).not.toContain(token);
   });
 
-  it("says Connect replaces the token an installed tunnel app runs with", async () => {
+  // M65.3: Connect made a new tunnel and gave the app its key, and the owner's site answered 530.
+  it("says Connect uses the tunnel an installed tunnel app already runs, and does not replace its key", async () => {
     serve({ tunnel: notConnected, installed: true });
     const sheet = await openTunnelTab();
     fireEvent.click(within(sheet).getByRole("tab", { name: "Tunnel" }));
     fireEvent.change(await within(sheet).findByLabelText("API token"), { target: { value: token } });
     fireEvent.click(within(sheet).getByRole("button", { name: /Connect Cloudflare/ }));
     const dialog = await screen.findByRole("dialog", { name: "Connect Cloudflare" });
-    expect(dialog.textContent).toContain("replacing the token it runs with now");
+    expect(dialog.textContent).toContain("leaves its key and the names it serves as they are");
+    expect(dialog.textContent).toContain("nothing is changed");
+    expect(dialog.textContent).not.toMatch(/replacing the token/);
   });
 
   it("shows the tunnel and what is published, and stages publishing an app with its name, domain and port", async () => {

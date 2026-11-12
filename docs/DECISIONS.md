@@ -859,9 +859,12 @@ its run token, set its routes (`ingress`), and add the DNS name. The helper has 
    exactly *Account · Cloudflare Tunnel · Edit*, *Zone · DNS · Edit* and *Zone · Zone · Read*.
    Connect (`cloudflare.connect`, high, owner) checks it by listing the active domains, takes the
    account they belong to, finds the tunnel `boxpilot-<this server's name>` or makes it (remotely
-   managed), saves its run token, and installs the catalog's Cloudflare Tunnel app with it (or gives
-   an installed one the new key: the preview says it replaces the token it runs with). Nothing is
-   published by connecting. A token Cloudflare refuses is not kept; the one saved before stays.
+   managed), saves its run token, and installs the catalog's Cloudflare Tunnel app with it. An app
+   that is already running a tunnel the token can reach keeps it: that tunnel becomes BoxPilot's,
+   its names are left as they are and its key is not replaced (M65.3: a connect that gave the app a
+   new tunnel's key took the owner's site off the internet for three minutes). A running tunnel
+   the token cannot reach is replaced only when the owner says so, and its key is kept first.
+   Nothing is published by connecting. A token Cloudflare refuses is not kept; the one saved before stays.
 2. **Secrets stay in the credential store.** `cloudflare-api-token` and `cloudflare-tunnel-token`
    live in the root-only store. The API token rides the ordinary secret-parameter path once (staged
    in memory, `[secret]` in every record) and is read afterwards only by the root tasks, which put

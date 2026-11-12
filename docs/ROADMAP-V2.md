@@ -4127,6 +4127,30 @@ no faster than four on it (137 against 136 tokens a second read, 21.5 against 21
 - **M66.2, left** (2 days). No planner call where the steps already name the tools; `notify.owner`
   and `plan.propose` not sent to a run that cannot use them. Both want the measurement again on a
   real server first (`timings.cache_n` on two questions in a row, and across an idle hour).
+- ✅ **M65.3 Connect Cloudflare adopts the tunnel that is running** (1.244.0). On the owner's
+  server the Cloudflare Tunnel app ran a tunnel made by hand months before, with the owner's site
+  on it. Connect looked only for `boxpilot-` and the server's name, found none, made an empty
+  tunnel and gave the app its key in place of the one it ran with, which was kept nowhere: a
+  public site answered 530 for three minutes, and the old key came back by hand from a
+  two-week-old machine snapshot. Connect now reads which tunnel the app's key is for (the tunnel's
+  id and its account; the key and its secret go no further) and, when the API token can reach that
+  tunnel, takes it as BoxPilot's: none is made, the app keeps its key, that key is the credential
+  saved, and the routes and names already on the tunnel are left as they are. A running tunnel the
+  token cannot reach (another account, or a key that names no tunnel) is not replaced: Connect
+  refuses, changes nothing and says the two ways on, and replacing it is a choice
+  (`replaceRunningTunnel`) that first keeps the old key as the credential
+  `cloudflare-tunnel-token-previous`. With no tunnel app, or this server's own tunnel running,
+  Connect does what it did. The tab's read says when the app runs another tunnel than the one
+  recorded, which is where the owner's server stood afterwards: connecting again goes back to the
+  running tunnel and leaves the empty one in Cloudflare, named in the log. Looking at what a
+  tunnel taken over brings with it found two more: publishing replaced a route the tunnel already
+  had for the same name, and took a DNS record that already pointed at the tunnel for its own, so
+  unpublishing would have deleted it. A route BoxPilot did not record is now refused unless it
+  goes where the publish sends it, and a record is BoxPilot's only when it made it. A tunnel whose
+  routes are kept in a file on a machine is used for running, and publishing to it says why it
+  cannot. Left: the Tunnel tab has no control for the replace choice, so it is reachable through
+  the API only; what Cloudflare answers for a tunnel set up from a file has not been seen on a
+  real one.
 - ✅ **M67.1 The Agents page in plain words** (1.243.0). The five limits are "Each day: runs,
   thinking time" and "Each run: tool rounds, reading room, time limit", typed in minutes and pages,
   and the cards use the same words; Guardrails is three sections (Limits, What it leaves, Model); a

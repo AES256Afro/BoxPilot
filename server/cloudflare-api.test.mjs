@@ -69,6 +69,36 @@ describe("the Cloudflare client (M42)", () => {
     expect(await api.tunnelRunKey(fakeAccount.id, made.id)).toBe(cloudflare.runKey);
   });
 
+  // M65.3: a tunnel BoxPilot did not make is read by its id, and may be set up from a file or deleted.
+  it("reads one tunnel by its id, and says it is set up from a file or deleted only when Cloudflare does", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const reading = async (fields) => {
+      const cloudflare = createFakeCloudflare({ token, tunnels: [{ id, name: "home", account: fakeAccount.id, ...fields }] });
+      return createCloudflareApi({ token, fetcher: cloudflare.fetcher }).tunnel(fakeAccount.id, id);
+    };
+    expect(await reading({ remote_config: true })).toMatchObject({ id, name: "home", remoteConfig: true, localConfig: false, deleted: false });
+    expect(await reading({ config_src: "cloudflare", remote_config: false })).toMatchObject({ remoteConfig: true, localConfig: false });
+    expect(await reading({ config_src: "local" })).toMatchObject({ remoteConfig: false, localConfig: true });
+    expect(await reading({ remote_config: false })).toMatchObject({ remoteConfig: false, localConfig: true });
+    expect(await reading({})).toMatchObject({ remoteConfig: false, localConfig: false });
+    expect(await reading({ remote_config: true, deleted_at: "2026-09-01T00:00:00Z" })).toMatchObject({ deleted: true });
+    // In another account, or not there: an error that carries the status, which Connect reads as "cannot reach".
+    const cloudflare = createFakeCloudflare({ token, accounts: [fakeAccount.id] });
+    const api = createCloudflareApi({ token, fetcher: cloudflare.fetcher });
+    await expect(api.tunnel(fakeAccount.id, id)).rejects.toMatchObject({ name: "CloudflareError", status: 404 });
+    await expect(api.tunnel("fedcba9876543210fedcba9876543210", id)).rejects.toMatchObject({ name: "CloudflareError", status: 403 });
+  });
+
+  it("says which DNS records carry a comment, so BoxPilot's own can be told from the owner's", async () => {
+    const zone = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const cloudflare = createFakeCloudflare({ token, records: [{ id: "recTheirs", zone, type: "CNAME", name: "www.example.com", content: "x.cfargotunnel.com", proxied: true }] });
+    const api = createCloudflareApi({ token, fetcher: cloudflare.fetcher });
+    expect(await api.dnsRecords(zone, "www.example.com")).toEqual([{ id: "recTheirs", type: "CNAME", name: "www.example.com", content: "x.cfargotunnel.com", proxied: true, comment: "" }]);
+    const made = await api.createCname(zone, { name: "share.example.com", target: "x.cfargotunnel.com", comment: "BoxPilot: pingvin-share" });
+    expect(await api.dnsRecords(zone, "share.example.com")).toEqual([made]);
+    expect(made.comment).toBe("BoxPilot: pingvin-share");
+  });
+
   it("names the tunnel after the server, made safe", () => {
     expect(tunnelNameFor("HomeBox")).toBe("boxpilot-homebox");
     expect(tunnelNameFor("home_box.lan")).toBe("boxpilot-home-box");

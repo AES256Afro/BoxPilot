@@ -111,6 +111,9 @@ export function createCloudflareApi({ token, fetcher = fetch, timeoutMs = 20_000
     name: tunnel.name,
     status: typeof tunnel.status === "string" ? tunnel.status : null,
     remoteConfig: tunnel.remote_config === true || tunnel.config_src === "cloudflare",
+    // Only when Cloudflare says so: a reply that names neither is not taken for a file on a machine.
+    localConfig: tunnel.remote_config !== true && tunnel.config_src !== "cloudflare" && (tunnel.remote_config === false || tunnel.config_src === "local"),
+    deleted: Boolean(tunnel.deleted_at),
     connections: Array.isArray(tunnel.connections) ? tunnel.connections.filter(isObject) : [],
     ...(typeof tunnel.token === "string" ? { runKey: tunnel.token } : {}),
   });
@@ -156,13 +159,13 @@ export function createCloudflareApi({ token, fetcher = fetch, timeoutMs = 20_000
   async function dnsRecords(zoneId, name) {
     const payload = await call("GET", `/zones/${segment(zoneId)}/dns_records`, { query: { name }, what: `looking up ${name}` });
     return (Array.isArray(payload.result) ? payload.result : []).filter((record) => isObject(record) && typeof record.id === "string" && sameName(record.name, name))
-      .map((record) => ({ id: record.id, type: String(record.type ?? ""), name: record.name, content: String(record.content ?? ""), proxied: record.proxied === true }));
+      .map((record) => ({ id: record.id, type: String(record.type ?? ""), name: record.name, content: String(record.content ?? ""), proxied: record.proxied === true, comment: typeof record.comment === "string" ? record.comment : "" }));
   }
 
   async function createCname(zoneId, { name, target, comment }) {
     const payload = await call("POST", `/zones/${segment(zoneId)}/dns_records`, { body: { type: "CNAME", name, content: target, proxied: true, comment }, what: `adding ${name} to your domain` });
     if (!isObject(payload.result) || typeof payload.result.id !== "string") throw new CloudflareError(`Cloudflare did not add ${name}`);
-    return { id: payload.result.id, type: "CNAME", name, content: target, proxied: true };
+    return { id: payload.result.id, type: "CNAME", name, content: target, proxied: true, comment };
   }
 
   async function deleteDnsRecord(zoneId, recordId) {
