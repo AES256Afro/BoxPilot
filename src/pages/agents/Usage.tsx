@@ -80,7 +80,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
     if (!runtime || draft) return;
     const first = {
       driver: runtime.settings.driver, endpoint: runtime.settings.endpoint ?? "", idleStopMinutes: String(runtime.settings.idleStopMinutes ?? 60), contextTokens: String(runtime.settings.contextTokens ?? 8192), quietStart: module.quietHours.start, quietEnd: module.quietHours.end, notify: module.notify,
-      runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 10_800), embeddings: module.embeddings !== false, compareNightly: module.evaluation?.compareNightly === true,
+      runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 21_600), embeddings: module.embeddings !== false, compareNightly: module.evaluation?.compareNightly === true,
       waiting: String(module.cores?.waiting ?? 8), background: String(module.cores?.background ?? 4),
     };
     setDraft(first);

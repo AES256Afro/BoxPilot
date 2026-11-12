@@ -183,6 +183,8 @@ export function createAgentMigrations({ store, state, now, audit, nextRunFor, sh
       let raised = 0;
       const fields = ["modelSecondsPerDay", "stepsPerRun", "tokensPerRun", "runSeconds"];
       const formerDefaults = { modelSecondsPerDay: 1_800, stepsPerRun: 6, tokensPerRun: 12_000, runSeconds: 900 };
+      // What a template gave before its former budget: the IT Support helper's first day of model time.
+      const earlier = { "it-support": { modelSecondsPerDay: [1_200] } };
       const was = (modelSecondsPerDay, stepsPerRun, tokensPerRun, runSeconds) => ({ modelSecondsPerDay, stepsPerRun, tokensPerRun, runSeconds });
       const formerBudgets = {
         "server-keeper": was(3_600, 6, 20_000, 1_200), "environment-scout": was(3_000, 12, 32_000, 1_500), "pihole-watcher": was(600, 4, 6_000, 300),
@@ -197,7 +199,7 @@ export function createAgentMigrations({ store, state, now, audit, nextRunFor, sh
         const raisedFields = fields.filter((field) => {
           const floor = template?.spec?.budget?.[field] ?? budgetCeilings[field].default;
           if (!((budget[field] ?? 0) < floor)) return false;
-          if (budget[field] !== former[field] && budget[field] !== formerDefaults[field]) return false;
+          if (budget[field] !== former[field] && budget[field] !== formerDefaults[field] && !(earlier[agent.template]?.[field] ?? []).includes(budget[field])) return false;
           budget[field] = floor;
           return true;
         });

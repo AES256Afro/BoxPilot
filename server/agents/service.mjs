@@ -180,7 +180,7 @@ function inTime(read, ms, error) {
 export const defaultModuleSettings = Object.freeze({
   enabled: false, paused: false, pausedUntil: null, pausedBy: null, killedAt: null, quietHours: defaultQuietHours, notify: true,
   // One budget across every agent, on top of each agent's own.
-  budget: Object.freeze({ runsPerDay: 300, modelSecondsPerDay: 10_800 }),
+  budget: Object.freeze({ runsPerDay: 300, modelSecondsPerDay: 21_600 }),
   // Meaning search for memory: embeddings from the model server's /v1/embeddings, indexed in quiet hours.
   embeddings: true,
   // Processors while a person waits, and for everything else (M40, ADR-009): the owner's decision.

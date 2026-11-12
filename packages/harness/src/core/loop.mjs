@@ -117,7 +117,7 @@ export async function checkAnswer({ session, draft, sources, structured = false,
  *   session: ReturnType<typeof import("./session.mjs").createModelSession>,
  *   run: { degraded: string | null, limitReached: boolean, limitKind?: string | null },
  *   conversation: import("./session.mjs").Conversation,
- *   callTool: (call: { id: string, name: string, arguments: string }) => Promise<{ content: string, index?: number | null, ok?: boolean, flags?: { refused?: boolean, declined?: boolean } | null }>,
+ *   callTool: (call: { id: string, name: string, arguments: string }) => Promise<{ content: string, index?: number | null, ok?: boolean, flags?: { refused?: boolean, declined?: boolean, limit?: boolean, tainted?: unknown } | null }>,
  *   sources: () => Array<{ id: string, title?: string, text: string }>,
  *   record: (step: object) => Promise<unknown>,
  *   note: (name: string, detail: string, state?: string) => Promise<unknown>,
@@ -204,7 +204,8 @@ export async function act({
           answer = stripToolMarkup(again.result.content) || null;
         }
       }
-      if (!answer) run.degraded = "model-error";
+      // A retry the day's or the run's time refused has already said why (budget, timeout).
+      if (!answer) run.degraded ??= "model-error";
       break;
     }
     conversation.messages.push(assistantTurn(result, calls));
@@ -222,7 +223,7 @@ export async function act({
       const reply = await callTool(call);
       // Only an output it has, or a refusal that will not change, is "already asked": a tool that
       // failed (a timeout, a helper that did not answer) may be tried again.
-      if (reply?.ok || reply?.flags?.refused || reply?.flags?.declined) answered.set(key, { index: reply?.index ?? null });
+      if (reply?.ok || reply?.flags?.refused || reply?.flags?.declined || reply?.flags?.limit || reply?.flags?.tainted) answered.set(key, { index: reply?.index ?? null });
       // Clipped to what the model can read in the time, and to what the context still holds.
       const room = contextLeft();
       const chars = room === null ? session.readChars(pace.toolReadSeconds) : Math.min(session.readChars(pace.toolReadSeconds), Math.max(1_200, Math.floor(room * session.charsPerToken)));
