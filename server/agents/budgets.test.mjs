@@ -34,7 +34,7 @@ describe("budgets that follow the work", () => {
     await scheduledRunHitting(watch, { limit: "tokens" });
     const raised = h.service.getAgent(h.caller("owner"), watch.id);
     expect(raised.spec.budget.tokensPerRun).toBe(template.tokensPerRun);
-    expect(raised.versions[0].note).toBe(`BoxPilot raised its tokens a run from 10000 to ${template.tokensPerRun}, the template's: its last two scheduled runs ran out`);
+    expect(raised.versions[0].note).toBe(`BoxPilot raised its reading room (tokens a run) from 10000 to ${template.tokensPerRun}, the template's: its last two scheduled runs ran out`);
     // Already at the template's: left to the owner, however many runs run out.
     await scheduledRunHitting(watch, { limit: "tokens" });
     await scheduledRunHitting(watch, { limit: "tokens" });
@@ -70,7 +70,7 @@ describe("budgets that follow the work", () => {
     // Cut at the longest answer the model may write, twice running: the run's tokens were never short.
     const first = await scheduledRunHitting(scout, { limit: "answer" });
     expect(first.flags).toMatchObject({ limitReached: true, limit: "answer" });
-    expect(cardOf(first).reason).toBe(`Its answer stops short: it reached the longest answer the model may write (${h.service.runtimeSettings().maxTokens} tokens). The longest answer in tokens is one of the model's settings, on the Usage tab.`);
+    expect(cardOf(first).reason).toBe(`Its answer stops short: it reached the longest answer the model may write (${h.service.runtimeSettings().maxTokens} tokens).`);
     await scheduledRunHitting(scout, { limit: "answer" });
     // Cut by the time left to write it, twice running: no budget of tokens either.
     const late = await scheduledRunHitting(scout, { limit: "time" });

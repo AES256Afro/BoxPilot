@@ -505,7 +505,7 @@ export function createAgentService({
     const { runsPerDay, modelSecondsPerDay } = moduleSettings().budget ?? defaultModuleSettings.budget;
     const modelMsLeft = Math.max(0, modelSecondsPerDay * 1000 - used.modelMs);
     const refusal = used.runs >= runsPerDay ? `All agents together have used their ${runsPerDay} runs for today`
-      : modelMsLeft <= 0 ? `All agents together have used their ${Math.round(modelSecondsPerDay / 60)} minutes of thinking time for today` : null;
+      : modelMsLeft <= 0 ? `All agents together have used their ${Math.round(modelSecondsPerDay / 60)} minutes of model time for today` : null;
     return { runsUsed: used.runs, runsPerDay, modelMsUsed: used.modelMs, modelSecondsPerDay, modelMsLeft, refusal };
   }
 
@@ -2034,7 +2034,7 @@ export function createAgentService({
     if (flags.limit === "context") return `What it had read filled the model's context (${runtimeSettings().contextTokens ?? "its"} tokens), so it answered with what it had. A larger context is set on the Usage tab, under Settings.`;
     if (flags.limit === "repeat") return "It kept asking for the same tool output, so it was told to answer with what it had.";
     // M66: an answer the model server stopped part-way. Not the run's tokens: raising those changes nothing.
-    if (flags.limit === "answer") return `Its answer stops short: it reached the longest answer the model may write (${runtimeSettings().maxTokens ?? "its"} tokens). The longest answer in tokens is one of the model's settings, on the Usage tab.`;
+    if (flags.limit === "answer") return `Its answer stops short: it reached the longest answer the model may write (${runtimeSettings().maxTokens ?? "its"} tokens).`;
     if (flags.limit === "time") return "Its answer stops short: there was too little time left to write the rest.";
     return "It reached a limit before it finished.";
   }
@@ -2135,7 +2135,7 @@ export function createAgentService({
         return value;
       };
       const current_ = current.budget ?? defaultModuleSettings.budget;
-      next.budget = { runsPerDay: whole(raw.runsPerDay, current_.runsPerDay, moduleBudgetCeilings.runsPerDay, "Runs a day for all agents"), modelSecondsPerDay: whole(raw.modelSecondsPerDay, current_.modelSecondsPerDay, moduleBudgetCeilings.modelSecondsPerDay, "Model seconds a day for all agents") };
+      next.budget = { runsPerDay: whole(raw.runsPerDay, current_.runsPerDay, moduleBudgetCeilings.runsPerDay, "Runs a day for all agents"), modelSecondsPerDay: whole(raw.modelSecondsPerDay, current_.modelSecondsPerDay, moduleBudgetCeilings.modelSecondsPerDay, "Thinking time a day for all agents, in seconds,") };
     }
     if (input.cores !== undefined) {
       // Processors while a person waits and in the background (M40): 2 to 8, never more than this
@@ -2625,7 +2625,7 @@ export function createAgentService({
       if (!(current < target)) return;
       let spec;
       try { spec = normalizeSpec({ ...agent.spec, budget: { ...agent.spec.budget, [field]: target }, sharing: sharingFor(agent) }); } catch { return; }
-      const words = { tokensPerRun: "tokens a run", stepsPerRun: "steps a run", runSeconds: "seconds a run" }[field];
+      const words = { tokensPerRun: "reading room (tokens a run)", stepsPerRun: "tool rounds a run", runSeconds: "time limit (seconds a run)" }[field];
       const version = store.addVersion(agent.id, { spec, note: `BoxPilot raised its ${words} from ${current} to ${target}, the template's: its last two scheduled runs ran out`, createdBy: null, nextRunAt: agent.nextRunAt ?? nextRunFor(spec) });
       if (version) audit("agents.updated", { subjectId: agent.id, details: { version, fields: [`budget.${field}`], by: "boxpilot", reason: "limit" } });
     } catch { /* a budget is a help, never a reason for a finish to fail */ }
