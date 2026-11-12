@@ -129,7 +129,7 @@ describe("asking an agent", () => {
     expect(plan.input.map((entry) => entry.tool)).toEqual(["where.runs", "pihole.stats", null]);
     expect(plan.output).toMatch(/^1\. Read where\.runs \(where\.runs\)\n2\. Read pihole\.stats \(pihole\.stats\)\n3\. Answer with citations$/);
     expect(understanding.messages[1].content).toMatch(/Tools made for requests worded like this: where_runs \(Where does it run\?\)\./);
-    expect(first.messages.at(-1).content).toMatch(/<\/question>\n\nYour plan:\n1\. Read where\.runs \(where_runs\)/);
+    expect(first.messages.at(-1).content).toMatch(/<\/question>\n\nNow: 2026-09-29T15:00Z\n\nYour plan:\n1\. Read where\.runs \(where_runs\)/);
     expect(first.messages[0].content).toMatch(/^You are an agent on a home server managed by BoxPilot/);
     // Only the tools the plan named, and the always-on ones this run was offered, in the catalog's order.
     expect(first.tools.map((tool) => tool.function.name)).toEqual(["memory_search", "plan_propose", "notify_owner", "where_runs", "pihole_stats"]);

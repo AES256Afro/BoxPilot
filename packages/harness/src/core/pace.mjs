@@ -18,7 +18,8 @@ export const paceDefaults = Object.freeze({
   // and still write this many tokens in what is left.
   fitMargin: 1.2,
   minAnswerTokens: 48,
-  // A tool's output is cut to what the model can read in this long, never below 1,200 characters.
+  // A tool's output is cut to what the model can read in this long, never below 1,200 characters
+  // for the time's sake (the loop cuts further when the model's context holds less).
   toolReadSeconds: 25,
   // The check before answering: a correction is asked for only when it fits in what is left, and
   // writes at most this much more than the answer it corrects.
@@ -59,6 +60,8 @@ export function clipToolOutput(content, maxChars) {
   const room = Math.max(200, maxChars - head - 2 - 20);
   const cut = body.lastIndexOf("\n", room);
   const kept = body.slice(0, cut > room * 0.6 ? cut : room);
+  // A body within the 200 characters always kept is the output whole: nothing was cut to say so.
+  if (kept.length >= body.length) return text;
   return `${text.slice(0, head + 2)}${kept}\n[… ${body.length - kept.length} more characters not shown: the model could not read them in time]\n</tool_output>`;
 }
 

@@ -211,6 +211,39 @@ export function createAgentMigrations({ store, state, now, audit, nextRunFor, sh
       next.headroom = { at: now().toISOString(), raised };
       changed += raised;
     }
+    // M66: two templates' lines said things the prompt already does or the tools contradict. The
+    // Keeper spent a step on memory.search for what is pasted under every question; the Scout had
+    // one rule twice and said no tool sees the firewall's ports. A line still in the template's old
+    // words becomes the new one; a line the maker rewrote is theirs.
+    if (!done.wording) {
+      const keeperOld = "Check memory.search for what you learned before; say when a note may be out of date.";
+      const scoutOld = {
+        "Asked about the firewall or Repair alone, read firewall.status or repair.findings for it; the weekly survey reads both.": "Asked about the firewall or Repair alone",
+        "Open ports, SSH settings and waiting system package updates no tool of yours sees: name them under Not checked, with the page to open (Updates).": "firewall.status lists the ports",
+      };
+      const scoutTwice = "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed, firewall.status for the firewall, repair.findings for what Repair found.";
+      let reworded = 0;
+      for (const agent of store.listAgents()) {
+        const template = agent.template ? templateById(agent.template) : null;
+        if (!template || !["server-keeper", "environment-scout"].includes(agent.template)) continue;
+        let steps = [...(agent.spec.prompt?.steps ?? [])];
+        let rules = [...(agent.spec.prompt?.rules ?? [])];
+        if (agent.template === "server-keeper") {
+          const next = template.spec.prompt.steps.find((step) => step.startsWith("Your notes and what you remember"));
+          if (next) steps = steps.map((step) => (step === keeperOld ? next : step));
+        } else {
+          rules = rules.map((rule) => (scoutOld[rule] ? template.spec.prompt.rules.find((entry) => entry.startsWith(scoutOld[rule]) && entry !== rule) ?? rule : rule));
+          // The second saying of it goes only where the first now names its tools.
+          if (rules.some((rule) => rule.startsWith("Asked about the firewall or Repair alone") && rule.includes("services.status"))) rules = rules.filter((rule) => rule !== scoutTwice);
+        }
+        if (steps.join("\n") === (agent.spec.prompt?.steps ?? []).join("\n") && rules.join("\n") === (agent.spec.prompt?.rules ?? []).join("\n")) continue;
+        let spec;
+        try { spec = normalizeSpec({ ...agent.spec, prompt: { ...agent.spec.prompt, steps, rules }, sharing: sharingFor(agent) }); } catch { continue; }
+        if (save(agent, spec, "BoxPilot reworded its steps and rules for what it is already shown and what its tools read", ["prompt"])) reworded += 1;
+      }
+      next.wording = { at: now().toISOString(), reworded };
+      changed += reworded;
+    }
     // M46: agents made before the example book get their template's examples, once.
     if (!done.examples) {
       let seeded = 0;
@@ -218,7 +251,7 @@ export function createAgentMigrations({ store, state, now, audit, nextRunFor, sh
       next.examples = { at: now().toISOString(), seeded };
       changed += seeded;
     }
-    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.surveyWide !== done.surveyWide || next.eyesMore !== done.eyesMore || next.headroom !== done.headroom) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
+    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.surveyWide !== done.surveyWide || next.eyesMore !== done.eyesMore || next.headroom !== done.headroom || next.wording !== done.wording) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
     return changed;
   }
 

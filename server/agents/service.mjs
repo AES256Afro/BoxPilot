@@ -169,6 +169,24 @@ export const describePrompt = "Describe this image for a knowledge base about a 
 const clip = (text, max) => { const value = String(text ?? ""); return value.length > max ? `${value.slice(0, max - 1)}…` : value; };
 /** What the conversation keeps in place of the answer of a run that read something like an instruction. */
 const heldAnswerTurn = "(Not kept: that run read something that looked like an instruction, so BoxPilot left its answer out of the conversation.)";
+/** What it keeps in place of a degraded run's answer: the tools' lines, pasted for want of one, are not something the agent said. */
+const noAnswerTurn = "(It could not answer that time.)";
+/**
+ * How many characters of notes, memories and findings a task message may carry (M66): about a
+ * quarter of the model's context at 3.6 characters a token, and never under 2,000. Eight notes
+ * pasted whole were up to 2,900 tokens read cold on every run, and in a context of 8,192 they left
+ * almost no room for what the tools said.
+ */
+const taskRoomChars = (contextTokens) => Math.max(2_000, Math.round((Number(contextTokens) || 8_192) * 3.6 * 0.25));
+/** Takes whole items while they fit in `chars`: one too long for what is left is left out, never cut. */
+function roomFor(chars) {
+  let left = chars;
+  return (text, { whatever = false } = {}) => {
+    if (!whatever && text.length > left) return false;
+    left -= text.length;
+    return true;
+  };
+}
 const finite = (value, max) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Math.min(Number(value), max) : 0);
 /** What `read()` gives, or `error` thrown once `ms` pass without an answer: a read that hangs holds nothing up for long. */
 function inTime(read, ms, error) {
@@ -300,6 +318,8 @@ export function createAgentService({
   // Step kinds whose output the model is given, numbered T1, T2 ... in the order they happened.
   const outputKinds = ["tool", "memory", "proposal", "note", "notify", "handoff", "action"];
   const outputsSoFar = (runId) => store.countOutputs(runId, outputKinds);
+  /** Every call a run has made, refused ones too: what its cap on tool calls counts, and its usage says. */
+  const callsSoFar = (runId) => outputKinds.reduce((sum, kind) => sum + store.countSteps(runId, kind), 0);
 
   // ---- settings ----
 
@@ -1071,18 +1091,35 @@ export function createAgentService({
     // an instruction by the time it ended taints the task it handed over (2026-10 sweep 2).
     const supervisor = run.kind === "handoff" && run.parentRunId ? store.getRun(run.parentRunId) : null;
     if (supervisor?.flags?.injection) flagInjection(run.id, { hop: runHop(supervisor), from: flaggedBy(supervisor), detail: "The agent that handed it this task had read something that looked like an instruction, so this run is treated as if it had read it too." });
-    const promptNotes = spec.memory?.enabled && spec.knowledge?.notes !== false && knowledgeSettings().notes !== false ? ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }) : [];
-    const notes = promptNotes.map((note) => wrapNote({ ...note, stale: stale(note) }, { redact }));
+    const latestNotes = spec.memory?.enabled && spec.knowledge?.notes !== false && knowledgeSettings().notes !== false ? ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }) : [];
+    // What it remembers is recalled by the request's words (the query's vector comes later, from
+    // the runner, when the model searches memory itself).
+    const query = [run.question, run.trigger?.title, spec.job].filter(Boolean).join(" ");
+    // M66: its notes, what it recalls and the other agents' findings share the room the model's
+    // context leaves them, in that order, each whole or not at all. The notes that bear on the
+    // request first, ranked as recall ranks; with no request, the latest. A learning run reads
+    // every note: it is there to replace the ones no longer true.
+    const fits = roomFor(taskRoomChars(runtimeSettings().contextTokens));
+    const noteText = new Map(latestNotes.map((note) => [note.id, wrapNote({ ...note, stale: stale(note) }, { redact })]));
+    const bearing = run.question || run.trigger?.title
+      ? hybridSearch(latestNotes.map((note) => ({ key: note.id, title: note.title, text: note.body, weight: note.pinned ? 1.3 : 1 })), { query, limit: latestNotes.length }).map((item) => item.key)
+      : [];
+    const preferred = [...new Set([...bearing, ...latestNotes.map((note) => note.id)])];
+    const shown = new Set(preferred.filter((id) => fits(noteText.get(id), { whatever: run.kind === "learn" })));
+    // In the order they were first written, not last changed: one note edited does not move the
+    // others, so the model server reuses what it read of them for the run before.
+    const promptNotes = latestNotes.filter((note) => shown.has(note.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    const notes = promptNotes.map((note) => noteText.get(note.id));
     // Its own note kept by a flagged run: flagged, by where the note came from and never by its own
     // words (sweep 3) - unless they are another account's, which are held to them (sweep 4), each
     // named, and news to the owner once (sweep 5: told of at every run, unnamed).
     const fromNotes = rememberedFlag(promptNotes.map((note) => noteItem(note, agent, run.readRole, { own: true, from: agent.name })));
     if (fromNotes.flagged) flagInjection(run.id, { hop: fromNotes.hop, from: fromNotes.items, detail: rememberedDetail(fromNotes.items) });
-    // What it remembers that bears on this request, by words (the query's vector comes later, from
-    // the runner, when the model searches memory itself). Recorded in the trace as a memory read.
-    const query = [run.question, run.trigger?.title, spec.job].filter(Boolean).join(" ");
+    // What it remembers that bears on this request, by words, as far as there is room. Recorded in
+    // the trace as a memory read.
     const noteKeys = new Set(ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }).map((note) => `note:${note.id}`));
-    const recalled = spec.memory?.enabled ? hybridSearch(memoryItems(agent, spec, run.readRole, run).filter((item) => !noteKeys.has(item.key)), { query, limit: limits.memoryInPrompt }) : [];
+    const remembered = spec.memory?.enabled ? hybridSearch(memoryItems(agent, spec, run.readRole, run).filter((item) => !noteKeys.has(item.key)), { query, limit: limits.memoryInPrompt }) : [];
+    const recalled = remembered.filter((item) => fits(memoryLine(item)));
     // Words it trusts by where they came from - the owner's own documents, its own notes - that read
     // like an instruction (M45.7): not a mark on the run, which the owner's runbook would earn every
     // time (sweep 3), but nothing is carried out on them.
@@ -1095,7 +1132,9 @@ export function createAgentService({
     }
     // What the other agents found that bears on it (M44): before it plans, so it need not look again.
     const usesFindings = sharingFor(agent, spec).useFindings;
-    const findings = offerFindings(run, spec, agent);
+    const found = offerFindings(run, spec, agent);
+    const findings = found.filter((finding) => fits(finding.wrapped));
+    const leftOut = { notes: latestNotes.length - notes.length, memories: remembered.length - recalled.length, findings: found.length - findings.length };
     // The conversation with this person, when the agent keeps one.
     const thread = spec.memory?.threads && run.requestedBy && ["ask", "manual"].includes(run.kind) ? store.getThread(agent.id, run.requestedBy) : null;
     // Not flagged by its words (sweep 3): an answer in it came from a run that was not flagged (a
@@ -1164,10 +1203,11 @@ export function createAgentService({
     // M46.8: what the run was shown beside its task - its notes, what it recalled, the other agents'
     // findings, a specialist's answers - kept as a step, once per run (a lease that lapsed is claimed
     // again): the trace can show what the model saw, and the acting conversation's training record
-    // is the prompt itself rather than one rebuilt without them.
+    // is the prompt itself rather than one rebuilt without them. With how many of each were left
+    // out for room (M66), so the trace can say that too.
     if (!store.countSteps(run.id, "prompt")) {
       const truncated = taskContent.length > limits.promptChars;
-      store.addStep(run.id, { kind: "prompt", name: "task", output: redact(truncated ? `${taskContent.slice(0, limits.promptChars - 1)}…` : taskContent), flags: { notes: notes.length, memories: recalled.length, findings: findings.length, handoffs: handoffSteps.length, thread: Boolean(context), ...(truncated ? { truncated: true } : {}) } });
+      store.addStep(run.id, { kind: "prompt", name: "task", output: redact(truncated ? `${taskContent.slice(0, limits.promptChars - 1)}…` : taskContent), flags: { notes: notes.length, memories: recalled.length, findings: findings.length, notesLeftOut: leftOut.notes, memoriesLeftOut: leftOut.memories, findingsLeftOut: leftOut.findings, handoffs: handoffSteps.length, thread: Boolean(context), ...(truncated ? { truncated: true } : {}) } });
     }
     return {
       run: { id: run.id, kind: run.kind, question: run.question, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt },
@@ -1181,7 +1221,7 @@ export function createAgentService({
       // The findings it was offered, F1, F2 ...: what the runner's check holds a claim citing one to.
       findings: findings.map(({ id, title, text }) => ({ id, title, text })),
       // M47.3: whether the runner may ask for more findings by meaning once it has embedded the request.
-      findingsByMeaning: usesFindings && findingReaderKinds.includes(run.kind) && findings.length < limits.findingsInPrompt,
+      findingsByMeaning: usesFindings && findingReaderKinds.includes(run.kind) && found.length < limits.findingsInPrompt && !leftOut.findings,
       // A follow-up's specialists' answers, T1, T2 ...: tool output already, before any it reads (sweep 3).
       handoffs,
       tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(["operations.run", "operations.plan"].includes(tool.id) ? actTool(tool, spec) : tool) })),
@@ -1408,7 +1448,7 @@ export function createAgentService({
     const run = heldRun(runId, lease);
     const spec = store.getVersion(run.agentId, run.version)?.spec;
     const tool = toolById(String(name ?? ""));
-    const toolCount = outputKinds.reduce((sum, kind) => sum + store.countSteps(run.id, kind), 0);
+    const toolCount = callsSoFar(run.id);
     const started = now();
     const given = outputsSoFar(run.id);
     // `words`: whether what came back is held to its words - not what it remembers (its notes, the
@@ -1703,7 +1743,9 @@ export function createAgentService({
       cachedTokens: Math.round(finite(result.usage?.cachedTokens, 1e7)),
       readTokens: Math.round(finite(result.usage?.readTokens ?? result.usage?.promptTokens, 1e7)),
       modelCalls: Math.round(finite(result.usage?.modelCalls, 1000)),
-      toolCalls: store.countSteps(run.id, "tool"),
+      // Every call the cap counted, not the reads alone: a memory search, a note, a notice, a
+      // hand-off, a plan and an operation are tool calls too (M66: they were left out).
+      toolCalls: callsSoFar(run.id),
       wallMs: Math.max(0, now().getTime() - Date.parse(run.startedAt)),
       // What the check before answering cost: the text check itself, and the model's correction.
       ...(checked ? { checkMs: Math.round(finite(result.usage?.check?.checkMs, 60_000) * 100) / 100, correctionMs: Math.round(finite(result.usage?.check?.correctionMs, 3_600_000)) } : {}),
@@ -1874,9 +1916,11 @@ export function createAgentService({
         // A flagged run's question is kept, so the conversation moves on and old turns age out as
         // any other; its answer is not, BoxPilot's words in its place (sweep 3: keeping no turn at
         // all froze the conversation once every run was flagged, the turn behind it kept for good).
+        // Nor is a degraded run's (M66): what the tools found, pasted in place of an answer, came
+        // back in the next run as "You answered:".
         const said = flagged
           ? { role: "agent", text: heldAnswerTurn, at: run.finishedAt, runId: run.id, held: true }
-          : { role: "agent", text: clip(run.answer, 2_000), at: run.finishedAt, runId: run.id };
+          : { role: "agent", text: run.state === "degraded" ? noAnswerTurn : clip(run.answer, 2_000), at: run.finishedAt, runId: run.id };
         const turns = [...thread.turns, { role: "user", text: root.question, at: root.queuedAt }, said];
         const folded = foldThread({ summary: thread.summary, turns }, { keep: (spec.memory.turns ?? 6) * 2 });
         store.saveThread(agent.id, run.requestedBy, { summary: folded.summary, turns: folded.turns });

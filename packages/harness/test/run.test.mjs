@@ -20,7 +20,7 @@ const note = defineTool({
 });
 
 /** A session and a run state on the fake provider, with a clock the test moves. */
-function sessionOn(script, { clock = { at: 0 }, seconds = 600 } = {}) {
+function sessionOn(script, { clock = { at: 0 }, seconds = 600, maxTokens = 512 } = {}) {
   const { provider, calls } = createFakeProvider({ script });
   const run = { degraded: null, limitReached: false, limitKind: null };
   const used = { modelMs: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, readTokens: 0, modelCalls: 0 };
@@ -30,22 +30,27 @@ function sessionOn(script, { clock = { at: 0 }, seconds = 600 } = {}) {
     timeLeft: () => ({ ms: seconds * 1000 - clock.at, binding: "timeout" }),
     note: async (name, detail, state = "done") => { notes.push({ name, detail, state }); },
   });
-  session.use({ provider, model: "fake-model" }, { settings: { maxTokens: 512 } });
+  session.use({ provider, model: "fake-model" }, { settings: { maxTokens } });
   return { session, run, used, calls, notes };
 }
 
-async function actWith(script, { tools = [disks], limits = {}, fields = null, approve, clock, seconds } = {}) {
-  const on = sessionOn(script, { clock, seconds });
+/** `limits` may be a function of the tokens the conversation starts at, for a context sized to it. */
+async function actWith(script, { tools = [disks], limits = {}, fields = null, approve, clock, seconds, maxTokens } = {}) {
+  const on = sessionOn(script, { clock, seconds, maxTokens });
   const toolbox = createToolbox({ tools, approve });
   const steps = [];
   const conversation = { tools: toolbox.schemas, messages: [{ role: "system", content: "Rules." }, { role: "user", content: "Which disk holds the system?" }], last: null };
+  const startTokens = on.session.tokensOf(conversation);
   const acted = await act({
     session: on.session, run: on.run, conversation, callTool: (call) => toolbox.call(call), sources: () => toolbox.outputs(),
     record: async (step) => { steps.push(step); }, note: async (name, detail, state = "done") => { on.notes.push({ name, detail, state }); },
-    limits: { steps: 6, tokens: 20_000, maxToolCalls: 6, toolCallsPerStep: 3, ...limits }, tokensUsed: () => on.used.readTokens + on.used.completionTokens, fields, pace: fast,
+    limits: { steps: 6, tokens: 20_000, maxToolCalls: 6, toolCallsPerStep: 3, ...(typeof limits === "function" ? limits(startTokens) : limits) }, tokensUsed: () => on.used.readTokens + on.used.completionTokens, fields, pace: fast,
   });
-  return { ...on, acted, steps, toolbox, conversation };
+  return { ...on, acted, steps, toolbox, conversation, startTokens };
 }
+
+/** The tokens a request was, as the session counts a conversation the server has not answered. */
+const tokensSent = (session, request) => session.tokensOf({ tools: request.tools, messages: request.messages, last: null });
 
 describe("the loop", () => {
   it("acts with a tool, then answers, and the check holds the answer to what it cites", async () => {
@@ -157,19 +162,94 @@ describe("the loop", () => {
   });
 
   it("answers before the conversation outgrows the model's context, and clips a tool's output to what still fits (M48.1)", async () => {
-    const { acted, calls, run, notes } = await actWith([
+    // The prompt, the room kept for a 512-token answer (640) and 40 tokens more: the first tool
+    // round takes those, so the next call is the last.
+    const { acted, calls, run, notes, session, startTokens } = await actWith([
       { toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] },
       { content: "The system disk is /dev/nvme0n1 [T1]." },
-    ], { limits: { contextTokens: 400, steps: 6 } });
-    // A 512-token answer and the prompt do not both fit in 400: after the first tool round the next call is the last.
+    ], { limits: (start) => ({ contextTokens: start + 680, steps: 6 }) });
+    const context = startTokens + 680;
+    expect(calls[0].toolChoice).toBe("auto");
     expect(calls[1].toolChoice).toBe("none");
     expect(calls[1].messages.at(-1).content).toMatch(/no tool calls left\. Answer now/);
     expect(acted.answer).toMatch(/nvme0n1/);
     expect(run).toMatchObject({ limitReached: true, limitKind: "context", degraded: null });
-    expect(notes.find((entry) => entry.name === "context").detail).toMatch(/tokens of the model's 400: answering with what it has/);
+    expect(notes.find((entry) => entry.name === "context").detail).toMatch(new RegExp(`tokens of the model's ${context}: answering with what it has`));
+    // The answer may be as long as the context still holds, so the call fits in it.
+    expect(calls[1].maxTokens).toBe(context - tokensSent(session, calls[1]) - 128);
+    expect(calls[1].maxTokens).toBeLessThan(512);
     // Without a context given, nothing changes.
     const plain = await actWith([{ toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] }, { content: "Fine [T1]." }]);
     expect(plain.run.limitReached).toBe(false);
+    expect(plain.calls.map((call) => call.maxTokens)).toEqual([512, 512]);
+  });
+
+  it("answers straight away, with no tool, when the prompt alone is already inside the answer's room (M66)", async () => {
+    const { acted, calls, run, notes, session, startTokens } = await actWith([{ content: "I cannot tell from here." }], { limits: (start) => ({ contextTokens: start + 300 }) });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].toolChoice).toBe("none");
+    expect(calls[0].messages.at(-1)).toMatchObject({ role: "user", content: expect.stringMatching(/^This run has no tool calls left\. Answer now/) });
+    // What it may write is what the context still holds, not the model's 512.
+    expect(calls[0].maxTokens).toBe(startTokens + 300 - tokensSent(session, calls[0]) - 128);
+    expect(calls[0].maxTokens).toBeLessThan(300);
+    expect(acted.answer).toBe("I cannot tell from here.");
+    expect(run).toMatchObject({ limitReached: true, limitKind: "context", degraded: null });
+    expect(notes.find((entry) => entry.name === "context").detail).toMatch(/answering with what it has/);
+    // A context with nothing left still gets a call that can write a sentence.
+    const full = await actWith([{ content: "No." }], { limits: (start) => ({ contextTokens: start }) });
+    expect(full.calls[0]).toMatchObject({ toolChoice: "none", maxTokens: 64 });
+  });
+
+  it("shows no more of a step's tool outputs than the context still holds (M66)", async () => {
+    const log = defineTool({
+      name: "log_read", title: "A log", kind: "read", description: "Read a unit's log.",
+      parameters: { type: "object", additionalProperties: false, required: ["unit"], properties: { unit: { type: "string", maxLength: 20 } } },
+      run: ({ unit }) => Array.from({ length: 200 }, (_, line) => `${unit}: line ${line} of the log, nothing to see`).join("\n"),
+    });
+    // Room for 400 tokens of output (1,600 characters) and three outputs of about 8,000 each.
+    const { acted, calls, run, session, startTokens } = await actWith([
+      { toolCalls: ["ssh", "cron", "nginx"].map((unit, index) => ({ id: `c${index + 1}`, name: "log_read", arguments: JSON.stringify({ unit }) })) },
+      { content: "The logs show nothing [T1]." },
+    ], { tools: [log], limits: (start) => ({ contextTokens: start + 640 + 400 }) });
+    const shown = calls[1].messages.filter((message) => message.role === "tool").map((message) => message.content);
+    expect(shown[0]).toMatch(/^<tool_output id="T1"[\s\S]*more characters not shown/);
+    expect(shown[0].length).toBeLessThan(1_600);
+    expect(shown[1]).toBe("BoxPilot: this output is not shown: the model's context has no room left for it. Answer with what is above.");
+    expect(shown[2]).toMatch(/^BoxPilot: this output is not shown[\s\S]*no tool calls left\. Answer now/);
+    // So the last call and its answer both fit.
+    expect(calls[1].toolChoice).toBe("none");
+    expect(tokensSent(session, calls[1]) + calls[1].maxTokens).toBeLessThanOrEqual(startTokens + 1_040);
+    expect(calls[1].maxTokens).toBeGreaterThan(64);
+    expect(acted.answer).toMatch(/nothing/);
+    expect(run).toMatchObject({ limitReached: true, limitKind: "context", degraded: null });
+  });
+
+  it("goes by the server's count of the conversation, not its own estimate, once it has one (M66)", async () => {
+    // By its characters the conversation is a few hundred tokens; the server read 3,000.
+    const { calls, run, session, startTokens } = await actWith([
+      { toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }], usage: { promptTokens: 3_000, completionTokens: 30 } },
+      { content: "The system disk is /dev/nvme0n1 [T1]." },
+    ], { limits: { contextTokens: 3_500 } });
+    expect(startTokens).toBeLessThan(500);
+    expect(calls[1].toolChoice).toBe("none");
+    expect(run).toMatchObject({ limitReached: true, limitKind: "context" });
+    const added = tokensSent(session, calls[1]) - tokensSent(session, calls[0]);
+    expect(Math.abs(calls[1].maxTokens - (3_500 - 3_030 - added - 128))).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps an answer the server cut off at its length, and says which limit cut it (M66)", async () => {
+    const cut = { content: "The system disk is /dev/nvme0n1 [T1], and", reason: "length" };
+    const { acted, run, notes } = await actWith([{ toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] }, cut]);
+    expect(acted.answer).toBe(cut.content);
+    expect(run).toMatchObject({ limitReached: true, limitKind: "tokens", degraded: null });
+    expect(notes.find((entry) => entry.name === "answer").detail).toBe("The answer was cut short at 512 tokens, all this call was allowed: kept as far as it got.");
+    // A model that may write 2,048 in a context holding less: the context is what cut it.
+    const tight = await actWith([{ toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] }, cut], { maxTokens: 2_048, limits: (start) => ({ contextTokens: start + 1_200 }) });
+    expect(tight.calls[0]).toMatchObject({ toolChoice: "auto", maxTokens: 1_200 - 128 });
+    expect(tight.calls[1].toolChoice).toBe("auto");
+    expect(tight.acted.answer).toBe(cut.content);
+    expect(tight.run).toMatchObject({ limitReached: true, limitKind: "context", degraded: null });
+    expect(tight.notes.find((entry) => entry.name === "answer").detail).toMatch(/^The answer was cut short at \d+ tokens, all the model's context still held/);
   });
 
   it("asks again for the host's JSON when the model wrote prose", async () => {
@@ -194,6 +274,28 @@ describe("the loop", () => {
     expect(acted.answer).toBeNull();
     expect(run).toMatchObject({ degraded: "timeout", limitReached: true });
     expect(notes.at(-1)).toMatchObject({ name: "model", state: "failed", detail: expect.stringMatching(/^Not starting the next step/) });
+  });
+});
+
+describe("the session", () => {
+  it("counts a conversation by the server's own count once it has answered it, and by its characters before (M66)", async () => {
+    const { session } = sessionOn([{ content: "ok", usage: { promptTokens: 900, completionTokens: 20 } }]);
+    const conversation = { tools: null, messages: [{ role: "system", content: "x".repeat(1_968) }, { role: "user", content: "Go on." }], last: null };
+    // 2,006 characters at the 4 a token it starts from.
+    expect(session.tokensOf(conversation)).toBe(502);
+    await session.ask(conversation, { maxTokens: 64 });
+    // The server read 900 and wrote 20: that, not 2,006 characters at the ratio the call taught.
+    expect(session.charsPerToken).toBeLessThan(4);
+    expect(session.tokensOf(conversation)).toBe(920);
+    conversation.messages.push({ role: "assistant", content: "ok" }, { role: "tool", tool_call_id: "c1", content: "y".repeat(400) });
+    expect(session.tokensOf(conversation)).toBe(920 + Math.ceil(434 / session.charsPerToken));
+    // Another conversation of the same run has no count of its own yet.
+    const other = { tools: null, messages: [{ role: "user", content: "z".repeat(984) }], last: null };
+    expect(session.tokensOf(other)).toBe(Math.ceil(1_000 / session.charsPerToken));
+    // A server that reports no usage leaves the estimate as it was.
+    const silent = sessionOn([{ content: "ok" }]);
+    await silent.session.ask(conversation, { maxTokens: 64 });
+    expect(silent.session.tokensOf(conversation)).toBe(Math.ceil(2_440 / 4));
   });
 });
 

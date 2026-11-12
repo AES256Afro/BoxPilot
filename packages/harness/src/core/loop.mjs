@@ -44,6 +44,9 @@ export function answerNowNote(structured = false) {
 /** What a model is told when its last answer was a tool call written out as text. */
 const plainAnswerNote = (structured = false) => `Tools are finished for this run. Write your answer now${structured ? ", as the JSON fields" : " in plain sentences"}, from the outputs above.`;
 
+/** What stands in for a tool's output when the model's context has no room left for any of it. */
+const noRoomNote = "BoxPilot: this output is not shown: the model's context has no room left for it. Answer with what is above.";
+
 /** A model's turn as the trace keeps it. */
 export const modelStep = (asked, text, toolCalls = []) => ({ kind: "model", name: asked.model?.model ?? null, text, toolCalls, durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens });
 
@@ -143,11 +146,30 @@ export async function act({
   // check, so what it made up is never checked as if it were the answer, and told to the host.
   const boxes = [];
   const unboxed = (text) => { const stripped = stripWrapperBlocks(text); boxes.push(...stripped.removed); return stripped.text; };
-  const maxTokens = (floor) => Math.max(floor, Math.min(session.settings.maxTokens ?? 1024, limits.tokens - tokensUsed()));
   // The model's context (M48.1): a prompt that outgrows it is a 400 from the model server and a
-  // run that ends with nothing. The room the answer needs is kept back, so the last call fits.
-  const answerRoom = () => Math.min(session.settings.maxTokens ?? 1024, 1_024) + 256;
-  const contextLeft = () => (Number.isFinite(limits.contextTokens) && limits.contextTokens > 0 ? limits.contextTokens - session.tokensOf(conversation) - answerRoom() : null);
+  // run that ends with nothing. The room the answer needs is kept back, so the last call fits: an
+  // answer is a few short sentences (about 120 tokens a call on the owner's server), and the slack
+  // is what the estimate of the conversation may be out by.
+  const contextKnown = Number.isFinite(limits.contextTokens) && limits.contextTokens > 0;
+  const contextSlack = 128;
+  const answerRoom = () => Math.min(session.settings.maxTokens ?? 1024, 512) + contextSlack;
+  const contextLeft = () => (contextKnown ? limits.contextTokens - session.tokensOf(conversation) - answerRoom() : null);
+  // What a call may write: the model's own answer length within the run's tokens, and never more
+  // than the context still holds, or the room kept back is not kept. `cap` is which of the two
+  // was the smaller. Never below 64: a call that cannot write a sentence is not worth making.
+  const allowance = (floor) => {
+    const tokens = Math.max(floor, Math.min(session.settings.maxTokens ?? 1024, limits.tokens - tokensUsed()));
+    const room = contextKnown ? Math.max(64, limits.contextTokens - session.tokensOf(conversation) - contextSlack) : Infinity;
+    return room < tokens ? { maxTokens: room, cap: "context" } : { maxTokens: tokens, cap: "tokens" };
+  };
+  // An answer the server stopped at the tokens it was allowed (finish_reason "length") is kept as
+  // far as it got, and the run says which limit cut it.
+  const cutShort = async (asked, allowed) => {
+    if (asked.result.reason !== "length") return;
+    run.limitReached = true;
+    run.limitKind ??= allowed.cap;
+    await note("answer", `The answer was cut short at ${asked.maxTokens} tokens, ${allowed.cap === "context" ? "all the model's context still held" : "all this call was allowed"}: kept as far as it got.`);
+  };
   // The same call twice (M48.1): a model that asks again for an output it already has, and again,
   // until the context is spent. The second time it is pointed at the output; the third ends the run.
   const answered = new Map();
@@ -171,7 +193,9 @@ export async function act({
       if (byContext && run.limitKind === "context") await note("context", `The conversation is about ${session.tokensOf(conversation)} tokens of the model's ${limits.contextTokens}: answering with what it has.`);
       if (byRepeats && run.limitKind === "repeat") await note("repeat", "The model asked for the same tool output a third time: answering with what it has.");
     }
-    const final = lastStep && step > 0 && Boolean(conversation.tools);
+    // A first step is offered its tools whatever the limit, except when the prompt alone is already
+    // inside the answer's room: a tool's output then has nowhere to go, so it answers straight away.
+    const final = lastStep && (step > 0 || byContext) && Boolean(conversation.tools);
     if (final) {
       // Told at the end of the last tool round, so nothing before it changes.
       const last = conversation.messages.at(-1);
@@ -179,8 +203,9 @@ export async function act({
       else conversation.messages.push({ role: "user", content: answerNow(structured).trim() });
     }
     await beforeStep();
+    const allowed = allowance(64);
     const asked = await session.ask(conversation, {
-      maxTokens: maxTokens(64),
+      maxTokens: allowed.maxTokens,
       toolChoice: final ? "none" : "auto",
       ...(final && structured ? { extra: answerExtra } : {}),
       purpose: final ? "last answer" : "next step",
@@ -191,6 +216,7 @@ export async function act({
     await record(modelStep(asked, result.content, calls));
     if (!calls.length) {
       answer = stripToolMarkup(result.content) || null;
+      if (answer) await cutShort(asked, allowed);
       // Told to answer, a small model may ask for one more tool instead: as text, which leaves
       // nothing once the markup is taken out, or as a call the server parsed, which is dropped. That
       // was most "model stopped with an error" runs on the owner's server (2026-11): asked once
@@ -198,10 +224,12 @@ export async function act({
       if (!answer && final && !signal?.aborted) {
         conversation.messages.push({ role: "user", content: plainAnswerNote(structured) });
         await note("answer", "The model wrote no answer where one belonged: asked once more for the answer in words.");
-        const again = await session.ask(conversation, { maxTokens: maxTokens(64), toolChoice: "none", ...(structured ? { extra: answerExtra } : {}), purpose: "last answer, in words" });
+        const inWords = allowance(64);
+        const again = await session.ask(conversation, { maxTokens: inWords.maxTokens, toolChoice: "none", ...(structured ? { extra: answerExtra } : {}), purpose: "last answer, in words" });
         if (again) {
           await record(modelStep(again, again.result.content));
           answer = stripToolMarkup(again.result.content) || null;
+          if (answer) await cutShort(again, inWords);
         }
       }
       // A retry the day's or the run's time refused has already said why (budget, timeout).
@@ -224,18 +252,22 @@ export async function act({
       // Only an output it has, or a refusal that will not change, is "already asked": a tool that
       // failed (a timeout, a helper that did not answer) may be tried again.
       if (reply?.ok || reply?.flags?.refused || reply?.flags?.declined || reply?.flags?.limit || reply?.flags?.tainted) answered.set(key, { index: reply?.index ?? null });
-      // Clipped to what the model can read in the time, and to what the context still holds.
+      // Clipped to what the model can read in the time, and to what the context still holds. When
+      // that is nothing it is not shown at all, and the next step is the answer: 1,200 characters
+      // handed out regardless, to three outputs a step, is what overfilled the context.
       const room = contextLeft();
-      const chars = room === null ? session.readChars(pace.toolReadSeconds) : Math.min(session.readChars(pace.toolReadSeconds), Math.max(1_200, Math.floor(room * session.charsPerToken)));
-      conversation.messages.push({ role: "tool", tool_call_id: call.id, content: clipToolOutput(reply.content, chars) });
+      const chars = room === null ? session.readChars(pace.toolReadSeconds) : Math.min(session.readChars(pace.toolReadSeconds), Math.floor(room * session.charsPerToken));
+      conversation.messages.push({ role: "tool", tool_call_id: call.id, content: room !== null && room <= 0 ? noRoomNote : clipToolOutput(reply.content, chars) });
     }
   }
   // A structured answer that is not the host's JSON: the same prompt again, held to the JSON.
   if (answer && structured && readStructuredAnswer(answer, fields).problem && !run.degraded) {
-    const asked = await session.ask(conversation, { maxTokens: maxTokens(128), toolChoice: "none", extra: answerExtra, purpose: "JSON answer" });
+    const allowed = allowance(128);
+    const asked = await session.ask(conversation, { maxTokens: allowed.maxTokens, toolChoice: "none", extra: answerExtra, purpose: "JSON answer" });
     if (asked?.result?.content) {
       await record(modelStep(asked, asked.result.content));
       answer = stripToolMarkup(asked.result.content);
+      if (answer) await cutShort(asked, allowed);
     }
   }
   // Its scratch notes and any tool output it wrote itself are not its answer.

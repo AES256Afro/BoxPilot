@@ -115,9 +115,17 @@ describe("the other reads say their facts outright", () => {
     ];
     const text = describeApps(applications, [{ name: "portainer", image: "portainer/portainer-ce", state: "running", health: "none" }]);
     expect(text.split("\n")[0]).toBe("BoxPilot apps installed: 4. Running: 2. Stopped or not running: 2 (nextcloud, immich). Of those, stopped on purpose (by the owner, or never started): none; not running for another reason: nextcloud, immich. Unhealthy: jellyfin.");
-    expect(text).toMatch(/- nextcloud: stopped \(exited\), 2 restarts; container bp-nextcloud\. No stop is recorded in BoxPilot: it may have crashed, or been stopped outside BoxPilot\./);
-    expect(text).toMatch(/- immich: stopped \(no container\), 0 restarts; container bp-immich\./);
-    expect(text).toMatch(/- pi-hole: running, health healthy, 0 restarts, web port 8080; container bp-pi-hole\./);
+    // How a container is named is said once, with the first app listed as the example, and not again on each line.
+    expect(text.split("\n")[1]).toBe("Each app's container is named bp- followed by the app's id: nextcloud runs in bp-nextcloud.");
+    expect(text.match(/bp-/g)).toHaveLength(2);
+    // Restarts only for an app that has had some.
+    expect(text).toMatch(/- nextcloud: stopped \(exited\), 2 restarts\. No stop is recorded in BoxPilot: it may have crashed, or been stopped outside BoxPilot\./);
+    expect(text).toMatch(/^- immich: stopped \(no container\)\. No stop is recorded/m);
+    expect(text).toMatch(/^- pi-hole: running, health healthy, web port 8080\.$/m);
+    expect(text).toMatch(/^- jellyfin: running, health unhealthy, 3 restarts\.$/m);
+    expect(describeApps([{ id: "gitea", installed: true, container: { running: true, status: "running", restarts: 1 } }])).toMatch(/^- gitea: running, 1 restart\.$/m);
+    // Nothing installed: no list, so nothing to say about its names.
+    expect(describeApps([])).toBe("BoxPilot apps installed: 0. Running: 0. Stopped or not running: none. Unhealthy: none.");
     expect(describeApps([{ id: "home-assistant", name: "Home Assistant", installed: true, container: { running: true, status: "running" } }])).toMatch(/- home-assistant \(Home Assistant\): running/);
     expect(text).toMatch(/Other Docker containers, not installed by BoxPilot: portainer \(image portainer\/portainer-ce, running\)\./);
     expect(stoppedAppsOf(applications)).toEqual(["nextcloud", "immich"]);
@@ -139,13 +147,14 @@ describe("the other reads say their facts outright", () => {
     expect([stopReasonOf(applications[3], stops), stopReasonOf(applications[4], stops)]).toEqual([null, null]);
 
     const text = describeApps(applications, [], { stops });
-    const [summary, ...lines] = text.split("\n");
+    const [summary, naming, ...lines] = text.split("\n");
+    expect(naming).toBe("Each app's container is named bp- followed by the app's id: nextcloud runs in bp-nextcloud.");
     expect(summary).toBe("BoxPilot apps installed: 5. Running: 1. Stopped or not running: 4 (plex, qbittorrent, nextcloud, immich). Of those, stopped on purpose (by the owner, or never started): plex, qbittorrent; not running for another reason: nextcloud, immich. Unhealthy: none.");
     // Down for no recorded reason first, then the ones stopped on purpose, then the rest.
     expect(lines.map((line) => /^- ([a-z-]+)/.exec(line)?.[1])).toEqual(["nextcloud", "immich", "plex", "qbittorrent", "pi-hole"]);
-    expect(text).toMatch(/- plex: stopped \(exited\), 0 restarts; container bp-plex\. Stopped on purpose: the owner stopped it from BoxPilot on 2026-09-28; not a fault\./);
-    expect(text).toMatch(/- qbittorrent: stopped \(created\), 0 restarts; container bp-qbittorrent\. Stopped on purpose: never started since its container was made; not a fault\./);
-    expect(text).toMatch(/- immich: restarting, 9 restarts; container bp-immich\.$/m);
+    expect(text).toMatch(/- plex: stopped \(exited\)\. Stopped on purpose: the owner stopped it from BoxPilot on 2026-09-28; not a fault\./);
+    expect(text).toMatch(/- qbittorrent: stopped \(created\)\. Stopped on purpose: never started since its container was made; not a fault\./);
+    expect(text).toMatch(/- immich: restarting, 9 restarts\.$/m);
     // The evaluation's stopped apps are every app not running, on purpose or not.
     expect(stoppedAppsOf(applications)).toEqual(["plex", "qbittorrent", "nextcloud", "immich"]);
     // Without a record (an older server), nothing is called on purpose but a container never started.

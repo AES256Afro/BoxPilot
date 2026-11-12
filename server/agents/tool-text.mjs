@@ -342,6 +342,10 @@ export function failedServicesOf(units) {
  * record of the apps the owner stopped (M44): such an app, or one never started, is said to be
  * stopped on purpose, apart from the ones down for no recorded reason, so a survey does not call
  * the owner's choice a problem.
+ *
+ * How a container's name follows from the app's id is said once, above the list, and restarts only
+ * for an app that has had some (M66): "0 restarts; container bp-<id>." on each of 25 lines was 247
+ * of the 872 tokens a small model read, slowly, on every call after it.
  */
 export function describeApps(applications, others = [], { stops = {} } = {}) {
   const lines = [];
@@ -356,6 +360,8 @@ export function describeApps(applications, others = [], { stops = {} } = {}) {
     lines.push(`BoxPilot apps installed: ${installed.length}. Running: ${installed.length - stopped.length}. Stopped or not running: ${stopped.length ? `${stopped.length} (${stopped.map((app) => app.id).join(", ")})` : "none"}.${split} Unhealthy: ${sick.length ? sick.map((app) => app.id).join(", ") : "none"}.`);
     // The ones to look at first: down for no recorded reason, then unhealthy, then stopped on purpose, then the rest.
     const ordered = [...down, ...sick.filter((app) => !stopped.includes(app)), ...purposeful, ...installed.filter((app) => !stopped.includes(app) && !sick.includes(app))];
+    // With the first app as the example: a small model follows one it can copy.
+    if (ordered.length) lines.push(`Each app's container is named bp- followed by the app's id: ${ordered[0].id} runs in bp-${ordered[0].id}.`);
     for (const app of ordered.slice(0, 40)) {
       const container = app.container ?? {};
       const reason = reasons.get(app.id) ?? null;
@@ -365,14 +371,15 @@ export function describeApps(applications, others = [], { stops = {} } = {}) {
           : reason?.kind === "unknown" ? " No stop is recorded in BoxPilot: it may have crashed, or been stopped outside BoxPilot." : "";
       const parts = [appRunState(app)];
       if (container.health && container.health !== "none") parts.push(`health ${container.health}`);
-      parts.push(`${Number(container.restarts) || 0} restarts`);
+      const restarts = Number(container.restarts) || 0;
+      if (restarts > 0) parts.push(`${restarts} ${restarts === 1 ? "restart" : "restarts"}`);
       const helpers = (app.sidecars ?? []).filter((sidecar) => !sidecar.running);
       if (helpers.length) parts.push(`helper containers not running: ${helpers.map((sidecar) => sidecar.id).join(", ")}`);
       const ports = (app.urls ?? []).map((url) => url.host).filter((port) => Number.isInteger(port));
       if (ports.length) parts.push(`web port ${ports.join(", ")}`);
       if (app.updateAvailable) parts.push("update available");
       if ((app.folderProblems ?? []).length) parts.push(`${app.folderProblems.length} data folder(s) it cannot write to`);
-      lines.push(`- ${app.id}${app.name && app.name.toLowerCase() !== app.id ? ` (${app.name})` : ""}: ${parts.join(", ")}; container bp-${app.id}.${why}`);
+      lines.push(`- ${app.id}${app.name && app.name.toLowerCase() !== app.id ? ` (${app.name})` : ""}: ${parts.join(", ")}.${why}`);
     }
     if (installed.length > 40) lines.push(`(${installed.length - 40} more not shown.)`);
   } else {

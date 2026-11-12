@@ -430,7 +430,7 @@ describe("the Environment Scout's weekly survey on a busy server (M44)", () => {
     // What apps.list said of Plex: stopped on purpose, with its date, apart from the apps down.
     const apps = run.steps.find((step) => step.name === "apps.list").output;
     expect(apps).toMatch(/Of those, stopped on purpose \(by the owner, or never started\): plex; not running for another reason: none\./);
-    expect(apps).toMatch(/- plex: stopped \(exited\), 0 restarts; container bp-plex\. Stopped on purpose: the owner stopped it from BoxPilot on 2026-09-20; not a fault\./);
+    expect(apps).toMatch(/- plex: stopped \(exited\)\. Stopped on purpose: the owner stopped it from BoxPilot on 2026-09-20; not a fault\./);
     // And the survey is the Scout's finding, fresh for the week until the next one.
     const [finding] = h.store.listFindings({ agentId: scout.id });
     expect(finding).toMatchObject({ finding: "routine", source: { runId: run.id, partial: false } });

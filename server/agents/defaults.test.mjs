@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
 import { agentsMigrationsKey } from "./service.mjs";
 import { budgetCeilings, normalizeSpec } from "./spec.mjs";
+import { templateById } from "./templates.mjs";
 
 let h;
 afterEach(async () => { await h?.close(); h = null; });
@@ -63,6 +64,33 @@ describe("the longest run's default", () => {
     expect(raised.versions[0]).toMatchObject({ note: "BoxPilot gave it more room: more steps, tokens and time for each run", createdBy: null });
     expect(h.store.getAgent(cut.id).spec.budget).toMatchObject({ modelSecondsPerDay: 300, stepsPerRun: 3, tokensPerRun: 5_000, runSeconds: 200 });
     expect(h.state.getSetting(agentsMigrationsKey)).toMatchObject({ headroom: { raised: 1 } });
+    expect(h.service.migrateDefaults()).toBe(0);
+  });
+
+  it("rewords a Keeper's and a Scout's lines still in the template's old words, once, and leaves a line the maker wrote (M66)", async () => {
+    h = await createAgentsHarness();
+    const owner = h.caller("owner");
+    const keeper = h.service.createAgent(owner, { template: "server-keeper" });
+    const scout = h.service.createAgent(owner, { template: "environment-scout" });
+    const own = h.service.createAgent(owner, { template: "server-keeper" });
+    const oldStep = "Check memory.search for what you learned before; say when a note may be out of date.";
+    const oldRules = [
+      "Asked about the firewall or Repair alone, read firewall.status or repair.findings for it; the weekly survey reads both.",
+      "Open ports, SSH settings and waiting system package updates no tool of yours sees: name them under Not checked, with the page to open (Updates).",
+      "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed, firewall.status for the firewall, repair.findings for what Repair found.",
+    ];
+    const withPrompt = (id, change) => { const spec = h.store.getAgent(id).spec; h.service.updateAgent(owner, id, { spec: { ...spec, prompt: change(spec.prompt) } }); };
+    withPrompt(keeper.id, (prompt) => ({ ...prompt, steps: prompt.steps.map((step) => (step.startsWith("Your notes and what you remember") ? oldStep : step)) }));
+    withPrompt(scout.id, (prompt) => ({ ...prompt, rules: [...prompt.rules.filter((rule) => !rule.startsWith("Asked about the firewall or Repair alone") && !rule.startsWith("firewall.status lists the ports")), ...oldRules] }));
+    withPrompt(own.id, (prompt) => ({ ...prompt, steps: prompt.steps.map((step) => (step.startsWith("Your notes and what you remember") ? "Search my memory my own way." : step)) }));
+    h.state.setSetting(agentsMigrationsKey, { runSeconds: {}, sharing: {}, examples: {}, eyes: {}, surveyWide: {}, eyesMore: {}, headroom: {} }, { updatedBy: null });
+    expect(h.service.migrateDefaults()).toBe(2);
+    expect(h.store.getAgent(keeper.id).spec.prompt.steps).toEqual(templateById("server-keeper").spec.prompt.steps);
+    const rules = h.store.getAgent(scout.id).spec.prompt.rules;
+    expect([...rules].sort()).toEqual([...templateById("environment-scout").spec.prompt.rules].sort());
+    expect(rules.some((rule) => oldRules.includes(rule))).toBe(false);
+    expect(h.store.getAgent(own.id).spec.prompt.steps).toContain("Search my memory my own way.");
+    expect(h.service.getAgent(owner, keeper.id).versions[0]).toMatchObject({ note: "BoxPilot reworded its steps and rules for what it is already shown and what its tools read", createdBy: null });
     expect(h.service.migrateDefaults()).toBe(0);
   });
 });

@@ -16,7 +16,6 @@ describe("the planner's request", () => {
       thread: { summary: "They asked about Jellyfin earlier.", turns: [{ role: "user", text: "Is Jellyfin up?" }, { role: "assistant", text: "Yes." }] },
     });
     expect(text).toBe([
-      "Now: 2026-10-12T10:00:00.000Z",
       "A person asked you the question below. Answer it.",
       "What happened: Asked in Zulip",
       "Earlier, in short: They asked about Jellyfin earlier.",
@@ -28,10 +27,15 @@ describe("the planner's request", () => {
       "What other agents found recently, by title (each is in full when you act; cite it as its F number):",
       "- F1: Backups that restore (Backup Auditor's finding)",
       "- F2: Drives",
+      "",
+      "Now: 2026-10-12T10:00Z",
     ].join("\n"));
     expect(text).not.toMatch(/Vaultwarden|<finding|<agent_note|Is Jellyfin up/);
-    // A scheduled run: its trigger, no question.
-    expect(plannerTaskMessage({ kind: "schedule", trigger: { title: "Its schedule" }, now: new Date("2026-10-12T05:30:00Z") })).toMatch(/^Now: 2026-10-12T05:30:00\.000Z\n.+\nWhat happened: Its schedule$/);
+    // A scheduled run: its trigger, no question. The time is the last line, to the minute (M66):
+    // said first, with its milliseconds, it kept the model server from reusing anything after it.
+    const scheduled = (at) => plannerTaskMessage({ kind: "schedule", trigger: { title: "Its schedule" }, now: new Date(at) });
+    expect(scheduled("2026-10-12T05:30:41.123Z")).toMatch(/^[^\n]+\nWhat happened: Its schedule\n\nNow: 2026-10-12T05:30Z$/);
+    expect(scheduled("2026-10-12T05:30:59.999Z")).toBe(scheduled("2026-10-12T05:30:00Z"));
   });
 
   it("is what the planner is sent, while the acting calls still read the notes and the findings in full", async () => {
