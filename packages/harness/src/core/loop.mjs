@@ -41,6 +41,9 @@ export function answerNowNote(structured = false) {
   return `\n\nThis run has no tool calls left. Answer now with what you have${structured ? ", as the JSON fields" : ""}. Do not call more tools.`;
 }
 
+/** What a model is told when its last answer was a tool call written out as text. */
+const plainAnswerNote = (structured = false) => `Tools are finished for this run. Write your answer now${structured ? ", as the JSON fields" : " in plain sentences"}, from the outputs above.`;
+
 /** A model's turn as the trace keeps it. */
 export const modelStep = (asked, text, toolCalls = []) => ({ kind: "model", name: asked.model?.model ?? null, text, toolCalls, durationMs: asked.took, tokensIn: asked.result.usage?.promptTokens, tokensOut: asked.result.usage?.completionTokens });
 
@@ -114,7 +117,7 @@ export async function checkAnswer({ session, draft, sources, structured = false,
  *   session: ReturnType<typeof import("./session.mjs").createModelSession>,
  *   run: { degraded: string | null, limitReached: boolean, limitKind?: string | null },
  *   conversation: import("./session.mjs").Conversation,
- *   callTool: (call: { id: string, name: string, arguments: string }) => Promise<{ content: string, index?: number | null }>,
+ *   callTool: (call: { id: string, name: string, arguments: string }) => Promise<{ content: string, index?: number | null, ok?: boolean, flags?: { refused?: boolean, declined?: boolean, limit?: boolean, tainted?: unknown } | null }>,
  *   sources: () => Array<{ id: string, title?: string, text: string }>,
  *   record: (step: object) => Promise<unknown>,
  *   note: (name: string, detail: string, state?: string) => Promise<unknown>,
@@ -163,7 +166,8 @@ export async function act({
     // tool asked for again and again.
     if (lastStep) {
       run.limitReached = true;
-      run.limitKind ??= step === limits.steps - 1 ? "steps" : toolCalls >= limits.maxToolCalls ? "toolCalls" : byTokens ? "tokens" : byContext ? "context" : "repeat";
+      // The context first: a run on its last step that is also out of room needs room, not steps.
+      run.limitKind ??= byContext ? "context" : step === limits.steps - 1 ? "steps" : toolCalls >= limits.maxToolCalls ? "toolCalls" : byTokens ? "tokens" : "repeat";
       if (byContext && run.limitKind === "context") await note("context", `The conversation is about ${session.tokensOf(conversation)} tokens of the model's ${limits.contextTokens}: answering with what it has.`);
       if (byRepeats && run.limitKind === "repeat") await note("repeat", "The model asked for the same tool output a third time: answering with what it has.");
     }
@@ -185,7 +189,25 @@ export async function act({
     const { result } = asked;
     const calls = final ? [] : (result.toolCalls ?? []).slice(0, limits.toolCallsPerStep ?? 3);
     await record(modelStep(asked, result.content, calls));
-    if (!calls.length) { answer = stripToolMarkup(result.content) || null; if (!answer) run.degraded = "model-error"; break; }
+    if (!calls.length) {
+      answer = stripToolMarkup(result.content) || null;
+      // Told to answer, a small model may ask for one more tool instead: as text, which leaves
+      // nothing once the markup is taken out, or as a call the server parsed, which is dropped. That
+      // was most "model stopped with an error" runs on the owner's server (2026-11): asked once
+      // more, in plain words, before the run gives up.
+      if (!answer && final && !signal?.aborted) {
+        conversation.messages.push({ role: "user", content: plainAnswerNote(structured) });
+        await note("answer", "The model wrote no answer where one belonged: asked once more for the answer in words.");
+        const again = await session.ask(conversation, { maxTokens: maxTokens(64), toolChoice: "none", ...(structured ? { extra: answerExtra } : {}), purpose: "last answer, in words" });
+        if (again) {
+          await record(modelStep(again, again.result.content));
+          answer = stripToolMarkup(again.result.content) || null;
+        }
+      }
+      // A retry the day's or the run's time refused has already said why (budget, timeout).
+      if (!answer) run.degraded ??= "model-error";
+      break;
+    }
     conversation.messages.push(assistantTurn(result, calls));
     for (const call of calls) {
       if (signal?.aborted) break;
@@ -199,7 +221,9 @@ export async function act({
       }
       toolCalls += 1;
       const reply = await callTool(call);
-      answered.set(key, { index: reply?.index ?? null });
+      // Only an output it has, or a refusal that will not change, is "already asked": a tool that
+      // failed (a timeout, a helper that did not answer) may be tried again.
+      if (reply?.ok || reply?.flags?.refused || reply?.flags?.declined || reply?.flags?.limit || reply?.flags?.tainted) answered.set(key, { index: reply?.index ?? null });
       // Clipped to what the model can read in the time, and to what the context still holds.
       const room = contextLeft();
       const chars = room === null ? session.readChars(pace.toolReadSeconds) : Math.min(session.readChars(pace.toolReadSeconds), Math.max(1_200, Math.floor(room * session.charsPerToken)));

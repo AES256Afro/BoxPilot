@@ -59,10 +59,10 @@ const fieldNamePattern = /^[a-z][A-Za-z0-9_]{0,31}$/;
  */
 export const budgetCeilings = Object.freeze({
   runsPerDay: { min: 1, max: 200, default: 12 },
-  modelSecondsPerDay: { min: 10, max: 7_200, default: 1_800 },
-  stepsPerRun: { min: 1, max: 12, default: 6 },
-  tokensPerRun: { min: 500, max: 32_000, default: 12_000 },
-  runSeconds: { min: 30, max: 1_800, default: 900 },
+  modelSecondsPerDay: { min: 10, max: 21_600, default: 3_600 },
+  stepsPerRun: { min: 1, max: 20, default: 8 },
+  tokensPerRun: { min: 500, max: 96_000, default: 24_000 },
+  runSeconds: { min: 30, max: 3_600, default: 900 },
 });
 
 /** The longest run's default before 15 minutes: an agent saved with it is moved to the new one. */

@@ -205,7 +205,8 @@ describe("the templates and the evaluation", () => {
       const after = h.store.getAgent(edited.id).spec;
       expect(after.tools["space.reclaimable"]).toBe("auto");
       expect(after.prompt.steps).toEqual(ownSteps);
-      expect(after.budget).toMatchObject({ modelSecondsPerDay: 600, stepsPerRun: 7, tokensPerRun: 10_000, runSeconds: 480 });
+      // M65 then gives the two BoxPilot had raised the template's new room; the cut it left stays cut.
+      expect(after.budget).toMatchObject({ modelSecondsPerDay: 600, stepsPerRun: 9, tokensPerRun: 20_000, runSeconds: 480 });
     } finally {
       await h.close();
     }

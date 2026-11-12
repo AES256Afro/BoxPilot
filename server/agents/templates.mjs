@@ -65,7 +65,7 @@ export const agentTemplates = Object.freeze([
       // agent - its notes, what it recalls, the others' findings, four tools - so 15 minutes and
       // 12,000 tokens cut it short ("It ran out of time before it finished"). An agent made before
       // keeps its own budget: raise it on the agent's Build tab, under Guardrails.
-      budget: { runsPerDay: 24, modelSecondsPerDay: 3_600, stepsPerRun: 6, tokensPerRun: 20_000, runSeconds: 1_200 },
+      budget: { runsPerDay: 24, modelSecondsPerDay: 5_400, stepsPerRun: 10, tokensPerRun: 40_000, runSeconds: 1_500 },
       outputs: { notes: true, digest: true, notify: "important", proposals: true },
       memory: { enabled: true, freshDays: 14, maxNotes: 80, share: true, threads: true, turns: 6 },
       sharing: { shareFindings: true, useFindings: true },
@@ -128,7 +128,7 @@ export const agentTemplates = Object.freeze([
       // give) leave two to spare, 32,000 tokens hold all seven outputs, and 25 minutes hold it at
       // the background's four threads. 3,000 s a day hold a survey, its nightly evaluation (eight
       // questions) and a question or two.
-      budget: { runsPerDay: 4, modelSecondsPerDay: 3_000, stepsPerRun: 12, tokensPerRun: 32_000, runSeconds: 1_500 },
+      budget: { runsPerDay: 4, modelSecondsPerDay: 4_500, stepsPerRun: 16, tokensPerRun: 64_000, runSeconds: 2_400 },
       // It keeps no notes: each survey is remembered as it ran, the next one recalls it, and the
       // other agents read it as its finding (M44).
       outputs: { notes: false, digest: false, notify: "never", proposals: true },
@@ -160,7 +160,7 @@ export const agentTemplates = Object.freeze([
       audience: ["owner", "operator"],
       tools: { ...off, ...exact, "pihole.stats": "auto", "where.runs": "auto", "alerts.active": "auto", "docs.search": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "plan.propose": "auto", "notify.owner": "auto" },
       triggers: { ask: true, schedule: { every: "every-6-hours", minute: 17, quietHours: false }, events: [] },
-      budget: { runsPerDay: 8, modelSecondsPerDay: 600, stepsPerRun: 4, tokensPerRun: 6_000, runSeconds: 300 },
+      budget: { runsPerDay: 8, modelSecondsPerDay: 900, stepsPerRun: 6, tokensPerRun: 12_000, runSeconds: 300 },
       outputs: { notes: true, digest: false, notify: "important", proposals: true },
       memory: { enabled: true, freshDays: 7, maxNotes: 20, share: true },
       allow: { apps: "*", operations: ["app.action", "app.update"] },
@@ -205,7 +205,7 @@ export const agentTemplates = Object.freeze([
       tools: { ...off, ...exact, "theyspy.status": "auto", "alerts.active": "auto", "memory.search": "auto", "notes.read": "auto", "notes.write": "auto", "notify.owner": "auto" },
       // Every morning, before the house is up, and whenever the owner asks.
       triggers: { ask: true, schedule: { every: "daily", hour: 7, minute: 10, quietHours: false }, events: [] },
-      budget: { runsPerDay: 4, modelSecondsPerDay: 900, stepsPerRun: 4, tokensPerRun: 10_000, runSeconds: 300 },
+      budget: { runsPerDay: 4, modelSecondsPerDay: 1_350, stepsPerRun: 6, tokensPerRun: 20_000, runSeconds: 300 },
       outputs: { notes: true, digest: false, notify: "important", proposals: false },
       memory: { enabled: true, freshDays: 14, maxNotes: 10, share: true },
       sharing: { shareFindings: true, useFindings: true },
@@ -241,7 +241,7 @@ export const agentTemplates = Object.freeze([
       // with half the day left for people, so at 600 its nightly evaluation was always skipped.
       // M47.6: four reads, a note and the answer are six steps; coverage lists every app, so 12,000
       // tokens; a fifth golden question, so 1,500 s a day.
-      budget: { runsPerDay: 6, modelSecondsPerDay: 1_500, stepsPerRun: 7, tokensPerRun: 12_000, runSeconds: 600 },
+      budget: { runsPerDay: 6, modelSecondsPerDay: 2_250, stepsPerRun: 9, tokensPerRun: 24_000, runSeconds: 600 },
       outputs: { notes: true, digest: false, notify: "important", proposals: true },
       memory: { enabled: true, freshDays: 14, maxNotes: 40, share: true },
       allow: { apps: "*", operations: ["app.backup", "app.backup.many", "backup.sync", "backup.remote.sync", "backup.cloud.sync"] },
@@ -285,7 +285,7 @@ export const agentTemplates = Object.freeze([
       // A daily look in quiet hours, and straight away when a health alert is raised (an unhealthy or
       // crash-looping container is one) or a job fails (an update or an install).
       triggers: { ask: true, schedule: { every: "daily", hour: 4, minute: 10, quietHours: true }, events: ["health.alert", "job.failed"] },
-      budget: { runsPerDay: 8, modelSecondsPerDay: 1_800, stepsPerRun: 8, tokensPerRun: 12_000, runSeconds: 900 },
+      budget: { runsPerDay: 8, modelSecondsPerDay: 2_700, stepsPerRun: 10, tokensPerRun: 24_000, runSeconds: 900 },
       // No notes of its own: its runs are remembered, so it recalls an app that was in trouble before.
       outputs: { notes: false, digest: false, notify: "never", proposals: true },
       memory: { enabled: true, freshDays: 7, maxNotes: 10 },
@@ -328,7 +328,7 @@ export const agentTemplates = Object.freeze([
       // One cheap read a night makes the trend; a dropped drive starts it at once.
       triggers: { ask: true, schedule: { every: "daily", hour: 2, minute: 50, quietHours: true }, events: ["drive.dropped"] },
       // M47.6: a step for the clean-up's read when a filesystem is filling, and its lines in the tokens.
-      budget: { runsPerDay: 4, modelSecondsPerDay: 1_200, stepsPerRun: 7, tokensPerRun: 10_000, runSeconds: 480 },
+      budget: { runsPerDay: 4, modelSecondsPerDay: 1_800, stepsPerRun: 9, tokensPerRun: 20_000, runSeconds: 480 },
       outputs: { notes: true, digest: false, notify: "important", proposals: true },
       memory: { enabled: true, freshDays: 30, maxNotes: 10, share: true },
       allow: { apps: "*", operations: ["docker.prune", "housekeeping.reclaim", "storage.check", "storage.lvm.extend", "storage.remount"] },
@@ -369,7 +369,7 @@ export const agentTemplates = Object.freeze([
       // Friday before dawn, so the plan is waiting for the weekend.
       triggers: { ask: true, schedule: { every: "weekly", weekday: 5, hour: 3, minute: 30, quietHours: true }, events: [] },
       // M47.6: a sixth golden question (the reboot), so 1,800 s a day keeps half for people.
-      budget: { runsPerDay: 4, modelSecondsPerDay: 1_800, stepsPerRun: 8, tokensPerRun: 12_000, runSeconds: 900 },
+      budget: { runsPerDay: 4, modelSecondsPerDay: 2_700, stepsPerRun: 10, tokensPerRun: 24_000, runSeconds: 900 },
       // No notes of its own: last week's plan is remembered as it ran.
       outputs: { notes: false, digest: false, notify: "never", proposals: true },
       memory: { enabled: true, freshDays: 14, maxNotes: 10 },
@@ -397,7 +397,7 @@ export const agentTemplates = Object.freeze([
       triggers: { ask: true, schedule: null, events: [] },
       // 1,800 s, not 1,200: its seven evaluation questions need 1,680 s with half the day left for
       // people, so at 1,200 its nightly evaluation was always skipped (M43).
-      budget: { runsPerDay: 60, modelSecondsPerDay: 1_800, stepsPerRun: 4, tokensPerRun: 8_000, runSeconds: 300 },
+      budget: { runsPerDay: 60, modelSecondsPerDay: 2_700, stepsPerRun: 6, tokensPerRun: 16_000, runSeconds: 300 },
       outputs: { notes: false, digest: false, notify: "never", proposals: false },
       memory: { enabled: false, freshDays: 14, maxNotes: 1, threads: true },
       // It answers people: it uses what the other agents found, as far as the person asking may read,
@@ -449,7 +449,7 @@ export const agentTemplates = Object.freeze([
       tools: { ...off, "firewall.status": "auto", "protection.status": "auto", "users.access": "auto", "tunnel.exposure": "auto", "apps.list": "auto", "services.status": "auto", "updates.status": "auto", "docs.search": "auto", "plan.propose": "auto", "notify.owner": "auto" },
       // A review reads five tools: once a week, early on Monday in quiet hours, after the Scout's Sunday survey, and whenever the owner asks.
       triggers: { ask: true, schedule: { every: "weekly", weekday: 1, hour: 4, minute: 40, quietHours: true }, events: [] },
-      budget: { runsPerDay: 4, modelSecondsPerDay: 2_400, stepsPerRun: 10, tokensPerRun: 24_000, runSeconds: 1_200 },
+      budget: { runsPerDay: 4, modelSecondsPerDay: 3_600, stepsPerRun: 12, tokensPerRun: 48_000, runSeconds: 1_200 },
       outputs: { notes: false, digest: false, notify: "never", proposals: true },
       memory: { enabled: true, freshDays: 21, maxNotes: 10 },
       sharing: { shareFindings: true, useFindings: true },
@@ -496,7 +496,7 @@ export const agentTemplates = Object.freeze([
       triggers: { ask: true, schedule: { every: "daily", hour: 19, minute: 40, quietHours: false }, events: ["health.alert"] },
       // Two reads, a note and the answer. 20,000 tokens, not 10,000: its first evening on the owner's
       // server (18 apps) ran out at 18,800 (M48.6). Its three evaluation questions in 1,200 s a day.
-      budget: { runsPerDay: 4, modelSecondsPerDay: 1_200, stepsPerRun: 6, tokensPerRun: 20_000, runSeconds: 600 },
+      budget: { runsPerDay: 4, modelSecondsPerDay: 1_800, stepsPerRun: 8, tokensPerRun: 32_000, runSeconds: 900 },
       outputs: { notes: true, digest: false, notify: "important", proposals: true },
       memory: { enabled: true, freshDays: 14, maxNotes: 10, share: true },
       sharing: { shareFindings: true, useFindings: true },
@@ -538,7 +538,7 @@ export const agentTemplates = Object.freeze([
       // Only tools a viewer may use: anyone the owner adds may ask it.
       tools: { ...off, "server.facts": "auto", "apps.list": "auto", "where.runs": "auto", "docs.search": "auto", "document.read": "auto" },
       triggers: { ask: true, schedule: null, events: [] },
-      budget: { runsPerDay: 60, modelSecondsPerDay: 1_800, stepsPerRun: 4, tokensPerRun: 8_000, runSeconds: 300 },
+      budget: { runsPerDay: 60, modelSecondsPerDay: 2_700, stepsPerRun: 6, tokensPerRun: 16_000, runSeconds: 300 },
       outputs: { notes: false, digest: false, notify: "never", proposals: false },
       memory: { enabled: false, freshDays: 14, maxNotes: 1, threads: true },
       sharing: { shareFindings: false, useFindings: true },

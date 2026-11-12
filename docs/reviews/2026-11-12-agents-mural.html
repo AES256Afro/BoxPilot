@@ -1,0 +1,318 @@
+<title>Agents Headroom Mural</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,500..900&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: a load chart read top to bottom. A ruler runs down the hero (the context window, to scale); then the evidence as one square per run; then what was raised, drawn before against after; then four wall panels (done, next, planned, suggested), the model bench, and a milestone track. Square corners throughout. */
+:root {
+  --ground: #e8ecee; --ink: #13202a; --soft: #4d5d68; --rule: rgba(19,32,42,.18); --panel: #f4f6f7;
+  --signal: #d9480f; --done: #0b7a75; --plan: #a67c00; --next: #2c5fb3; --idea: #7a3e9d;
+  --mark: #f2c200; --on-band: #ffffff; --hatch: rgba(19,32,42,.28);
+  --display: "Archivo", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --body: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ground: #0e171d; --ink: #e9eef1; --soft: #9aabb6; --rule: rgba(233,238,241,.18); --panel: #15212a; --signal: #ff7a3d; --done: #35b8b0; --plan: #e0b030; --next: #6f9fe8; --idea: #b98ad6; --mark: #f2c200; --on-band: #0e171d; --hatch: rgba(233,238,241,.3); color-scheme: dark } }
+:root[data-theme="dark"] { --ground: #0e171d; --ink: #e9eef1; --soft: #9aabb6; --rule: rgba(233,238,241,.18); --panel: #15212a; --signal: #ff7a3d; --done: #35b8b0; --plan: #e0b030; --next: #6f9fe8; --idea: #b98ad6; --mark: #f2c200; --on-band: #0e171d; --hatch: rgba(233,238,241,.3); color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--ground); color: var(--ink); font: 15px/1.55 var(--body); padding-block: 28px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+.wall { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px }
+h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance }
+h2 { font-size: clamp(24px, 3.4vw, 34px); font-weight: 800; font-stretch: 112%; letter-spacing: -.01em; line-height: 1.05 }
+h3 { font-size: 15px; font-weight: 700; font-stretch: 105% }
+p { margin: 0 }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums }
+.eyebrow { font: 600 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--soft) }
+.sec-head { display: flex; flex-direction: column; gap: 8px; border-top: 4px solid var(--ink); padding-top: 14px }
+.sec-head p { color: var(--soft); max-width: 68ch }
+
+/* Hero */
+.hero { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 0 24px }
+.ruler { position: relative; border-right: 3px solid var(--ink); min-height: 320px; background: repeating-linear-gradient(to bottom, var(--ink) 0 1px, transparent 1px 12.5%) right / 14px 100% no-repeat, repeating-linear-gradient(to bottom, var(--ink) 0 1px, transparent 1px 3.125%) right / 7px 100% no-repeat }
+.ruler span { position: absolute; right: 20px; font: 500 10.5px var(--mono); color: var(--soft); transform: translateY(-50%); white-space: nowrap }
+.ruler .fill { position: absolute; right: -3px; width: 9px; bottom: 0; background: var(--signal) }
+.ruler .fill.ok { background: var(--done); width: 9px; right: -12px }
+.hero-main { display: flex; flex-direction: column; gap: 22px; min-width: 0 }
+h1 { font-size: clamp(40px, 7.4vw, 88px); font-weight: 900; font-stretch: 122%; line-height: .92; letter-spacing: -.035em }
+h1 em { font-style: normal; color: var(--signal) }
+.lede { font-size: 17px; color: var(--soft); max-width: 62ch }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule) }
+.stats div { padding: 14px 14px 14px 0; min-width: 0 }
+.stats div + div { border-left: 1px solid var(--rule); padding-left: 14px }
+.stats b { display: block; font: 800 clamp(26px, 4vw, 42px)/1 var(--display); font-stretch: 110%; font-variant-numeric: tabular-nums }
+.stats span { display: block; margin-top: 6px; font-size: 12.5px; line-height: 1.35; color: var(--soft) }
+@media (max-width: 620px) { .hero { grid-template-columns: minmax(0, 1fr) } .ruler { display: none } .stats { grid-template-columns: repeat(2, minmax(0, 1fr)) } .stats div:nth-child(3) { border-left: 0; padding-left: 0 } .stats div:nth-child(n+3) { border-top: 1px solid var(--rule) } }
+
+/* Evidence: one square per run */
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px }
+@media (max-width: 760px) { .fields { grid-template-columns: minmax(0, 1fr) } }
+.field { display: flex; flex-direction: column; gap: 10px; min-width: 0 }
+.field-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap }
+.field-top b { font: 800 22px var(--display); font-stretch: 110% }
+.field-top span { font: 500 12.5px var(--mono); color: var(--soft) }
+.dots { display: grid; grid-template-columns: repeat(auto-fill, 9px); gap: 2px }
+.dots i { width: 9px; height: 9px; background: var(--hatch) }
+.dots i.bad { background: var(--signal) }
+.big { font: 900 clamp(34px, 5vw, 56px)/1 var(--display); font-stretch: 115%; font-variant-numeric: tabular-nums }
+.big small { font: 500 13px var(--body); color: var(--soft); margin-left: 8px }
+.bad-t { color: var(--signal) } .ok-t { color: var(--done) }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--soft) }
+.legend i { display: inline-block; width: 9px; height: 9px; margin-right: 6px; background: var(--hatch) } .legend i.bad { background: var(--signal) }
+.why { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--rule) }
+.why div { padding: 14px 16px; min-width: 0 } .why div + div { border-left: 1px solid var(--rule) }
+.why b { font: 800 26px var(--display); font-variant-numeric: tabular-nums; display: block }
+.why span { font-size: 13px; color: var(--soft) }
+@media (max-width: 620px) { .why { grid-template-columns: minmax(0, 1fr) } .why div + div { border-left: 0; border-top: 1px solid var(--rule) } }
+
+/* Before against after */
+.bars { display: flex; flex-direction: column; border-top: 1px solid var(--rule) }
+.bar { display: grid; grid-template-columns: minmax(0, 210px) minmax(0, 1fr) minmax(0, 150px); gap: 16px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--rule) }
+.bar .what { font-weight: 600 } .bar .what small { display: block; font-weight: 400; font-size: 12.5px; color: var(--soft) }
+.track { height: 22px; background: var(--done); position: relative; min-width: 0 }
+.track u { position: absolute; inset: 0 auto 0 0; background: var(--ground); background-image: repeating-linear-gradient(135deg, var(--hatch) 0 2px, transparent 2px 6px); border-right: 2px solid var(--ink); text-decoration: none }
+.bar .nums { font: 500 13px var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap }
+.bar .nums b { color: var(--done) }
+@media (max-width: 620px) { .bar { grid-template-columns: minmax(0, 1fr) minmax(0, auto); } .bar .track { grid-column: 1 / -1; order: 3 } }
+
+/* Wall panels */
+.panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px }
+@media (max-width: 760px) { .panels { grid-template-columns: minmax(0, 1fr) } }
+.panel { background: var(--panel); border: 1px solid var(--rule); display: flex; flex-direction: column; min-width: 0 }
+.band { padding: 10px 16px; color: var(--on-band); display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap }
+.band b { font: 800 18px var(--display); font-stretch: 112%; letter-spacing: .01em; text-transform: uppercase }
+.band span { font: 500 12px var(--mono) }
+.b-done { background: var(--done) } .b-next { background: var(--next) } .b-plan { background: var(--plan) } .b-idea { background: var(--idea) }
+.panel ul { list-style: none; margin: 0; padding: 6px 16px 12px; display: flex; flex-direction: column }
+.panel li { padding: 10px 0; border-bottom: 1px solid var(--rule); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px }
+.panel li:last-child { border-bottom: 0 }
+.panel li b { font-weight: 600 } .panel li p { grid-column: 1 / -1; font-size: 13.5px; color: var(--soft) }
+.tag { font: 500 11px var(--mono); border: 1px solid var(--rule); padding: 1px 6px; align-self: start; white-space: nowrap; color: var(--soft) }
+
+/* Table */
+.scroll { overflow-x: auto }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px }
+th { text-align: left; font: 600 11.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--soft); padding: 8px 12px 8px 0; border-bottom: 2px solid var(--ink) }
+td { padding: 11px 12px 11px 0; border-bottom: 1px solid var(--rule); vertical-align: top }
+td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap }
+td small { color: var(--soft); display: block; font-size: 12.5px }
+.verdict { border-left: 6px solid var(--mark); padding: 4px 0 4px 16px; max-width: 74ch }
+.verdict b { font-weight: 600 }
+
+/* Sketches of the page changes */
+.sketches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px }
+@media (max-width: 760px) { .sketches { grid-template-columns: minmax(0, 1fr) } }
+.sketch { border: 1px solid var(--ink); background: var(--panel); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0 }
+.sketch .cap { font: 500 11.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--soft) }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap }
+.strip { display: flex; gap: 2px } .strip i { width: 10px; height: 18px; background: var(--done) } .strip i.l { background: var(--mark) } .strip i.f { background: var(--signal) }
+.btn { font: 600 13px var(--body); border: 2px solid var(--ink); padding: 6px 12px; background: var(--ink); color: var(--ground) } .btn.ghost { background: transparent; color: var(--ink) }
+.meter { height: 8px; background: var(--hatch); position: relative; flex: 1 1 120px; min-width: 0 } .meter u { position: absolute; inset: 0 auto 0 0; background: var(--mark) }
+.dim { color: var(--soft); font-size: 13px }
+
+/* Ruled lists */
+.rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; border-top: 1px solid var(--rule) }
+@media (max-width: 760px) { .rows { grid-template-columns: minmax(0, 1fr) } }
+.rows div { padding: 12px 0; border-bottom: 1px solid var(--rule); min-width: 0 }
+.rows b { font-weight: 600 } .rows p { font-size: 13.5px; color: var(--soft) } .rows .mono { font-size: 12px; color: var(--soft) }
+ol.rank { margin: 0; padding: 0; list-style: none; counter-reset: r; border-top: 1px solid var(--rule) }
+ol.rank li { counter-increment: r; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 0; border-bottom: 1px solid var(--rule) }
+ol.rank li::before { content: counter(r); font: 900 24px/1 var(--display); color: var(--idea) }
+ol.rank p { grid-column: 2 / -1; font-size: 13.5px; color: var(--soft) }
+
+/* Milestone track */
+.track-wrap { overflow-x: auto }
+.ms { min-width: 760px; display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 0; border-left: 1px solid var(--rule) }
+.ms .wk { font: 500 11px var(--mono); color: var(--soft); padding: 0 0 6px 6px; border-right: 1px solid var(--rule) }
+.ms .lane { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; border-top: 1px solid var(--rule); padding: 6px 0 }
+.ms .m { padding: 8px 10px; color: var(--on-band); font-size: 13px; line-height: 1.3; min-width: 0 }
+.ms .m b { font: 800 14px var(--display); display: block }
+.decide { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; border-top: 4px solid var(--mark) }
+@media (max-width: 760px) { .decide { grid-template-columns: minmax(0, 1fr) } }
+.decide div { padding: 14px 0; border-bottom: 1px solid var(--rule) } .decide b { font-weight: 600 } .decide p { color: var(--soft); font-size: 13.5px }
+footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule); padding-top: 14px }
+</style>
+
+<div class="wall">
+
+  <header class="hero">
+    <div class="ruler" aria-hidden="true">
+      <span style="top:0">16,384</span><span style="top:50%">8,192</span><span style="top:100%">0</span>
+      <div class="fill" style="height:45%"></div><div class="fill ok" style="height:45%"></div>
+    </div>
+    <div class="hero-main">
+      <div class="eyebrow">BoxPilot · agent platform audit · 12 November 2026 · pull request 652 · ships as 1.242.0</div>
+      <h1>The server had room. <em>The agents didn't.</em></h1>
+      <p class="lede">Five read-only sweeps, a month of the server's own runs, and a timing of both models on its disk. The limits that stopped the agents were ours, not the machine's: a quarter of its memory in use, load under one. So the limits were raised, the loop that wasted them was fixed, and the rest is laid out below as six milestones.</p>
+      <div class="stats">
+        <div><b>1,546</b><span>runs read from the server's last 30 days</span></div>
+        <div><b>54</b><span>findings across bugs, speed, code and the page, and 5 more from a review of today's own diff</span></div>
+        <div><b>12</b><span>changes made today, held by 5,999 passing tests</span></div>
+        <div><b>6</b><span>milestones planned, M58 and M66 to M70</span></div>
+      </div>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head"><div class="eyebrow">What the month said</div><h2>One square is one run. Orange ended without the model's answer.</h2>
+      <p>The agents ran the 4B model until 29 October and the 2B since. Same agents, same schedules, same server. The smaller model is 2.5 times faster and fails five times as often, almost always the same way: told to answer, it asks for one more tool instead.</p></div>
+    <div class="fields" style="margin-top:22px">
+      <div class="field"><div class="field-top"><b>Qwen 3.5 4B</b><span>12 to 29 Oct · 574 runs</span></div><div class="dots" id="d4"></div><div class="big ok-t">2.3%<small>13 runs lost · a limit reached 5 times</small></div></div>
+      <div class="field"><div class="field-top"><b>Qwen 3.5 2B</b><span>29 Oct to 12 Nov · 641 runs</span></div><div class="dots" id="d2"></div><div class="big bad-t">12.5%<small>80 runs lost · a limit reached 105 times</small></div></div>
+    </div>
+    <div class="legend" style="margin-top:14px"><span><i></i>answered</span><span><i class="bad"></i>ended as "the model stopped with an error", with raw tool output for an answer</span></div>
+    <div class="why" style="margin-top:22px">
+      <div><b>53</b><span>times the limit was <strong>steps</strong>: six was too few for a digest that names eight actions</span></div>
+      <div><b>51</b><span>times it was <strong>asking again</strong> for an output it already had, or for a tool that had refused</span></div>
+      <div><b>9</b><span>times it was <strong>tokens</strong>. Tokens were never the real ceiling; the loop was</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div class="eyebrow">Done today · ships as 1.242.0</div><h2>Room given. Hatched is what it was, solid is what it is.</h2>
+      <p>Agents still at the old limits were raised once, as a version BoxPilot made and named. A limit you set yourself, lower or higher, was left alone.</p></div>
+    <div class="bars" style="margin-top:18px">
+      <div class="bar"><div class="what">Steps a run<small>the most a spec may give</small></div><div class="track"><u style="width:60%"></u></div><div class="nums">12 → <b>20</b></div></div>
+      <div class="bar"><div class="what">Tokens a run<small>the most a spec may give</small></div><div class="track"><u style="width:33.3%"></u></div><div class="nums">32,000 → <b>96,000</b></div></div>
+      <div class="bar"><div class="what">Longest run</div><div class="track"><u style="width:50%"></u></div><div class="nums">30 → <b>60 min</b></div></div>
+      <div class="bar"><div class="what">Model time a day<small>per agent</small></div><div class="track"><u style="width:33.3%"></u></div><div class="nums">2 → <b>6 h</b></div></div>
+      <div class="bar"><div class="what">All agents together<small>model time a day</small></div><div class="track"><u style="width:50%"></u></div><div class="nums">3 → <b>6 h</b></div></div>
+      <div class="bar"><div class="what">Runner memory cap<small>enforced by the kernel</small></div><div class="track"><u style="width:66.7%"></u></div><div class="nums">8 → <b>12 GB</b></div></div>
+      <div class="bar"><div class="what">Context, new installs<small>this server was already at 16,384</small></div><div class="track"><u style="width:50%"></u></div><div class="nums">8,192 → <b>16,384</b></div></div>
+      <div class="bar"><div class="what">Server Keeper<small>steps · tokens a run</small></div><div class="track"><u style="width:55%"></u></div><div class="nums">6 · 20k → <b>10 · 40k</b></div></div>
+      <div class="bar"><div class="what">Environment Scout<small>steps · tokens a run</small></div><div class="track"><u style="width:62%"></u></div><div class="nums">12 · 32k → <b>16 · 64k</b></div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div class="eyebrow">The wall</div><h2>Done, next, planned, suggested.</h2></div>
+    <div class="panels" style="margin-top:22px">
+      <div class="panel"><div class="band b-done"><b>Done</b><span>ships as 1.242.0</span></div><ul>
+        <li><b>The run that ended with nothing</b><span class="tag">bug</span><p>A forced answer that comes back empty is asked for once more, in words, before the run gives up. This was most of the orange squares.</p></li>
+        <li><b>A failed tool may be tried again</b><span class="tag">bug</span><p>One timeout used to count as "already asked"; two retries ended the run.</p></li>
+        <li><b>Out of context says context</b><span class="tag">bug</span><p>The card told you to raise steps, which made it worse.</p></li>
+        <li><b>An interrupted nightly question is skipped</b><span class="tag">bug</span><p>Every upgrade restarted the runner mid-question and the evaluation scored it as wrong.</p></li>
+        <li><b>The trace tells the truth</b><span class="tag">page</span><p>"The model stopped without writing an answer", not "could not be reached".</p></li>
+        <li><b>This server's measured speed in the model library</b><span class="tag">page</span><p>The column showed a GitHub runner's numbers.</p></li>
+        <li><b>All the room in the chart above</b><span class="tag">limits</span><p>Ceilings, defaults, twelve templates, the one-time raise, the memory cap, the context.</p></li>
+      </ul></div>
+      <div class="panel"><div class="band b-next"><b>Next</b><span>M58 · M66 · about 3 weeks</span></div><ul>
+        <li><b>A task that fits its context</b><span class="tag">M66</span><p>Eight notes at their cap are 2,900 tokens, more than the system message and tools together. Pick notes by the question; budget the task from the context.</p></li>
+        <li><b>A prompt head that is reused</b><span class="tag">M66</span><p>The time stamp is the first line and the tool list changes per plan, so every run re-reads everything. Fixing both saves 20 to 50 seconds a run.</p></li>
+        <li><b>No planner call when the steps already say</b><span class="tag">M66</span><p>A scheduled run spends one of its three calls deciding what its own steps name.</p></li>
+        <li><b>A digest that is never raw tool output</b><span class="tag">M58</span><p>Already on the roadmap: composed in code, the model adds two sentences.</p></li>
+        <li><b>One rolling health card per agent</b><span class="tag">M58</span><p>With the raise on the card itself.</p></li>
+      </ul></div>
+      <div class="panel"><div class="band b-plan"><b>Planned</b><span>M67 to M69 · M70 after the move</span></div><ul>
+        <li><b>The Agents page says what happened</b><span class="tag">M67</span><p>Plain names for the five limits, each drawn against what the last runs used; fourteen runs as a strip on every row.</p></li>
+        <li><b>It knows the house it lives in</b><span class="tag">M68</span><p>A platform card built at release from the 21 pages and 247 operations; a tool that answers "where do I…" with the page and the button.</p></li>
+        <li><b>Templates as a product</b><span class="tag">M69</span><p>"Behind its template" as a diff; pick the app or drive at creation; eight new templates.</p></li>
+        <li><b>Training that can be trusted</b><span class="tag">M70</span><p>The evaluation's own questions sit in the example book it grades on. A held-out split and a real gate, off the server.</p></li>
+        <li><b>service.mjs in five more pieces</b><span class="tag">M70</span><p>2,841 lines; 455 lift out at low risk. One shared type file for runs, claims and usage.</p></li>
+      </ul></div>
+      <div class="panel"><div class="band b-idea"><b>Suggested</b><span>not yet on the roadmap</span></div><ul>
+        <li><b>Try the MTP build of the 4B</b><span class="tag">model</span><p>The server's llama.cpp already lists the mode. Unsloth reports 1.4 to 2.2 times faster writing. Unmeasured here; the downloader would need to allow it.</p></li>
+        <li><b>A second model slot for the planner</b><span class="tag">speed</span><p>One slot holds three conversations, so each evicts the others' cache.</p></li>
+        <li><b>Prune a run's prompt after a week</b><span class="tag">upkeep</span><p>At 50,000 runs the database is 1.2 GB and 40% of it is pasted prompts.</p></li>
+        <li><b>Count model time for runs that never finish</b><span class="tag">bug</span><p>A cancelled ten-minute run costs its budget nothing today.</p></li>
+        <li><b>Memory cap as an owner setting</b><span class="tag">limits</span><p>Like the processors already are, so a 64 GB server is not held to 12.</p></li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div class="eyebrow">Which model for this server</div><h2>Ryzen 7 7800X3D, 8 cores, 29 GB, no graphics card.</h2>
+      <p>Timed on the server itself at idle priority with a 3,793-token prompt. Eight threads were no faster than four on either model, so the "eight while you wait" setting buys nothing here: memory speed is the limit, not cores.</p></div>
+    <div class="scroll" style="margin-top:18px"><table>
+      <thead><tr><th>Model</th><th>Reads</th><th>Writes</th><th>Runs lost</th><th>Memory</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td><b>Qwen 3.5 2B</b><small>in use now</small></td><td class="n">136 tok/s</td><td class="n">21.8 tok/s</td><td class="n bad-t">12.5%</td><td class="n">3.7 GB</td><td>Fast, and loops. Kept in the library for a server with less memory.</td></tr>
+        <tr><td><b>Qwen 3.5 4B</b><small>on disk</small></td><td class="n">57 tok/s</td><td class="n">8.5 tok/s</td><td class="n ok-t">2.3%</td><td class="n">6.2 GB</td><td><b>The one to run, and your choice.</b> A scheduled run takes about 3 minutes instead of 80 seconds, which nobody is waiting on.</td></tr>
+        <tr><td><b>Qwen 3.5 9B</b><small>removed from the library</small></td><td class="n">about 25</td><td class="n">about 4</td><td class="n">unmeasured</td><td class="n">10.7 GB</td><td>Taken out, your decision: four minutes to read a long prompt without a graphics card. It can no longer be picked.</td></tr>
+        <tr><td><b>Qwen 3.5 or 3.6 35B-A3B</b><small>mixture of experts</small></td><td class="n">unmeasured</td><td class="n">unmeasured</td><td class="n">unmeasured</td><td class="n">about 20 GB</td><td>Too close to all the memory there is, with eighteen apps beside it.</td></tr>
+        <tr><td><b>Qwen 3.5 4B MTP</b><small>drafts several tokens at once</small></td><td class="n">as the 4B</td><td class="n">12 to 19?</td><td class="n">unmeasured</td><td class="n">about 6.5 GB</td><td>The one to trial: the 4B's judgement at nearer the 2B's pace, if Unsloth's figures hold on a CPU.</td></tr>
+      </tbody></table></div>
+    <p class="verdict" style="margin-top:18px"><b>Decided:</b> the 4B. No better 4B-class model exists for this job today: Qwen 3.5 4B is the newest small Qwen that calls tools and reads images, and its MTP build is the same model with a faster way of writing, worth a trial after M66. Bigger models wait for the graphics card.</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><div class="eyebrow">Suggested page changes · M67</div><h2>Four of twelve, sketched.</h2>
+      <p>Square corners, no pills. Each replaces something that reads as jargon or a dead end today.</p></div>
+    <div class="sketches" style="margin-top:20px">
+      <div class="sketch"><span class="cap">A limit card with the raise on it</span><p><b>Resource Watch ran out of steps three times this week.</b></p><p class="dim">It needs about 8 for its evening reading and has 6.</p><div class="row"><span class="btn">Give it 10 steps</span><span class="btn ghost">Open its limits</span></div></div>
+      <div class="sketch"><span class="cap">Fourteen runs on every row</span>
+        <div class="row"><b>Server Keeper</b><span class="strip"><i></i><i></i><i class="l"></i><i></i><i></i><i class="f"></i><i></i><i></i><i></i><i class="l"></i><i></i><i></i><i></i><i></i></span></div>
+        <div class="row"><b>Pi-hole Watcher</b><span class="strip"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="l"></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+        <p class="dim">answered · reached a limit · lost. Next run 05:30.</p></div>
+      <div class="sketch"><span class="cap">Room used, on every run</span><div class="row"><span>Room used</span><span class="meter"><u style="width:86%"></u></span><span class="mono">86% of 16,384</span></div><p class="dim">Today the trace shows "18432 tokens" with nothing to compare it to.</p></div>
+      <div class="sketch"><span class="cap">The five limits in plain words</span><p><b>Each day:</b> runs · thinking time</p><p><b>Each run:</b> tool rounds · reading room · time limit</p><p class="dim">Under each: "typical 5, most 8, reached 3 times". Presets: Light, Template, Roomy.</p></div>
+    </div>
+    <div class="rows" style="margin-top:20px">
+      <div><b>Name it before it exists</b><p>One click makes an agent today; that is where three "New agent" rows came from. A small sheet first, and Delete on the row.</p></div>
+      <div><b>Guardrails as three sections</b><p>Limits, what it leaves, model. It holds about 25 controls under one heading now.</p></div>
+      <div><b>Two row actions, not four</b><p>Ask, and one Pause that offers "until tomorrow". Forty buttons for ten agents today.</p></div>
+      <div><b>Touch sizes</b><p>Row buttons are 26 px and the trace toggle 24 px; three link styles have no touch padding.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div class="eyebrow">Templates · M69</div><h2>Thirteen today. Eight more that need no new machinery.</h2>
+      <p>Each uses tools and operations that exist; six need one small reader written. Backup Auditor, Update Planner, Storage Watch, Security Reviewer, App Doctor and House Guide already exist and get upgrades instead.</p></div>
+    <div class="rows" style="margin-top:18px">
+      <div><b>Restore Prover</b><p>Each week, test-restores the app whose backup was checked longest ago.</p><span class="mono">no new reader</span></div>
+      <div><b>First Hour Guide</b><p>Walks a new owner through setup in order: Docker, updates, a copy off the server.</p><span class="mono">reader: setup.status</span></div>
+      <div><b>Change Narrator</b><p>What changed since you last looked, from the audit trail.</p><span class="mono">reader: changes.since (M58)</span></div>
+      <div><b>VM Keeper</b><p>No agent covers the virtual machines today: running, snapshots, exports, drills.</p><span class="mono">reader: vms.status</span></div>
+      <div><b>DNS Resilience Watch</b><p>Blocking verified end to end, local names, the fallback rehearsed.</p><span class="mono">reader: dns.status</span></div>
+      <div><b>Media Librarian</b><p>Library size, transcodes now, the drive underneath.</p><span class="mono">reader: apps.disk (M58)</span></div>
+      <div><b>Docker Tidy</b><p>Stray containers and what a clean-up would free, as a card.</p><span class="mono">reader: compose.projects</span></div>
+      <div><b>Shares Helper</b><p>"Why can't I see the share", for anyone signed in.</p><span class="mono">reader: shares.status</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div class="eyebrow">How it learns the platform · M68 and M70</div><h2>Seven methods, cheapest and most useful first.</h2>
+      <p>Today the system prompt gives BoxPilot one sentence. The agent can search the docs, the operations and the catalog by keyword, and it knows no page names at all, although two templates are told to "name the page to open".</p></div>
+    <ol class="rank" style="margin-top:18px">
+      <li><b>A "where do I" tool</b><span class="tag">S to M</span><p>Returns the page, the feature, the operation and its tier in under 600 characters, from the index the command bar already builds.</p></li>
+      <li><b>A platform card generated at release</b><span class="tag">S</span><p>One chunk per page and per area of operations, searched by meaning, never pasted into the prompt.</p></li>
+      <li><b>Learn from a dismissed card</b><span class="tag">S to M</span><p>Dismissals are stored and nothing reads them. The same proposal should not come back for a while.</p></li>
+      <li><b>Seed examples written from the tool list</b><span class="tag">S to M</span><p>Three to five phrasings per tool, generated off the server, checked by the existing gate.</p></li>
+      <li><b>Golden questions from the catalog</b><span class="tag">M</span><p>"Which port does it open", "what is it for": a rotating nightly sample.</p></li>
+      <li><b>Release notes in the index</b><span class="tag">S to M</span><p>So answers follow the version that is installed.</p></li>
+      <li><b>An adapter trained off the server</b><span class="tag">L</span><p>The recipe exists. Fix first: the test questions are in the training book, there is no held-out split, and one run a side is not a measurement.</p></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="sec-head"><div class="eyebrow">Milestones</div><h2>Ten weeks, in the order they earn their place.</h2></div>
+    <div class="track-wrap" style="margin-top:18px"><div class="ms">
+      <div class="wk">now</div><div class="wk">wk 1</div><div class="wk">wk 2</div><div class="wk">wk 3</div><div class="wk">wk 4</div><div class="wk">wk 5</div><div class="wk">wk 6</div><div class="wk">wk 7</div><div class="wk">wk 8</div><div class="wk">wk 9</div>
+      <div class="lane"><div class="m b-done" style="grid-column:1 / 2"><b>M65</b>Room, and the loop fixed</div><div class="m b-next" style="grid-column:2 / 3"><b>M66</b>A prompt that fits</div><div class="m b-next" style="grid-column:3 / 5"><b>M58</b>Agents worth leaving on</div></div>
+      <div class="lane"><div class="m b-plan" style="grid-column:4 / 6"><b>M67</b>The page says what happened</div><div class="m b-plan" style="grid-column:6 / 8"><b>M68</b>It knows the house</div></div>
+      <div class="lane"><div class="m b-plan" style="grid-column:7 / 9"><b>M69</b>Templates as a product</div><div class="m b-idea" style="grid-column:9 / 11"><b>M70</b>After the move and the graphics card</div></div>
+    </div></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div class="eyebrow">Yours to decide</div><h2>Four things I left alone.</h2></div>
+    <div class="decide" style="margin-top:18px">
+      <div><b>Bigger models, and M70.</b><p>Both wait until the server has moved and has a graphics card. The 9B is out of the library until then.</p></div>
+      <div><b>Three untouched "New agent" rows.</b><p>They run nightly evaluations and nothing else. Deleting an agent is yours.</p></div>
+      <div><b>Eight processors while you wait.</b><p>Measured: no faster than four on this server. Lowering it saves heat for nothing lost.</p></div>
+      <div><b>An adapter of your own.</b><p>Part of M70, so after the move. The new card could train it on the server itself.</p></div>
+    </div>
+  </section>
+
+  <footer>Sources: the server's own agent runs from 12 October to 12 November 2026; a timing of the two models on its disk; five read-only sweeps of server/agents, packages/harness and src/pages/agents; an independent review of the day's diff. Speeds for models not on the disk are estimates and marked so.</footer>
+</div>
+
+<script>
+(function () {
+  function fill(id, total, bad) {
+    var el = document.getElementById(id); if (!el) return;
+    var step = total / bad, next = step / 2, html = "";
+    for (var i = 0; i < total; i++) { if (i >= next) { html += '<i class="bad"></i>'; next += step; } else html += "<i></i>"; }
+    el.innerHTML = html;
+  }
+  fill("d4", 574, 13); fill("d2", 641, 80);
+})();
+</script>

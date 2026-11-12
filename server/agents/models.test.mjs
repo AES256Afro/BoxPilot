@@ -12,11 +12,13 @@ describe("the model library", () => {
       expect(model.vision && model.projector, model.id).toBeTruthy();
       expect(quantOf(model.file), model.id).toBe(model.quant);
     }
-    expect(modelById("qwen3.5-9b").memoryBytes).toBeGreaterThan(8 * 1024 ** 3);
+    // The 9B is not offered: nothing in the library is larger than the 4B, so it cannot be picked.
+    expect(modelById("qwen3.5-9b")).toBeNull();
+    expect(Math.max(...modelLibrary.map((model) => model.parameters))).toBe(4);
   });
 
-  it("says which fit the runner's memory cap, files and all: the 4B and the 2B, never the 9B", () => {
-    expect(modelLibrary.map((model) => model.id)).toEqual(["qwen3.5-4b", "qwen3.5-2b", "qwen3.5-9b"]);
+  it("says which fit the runner's memory cap, files and all: the 4B and the 2B, and no 9B to pick", () => {
+    expect(modelLibrary.map((model) => model.id)).toEqual(["qwen3.5-4b", "qwen3.5-2b"]);
     expect(modelLibrary.filter((model) => model.memoryBytes <= runnerCaps.memoryMaxBytes).map((model) => model.id)).toEqual(["qwen3.5-4b", "qwen3.5-2b"]);
     expect(modelLibrary.filter((model) => model.recommended).map((model) => model.id)).toEqual(["qwen3.5-4b"]);
     expect(modelById("qwen3.5-2b").tokensPerSecond).toBeGreaterThan(modelById("qwen3.5-4b").tokensPerSecond);
@@ -52,10 +54,10 @@ describe("a newer small Qwen", () => {
   };
   const fetchJson = async (url) => (url.includes("?author=") ? listing : details[url.replace("https://huggingface.co/api/models/", "")] ?? null);
 
-  it("is a later version, at most 9B, with a vision projector; never a coder, a bigger model or another publisher", async () => {
+  it("is a later version, at most 4B, with a vision projector; never a coder, a bigger model or another publisher", async () => {
     expect(parseQwenRepo("unsloth/Qwen3.5-4B-GGUF")).toEqual({ version: 3.5, parameters: 4 });
     expect(parseQwenRepo("unsloth/Qwen3-Coder-4B-GGUF")).toBeNull();
-    // Qwen4 9B has no projector, so it cannot read images: the next candidate is 3.6 4B.
+    // Qwen4 9B is larger than anything offered (and has no projector): the next candidate is 3.6 4B.
     expect(await findNewerQwen({ current: { repo: "unsloth/Qwen3.5-4B-GGUF" }, fetchJson })).toEqual({ repo: "unsloth/Qwen3.6-4B-GGUF", version: 3.6, parameters: 4, file: "Qwen3.6-4B-UD-Q4_K_XL.gguf", projector: "mmproj-F16.gguf" });
     expect(await findNewerQwen({ current: { repo: "unsloth/Qwen3.6-4B-GGUF" }, fetchJson })).toBeNull();
   });

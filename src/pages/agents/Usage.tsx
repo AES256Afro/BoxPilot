@@ -80,7 +80,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
     if (!runtime || draft) return;
     const first = {
       driver: runtime.settings.driver, endpoint: runtime.settings.endpoint ?? "", idleStopMinutes: String(runtime.settings.idleStopMinutes ?? 60), contextTokens: String(runtime.settings.contextTokens ?? 8192), quietStart: module.quietHours.start, quietEnd: module.quietHours.end, notify: module.notify,
-      runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 10_800), embeddings: module.embeddings !== false, compareNightly: module.evaluation?.compareNightly === true,
+      runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 21_600), embeddings: module.embeddings !== false, compareNightly: module.evaluation?.compareNightly === true,
       waiting: String(module.cores?.waiting ?? 8), background: String(module.cores?.background ?? 4),
     };
     setDraft(first);
@@ -146,7 +146,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
     },
     { id: "size", header: "Download", hideOnPhone: true, cell: (model) => <span className="agents-mono">{bytes(model.preview.bytes)} · {model.preview.fastMinutes}–{model.preview.slowMinutes} min</span> },
     { id: "memory", header: "Memory", cell: (model) => <span className="agents-mono" data-fits={model.fitsCap}>{bytes(model.memoryBytes)}{model.fitsCap ? "" : " · over the cap"}</span> },
-    { id: "speed", header: "Speed", hideOnPhone: true, cell: (model) => <span className="agents-mono">{model.tokensPerSecond} tok/s</span> },
+    { id: "speed", header: "Speed", hideOnPhone: true, cell: (model) => <span className="agents-mono">{model.measured ? `${Math.round(model.measured.generatePerSecond)} tokens/s on this server` : `${model.tokensPerSecond} tokens/s elsewhere`}</span> },
     {
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "agents-actions-cell", cell: (model) => (
         <span className="agents-actions">

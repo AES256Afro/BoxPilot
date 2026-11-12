@@ -28,7 +28,7 @@ export const runnerCaps = Object.freeze({
   // The runner (about 70 MB), Unsloth's backend (0.4 GB), the 4B model (2.6 GB) and its files as
   // page cache (3.6 GB). No MemoryHigh: throttling the page cache below the cap would make every
   // token read the disk.
-  memoryMaxBytes: 8 * 1024 ** 3,
+  memoryMaxBytes: 12 * 1024 ** 3,
   memorySwapMaxBytes: 0,
   tasksMax: 256,
   // The model server's threads in the background: one for each whole processor in the quota.

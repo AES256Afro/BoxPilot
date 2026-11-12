@@ -478,8 +478,9 @@ describe("the budgets the templates ship with (M44)", () => {
     const scout = templateById("environment-scout").spec.budget;
     const keeper = templateById("server-keeper").spec.budget;
     // M47.2: seven reads a survey, so twelve steps, 32,000 tokens, 25 minutes, 3,000 s a day.
-    expect(scout).toMatchObject({ stepsPerRun: 12, tokensPerRun: 32_000, runSeconds: 1_500, modelSecondsPerDay: 3_000 });
-    expect(keeper).toMatchObject({ stepsPerRun: 6, tokensPerRun: 20_000, runSeconds: 1_200, modelSecondsPerDay: 3_600 });
+    // M65: more room, so sixteen steps, 64,000 tokens, 40 minutes, 4,500 s a day.
+    expect(scout).toMatchObject({ stepsPerRun: 16, tokensPerRun: 64_000, runSeconds: 2_400, modelSecondsPerDay: 4_500 });
+    expect(keeper).toMatchObject({ stepsPerRun: 10, tokensPerRun: 40_000, runSeconds: 1_500, modelSecondsPerDay: 5_400 });
     for (const budget of [scout, keeper]) {
       for (const [field, { min, max }] of Object.entries(budgetCeilings)) {
         expect(budget[field], field).toBeGreaterThanOrEqual(min);

@@ -105,6 +105,57 @@ describe("the loop", () => {
     expect(notes.find((entry) => entry.name === "repeat").detail).toMatch(/third time/);
   });
 
+  it("asks once more, in words, when the last answer is a tool call written as text", async () => {
+    const markup = "<tool_call>\n<function=disks_list>\n</function>\n</tool_call>";
+    const { acted, calls, run, notes } = await actWith([
+      { toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] },
+      { content: markup },
+      { content: "The system disk is /dev/nvme0n1 [T1]." },
+    ], { limits: { steps: 2 } });
+    expect(calls[1].toolChoice).toBe("none");
+    expect(calls[2].toolChoice).toBe("none");
+    expect(calls[2].messages.at(-1)).toMatchObject({ role: "user" });
+    expect(calls[2].messages.at(-1).content).toMatch(/Tools are finished for this run\. Write your answer now in plain sentences/);
+    expect(acted.answer).toMatch(/nvme0n1/);
+    expect(run).toMatchObject({ limitReached: true, limitKind: "steps", degraded: null });
+    expect(notes.find((entry) => entry.name === "answer").detail).toMatch(/asked once more/);
+    // Asked once, not for ever: markup again is the model's error.
+    const twice = await actWith([
+      { toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] },
+      { content: markup },
+      { content: markup },
+    ], { limits: { steps: 2 } });
+    expect(twice.calls).toHaveLength(3);
+    // An empty reply, or a call the server parsed although told "none", is asked again the same way.
+    const empty = await actWith([
+      { toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] },
+      { content: "", toolCalls: [{ id: "c2", name: "disks_list", arguments: "{}" }] },
+      { content: "The system disk is /dev/nvme0n1 [T1]." },
+    ], { limits: { steps: 2 } });
+    expect(empty.acted.answer).toMatch(/nvme0n1/);
+    expect(empty.run.degraded).toBeNull();
+    expect(twice.acted.answer).toBeNull();
+    expect(twice.run.degraded).toBe("model-error");
+  });
+
+  it("runs a tool again when its first try failed, rather than pointing at an output that is not there", async () => {
+    let tries = 0;
+    const flaky = defineTool({
+      name: "disks_flaky", title: "Disks", kind: "read", description: "List the disks.", parameters: { type: "object", additionalProperties: false, properties: {} },
+      run: () => { tries += 1; if (tries === 1) throw new Error("the helper did not answer"); return "nvme0n1 528 GB"; },
+    });
+    const { acted, calls, run } = await actWith([
+      { toolCalls: [{ id: "c1", name: "disks_flaky", arguments: "{}" }] },
+      { toolCalls: [{ id: "c2", name: "disks_flaky", arguments: "{}" }] },
+      { content: "The system disk is nvme0n1 [T1]." },
+    ], { tools: [flaky] });
+    expect(tries).toBe(2);
+    expect(calls[1].messages.at(-1).content).toMatch(/disks_flaky failed: the helper did not answer/);
+    expect(calls[2].messages.at(-1).content).not.toMatch(/you already asked/);
+    expect(acted.answer).toMatch(/nvme0n1/);
+    expect(run).toMatchObject({ limitReached: false, degraded: null });
+  });
+
   it("answers before the conversation outgrows the model's context, and clips a tool's output to what still fits (M48.1)", async () => {
     const { acted, calls, run, notes } = await actWith([
       { toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] },

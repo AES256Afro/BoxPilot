@@ -979,7 +979,8 @@ describe("the learning library", () => {
     const opened: unknown[] = [];
     const onOpen = (event: Event) => opened.push((event as CustomEvent).detail);
     window.addEventListener("boxpilot:open-view", onOpen);
-    fireEvent.click(screen.getByRole("button", { name: "Open Credentials" }));
+    // The button is the owner's alone, and who is asking arrives after the documents do.
+    fireEvent.click(await screen.findByRole("button", { name: "Open Credentials" }));
     window.removeEventListener("boxpilot:open-view", onOpen);
     expect(opened).toEqual([{ view: "settings", options: { tab: "credentials" } }]);
     fireEvent.click(within(documents).getByRole("button", { name: "Pin How the network is laid out" }));

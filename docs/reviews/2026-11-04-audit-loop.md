@@ -782,3 +782,22 @@ working" later reopened or emptied a form on a page that had moved on; a databas
 model gateway stopped, because the new `PartOf` carries a stop and not a start. A sweep that ends
 without a reader who did not write the code has not ended.
 
+
+## 2026-11-12: the agent platform alone (M65)
+
+Five read-only sweeps over `server/agents`, `packages/harness` and `src/pages/agents` (bug, performance,
+code, the page, templates and how the agents learn the platform), the owner's server's month of runs
+read from its database, and a timing of both models on its disk. Mural:
+`docs/reviews/2026-11-12-agents-mural.html`.
+
+| Sweep | Findings | Fixed in 1.242.0 | Where the rest went |
+| --- | --- | --- | --- |
+| Bug | 10 (4 proved by probe) | 4 (empty forced answer, failed tool counted as asked, limit label order, interrupted evaluation question) | M66 (task budget against the context, the context estimate), suggestions (model time of unfinished runs, `finish_reason`, a degraded answer kept in the thread) |
+| Performance | 14 | 0 | M66 (notes budget, a stable prompt head, the planner call, tools per run kind); upkeep (prompt steps pruned after a week) |
+| Code | 15 | 2 (stale fallbacks of 600 s and 6 steps) | M70 (five factories out of `service.mjs`, shared typedefs, one source for limit kinds, 60 unread exports) |
+| The page | 15, and 12 proposals | 2 (the model-error notice, measured speed in the library) | M67 |
+| Templates and learning | 8 new templates, 7 methods | budgets of all twelve | M68, M69, M70 |
+
+Measured, and worth keeping: on the owner's server eight model threads are no faster than four for
+either model; the 4B lost 2.3% of 574 runs and the 2B 12.5% of 641; tokens were the limit reached 9
+times in the month, steps 53 and repeats 51.

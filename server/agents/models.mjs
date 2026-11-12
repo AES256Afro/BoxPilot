@@ -5,12 +5,12 @@
  *
  * Sizes here are what the previews say before a download starts; the download itself takes the
  * exact sizes and checksums from Hugging Face and verifies every byte (download.mjs). Memory, and
- * the 2B's and the 9B's speeds, are the Unsloth spike's (2026-09, not kept in the repo;
+ * the 2B's speed, are the Unsloth spike's (2026-09, not kept in the repo;
  * EPYC 7763 cores, one processor); the 4B's speed is BoxPilot's own benchmark at four threads under
  * a 400% quota on a four-processor GitHub runner (.github/workflows/agents-bench.yml), where the
  * runner's caps now put it. `measuredAt` says which. The home server is faster than either, and
  * the Usage tab shows its own measured speed once a run has gone. Tool calling 5 of 5 and chart
- * reading right for all three sizes.
+ * reading right for both sizes.
  *
  * memoryBytes is what the runner's memory cap is charged for a model: its memory after a few
  * requests plus its files, which are mapped and count as the cgroup's page cache once read.
@@ -32,7 +32,7 @@ export const modelLibrary = Object.freeze([
     approxBytes: 2_900_000_000,
     approxProjectorBytes: 680_000_000,
     memoryBytes: 6_200_000_000, // 2.6 GB + 3.6 GB of files
-    contextTokens: 8_192,
+    contextTokens: 16_384,
     tokensPerSecond: 8,
     measuredAt: "4 threads (a four-processor GitHub runner)",
     vision: true,
@@ -52,7 +52,7 @@ export const modelLibrary = Object.freeze([
     approxBytes: 1_450_000_000,
     approxProjectorBytes: 550_000_000,
     memoryBytes: 3_700_000_000, // 1.7 GB + 2.0 GB of files
-    contextTokens: 8_192,
+    contextTokens: 16_384,
     tokensPerSecond: 8.3,
     measuredAt: "one processor (the spike)",
     vision: true,
@@ -60,27 +60,15 @@ export const modelLibrary = Object.freeze([
     recommended: false,
     note: "Twice as fast as the 4B with the same tool calling and chart reading in the spike (8.3 words a second, measured on one processor): the one to choose when waiting matters more than wording.",
   },
-  {
-    id: "qwen3.5-9b",
-    title: "Qwen 3.5 9B (Unsloth, 4-bit)",
-    family: "qwen3.5",
-    parameters: 9,
-    repo: "unsloth/Qwen3.5-9B-GGUF",
-    quant: "UD-Q4_K_XL",
-    file: "Qwen3.5-9B-UD-Q4_K_XL.gguf",
-    projector: "mmproj-F16.gguf",
-    approxBytes: 5_900_000_000,
-    approxProjectorBytes: 920_000_000,
-    memoryBytes: 10_700_000_000, // 3.8 GB + 6.9 GB of files: more than the 8 GB cap
-    contextTokens: 8_192,
-    tokensPerSecond: 2.3,
-    measuredAt: "one processor (the spike)",
-    vision: true,
-    tools: true,
-    recommended: false,
-    note: "Slow (about 2 words a second and four minutes to read a long prompt, measured on one processor), and with its 6.9 GB of files it needs more than the 8 GB memory cap: every word would read the disk. Not recommended.",
-  },
 ]);
+
+/**
+ * The largest model offered, in billions of parameters. The 9B was taken out (2026-11, the owner's
+ * decision): on a server without a graphics card it reads a long prompt in four minutes and takes
+ * most of the memory cap, and a model that cannot do the work should not be there to pick. A newer
+ * Qwen is offered only up to this size too.
+ */
+const largestParameters = 4;
 
 export const defaultModelId = modelLibrary.find((model) => model.recommended).id;
 
@@ -131,7 +119,7 @@ export function parseQwenRepo(id) {
  * Face's public model API; this only reads, and never switches anything - a newer model becomes a
  * card the owner can approve (service.mjs), never an automatic change.
  */
-export async function findNewerQwen({ current, fetchJson, maxParameters = 9 }) {
+export async function findNewerQwen({ current, fetchJson, maxParameters = largestParameters }) {
   const using = parseQwenRepo(current?.repo);
   if (!using) return null;
   const listing = await fetchJson("https://huggingface.co/api/models?author=unsloth&search=Qwen&sort=createdAt&direction=-1&limit=60");
