@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { relativeTime } from "../../home/format";
 import type { PendingOperation } from "../../shell/ApproveDialog";
-import { Button, EmptyState, Notice, Panel, StatusChip, Table, Tag, type TableColumn } from "../../ui";
+import { Button, EmptyState, Notice, Panel, Sheet, StatusChip, Table, Tag, type TableColumn } from "../../ui";
 import type { AgentSummary, Glance, Overview, Proposal } from "./api";
 import type { RunnerWait } from "./setup";
 import { agentState, duration, runState, triggerWords } from "./format";
@@ -11,7 +11,8 @@ import { AnswerText } from "./Trace";
 
 /*
  * The Agents tab (M37): every agent with what it is doing, how it starts, how its last run went and
- * how much of today's budget it has used; its own pause and resume; and the cards agents left,
+ * how much of today's budget it has used; two actions a row, Ask and Pause (which asks for how long;
+ * Resume once it is paused), its name opening Build; and the cards agents left,
  * each step staged at its own tier by a person. The latest digest leads when there is one, and the
  * cards lead the table while any wait (M48.7): they are what a person comes here to act on.
  */
@@ -43,6 +44,9 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
   const paused = agents.filter((agent) => agent.paused).length;
   const scheduled = agents.filter((agent) => agent.triggers.schedule).length;
   const open = (proposals ?? []).filter((proposal) => proposal.state === "open");
+  // The agent whose Pause was pressed: its sheet asks for how long.
+  const [pausing, setPausing] = useState<AgentSummary | null>(null);
+  const pause = (until: string | null) => { if (pausing) onPause(pausing, until); setPausing(null); };
 
   const columns: Array<TableColumn<AgentSummary>> = [
     {
@@ -77,20 +81,17 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
     },
     {
       id: "today", header: "Today", hideOnPhone: true, cell: (agent) => (
-        <span className="agents-mono">{agent.budgetToday.runsUsed} of {agent.budgetToday.runsPerDay} runs · {duration(agent.budgetToday.modelSecondsUsed)} of {duration(agent.budgetToday.modelSecondsPerDay)}</span>
+        // Two lines: on one, the column was a fifth of the table and pushed the row's buttons out of sight at 1280 px.
+        <span className="agents-mono agents-today-cell"><span>{agent.budgetToday.runsUsed} of {agent.budgetToday.runsPerDay} runs</span><span>{duration(agent.budgetToday.modelSecondsUsed)} of {duration(agent.budgetToday.modelSecondsPerDay)}</span></span>
       ),
     },
     {
       id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", className: "agents-actions-cell", cell: (agent) => (
         <span className="agents-actions">
-          {(agent.canAsk || agent.canEdit) && <Button variant="ghost" onClick={() => onOpen(agent.id, "test")} aria-label={`Test ${agent.name}`}>Test</Button>}
-          {agent.canEdit && <Button variant="ghost" onClick={() => onOpen(agent.id, "build")} aria-label={`Edit ${agent.name}`}>Edit</Button>}
+          {(agent.canAsk || agent.canEdit) && <Button variant="ghost" onClick={() => onOpen(agent.id, "test")} aria-label={`Ask ${agent.name}`}>Ask</Button>}
           {can.pause && (agent.paused
             ? <Button onClick={() => onResume(agent)} aria-label={`Resume ${agent.name}`}>Resume</Button>
-            : <>
-                <Button onClick={() => onPause(agent, null)} aria-label={`Pause ${agent.name}`}>Pause</Button>
-                <Button variant="ghost" onClick={() => onPause(agent, "tomorrow")} aria-label={`Pause ${agent.name} until tomorrow`}>Until tomorrow</Button>
-              </>)}
+            : <Button onClick={() => setPausing(agent)} aria-haspopup="dialog" aria-label={`Pause ${agent.name}`}>Pause</Button>)}
         </span>
       ),
     },
@@ -169,6 +170,13 @@ export function AgentList({ overview, proposals, glance, csrfToken, role, now, o
       </Panel>
 
       {open.length === 0 && cardsPanel}
+
+      {pausing && (
+        <Sheet side="center" size="sm" kicker="Agents" title={`Pause ${pausing.name}`} onClose={() => setPausing(null)}
+          footer={<><Button variant="ghost" onClick={() => setPausing(null)}>Cancel</Button><Button onClick={() => pause("tomorrow")}>Until tomorrow</Button><Button variant="primary" onClick={() => pause(null)}>Until I resume</Button></>}>
+          <p>Nothing new starts while it is paused, and a run in progress is stopped. Until tomorrow means 07:00 in the morning.</p>
+        </Sheet>
+      )}
     </div>
   );
 }

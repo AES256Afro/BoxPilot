@@ -35,7 +35,7 @@ function sessionOn(script, { clock = { at: 0 }, seconds = 600, maxTokens = 512 }
 }
 
 /** `limits` may be a function of the tokens the conversation starts at, for a context sized to it. */
-async function actWith(script, { tools = [disks], limits = {}, fields = null, approve, clock, seconds, maxTokens } = {}) {
+async function actWith(script, { tools = [disks], limits = {}, fields = null, approve, clock, seconds, maxTokens, beforeStep } = {}) {
   const on = sessionOn(script, { clock, seconds, maxTokens });
   const toolbox = createToolbox({ tools, approve });
   const steps = [];
@@ -44,7 +44,7 @@ async function actWith(script, { tools = [disks], limits = {}, fields = null, ap
   const acted = await act({
     session: on.session, run: on.run, conversation, callTool: (call) => toolbox.call(call), sources: () => toolbox.outputs(),
     record: async (step) => { steps.push(step); }, note: async (name, detail, state = "done") => { on.notes.push({ name, detail, state }); },
-    limits: { steps: 6, tokens: 20_000, maxToolCalls: 6, toolCallsPerStep: 3, ...(typeof limits === "function" ? limits(startTokens) : limits) }, tokensUsed: () => on.used.readTokens + on.used.completionTokens, fields, pace: fast,
+    limits: { steps: 6, tokens: 20_000, maxToolCalls: 6, toolCallsPerStep: 3, ...(typeof limits === "function" ? limits(startTokens) : limits) }, tokensUsed: () => on.used.readTokens + on.used.completionTokens, fields, pace: fast, ...(beforeStep ? { beforeStep } : {}),
   });
   return { ...on, acted, steps, toolbox, conversation, startTokens };
 }
@@ -200,28 +200,68 @@ describe("the loop", () => {
     expect(full.calls[0]).toMatchObject({ toolChoice: "none", maxTokens: 64 });
   });
 
-  it("shows no more of a step's tool outputs than the context still holds (M66)", async () => {
+  /** A tool with a long output, and how many times it really ran. */
+  const longLog = () => {
+    const ran = [];
     const log = defineTool({
       name: "log_read", title: "A log", kind: "read", description: "Read a unit's log.",
       parameters: { type: "object", additionalProperties: false, required: ["unit"], properties: { unit: { type: "string", maxLength: 20 } } },
-      run: ({ unit }) => Array.from({ length: 200 }, (_, line) => `${unit}: line ${line} of the log, nothing to see`).join("\n"),
+      run: ({ unit }) => { ran.push(unit); return Array.from({ length: 200 }, (_, line) => `${unit}: line ${line} of the log, nothing to see`).join("\n"); },
     });
+    return { log, ran };
+  };
+
+  it("shows no more of a tool's output than the context still holds, and runs no tool whose output it could not show (M66)", async () => {
+    const { log, ran } = longLog();
     // Room for 400 tokens of output (1,600 characters) and three outputs of about 8,000 each.
-    const { acted, calls, run, session, startTokens } = await actWith([
+    const { acted, calls, run, session, startTokens, toolbox } = await actWith([
       { toolCalls: ["ssh", "cron", "nginx"].map((unit, index) => ({ id: `c${index + 1}`, name: "log_read", arguments: JSON.stringify({ unit }) })) },
       { content: "The logs show nothing [T1]." },
     ], { tools: [log], limits: (start) => ({ contextTokens: start + 640 + 400 }) });
     const shown = calls[1].messages.filter((message) => message.role === "tool").map((message) => message.content);
     expect(shown[0]).toMatch(/^<tool_output id="T1"[\s\S]*more characters not shown/);
     expect(shown[0].length).toBeLessThan(1_600);
-    expect(shown[1]).toBe("BoxPilot: this output is not shown: the model's context has no room left for it. Answer with what is above.");
-    expect(shown[2]).toMatch(/^BoxPilot: this output is not shown[\s\S]*no tool calls left\. Answer now/);
+    // The first output took the room: the other two tools never ran, and each call is told so.
+    expect(ran).toEqual(["ssh"]);
+    expect(toolbox.outputs().map((output) => output.id)).toEqual(["T1"]);
+    expect(acted.toolCalls).toBe(1);
+    expect(shown[1]).toBe("BoxPilot: this tool was not run: the model's context is full, so its output could not be read. Answer with what is above.");
+    expect(shown[2]).toMatch(/^BoxPilot: this tool was not run[\s\S]*no tool calls left\. Answer now/);
     // So the last call and its answer both fit.
     expect(calls[1].toolChoice).toBe("none");
     expect(tokensSent(session, calls[1]) + calls[1].maxTokens).toBeLessThanOrEqual(startTokens + 1_040);
     expect(calls[1].maxTokens).toBeGreaterThan(64);
     expect(acted.answer).toMatch(/nothing/);
     expect(run).toMatchObject({ limitReached: true, limitKind: "context", degraded: null });
+  });
+
+  it("reads the context again at every step, for a run that moves to a model with none to keep to", async () => {
+    const { log, ran } = longLog();
+    let onLocal = true;
+    let steps = 0;
+    const { acted, calls, run } = await actWith([
+      { toolCalls: [{ id: "c1", name: "log_read", arguments: JSON.stringify({ unit: "ssh" }) }] },
+      { toolCalls: [{ id: "c2", name: "log_read", arguments: JSON.stringify({ unit: "cron" }) }] },
+      { content: "The logs show nothing [T1] [T2]." },
+    ], {
+      tools: [log], maxTokens: 2_048,
+      limits: (start) => ({ contextTokens: () => (onLocal ? start + 640 + 400 : null) }),
+      // The host moves the run after its first step, as an auto run moves to Claude.
+      beforeStep: async () => { steps += 1; if (steps === 2) onLocal = false; },
+    });
+    const outputs = calls[2].messages.filter((message) => message.role === "tool").map((message) => message.content);
+    // On the small model: what it may write and what it is shown are held to its context.
+    expect(calls[0].maxTokens).toBe(640 + 400 - 128);
+    expect(outputs[0]).toMatch(/more characters not shown/);
+    expect(outputs[0].length).toBeLessThan(2_000);
+    // Moved: the next step is not the last, writes as much as the model may, and reads its tool's output whole.
+    expect(calls[1]).toMatchObject({ toolChoice: "auto", maxTokens: 2_048 });
+    expect(ran).toEqual(["ssh", "cron"]);
+    expect(outputs[1]).not.toMatch(/not shown|not run/);
+    expect(outputs[1].length).toBeGreaterThan(6_000);
+    expect(calls[2]).toMatchObject({ toolChoice: "auto", maxTokens: 2_048 });
+    expect(acted.answer).toMatch(/nothing/);
+    expect(run).toMatchObject({ limitReached: false, limitKind: null, degraded: null });
   });
 
   it("goes by the server's count of the conversation, not its own estimate, once it has one (M66)", async () => {
@@ -241,8 +281,21 @@ describe("the loop", () => {
     const cut = { content: "The system disk is /dev/nvme0n1 [T1], and", reason: "length" };
     const { acted, run, notes } = await actWith([{ toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] }, cut]);
     expect(acted.answer).toBe(cut.content);
-    expect(run).toMatchObject({ limitReached: true, limitKind: "tokens", degraded: null });
-    expect(notes.find((entry) => entry.name === "answer").detail).toBe("The answer was cut short at 512 tokens, all this call was allowed: kept as far as it got.");
+    // The model's own longest answer, with most of the run's tokens unspent: not the run's budget.
+    expect(run).toMatchObject({ limitReached: true, limitKind: "answer", degraded: null });
+    expect(notes.find((entry) => entry.name === "answer").detail).toBe("The answer was cut short at 512 tokens, the longest answer the model may write: kept as far as it got.");
+    // The run's tokens, when fewer of them are left than the model may write.
+    const spent = await actWith([cut], { limits: { tokens: 300 } });
+    expect(spent.calls[0].maxTokens).toBe(300);
+    expect(spent.run).toMatchObject({ limitReached: true, limitKind: "tokens", degraded: null });
+    expect(spent.notes.find((entry) => entry.name === "answer").detail).toBe("The answer was cut short at 300 tokens, all the run's tokens left: kept as far as it got.");
+    // The time, when the session allowed fewer than the loop asked for: 30 ms at 10,000 tokens a second.
+    const late = await actWith([cut], { seconds: 0.03 });
+    expect(late.calls[0].maxTokens).toBeGreaterThanOrEqual(48);
+    expect(late.calls[0].maxTokens).toBeLessThan(300);
+    expect(late.acted.answer).toBe(cut.content);
+    expect(late.run).toMatchObject({ limitReached: true, limitKind: "time", degraded: null });
+    expect(late.notes.find((entry) => entry.name === "answer").detail).toBe(`The answer was cut short at ${late.calls[0].maxTokens} tokens, all there was time left to write: kept as far as it got.`);
     // A model that may write 2,048 in a context holding less: the context is what cut it.
     const tight = await actWith([{ toolCalls: [{ id: "c1", name: "disks_list", arguments: "{}" }] }, cut], { maxTokens: 2_048, limits: (start) => ({ contextTokens: start + 1_200 }) });
     expect(tight.calls[0]).toMatchObject({ toolChoice: "auto", maxTokens: 1_200 - 128 });

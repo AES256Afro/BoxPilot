@@ -360,8 +360,9 @@ export function describeApps(applications, others = [], { stops = {} } = {}) {
     lines.push(`BoxPilot apps installed: ${installed.length}. Running: ${installed.length - stopped.length}. Stopped or not running: ${stopped.length ? `${stopped.length} (${stopped.map((app) => app.id).join(", ")})` : "none"}.${split} Unhealthy: ${sick.length ? sick.map((app) => app.id).join(", ") : "none"}.`);
     // The ones to look at first: down for no recorded reason, then unhealthy, then stopped on purpose, then the rest.
     const ordered = [...down, ...sick.filter((app) => !stopped.includes(app)), ...purposeful, ...installed.filter((app) => !stopped.includes(app) && !sick.includes(app))];
-    // With the first app as the example: a small model follows one it can copy.
-    if (ordered.length) lines.push(`Each app's container is named bp- followed by the app's id: ${ordered[0].id} runs in bp-${ordered[0].id}.`);
+    // With the first app as the example: a small model follows one it can copy. The first listed
+    // is the first that is down when any is, so the example says nothing of whether it runs.
+    if (ordered.length) lines.push(`Each app's container is named bp- followed by the app's id: ${ordered[0].id}'s container is bp-${ordered[0].id}.`);
     for (const app of ordered.slice(0, 40)) {
       const container = app.container ?? {};
       const reason = reasons.get(app.id) ?? null;

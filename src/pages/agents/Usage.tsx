@@ -3,14 +3,14 @@ import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
 import { Button, Field, KeyValue, MetricStrip, MetricTile, Notice, Panel, Progress, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import { agentsApi, type LibraryModel, type ModuleState, type RuntimeDriver, type RuntimeState, type Usage as UsageState } from "./api";
-import { bytes, duration, errorText, gibibytes, processorWords } from "./format";
+import { bytes, duration, errorText, gibibytes, minutesOf, processorWords, secondsOf } from "./format";
 import { PasswordSheet } from "./PasswordSheet";
 import { SetupAction, chainSteps, downloadStep, enableStep, installStep, modelParameters, setupSteps, unitUp, type SetupStep, type SetupStepId } from "./setup";
 
 /*
  * Usage and the runtime (M37). First whether agents are running cool, from the runner's own cgroup:
  * the processor and memory it uses now against the hard caps the kernel holds it to, and whether
- * the kernel had to throttle it. Then the caps themselves, today's budgets per agent and the queue.
+ * it was held back at its limit. Then the caps themselves, today's budgets per agent and the queue.
  * Then what runs the model: Unsloth, the capped runner unit, and the model library - size, time to
  * download, memory against the cap and speed before anything is fetched - each step an operation
  * approved at its tier, and each offering the next that is missing once it completes (setup.tsx).
@@ -52,7 +52,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [runtime, setRuntime] = useState<RuntimeState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; contextTokens: string; quietStart: string; quietEnd: string; notify: boolean; runsPerDay: string; modelSecondsPerDay: string; embeddings: boolean; waiting: string; background: string; compareNightly: boolean } | null>(null);
+  const [draft, setDraft] = useState<{ driver: RuntimeDriver; endpoint: string; idleStopMinutes: string; contextTokens: string; quietStart: string; quietEnd: string; notify: boolean; runsPerDay: string; /** Typed in minutes; saved in seconds, as the server has it. */ modelMinutesPerDay: string; embeddings: boolean; waiting: string; background: string; compareNightly: boolean } | null>(null);
   // The settings as last read or saved, in the form's own shape: what the draft is held against.
   const [baseline, setBaseline] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | "settings" | "off">(null);
@@ -80,7 +80,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
     if (!runtime || draft) return;
     const first = {
       driver: runtime.settings.driver, endpoint: runtime.settings.endpoint ?? "", idleStopMinutes: String(runtime.settings.idleStopMinutes ?? 60), contextTokens: String(runtime.settings.contextTokens ?? 8192), quietStart: module.quietHours.start, quietEnd: module.quietHours.end, notify: module.notify,
-      runsPerDay: String(module.budget?.runsPerDay ?? 300), modelSecondsPerDay: String(module.budget?.modelSecondsPerDay ?? 21_600), embeddings: module.embeddings !== false, compareNightly: module.evaluation?.compareNightly === true,
+      runsPerDay: String(module.budget?.runsPerDay ?? 300), modelMinutesPerDay: minutesOf(module.budget?.modelSecondsPerDay ?? 21_600), embeddings: module.embeddings !== false, compareNightly: module.evaluation?.compareNightly === true,
       waiting: String(module.cores?.waiting ?? 8), background: String(module.cores?.background ?? 4),
     };
     setDraft(first);
@@ -135,6 +135,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   const modelLoaded = usage.runner.online && live?.modelLoaded === true;
 
   const perAgent = usage.today.perAgent;
+  const priority = `CPUWeight=${caps.cpuWeight} · Nice ${caps.nice} · IOSchedulingClass=${caps.ioSchedulingClass}`;
   const modelColumns: Array<TableColumn<LibraryModel>> = [
     {
       id: "model", header: "Model", cell: (model) => (
@@ -170,7 +171,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
     const runtimeChange = { driver: draft.driver, idleStopMinutes: Number.parseInt(draft.idleStopMinutes, 10), contextTokens: Number.parseInt(draft.contextTokens, 10), ...(draft.driver === "external" ? { endpoint: draft.endpoint.trim() } : {}) };
     await agentsApi.saveSettings(csrfToken, {
       password, quietHours: { start: draft.quietStart, end: draft.quietEnd }, notify: draft.notify, runtime: runtimeChange, embeddings: draft.embeddings, evaluation: { compareNightly: draft.compareNightly },
-      budget: { runsPerDay: Number.parseInt(draft.runsPerDay, 10), modelSecondsPerDay: Number.parseInt(draft.modelSecondsPerDay, 10) },
+      budget: { runsPerDay: Number.parseInt(draft.runsPerDay, 10), modelSecondsPerDay: secondsOf(draft.modelMinutesPerDay) ?? Number.NaN },
       ...(cores ? { cores: { waiting: Number.parseInt(draft.waiting, 10), background: Number.parseInt(draft.background, 10) } } : {}),
     });
     setBaseline(JSON.stringify(draft));
@@ -185,7 +186,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
 
       <Panel className="agents-now" title="Right now" count={{ status: verdict.status, label: verdict.label }}
         meta={usage.runner.online ? <>runner <b>{usage.runner.version ?? "?"}</b> · seen {relativeTime(usage.runner.lastSeenAt, now) ?? "just now"}</> : service && !silent ? "the runner is stopped" : "the runner is not answering"} padded>
-        <MetricStrip label="The runner right now: processor, memory, model and throttling">
+        <MetricStrip label="The runner right now: processor, memory, model and time held back">
           <MetricTile label="Processor" value={cpu === null ? "—" : `${cpu}%`} caption={`of a ${capNow}% cap (${processorWords(capNow)}${cores?.now.burst ? ", while someone waits" : ""})`} status={verdict.status} bar={cpu === null ? undefined : { value: cpu, max: capNow }} />
           <MetricTile label="Memory" value={live ? bytes(live.memoryBytes) : "—"} caption={`of ${gibibytes(live?.memoryMaxBytes ?? caps.memoryMaxBytes)}${live?.memoryPeakBytes ? ` · peak ${bytes(live.memoryPeakBytes)}` : ""}`}
             status={live ? (live.memoryBytes > caps.memoryMaxBytes * 0.9 ? "warning" : "good") : "unknown"} bar={live ? { value: live.memoryBytes, max: live.memoryMaxBytes ?? caps.memoryMaxBytes } : undefined} />
@@ -194,23 +195,23 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
             status={modelLoaded ? "good" : down ? "warning" : "neutral"}>
             {fix}
           </MetricTile>
-          <MetricTile label="Throttled" value={live ? `${Math.round(live.throttledMs / 1000)} s` : "—"} caption="time the kernel held it to its cap" status={live ? "neutral" : "unknown"} />
+          <MetricTile label="Held back" value={live ? `${Math.round(live.throttledMs / 1000)} s` : "—"} caption="time it wanted more processor than its limit" status={live ? "neutral" : "unknown"} />
         </MetricStrip>
         {live && !live.cgroup && <p className="agents-dim">Measured from the runner's own process: it is not running in its capped unit.</p>}
       </Panel>
 
       <div className="agents-split">
         <Panel className="agents-caps" title="Hard caps" meta={<code>{caps.unit}</code>} padded
-          footer="Enforced by the kernel through systemd, for the runner and its model together. CI proves them on real systemd.">
+          footer="Enforced by the kernel through systemd, for the runner and its model together.">
           <KeyValue layout="rows" items={[
             ...(cores
               ? [
                   { id: "cpu", label: "Processors", value: `${cores.background} in the background · ${cores.waiting} while you wait`, mono: true },
-                  { id: "quota", label: "CPUQuota now", value: `${capNow}%${cores.now.burst ? " · raised while someone waits" : ""}`, mono: true, status: cores.now.error ? "warning" as const : undefined },
+                  { id: "quota", label: "Processors now", value: `${processorWords(capNow)} (${capNow}%)${cores.now.burst ? " · raised while someone waits" : ""}`, mono: true, status: cores.now.error ? "warning" as const : undefined },
                 ]
               : [{ id: "cpu", label: "Processor", value: `${caps.cpuQuotaPercent}% (CPUQuota)`, mono: true }]),
-            { id: "weight", label: "Priority", value: `CPUWeight=${caps.cpuWeight} · Nice ${caps.nice}`, mono: true },
-            { id: "io", label: "Disk", value: `IOSchedulingClass=${caps.ioSchedulingClass}`, mono: true },
+            // In words when it is the idle priority the unit ships with; the settings themselves on hover, and as they are when they are anything else.
+            { id: "weight", label: "Priority", value: <span title={priority}>{caps.cpuWeight === "idle" ? "only when nothing else wants the processor" : priority}</span>, mono: true },
             { id: "memory", label: "Memory", value: `${gibibytes(caps.memoryMaxBytes)} · no swap`, mono: true },
             { id: "tasks", label: "Tasks", value: String(caps.tasksMax), mono: true },
             { id: "threads", label: "Model threads", value: cores ? `one a processor${cores.physical ? `, ${cores.physical} at most (its cores)` : ""}` : String(caps.modelThreads), mono: true },
@@ -219,7 +220,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
           {cores?.now.error && <p className="agents-dim">The last change of processors did not take: {cores.now.error.message}. Runs go with {cores.background} until it does.</p>}
         </Panel>
 
-        <Panel className="agents-today" title="Today" meta={<><b>{usage.today.runs}</b> runs · <b>{usage.today.modelSeconds}</b> s of model time · <b>{usage.queue.queued}</b> waiting{usage.queue.dropped ? <> · <b>{usage.queue.dropped}</b> dropped</> : null}</>} padded>
+        <Panel className="agents-today" title="Today" meta={<><b>{usage.today.runs}</b> runs · <b>{duration(usage.today.modelSeconds)}</b> of model time · <b>{usage.queue.queued}</b> waiting{usage.queue.dropped ? <> · <b>{usage.queue.dropped}</b> dropped</> : null}</>} padded>
           {usage.module.budget && (
             <div className="agents-budget agents-budget--all">
               <span className="agents-budget__name">All agents</span>
@@ -312,7 +313,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
           </div>
           <div className="agents-form__grid">
             <Field label="Runs a day, all agents together" hint="10 to 2,000"><TextInput mono type="number" min={10} max={2000} value={draft.runsPerDay} onValueChange={(value) => setDraft({ ...draft, runsPerDay: value })} /></Field>
-            <Field label="Model seconds a day, all together" hint={<><span>60 to 86,400</span>{Number.isFinite(Number.parseInt(draft.modelSecondsPerDay, 10)) ? <> · {duration(Number.parseInt(draft.modelSecondsPerDay, 10))}</> : null}</>}><TextInput mono type="number" min={60} max={86400} value={draft.modelSecondsPerDay} onValueChange={(value) => setDraft({ ...draft, modelSecondsPerDay: value })} /></Field>
+            <Field label="Thinking time a day (minutes), all together" hint={<><span>1 to 1,440</span>{(secondsOf(draft.modelMinutesPerDay) ?? 0) >= 3600 ? <> · {duration(secondsOf(draft.modelMinutesPerDay))}</> : null}</>}><TextInput mono type="number" step="any" min={1} max={1440} value={draft.modelMinutesPerDay} onValueChange={(value) => setDraft({ ...draft, modelMinutesPerDay: value })} /></Field>
           </div>
           {cores && (
             <div className="agents-form__grid">

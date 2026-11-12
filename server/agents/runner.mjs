@@ -462,8 +462,9 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         };
         const fields = claim.output?.format === "json" && (claim.output.fields ?? []).length > 0 ? claim.output.fields : null;
         const acted = await act({
-          // The local model's context (M48.1): the loop answers before a prompt outgrows it. Claude's is far larger than any run here reaches.
-          session, run: state, conversation, limits: { ...limits, contextTokens: driver === "claude" ? null : localRuntime?.contextTokens ?? null }, tokensUsed, signal: controller.signal, fields, answerNow: answerNowNote, beforeStep, pace: settings,
+          // The local model's context (M48.1): the loop answers before a prompt outgrows it. Claude's is far larger than any run
+          // here reaches. Asked at every step: an auto run that moved to Claude part-way has left the local model's behind.
+          session, run: state, conversation, limits: { ...limits, contextTokens: () => (driver === "claude" ? null : localRuntime?.contextTokens ?? null) }, tokensUsed, signal: controller.signal, fields, answerNow: answerNowNote, beforeStep, pace: settings,
           callTool: (call) => callTool(call.name, call.arguments),
           sources: () => [...outputs.map((output) => ({ id: output.id, title: output.title, text: output.summary })), ...findingSources],
           record, note: system,
@@ -479,19 +480,23 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
         return { outcome: "completed" };
       }
       let outcome = "completed";
+      // Whether the answer is the tools' lines pasted for want of one, which BoxPilot is told: the
+      // model said none of it, so the conversation does not keep it as what the agent answered.
+      let fallback = false;
       const { degraded } = state;
       if (degraded || !answer) {
         if (!outputs.length) for (const tool of fallbackTools(claim, understanding)) { if (controller.signal.aborted) break; await callTool(tool.id, tool.input, null).catch(() => null); }
+        fallback = !answer;
         answer = answer ? `${answer}\n\n(${degraded === "timeout" ? "The model took too long, so this may stop short." : "The model did not finish."})` : fallbackAnswer({ reason: degraded ?? "model-error", outputs });
         outcome = "degraded";
       }
-      await api.finish(run.id, lease, { outcome, answer, usage: usageOf(), degradedReason: outcome === "degraded" ? degraded ?? "model-error" : null, limitReached: state.limitReached, ...(state.limitKind ? { limit: state.limitKind } : {}), ...(boxes.length ? { boxes: boxes.slice(0, 10) } : {}) });
+      await api.finish(run.id, lease, { outcome, answer, usage: usageOf(), degradedReason: outcome === "degraded" ? degraded ?? "model-error" : null, limitReached: state.limitReached, ...(state.limitKind ? { limit: state.limitKind } : {}), ...(fallback ? { fallback: true } : {}), ...(boxes.length ? { boxes: boxes.slice(0, 10) } : {}) });
       return { outcome };
     } catch (error) {
       // Stopped by BoxPilot (cancelled, paused, killed, timed out): the web service already ended
       // the run; there is nothing to finish. Anything else ends the run as failed, never retried.
       if (stoppedBy || controller.signal.aborted) {
-        if (!stoppedBy && String(controller.signal.reason?.message) === "timeout") await api.finish(run.id, lease, { outcome: "degraded", answer: fallbackAnswer({ reason: "timeout", outputs }), usage: usageOf(), degradedReason: "timeout" }).catch(() => null);
+        if (!stoppedBy && String(controller.signal.reason?.message) === "timeout") await api.finish(run.id, lease, { outcome: "degraded", answer: fallbackAnswer({ reason: "timeout", outputs }), usage: usageOf(), degradedReason: "timeout", fallback: true }).catch(() => null);
         return { outcome: stoppedBy ?? "stopped" };
       }
       log(`run ${run.id} failed: ${error?.message ?? error}`);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bytes, duration, toolTitle } from "./format";
+import { bytes, duration, minutesOf, pagesWords, secondsOf, toolTitle } from "./format";
 
 /*
  * The words the Agents section uses for a budget and a tool (M48.7): "1800 s" and "apps.usage" said
@@ -27,6 +27,40 @@ describe("a budget's seconds in words", () => {
     expect(duration(null)).toBe("—");
     expect(duration(undefined)).toBe("—");
     expect(duration(Number.NaN)).toBe("—");
+  });
+});
+
+describe("a limit kept in seconds, typed in minutes", () => {
+  it("shows whole and part minutes, and reads what is typed back into seconds", () => {
+    expect(minutesOf(1800)).toBe("30");
+    expect(minutesOf(90)).toBe("1.5");
+    expect(minutesOf(30)).toBe("0.5");
+    expect(minutesOf(100)).toBe("1.67");
+    expect(minutesOf(10)).toBe("0.17");
+    expect(secondsOf("30")).toBe(1800);
+    expect(secondsOf("2.5")).toBe(150);
+    expect(secondsOf(" 1. ")).toBe(60);
+    expect(secondsOf("0")).toBe(0);
+  });
+
+  it("gives every whole second back as itself, across the widest range a limit has", () => {
+    for (let value = 0; value <= 86_400; value += 1) {
+      if (secondsOf(minutesOf(value)) !== value) throw new Error(`${value} s came back as ${secondsOf(minutesOf(value))}`);
+    }
+  });
+
+  it("is no number while nothing, a word or less than nothing is typed", () => {
+    for (const typed of ["", "   ", "abc", "-", "-5", "1e999", "NaN"]) expect(secondsOf(typed), typed).toBeNull();
+  });
+});
+
+describe("how much a run can read, in pages", () => {
+  it("counts about 500 tokens a page, and never says no pages", () => {
+    expect(pagesWords(12_000)).toBe("about 24 pages");
+    expect(pagesWords(24_000)).toBe("about 48 pages");
+    expect(pagesWords(500)).toBe("about 1 page");
+    expect(pagesWords(100)).toBe("about 1 page");
+    expect(pagesWords(96_000)).toBe("about 192 pages");
   });
 });
 

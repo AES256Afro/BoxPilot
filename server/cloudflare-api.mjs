@@ -68,10 +68,16 @@ export function createCloudflareApi({ token, fetcher = fetch, timeoutMs = 20_000
     let payload = null;
     try { payload = JSON.parse(raw); } catch { payload = null; }
     const first = Array.isArray(payload?.errors) ? payload.errors.find(isObject) ?? null : null;
-    if (response.status === 401 || response.status === 403) {
+    // 401: the token itself is refused, revoked or mistyped. No permission is missing, so none is named.
+    if (response.status === 401) {
+      throw new CloudflareError(`${rejected} while ${what}: it was not recognised, so it may have been revoked or not pasted whole. Paste it again, or make a new one with the three permissions (${tokenPermissions.join("; ")}).`, { status: response.status, code: first?.code ?? null });
+    }
+    if (response.status === 403) {
       // Which of the three this step uses, so the owner fixes one line of the token and not all of it.
       const needs = route.includes("/dns_records") ? tokenPermissions[1] : route.startsWith("/zones") ? tokenPermissions[2] : tokenPermissions[0];
-      const readOnly = method !== "GET" && route.includes("/cfd_tunnel") ? " A token that may only read tunnels gets this far and no further: the permission must be Edit, not Read." : "";
+      // Reading a tunnel's key is a GET that needs Edit all the same.
+      const edits = route.includes("/cfd_tunnel") && (method !== "GET" || route.endsWith("/token"));
+      const readOnly = edits ? " A token that may only read tunnels gets this far and no further: the permission must be Edit, not Read." : "";
       throw new CloudflareError(`${rejected} while ${what}. This step needs ${needs}.${readOnly} Check that it has the three permissions (${tokenPermissions.join("; ")}) and covers this account and domain.`, { status: response.status, code: first?.code ?? null });
     }
     if (response.status >= 300 && response.status < 400) throw new CloudflareError(`Cloudflare answered with a redirect while ${what}, which BoxPilot does not follow with your token`, { status: response.status });

@@ -116,7 +116,7 @@ describe("the other reads say their facts outright", () => {
     const text = describeApps(applications, [{ name: "portainer", image: "portainer/portainer-ce", state: "running", health: "none" }]);
     expect(text.split("\n")[0]).toBe("BoxPilot apps installed: 4. Running: 2. Stopped or not running: 2 (nextcloud, immich). Of those, stopped on purpose (by the owner, or never started): none; not running for another reason: nextcloud, immich. Unhealthy: jellyfin.");
     // How a container is named is said once, with the first app listed as the example, and not again on each line.
-    expect(text.split("\n")[1]).toBe("Each app's container is named bp- followed by the app's id: nextcloud runs in bp-nextcloud.");
+    expect(text.split("\n")[1]).toBe("Each app's container is named bp- followed by the app's id: nextcloud's container is bp-nextcloud.");
     expect(text.match(/bp-/g)).toHaveLength(2);
     // Restarts only for an app that has had some.
     expect(text).toMatch(/- nextcloud: stopped \(exited\), 2 restarts\. No stop is recorded in BoxPilot: it may have crashed, or been stopped outside BoxPilot\./);
@@ -148,7 +148,7 @@ describe("the other reads say their facts outright", () => {
 
     const text = describeApps(applications, [], { stops });
     const [summary, naming, ...lines] = text.split("\n");
-    expect(naming).toBe("Each app's container is named bp- followed by the app's id: nextcloud runs in bp-nextcloud.");
+    expect(naming).toBe("Each app's container is named bp- followed by the app's id: nextcloud's container is bp-nextcloud.");
     expect(summary).toBe("BoxPilot apps installed: 5. Running: 1. Stopped or not running: 4 (plex, qbittorrent, nextcloud, immich). Of those, stopped on purpose (by the owner, or never started): plex, qbittorrent; not running for another reason: nextcloud, immich. Unhealthy: none.");
     // Down for no recorded reason first, then the ones stopped on purpose, then the rest.
     expect(lines.map((line) => /^- ([a-z-]+)/.exec(line)?.[1])).toEqual(["nextcloud", "immich", "plex", "qbittorrent", "pi-hole"]);

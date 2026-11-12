@@ -55,7 +55,7 @@ describe("steps, tool calls and tokens a run", () => {
     const escalated = () => h.state.listAudit(50).filter((event) => event.type === "agents.escalated").length;
     for (let night = 0; night < 3; night += 1) { h.service.startRun(h.caller("owner"), agent.id, { kind: "manual" }); await h.runNext(); }
     expect(cards()).toHaveLength(1);
-    expect(cards()[0].reason).toMatch(/reached its limit of 3 steps a run/);
+    expect(cards()[0].reason).toMatch(/reached its limit of 3 tool rounds a run/);
     expect(escalated()).toBe(3);   // each is still on the audit trail
     // Once the owner has dealt with the card, the next time is news again.
     h.store.decideProposal(cards()[0].id, { state: "dismissed", decidedBy: "owner-1" });

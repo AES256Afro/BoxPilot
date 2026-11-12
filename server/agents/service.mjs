@@ -169,7 +169,7 @@ export const describePrompt = "Describe this image for a knowledge base about a 
 const clip = (text, max) => { const value = String(text ?? ""); return value.length > max ? `${value.slice(0, max - 1)}…` : value; };
 /** What the conversation keeps in place of the answer of a run that read something like an instruction. */
 const heldAnswerTurn = "(Not kept: that run read something that looked like an instruction, so BoxPilot left its answer out of the conversation.)";
-/** What it keeps in place of a degraded run's answer: the tools' lines, pasted for want of one, are not something the agent said. */
+/** What it keeps in place of the tools' lines the runner pasted for want of an answer: they are not something the agent said. */
 const noAnswerTurn = "(It could not answer that time.)";
 /**
  * How many characters of notes, memories and findings a task message may carry (M66): about a
@@ -186,6 +186,14 @@ function roomFor(chars) {
     left -= text.length;
     return true;
   };
+}
+/** "2 notes and 1 finding were left out for room.", or null when nothing was. */
+function leftOutWords({ notes = 0, memories = 0, findings = 0 }) {
+  const count = (n, one, many) => (n > 0 ? `${n} ${n === 1 ? one : many}` : null);
+  const parts = [count(notes, "note", "notes"), count(memories, "memory", "memories"), count(findings, "finding", "findings")].filter(Boolean);
+  if (!parts.length) return null;
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  return `${list} ${notes + memories + findings === 1 ? "was" : "were"} left out for room.`;
 }
 const finite = (value, max) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Math.min(Number(value), max) : 0);
 /** What `read()` gives, or `error` thrown once `ms` pass without an answer: a read that hangs holds nothing up for long. */
@@ -497,7 +505,7 @@ export function createAgentService({
     const { runsPerDay, modelSecondsPerDay } = moduleSettings().budget ?? defaultModuleSettings.budget;
     const modelMsLeft = Math.max(0, modelSecondsPerDay * 1000 - used.modelMs);
     const refusal = used.runs >= runsPerDay ? `All agents together have used their ${runsPerDay} runs for today`
-      : modelMsLeft <= 0 ? `All agents together have used their ${modelSecondsPerDay} seconds of model time for today` : null;
+      : modelMsLeft <= 0 ? `All agents together have used their ${Math.round(modelSecondsPerDay / 60)} minutes of thinking time for today` : null;
     return { runsUsed: used.runs, runsPerDay, modelMsUsed: used.modelMs, modelSecondsPerDay, modelMsLeft, refusal };
   }
 
@@ -1096,15 +1104,20 @@ export function createAgentService({
     // the runner, when the model searches memory itself).
     const query = [run.question, run.trigger?.title, spec.job].filter(Boolean).join(" ");
     // M66: its notes, what it recalls and the other agents' findings share the room the model's
-    // context leaves them, in that order, each whole or not at all. The notes that bear on the
-    // request first, ranked as recall ranks; with no request, the latest. A learning run reads
-    // every note: it is there to replace the ones no longer true.
+    // context leaves them, in that order, each whole or not at all. The notes the owner pinned
+    // first, always; then the ones that bear on the request, ranked as recall ranks; then the
+    // latest. A learning run reads every note: it is there to replace the ones no longer true.
     const fits = roomFor(taskRoomChars(runtimeSettings().contextTokens));
     const noteText = new Map(latestNotes.map((note) => [note.id, wrapNote({ ...note, stale: stale(note) }, { redact })]));
-    const bearing = run.question || run.trigger?.title
-      ? hybridSearch(latestNotes.map((note) => ({ key: note.id, title: note.title, text: note.body, weight: note.pinned ? 1.3 : 1 })), { query, limit: latestNotes.length }).map((item) => item.key)
+    // The request is what someone or something asked in its own words: a question, a hand-off's
+    // task, an event's title. "Its schedule" and "A webhook" are BoxPilot's names for how the run
+    // began, and the agent's job is the same at every run: ranked by those, the same old notes
+    // came first every morning and the newest were the ones left out.
+    const request = [run.question, run.kind === "event" ? run.trigger?.title : null].filter(Boolean).join(" ");
+    const bearing = request
+      ? hybridSearch(latestNotes.map((note) => ({ key: note.id, title: note.title, text: note.body })), { query: request, limit: latestNotes.length }).map((item) => item.key)
       : [];
-    const preferred = [...new Set([...bearing, ...latestNotes.map((note) => note.id)])];
+    const preferred = [...new Set([...latestNotes.filter((note) => note.pinned).map((note) => note.id), ...bearing, ...latestNotes.map((note) => note.id)])];
     const shown = new Set(preferred.filter((id) => fits(noteText.get(id), { whatever: run.kind === "learn" })));
     // In the order they were first written, not last changed: one note edited does not move the
     // others, so the model server reuses what it read of them for the run before.
@@ -1116,8 +1129,9 @@ export function createAgentService({
     const fromNotes = rememberedFlag(promptNotes.map((note) => noteItem(note, agent, run.readRole, { own: true, from: agent.name })));
     if (fromNotes.flagged) flagInjection(run.id, { hop: fromNotes.hop, from: fromNotes.items, detail: rememberedDetail(fromNotes.items) });
     // What it remembers that bears on this request, by words, as far as there is room. Recorded in
-    // the trace as a memory read.
-    const noteKeys = new Set(ownNotes(agent.id, run.readRole, { limit: limits.notesInPrompt }).map((note) => `note:${note.id}`));
+    // the trace as a memory read. Not the notes pasted above; a note left out for room may come
+    // back here, as the line recall gives it, when it bears on the request.
+    const noteKeys = new Set(promptNotes.map((note) => `note:${note.id}`));
     const remembered = spec.memory?.enabled ? hybridSearch(memoryItems(agent, spec, run.readRole, run).filter((item) => !noteKeys.has(item.key)), { query, limit: limits.memoryInPrompt }) : [];
     const recalled = remembered.filter((item) => fits(memoryLine(item)));
     // Words it trusts by where they came from - the owner's own documents, its own notes - that read
@@ -1132,9 +1146,12 @@ export function createAgentService({
     }
     // What the other agents found that bears on it (M44): before it plans, so it need not look again.
     const usesFindings = sharingFor(agent, spec).useFindings;
-    const found = offerFindings(run, spec, agent);
-    const findings = found.filter((finding) => fits(finding.wrapped));
-    const leftOut = { notes: latestNotes.length - notes.length, memories: remembered.length - recalled.length, findings: found.length - findings.length };
+    // Only the ones there is room for are offered: one left out is no step of the trace, no flag
+    // on the run and nothing the answer can cite.
+    const { findings, leftOut: findingsLeftOut } = offerFindings(run, spec, agent, { fits: (finding) => fits(finding.wrapped) });
+    // A note left out and then recalled with no room for its line either is one thing left out, not two.
+    const notesOut = new Set(latestNotes.filter((note) => !shown.has(note.id)).map((note) => `note:${note.id}`));
+    const leftOut = { notes: notesOut.size, memories: remembered.filter((item) => !recalled.includes(item) && !notesOut.has(item.key)).length, findings: findingsLeftOut };
     // The conversation with this person, when the agent keeps one.
     const thread = spec.memory?.threads && run.requestedBy && ["ask", "manual"].includes(run.kind) ? store.getThread(agent.id, run.requestedBy) : null;
     // Not flagged by its words (sweep 3): an answer in it came from a run that was not flagged (a
@@ -1208,6 +1225,10 @@ export function createAgentService({
     if (!store.countSteps(run.id, "prompt")) {
       const truncated = taskContent.length > limits.promptChars;
       store.addStep(run.id, { kind: "prompt", name: "task", output: redact(truncated ? `${taskContent.slice(0, limits.promptChars - 1)}…` : taskContent), flags: { notes: notes.length, memories: recalled.length, findings: findings.length, notesLeftOut: leftOut.notes, memoriesLeftOut: leftOut.memories, findingsLeftOut: leftOut.findings, handoffs: handoffSteps.length, thread: Boolean(context), ...(truncated ? { truncated: true } : {}) } });
+      // Said in words too, as a line of the trace of its own: the step above is the prompt as the
+      // model read it, which the training record is made from, so nothing is added to its text.
+      const left = leftOutWords(leftOut);
+      if (left) { const step = store.addStep(run.id, { kind: "system", name: "prompt", flags: { detail: left } }); if (step) emit(run.id, "step", step); }
     }
     return {
       run: { id: run.id, kind: run.kind, question: run.question, trigger: run.trigger, readRole: run.readRole, startedAt: run.startedAt, deadlineAt },
@@ -1221,7 +1242,7 @@ export function createAgentService({
       // The findings it was offered, F1, F2 ...: what the runner's check holds a claim citing one to.
       findings: findings.map(({ id, title, text }) => ({ id, title, text })),
       // M47.3: whether the runner may ask for more findings by meaning once it has embedded the request.
-      findingsByMeaning: usesFindings && findingReaderKinds.includes(run.kind) && found.length < limits.findingsInPrompt && !leftOut.findings,
+      findingsByMeaning: usesFindings && findingReaderKinds.includes(run.kind) && findings.length < limits.findingsInPrompt && !leftOut.findings,
       // A follow-up's specialists' answers, T1, T2 ...: tool output already, before any it reads (sweep 3).
       handoffs,
       tools: offered.map((tool) => ({ id: tool.id, ...toModelTool(["operations.run", "operations.plan"].includes(tool.id) ? actTool(tool, spec) : tool) })),
@@ -1774,7 +1795,11 @@ export function createAgentService({
     const degradedReason = typeof result.degradedReason === "string" ? result.degradedReason.slice(0, 40) : null;
     const limitReached = Boolean(degradedReason === "budget" || degradedReason === "timeout" || result.limitReached);
     // Which: its steps, its tool calls or its tokens (M44), so the card can say what to raise.
-    const limitKind = limitReached && ["steps", "toolCalls", "tokens", "context", "repeat"].includes(result.limit) ? result.limit : null;
+    // "answer" and "time" are an answer cut short by the longest answer the model may write, or
+    // by the time left to write it: neither is the run's tokens, and no budget is raised for them.
+    const limitKind = limitReached && ["steps", "toolCalls", "tokens", "context", "repeat", "answer", "time"].includes(result.limit) ? result.limit : null;
+    // The runner's word that the answer is its tools' lines, pasted because the model wrote none.
+    const fallback = outcome === "degraded" && result.fallback === true;
     const finished = store.finishRun(run.id, {
       state: outcome,
       reason: outcome === "failed" ? clip(redact(String(result.error ?? "The run failed")), 300) : degradedReason ? `degraded: ${degradedReason}` : null,
@@ -1783,6 +1808,7 @@ export function createAgentService({
         citations: { cited: citations.cited.length, unknown: citations.unknown }, ...(degradedReason ? { degraded: degradedReason } : {}),
         ...(checked ? { check: checked } : {}), ...(fabricated.length ? { fabricated } : {}),
         ...(clarify ? { clarify: true } : {}), ...(structured ? { structured } : {}), ...(limitReached ? { limitReached: true } : {}), ...(limitKind ? { limit: limitKind } : {}),
+        ...(fallback ? { fallback: true } : {}),
         model: embedModelName(),
         ...(planCheck ? { planCheck } : {}),
       },
@@ -1916,11 +1942,12 @@ export function createAgentService({
         // A flagged run's question is kept, so the conversation moves on and old turns age out as
         // any other; its answer is not, BoxPilot's words in its place (sweep 3: keeping no turn at
         // all froze the conversation once every run was flagged, the turn behind it kept for good).
-        // Nor is a degraded run's (M66): what the tools found, pasted in place of an answer, came
-        // back in the next run as "You answered:".
+        // Nor is what the tools found, pasted in place of an answer (M66): it came back in the
+        // next run as "You answered:". A degraded run the model did answer keeps its answer, cut
+        // short as it may be: the person's next question is about it.
         const said = flagged
           ? { role: "agent", text: heldAnswerTurn, at: run.finishedAt, runId: run.id, held: true }
-          : { role: "agent", text: run.state === "degraded" ? noAnswerTurn : clip(run.answer, 2_000), at: run.finishedAt, runId: run.id };
+          : { role: "agent", text: run.flags?.fallback ? noAnswerTurn : clip(run.answer, 2_000), at: run.finishedAt, runId: run.id };
         const turns = [...thread.turns, { role: "user", text: root.question, at: root.queuedAt }, said];
         const folded = foldThread({ summary: thread.summary, turns }, { keep: (spec.memory.turns ?? 6) * 2 });
         store.saveThread(agent.id, run.requestedBy, { summary: folded.summary, turns: folded.turns });
@@ -1996,16 +2023,19 @@ export function createAgentService({
    * the owner's Server Keeper twice said only "It ran out of time before it finished".
    */
   function limitWords(flags, spec) {
-    const raise = (field) => ` If that keeps happening, raise "${field}" on its Build tab, under Guardrails.`;
+    const raise = (field) => ` If that keeps happening, raise "${field}" on its Build tab, under Limits.`;
     const budget = spec?.budget ?? {};
     if (flags.degraded === "budget") return "It ran out of its model time for today before it finished.";
-    if (flags.degraded === "timeout") return `It ran out of time before it finished${budget.runSeconds ? ` (its longest run is ${Math.round(budget.runSeconds / 60)} minutes)` : ""}.${raise("Longest run")}`;
-    if (flags.limit === "steps") return `It reached its limit of ${budget.stepsPerRun === 1 ? "one step" : `${budget.stepsPerRun ?? "its"} steps`} a run before it finished.${raise("Steps a run")}`;
-    if (flags.limit === "tokens") return `It reached its limit of ${budget.tokensPerRun ?? "its"} tokens a run and had to answer early.${raise("Tokens a run")}`;
-    if (flags.limit === "toolCalls") return `It reached the most tool calls a run may make before it finished.${raise("Steps a run")}`;
+    if (flags.degraded === "timeout") return `It ran out of time before it finished${budget.runSeconds ? ` (its longest run is ${Math.round(budget.runSeconds / 60)} minutes)` : ""}.${raise("Time limit")}`;
+    if (flags.limit === "steps") return `It reached its limit of ${budget.stepsPerRun === 1 ? "one tool round" : `${budget.stepsPerRun ?? "its"} tool rounds`} a run before it finished.${raise("Tool rounds")}`;
+    if (flags.limit === "tokens") return `It reached its limit of ${budget.tokensPerRun ?? "its"} tokens a run and had to answer early.${raise("Reading room")}`;
+    if (flags.limit === "toolCalls") return `It reached the most tool calls a run may make before it finished.${raise("Tool rounds")}`;
     // M48.1: the model's context and a model asking for the same output over and over.
     if (flags.limit === "context") return `What it had read filled the model's context (${runtimeSettings().contextTokens ?? "its"} tokens), so it answered with what it had. A larger context is set on the Usage tab, under Settings.`;
     if (flags.limit === "repeat") return "It kept asking for the same tool output, so it was told to answer with what it had.";
+    // M66: an answer the model server stopped part-way. Not the run's tokens: raising those changes nothing.
+    if (flags.limit === "answer") return `Its answer stops short: it reached the longest answer the model may write (${runtimeSettings().maxTokens ?? "its"} tokens). The longest answer in tokens is one of the model's settings, on the Usage tab.`;
+    if (flags.limit === "time") return "Its answer stops short: there was too little time left to write the rest.";
     return "It reached a limit before it finished.";
   }
 
@@ -2576,7 +2606,9 @@ export function createAgentService({
    * the one before it did, has a budget its work has outgrown. The field rises to its template's
    * when lower, once, with a version note; a budget already at or above the template's is left to
    * the owner (the Build tab says what to raise). The owner's Steve ran out of tokens every morning
-   * on a budget from M43 the template had long outgrown.
+   * on a budget from M43 the template had long outgrown. An answer the model server cut short (the
+   * limits "answer" and "time") ran out of none of the three, and raises nothing: read as tokens,
+   * two such runs took an agent's tokens a run from 32,000 to 64,000 (M66).
    */
   function followTheWork(run, { limit, degraded }) {
     try {

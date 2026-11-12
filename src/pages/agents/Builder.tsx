@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { relativeTime } from "../../home/format";
 import { Button, Checkbox, CodeBlock, CopyButton, Facts, Field, Notice, Panel, Segmented, Select, Sheet, StatusChip, Switch, Table, Tag, TextInput, Textarea, type TableColumn } from "../../ui";
-import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type ChatKind, type ChatOutput, type ChatOutputs, type GrantLevel, type ModelRoute, type OutputField, type Schedule, type SpecChange, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
+import { agentsApi, type AgentDetail, type AgentSpec, type AgentSummary, type AgentVersion, type Catalog, type ChatKind, type ChatOutput, type ChatOutputs, type GrantLevel, type ModelRoute, type OutputField, type Schedule, type SpecChange, type Template, type ToolInfo, type ToolPermission, type VersionDetail } from "./api";
 import { ConfirmSheet } from "./Confirm";
-import { duration, errorText, scheduleWords, triggerWords } from "./format";
+import { duration, errorText, minutesOf, pagesWords, scheduleWords, secondsOf, triggerWords } from "./format";
 
 /*
  * The Agent Builder (M37), in the order an agent is built:
@@ -14,9 +14,11 @@ import { duration, errorText, scheduleWords, triggerWords } from "./format";
  *    is versioned with line diffs.
  * 3. Data and tools: who may ask it, what it reads, each tool from the registry with its category,
  *    cost and permission, and the apps and operations it may touch.
- * 4. When it runs, 5. its guardrails (budget, outputs, escalation, thinking), 6. its memory, and
- *    7. its team: whether it shares its findings with the other agents and uses theirs (M44), and
- *    a supervisor that hands subtasks to specialists.
+ * 4. When it runs, 5. its limits (a day's and a run's), 6. what it leaves (notes, the digest, cards,
+ *    the team chat, what it hands to a person), 7. its model, 8. its memory, and 9. its team: whether
+ *    it shares its findings with the other agents and uses theirs (M44), and a supervisor that hands
+ *    subtasks to specialists.
+ * A template's button asks for the agent's name first; nothing is made until "Make it".
  * Then test it in the console. Saving makes a new version; every version compares field by field
  * and can be rolled back to. An agent exports as JSON and imports back.
  */
@@ -57,17 +59,19 @@ const defaultChat: ChatOutputs = { findings: { enabled: true, channel: null, top
 const chatOf = (spec: AgentSpec): ChatOutputs => ({ ...defaultChat, ...(spec.outputs.chat ?? {}) });
 const escalationWords: Record<keyof AgentSpec["escalation"], { label: string; description: string }> = {
   lowConfidence: { label: "When it is unsure what was meant", description: "A card when it is less than half sure it understood." },
-  limits: { label: "When it reaches a limit", description: "A card when it runs out of steps, time or model time." },
+  limits: { label: "When it reaches a limit", description: "A card when it runs out of tool rounds, time or thinking time." },
   actions: { label: "When something needs doing", description: "A plan to approve, never an action." },
   risk: { label: "When something looks risky", description: "A card and a notification when what it read looked like an instruction." },
 };
-const budgetWords: Record<keyof AgentSpec["budget"], { label: string; unit: string }> = {
-  runsPerDay: { label: "Runs a day", unit: "runs" },
-  modelSecondsPerDay: { label: "Model time a day", unit: "seconds" },
-  stepsPerRun: { label: "Steps a run", unit: "steps" },
-  tokensPerRun: { label: "Tokens a run", unit: "tokens" },
-  runSeconds: { label: "Longest run", unit: "seconds" },
-};
+/**
+ * The five limits in plain words, in the two rows the form draws: what a day may use, and what one
+ * run may. "minutes" are kept and saved in seconds, as the server has them; the field converts.
+ */
+type BudgetKey = keyof AgentSpec["budget"];
+const limitRows: ReadonlyArray<{ title: string; limits: ReadonlyArray<{ key: BudgetKey; label: string; unit: "runs" | "rounds" | "tokens" | "minutes" }> }> = [
+  { title: "Each day", limits: [{ key: "runsPerDay", label: "Runs", unit: "runs" }, { key: "modelSecondsPerDay", label: "Thinking time", unit: "minutes" }] },
+  { title: "Each run", limits: [{ key: "stepsPerRun", label: "Tool rounds", unit: "rounds" }, { key: "tokensPerRun", label: "Reading room", unit: "tokens" }, { key: "runSeconds", label: "Time limit", unit: "minutes" }] },
+];
 /** What each model choice does, said under it (M45.3, M45.4). */
 const routeHints: Record<ModelRoute, string> = {
   local: "Every run stays on this server.",
@@ -80,22 +84,49 @@ const article = (word: string) => (/^[aeiou]/i.test(word) || /^IT\b/.test(word) 
 
 // ---- the templates, and importing a definition ----
 
-function TemplatePicker({ catalog, canCreate, csrfToken, onCreated }: Pick<BuilderProps, "catalog" | "canCreate" | "csrfToken" | "onCreated">) {
-  const [busy, setBusy] = useState<string | null>(null);
+/**
+ * The agent's name, asked before it exists. A template's button used to make an agent at once, which
+ * left agents nobody had named. "Make it" makes it under this name; Cancel, Escape and Close make
+ * nothing.
+ */
+function NameSheet({ template, csrfToken, onCreated, onClose }: { template: Template; csrfToken: string; onCreated: (agentId: string) => void; onClose: () => void }) {
+  const blank = template.id === "blank";
+  const [name, setName] = useState(blank ? "" : template.title);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const file = useRef<HTMLInputElement | null>(null);
-  const create = async (template: string) => {
-    setBusy(template);
+  const make = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
     try {
-      const agent = await agentsApi.create(csrfToken, { template });
-      setError(null);
+      // The server takes a name only inside a definition, beside the template it came from. Which
+      // model runs it is left out, so the server still chooses: Claude when a run needs it, once connected.
+      const { route: _route, ...model } = template.spec.model;
+      const agent = await agentsApi.create(csrfToken, { template: template.id, spec: { ...template.spec, name: name.trim(), model } });
+      onClose();
       onCreated(agent.id);
     } catch (requestError) {
       setError(errorText(requestError, "The agent could not be made"));
-    } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
+  return (
+    <Sheet side="center" size="sm" kicker={blank ? "A blank agent" : `From the ${template.title} template`} title="Name your agent" onClose={onClose} onSubmit={() => void make()}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" type="submit" busy={busy} disabled={!name.trim()}>Make it</Button></>}>
+      <Field label="Name" required hint="You can change it later.">
+        <TextInput value={name} maxLength={60} onValueChange={setName} />
+      </Field>
+      <p className="agents-template__job"><span className="agents-dim">Its job:</span> {template.spec.job}</p>
+      {error && <Notice tone="danger" live>{error}</Notice>}
+    </Sheet>
+  );
+}
+
+function TemplatePicker({ catalog, canCreate, csrfToken, onCreated }: Pick<BuilderProps, "catalog" | "canCreate" | "csrfToken" | "onCreated">) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // The template whose agent is being named; nothing is made until its sheet says so.
+  const [naming, setNaming] = useState<Template | null>(null);
+  const file = useRef<HTMLInputElement | null>(null);
   const importFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const chosen = event.target.files?.[0];
     event.target.value = "";
@@ -130,11 +161,12 @@ function TemplatePicker({ catalog, canCreate, csrfToken, onCreated }: Pick<Build
               <Facts>
                 <b>{tools}</b> {tools === 1 ? "tool" : "tools"} · {triggerWords({ triggers: template.spec.triggers })} · asked by {template.spec.audience.join(", ")}
               </Facts>
-              {canCreate && <Button variant={template.id === "server-keeper" ? "primary" : "secondary"} busy={busy === template.id} onClick={() => void create(template.id)}>{template.id === "blank" ? "Start blank" : `Make ${article(template.title)} ${template.title}`}</Button>}
+              {canCreate && <Button variant={template.id === "server-keeper" ? "primary" : "secondary"} onClick={() => setNaming(template)}>{template.id === "blank" ? "Start blank" : `Make ${article(template.title)} ${template.title}`}</Button>}
             </article>
           );
         })}
       </div>
+      {naming && <NameSheet key={naming.id} template={naming} csrfToken={csrfToken} onCreated={onCreated} onClose={() => setNaming(null)} />}
     </Panel>
   );
 }
@@ -167,6 +199,22 @@ function numberOf(text: string, fallback: number): number {
 }
 const linesOf = (text: string) => text.split("\n");
 const idList = (text: string) => text.split(/[\s,]+/).map((part) => part.trim()).filter(Boolean);
+
+/**
+ * A limit kept in seconds, shown and typed in minutes. The form's draft and what is saved stay in
+ * seconds; only this field converts.
+ */
+function MinutesInput({ seconds, min, max, onSeconds }: { seconds: number; min: number; max: number; onSeconds: (seconds: number) => void }) {
+  const [text, setText] = useState(() => minutesOf(seconds));
+  // Discard changes, a roll back or another agent: the field shows the draft's number again. What is
+  // being typed stays as typed while it stands for the same seconds ("1." for a minute).
+  useEffect(() => { setText((current) => (secondsOf(current) === seconds ? current : minutesOf(seconds))); }, [seconds]);
+  return (
+    <TextInput mono type="number" step="any" min={minutesOf(min)} max={minutesOf(max)} value={text}
+      onValueChange={(value) => { setText(value); const next = secondsOf(value); if (next !== null) onSeconds(next); }}
+      onBlur={() => setText(minutesOf(seconds))} />
+  );
+}
 
 function FormSection({ id, title, step, children, flush = false }: { id: string; title: string; step: number; children: ReactNode; flush?: boolean }) {
   return (
@@ -397,16 +445,33 @@ function SpecForm({ draft, setDraft, catalog, disabled, others, template = null,
         </div>
       </FormSection>
 
-      <FormSection id="guardrails" title="Guardrails" step={5}>
-        <div className="agents-form__grid">
-          {(Object.keys(budgetWords) as Array<keyof AgentSpec["budget"]>).map((key) => (
-            <Field key={key} label={budgetWords[key].label} hint={<><span>{limits[key].min}–{limits[key].max} {budgetWords[key].unit}{Number.isFinite(limits[key].default) ? `, ${limits[key].default} by default` : ""}</span>{budgetWords[key].unit === "seconds" && draft.budget[key] >= 60 ? <> · {duration(draft.budget[key])}</> : null}</>}>
-              <TextInput mono type="number" min={limits[key].min} max={limits[key].max} value={String(draft.budget[key])}
-                onValueChange={(value) => setDraft((current) => ({ ...current, budget: { ...current.budget, [key]: numberOf(value, current.budget[key]) } }))} />
-            </Field>
-          ))}
-        </div>
-        <p className="agents-form__note">A run on its schedule goes at about half the speed of a question you wait on. If its runs end with a card saying it ran out of time or reached a limit, raise the longest run, its steps or its tokens here.</p>
+      <FormSection id="limits" title="Limits" step={5}>
+        {limitRows.map((row) => (
+          <div key={row.title} className="agents-limits" role="group" aria-label={row.title}>
+            <span className="agents-limits__when">{row.title}</span>
+            <div className="agents-form__grid">
+              {row.limits.map(({ key, label, unit }) => {
+                const { min, max, default: usual } = limits[key];
+                const value = draft.budget[key];
+                const set = (next: number) => setDraft((current) => ({ ...current, budget: { ...current.budget, [key]: next } }));
+                // The allowed range is the server's, said in the unit the field is typed in.
+                const shown = (stored: number) => (unit === "minutes" ? minutesOf(stored) : String(stored));
+                const more = unit === "tokens" ? pagesWords(value) : unit === "minutes" && value >= 3600 ? duration(value) : null;
+                return (
+                  <Field key={key} label={label} hint={<><span>{shown(min)}–{shown(max)} {unit}{Number.isFinite(usual) ? `, ${shown(usual)} by default` : ""}</span>{more ? <> · {more}</> : null}</>}>
+                    {unit === "minutes"
+                      ? <MinutesInput seconds={value} min={min} max={max} onSeconds={set} />
+                      : <TextInput mono type="number" min={min} max={max} value={String(value)} onValueChange={(text) => set(numberOf(text, value))} />}
+                  </Field>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <p className="agents-form__note">Runs and thinking time are what it may use in a day; in one run, tool rounds are how many times it may look something up, reading room is how much it can read, and the time limit is when the run is stopped.</p>
+      </FormSection>
+
+      <FormSection id="leaves" title="What it leaves" step={6}>
         <div className="agents-form__checks">
           {(Object.keys(outputWords) as Array<keyof typeof outputWords>).map((key) => (
             <Checkbox key={key} label={`Writes ${outputWords[key].toLowerCase()}`} checked={draft.outputs[key]} onChange={(checked) => setDraft((current) => ({ ...current, outputs: { ...current.outputs, [key]: checked } }))} />
@@ -444,6 +509,9 @@ function SpecForm({ draft, setDraft, catalog, disabled, others, template = null,
               onChange={(checked) => setDraft((current) => ({ ...current, escalation: { ...current.escalation, [key]: checked } }))} />
           ))}
         </div>
+      </FormSection>
+
+      <FormSection id="model" title="Model" step={7}>
         <div className="agents-form__row">
           <Field label="Model" hint={routeHints[route]}>
             <Select value={route} disabled={disabled} onValueChange={(value) => setDraft((current) => ({ ...current, model: { ...current.model, route: value === "claude" || value === "auto" ? value : "local" } }))}
@@ -468,7 +536,7 @@ function SpecForm({ draft, setDraft, catalog, disabled, others, template = null,
           onChange={(checked) => setDraft((current) => ({ ...current, model: { ...current.model, thinking: checked } }))} />
       </FormSection>
 
-      <FormSection id="memory" title="Memory" step={6}>
+      <FormSection id="memory" title="Memory" step={8}>
         <Switch label="Keeps notes between runs" checked={draft.memory.enabled} disabled={disabled} onChange={(checked) => setDraft((current) => ({ ...current, memory: { ...current.memory, enabled: checked } }))} />
         {draft.memory.enabled && (
           <div className="agents-form__row">
@@ -483,7 +551,7 @@ function SpecForm({ draft, setDraft, catalog, disabled, others, template = null,
         </div>
       </FormSection>
 
-      <FormSection id="team" title="Team" step={7}>
+      <FormSection id="team" title="Team" step={9}>
         <Switch label="Shares its findings with the other agents" description="What it finds on its schedule, and in answers it checked against its tools, is kept for a while, so the other agents need not look again." checked={sharing.shareFindings} disabled={disabled}
           onChange={(checked) => setSharing({ shareFindings: checked })} />
         <Switch label="Uses the other agents' findings" description="Before it starts, it reads what the others found recently and answers from that when it can. It still looks for itself before it suggests a fix, or when you ask it to check now." checked={sharing.useFindings} disabled={disabled}

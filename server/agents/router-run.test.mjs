@@ -137,6 +137,53 @@ describe("an auto agent", () => {
     expect(run.usage.route).toBe("both");
   });
 
+  it("leaves the local model's context behind when it moves to Claude part-way", async () => {
+    // Thirty apps: more than a small context has room for, so reading them is what outgrows it.
+    const manyApps = () => ({ applications: Array.from({ length: 30 }, (_, index) => ({ id: `app-${index}`, name: `App ${index}`, installed: true, container: { running: true, status: "running", health: "healthy", restarts: 0 }, urls: [{ host: 8_000 + index }] })) });
+    const claimWith = async (contextTokens) => {
+      await setUp();
+      h.helperAnswers["app.inspect"] = manyApps;
+      h.state.setSetting("agentsRuntime", { ...h.state.getSetting("agentsRuntime"), contextTokens });
+      const agent = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+      routed(agent, "auto");
+      localPlans(sure);
+      ask(agent, "owner", "Which apps are running?");
+      return h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    };
+    // What the runner asks of Claude, as it reaches the service: the gateway sets its own max_tokens on the wire.
+    const asked = [];
+    const finished = async (claim) => {
+      const toClaude = h.service.runnerModel;
+      h.service.runnerModel = (runId, lease, body) => { asked.push(body.request); return toClaude(runId, lease, body); };
+      await h.runner.execute(claim);
+      return h.service.getRun(h.caller("owner"), claim.run.id);
+    };
+    // How many tokens the work is before its first step, as the runner counts it: said by a run
+    // made to move at once.
+    const first = await claimWith(2_048);
+    first.router.contextShare = 0.01;
+    const measured = await finished(first);
+    const start = Number(/The work is about (\d+) tokens/.exec(modelSteps(measured).find((text) => text.startsWith("Moved to")))[1]);
+    await h.close();
+    // A context with room for the work, an answer and part of the list of apps, and a run that
+    // moves once it is 100 tokens longer than it began: the local model reads the apps, which
+    // takes it past that, and Claude takes the next step, close to the end of the local context.
+    const contextTokens = start + 1_400;
+    const claim = await claimWith(contextTokens);
+    claim.router.contextShare = (start + 100) / contextTokens;
+    asked.length = 0;
+    const run = await finished(claim);
+    expect(h.fake.prompts().length).toBeGreaterThan(1);
+    expect(modelSteps(run).find((text) => text.startsWith("Moved to"))).toMatch(new RegExp(`more than the local model's ${contextTokens}-token context holds well\\.$`));
+    // Claude's first step may write as much as the model's settings allow, not what the local
+    // context had left, and is offered its tools.
+    expect(asked).toHaveLength(2);
+    expect(asked[0]).toMatchObject({ maxTokens: h.service.runtimeSettings().maxTokens, toolChoice: "auto" });
+    expect(run.steps.filter((step) => step.kind === "system" && step.name === "context")).toEqual([]);
+    expect(run.state).toBe("completed");
+    expect(run.flags.limit).toBeUndefined();
+  });
+
   it("keeps the owner's documents on the box from the start, since it may move", async () => {
     await setUp();
     const document = h.service.addDocument(h.caller("owner"), { title: "Media drive notes", text: "The media drive holds the films; the spare key is under the blue pot by the door." });

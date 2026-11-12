@@ -227,13 +227,58 @@ describe("quality of life (M48.7)", () => {
     expect(new URLSearchParams(window.location.search).get("agent")).toBeNull();
   });
 
-  it("says the budget in minutes beside the seconds on the Build tab", async () => {
+  // "Model time a day: 1800 seconds" and "Tokens a run" said nothing to the person the page is for.
+  it("names the five limits in plain words, a row for the day and a row for a run, typed in minutes and saved in seconds", async () => {
+    const calls = serve(base({
+      [`GET /api/v1/agents/${keeperId}`]: detail(),
+      [`PUT /api/v1/agents/${keeperId}`]: (init: RequestInit | undefined) => json({ ...detail(3), spec: JSON.parse(String(init?.body)).spec }),
+    }));
+    window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const day = await screen.findByRole("group", { name: "Each day" });
+    const run = screen.getByRole("group", { name: "Each run" });
+    expect(within(day).getAllByRole("spinbutton").map((field) => field.closest(".ui-field")?.querySelector("label")?.textContent)).toEqual(["Runs", "Thinking time"]);
+    expect(within(run).getAllByRole("spinbutton").map((field) => field.closest(".ui-field")?.querySelector("label")?.textContent)).toEqual(["Tool rounds", "Reading room", "Time limit"]);
+    // Seconds are shown as minutes, and the range is the server's, in minutes too.
+    const thinking = within(day).getByLabelText("Thinking time") as HTMLInputElement;
+    const limit = within(run).getByLabelText("Time limit") as HTMLInputElement;
+    expect([thinking.value, limit.value]).toEqual(["30", "10"]);
+    expect([limit.min, limit.max]).toEqual(["0.5", "30"]);
+    expect(screen.getByText("0.5–30 minutes, 10 by default")).toBeTruthy();
+    expect(screen.getByText("0.17–120 minutes, 15 by default")).toBeTruthy();
+    expect(screen.getByText("1–12 rounds, 6 by default")).toBeTruthy();
+    // Tokens keep their number, with about how much reading that is.
+    expect((within(run).getByLabelText("Reading room") as HTMLInputElement).value).toBe("12000");
+    expect(screen.getByText("500–32000 tokens, 12000 by default").parentElement?.textContent).toBe("500–32000 tokens, 12000 by default · about 24 pages");
+    // One line says which limit does what; the old names are gone.
+    const limits = screen.getByRole("heading", { name: /Limits/ }).closest("section") as HTMLElement;
+    expect(limits.textContent).toContain("tool rounds are how many times it may look something up, reading room is how much it can read, and the time limit is when the run is stopped.");
+    for (const old of ["Model time a day", "Steps a run", "Tokens a run", "Longest run", "seconds"]) expect(limits.textContent).not.toContain(old);
+    // Minutes typed, seconds saved, in the fields the server has always had.
+    fireEvent.change(limit, { target: { value: "2.5" } });
+    fireEvent.change(thinking, { target: { value: "45" } });
+    expect(limit.value).toBe("2.5");
+    fireEvent.change(within(run).getByLabelText("Reading room"), { target: { value: "16000" } });
+    expect(screen.getByText("500–32000 tokens, 12000 by default").parentElement?.textContent).toContain("about 32 pages");
+    fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
+    await waitFor(() => expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec } | undefined)?.spec.budget).toEqual({ runsPerDay: 24, modelSecondsPerDay: 2700, stepsPerRun: 6, tokensPerRun: 16000, runSeconds: 150 }));
+  });
+
+  it("keeps a limit's saved seconds while its minutes are half typed, and shows them again when the field is left", async () => {
     serve(base({ [`GET /api/v1/agents/${keeperId}`]: detail() }));
     window.history.replaceState(null, "", `/?view=agents&tab=build&agent=${keeperId}`);
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
-    const hint = await screen.findByText("30–1800 seconds, 600 by default");
-    expect(hint.parentElement?.textContent).toBe("30–1800 seconds, 600 by default · 10 min");
-    expect(screen.getByText("10–7200 seconds, 900 by default").parentElement?.textContent).toBe("10–7200 seconds, 900 by default · 30 min");
+    const limit = await screen.findByLabelText("Time limit") as HTMLInputElement;
+    fireEvent.change(limit, { target: { value: "" } });
+    // Nothing typed is not a number: the form is not changed, and the field is not forced back mid-typing.
+    expect(limit.value).toBe("");
+    expect((screen.getByRole("button", { name: /^Save as version/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.blur(limit);
+    expect(limit.value).toBe("10");
+    // Discard changes puts the saved minutes back.
+    fireEvent.change(limit, { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(limit.value).toBe("10");
   });
 });
 
@@ -257,7 +302,8 @@ describe("Agents page", () => {
     expect(keeper?.textContent).toContain("asked · daily at 05:30 · 1 event · quiet hours");
     expect(keeper?.textContent).toContain("answered");
     // The budget in words (M48.7): "42/1800 s" asked the reader to divide.
-    expect(keeper?.textContent).toContain("3 of 24 runs · 42 s of 30 min");
+    expect(keeper?.textContent).toContain("3 of 24 runs");
+    expect(keeper?.textContent).toContain("42 s of 30 min");
     // The digest leads, its citations drawn as marks.
     expect(screen.getByRole("region", { name: "Latest digest" }).textContent).toContain("All well. Backups ran");
     const card = await screen.findByRole("article", { name: "Card: Back up Vaultwarden" });
@@ -284,8 +330,48 @@ describe("Agents page", () => {
     fireEvent.click(within(stop).getByRole("button", { name: "Stop every agent" }));
     await waitFor(() => expect(calls.some((call) => call.path === "/api/v1/agents/module/kill" && call.method === "POST")).toBe(true));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Stop every agent now?" })).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Pause Server Keeper until tomorrow" }));
+    // One agent: Pause asks for how long, and nothing is paused until one is chosen.
+    fireEvent.click(screen.getByRole("button", { name: "Pause Server Keeper" }));
+    const asked = screen.getByRole("dialog", { name: "Pause Server Keeper" });
+    expect(calls.some((call) => call.path === `/api/v1/agents/${keeperId}/pause`)).toBe(false);
+    fireEvent.click(within(asked).getByRole("button", { name: "Until tomorrow" }));
     await waitFor(() => expect(calls.find((call) => call.path === `/api/v1/agents/${keeperId}/pause`)?.body).toEqual({ until: "tomorrow" }));
+    expect(screen.queryByRole("dialog", { name: "Pause Server Keeper" })).toBeNull();
+  });
+
+  // Test, Edit, Pause and Until tomorrow stood on every row; the name already opens Build.
+  it("has two actions a row: Ask, and one Pause that offers until you resume or until tomorrow; a paused agent has Resume", async () => {
+    const calls = serve(base({
+      "GET /api/v1/agents": overview({ agents: [summary(keeperId, "Server Keeper"), summary(helperId, "IT Support helper", { paused: true, status: "paused" })] as Overview["agents"] }),
+      [`POST /api/v1/agents/${keeperId}/pause`]: summary(keeperId, "Server Keeper", { paused: true }),
+      [`POST /api/v1/agents/${helperId}/resume`]: summary(helperId, "IT Support helper"),
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const table = await screen.findByRole("table", { name: "Agents on this server" });
+    const rowOf = (name: string) => within(table).getAllByRole("row").find((row) => row.textContent?.includes(name)) as HTMLElement;
+    const actions = (name: string) => within(rowOf(name).querySelector(".agents-actions") as HTMLElement).getAllByRole("button").map((button) => button.textContent);
+    expect(actions("Server Keeper")).toEqual(["Ask", "Pause"]);
+    expect(actions("IT Support helper")).toEqual(["Ask", "Resume"]);
+    for (const gone of ["Test Server Keeper", "Edit Server Keeper", "Pause Server Keeper until tomorrow"]) expect(screen.queryByRole("button", { name: gone })).toBeNull();
+
+    // Cancel pauses nothing; "Until I resume" pauses with no end.
+    fireEvent.click(screen.getByRole("button", { name: "Pause Server Keeper" }));
+    let asked = screen.getByRole("dialog", { name: "Pause Server Keeper" });
+    expect(within(asked).getAllByRole("button").map((button) => button.textContent)).toEqual(expect.arrayContaining(["Until I resume", "Until tomorrow", "Cancel"]));
+    fireEvent.click(within(asked).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Pause Server Keeper" })).toBeNull();
+    expect(calls.some((call) => call.path.endsWith("/pause"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Pause Server Keeper" }));
+    asked = screen.getByRole("dialog", { name: "Pause Server Keeper" });
+    fireEvent.click(within(asked).getByRole("button", { name: "Until I resume" }));
+    await waitFor(() => expect(calls.find((call) => call.path === `/api/v1/agents/${keeperId}/pause`)?.body).toEqual({ until: null }));
+    fireEvent.click(screen.getByRole("button", { name: "Resume IT Support helper" }));
+    await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.path === `/api/v1/agents/${helperId}/resume`)).toBe(true));
+
+    // Ask opens the agent where it is asked, as Test did; its name still opens Build.
+    fireEvent.click(screen.getByRole("button", { name: "Ask Server Keeper" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Test" }).getAttribute("aria-selected")).toBe("true"));
+    expect(new URLSearchParams(window.location.search).get("agent")).toBe(keeperId);
   });
 
   it("says Agents are off, and turns them on only with the owner's password", async () => {
@@ -320,12 +406,21 @@ describe("the builder", () => {
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
     fireEvent.click(await screen.findByRole("tab", { name: "Build" }));
     fireEvent.click(await screen.findByRole("button", { name: "Make a Server Keeper" }));
-    await waitFor(() => expect(calls.find((call) => call.method === "POST" && call.path === "/api/v1/agents")?.body).toEqual({ template: "server-keeper" }));
+    // Its name is asked first, with the template's title to start from; nothing is made until "Make it".
+    const naming = screen.getByRole("dialog", { name: "Name your agent" });
+    expect((within(naming).getByLabelText(/^Name/) as HTMLInputElement).value).toBe("Server Keeper");
+    expect(naming.textContent).toContain("Its job: Keep a picture of this server.");
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
+    fireEvent.change(within(naming).getByLabelText(/^Name/), { target: { value: "  House Keeper " } });
+    fireEvent.click(within(naming).getByRole("button", { name: "Make it" }));
+    // One request: the template, and its definition under the name that was typed.
+    await waitFor(() => expect(calls.find((call) => call.method === "POST" && call.path === "/api/v1/agents")?.body).toEqual({ template: "server-keeper", spec: { ...spec, name: "House Keeper" } }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Name your agent" })).toBeNull());
 
     const name = await screen.findByLabelText("Name");
     expect((name as HTMLInputElement).value).toBe("Server Keeper");
-    // Each guardrail's range and default, as the server gives them.
-    expect(screen.getByText("30–1800 seconds, 600 by default")).toBeTruthy();
+    // Each limit's range and default, as the server gives them.
+    expect(screen.getByText("0.5–30 minutes, 10 by default")).toBeTruthy();
     // Each tool's permission, with the operator reads marked.
     expect(screen.getByRole("radiogroup", { name: "Logs: permission" })).toBeTruthy();
     expect(screen.getByRole("table", { name: "Tools and their permissions" }).textContent).toContain("operator");
@@ -350,6 +445,57 @@ describe("the builder", () => {
   });
 });
 
+// A press on a template made an agent at once: three untouched agents called "New agent" were left behind.
+describe("naming an agent before it exists", () => {
+  it("makes nothing on Cancel or Escape, asks a blank agent for a name, and says in the sheet why one was refused", async () => {
+    let refuse = true;
+    const calls = serve(base({
+      "POST /api/v1/agents": () => (refuse ? json({ error: "\"BoxPilot\" is BoxPilot's own name. Give the agent another name." }, 400) : json(detail(1, "Garden Watch"), 201)),
+      [`GET /api/v1/agents/${keeperId}`]: detail(1, "Garden Watch"),
+    }));
+    const posts = () => calls.filter((call) => call.method === "POST" && call.path === "/api/v1/agents");
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Build" }));
+
+    // Cancel, then Escape: no agent either way, and the templates are still there.
+    fireEvent.click(await screen.findByRole("button", { name: "Make a Server Keeper" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Name your agent" })).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Make a Server Keeper" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(posts()).toEqual([]);
+    expect(screen.getByRole("button", { name: "Start blank" })).toBeTruthy();
+
+    // Blank starts with no name, and cannot be made without one: not by the button, not by Enter.
+    fireEvent.click(screen.getByRole("button", { name: "Start blank" }));
+    const sheet = screen.getByRole("dialog", { name: "Name your agent" });
+    const name = within(sheet).getByLabelText(/^Name/) as HTMLInputElement;
+    expect(name.value).toBe("");
+    expect(name.required).toBe(true);
+    const make = within(sheet).getByRole("button", { name: "Make it" }) as HTMLButtonElement;
+    expect(make.disabled).toBe(true);
+    fireEvent.change(name, { target: { value: "   " } });
+    expect(make.disabled).toBe(true);
+    fireEvent.submit(name.closest("form") as HTMLFormElement);
+    expect(posts()).toEqual([]);
+
+    // A name the server refuses is said in the sheet, which stays open with what was typed.
+    fireEvent.change(name, { target: { value: "BoxPilot" } });
+    fireEvent.click(make);
+    expect(await within(sheet).findByText(/is BoxPilot's own name/)).toBeTruthy();
+    expect(name.value).toBe("BoxPilot");
+    refuse = false;
+    fireEvent.change(name, { target: { value: "Garden Watch" } });
+    // Enter in the field does what "Make it" does.
+    fireEvent.submit(name.closest("form") as HTMLFormElement);
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(posts()[1].body).toMatchObject({ template: "blank", spec: { name: "Garden Watch", job: "Keep a picture of this server." } });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Name your agent" })).toBeNull());
+    expect(((await screen.findByLabelText("Name")) as HTMLInputElement).value).toBe("Garden Watch");
+  });
+});
+
 describe("the builder's team chat (M38)", () => {
   it("has every output on by default for an agent saved before it, and saves the channel, topic and switches the owner sets", async () => {
     const calls = serve(base({
@@ -360,6 +506,7 @@ describe("the builder's team chat (M38)", () => {
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
     fireEvent.click(await screen.findByRole("tab", { name: "Build" }));
     fireEvent.click(await screen.findByRole("button", { name: "Make a Server Keeper" }));
+    fireEvent.click(screen.getByRole("button", { name: "Make it" }));
     const channel = await screen.findByLabelText("Findings channel");
     expect((channel as HTMLInputElement).placeholder).toBe("agent-findings");
     expect(screen.getByRole("switch", { name: "Post logs" }).getAttribute("aria-checked")).toBe("true");
@@ -386,7 +533,28 @@ describe("the builder's steps", () => {
     render(<AgentsPage csrfToken="csrf" now={() => now} />);
     expect((await screen.findByText("About its scope")).closest(".ui-notice")?.textContent).toContain("several jobs");
     // The steps, in order.
-    expect(Array.from(document.querySelectorAll(".agents-form__step")).map((step) => step.textContent)).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
+    expect(Array.from(document.querySelectorAll(".agents-form__step")).map((step) => step.textContent)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+    // "Guardrails" held some twenty-five controls under one heading: now three sections, in this order.
+    const headings = Array.from(document.querySelectorAll(".agents-form__heading")).map((heading) => heading.textContent);
+    expect(headings).toEqual(["1Its job", "2What it is told", "3Data and tools", "4When it runs", "5Limits", "6What it leaves", "7Model", "8Memory", "9Team"]);
+    const section = (title: RegExp) => within(screen.getByRole("heading", { name: title }).closest("section") as HTMLElement);
+    expect(section(/Limits/).getAllByRole("spinbutton")).toHaveLength(5);
+    expect(section(/Limits/).queryByRole("checkbox")).toBeNull();
+    const leaves = section(/What it leaves/);
+    for (const label of ["Writes notes about the server", "Writes a daily digest on home and ops", "Writes cards with a plan to approve", "When it is unsure what was meant", "When it reaches a limit", "When something needs doing", "When something looks risky"]) expect(leaves.getByRole("checkbox", { name: new RegExp(`^${label}`) })).toBeTruthy();
+    expect(leaves.getByLabelText("Tell the owner")).toBeTruthy();
+    for (const kind of ["Findings", "Logs", "Knowledge"]) { expect(leaves.getByLabelText(`${kind} channel`)).toBeTruthy(); expect(leaves.getByLabelText(`${kind} topic`)).toBeTruthy(); expect(leaves.getByRole("switch", { name: `Post ${kind.toLowerCase()}` })).toBeTruthy(); }
+    expect(leaves.queryByRole("spinbutton")).toBeNull();
+    const model = section(/^7\s*Model$/);
+    expect(model.getByLabelText("Model")).toBeTruthy();
+    expect(model.getByRole("switch", { name: /^Thinking/ })).toBeTruthy();
+    // Claude's own choices show in the same section once a run may reach Claude.
+    fireEvent.change(model.getByLabelText("Model"), { target: { value: "auto" } });
+    expect(model.getByLabelText("What may leave this server")).toBeTruthy();
+    expect(model.getByRole("checkbox", { name: /^Claude may answer viewers/ })).toBeTruthy();
+    expect(model.getByRole("checkbox", { name: /^Claude may read your documents/ })).toBeTruthy();
+    fireEvent.change(model.getByLabelText("Model"), { target: { value: "local" } });
+    expect(screen.queryByText("Guardrails")).toBeNull();
     expect((screen.getByLabelText("Its one job") as HTMLTextAreaElement | HTMLInputElement).value).toBe("Keep a picture of this server.");
 
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Its answer" })).getByRole("radio", { name: "JSON fields" }));
@@ -625,7 +793,14 @@ describe("usage and the runtime", () => {
     const now_ = screen.getByRole("region", { name: "Right now" });
     expect(within(now_).getByText("Running cool")).toBeTruthy();
     expect(within(now_).getByText("of a 100% cap (one processor)")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Hard caps" }).textContent).toContain("CPUWeight=idle · Nice 19");
+    // The priority in words; the unit's own settings are kept on hover.
+    const hardCaps = screen.getByRole("region", { name: "Hard caps" });
+    expect(hardCaps.textContent).toContain("Priorityonly when nothing else wants the processor");
+    expect(within(hardCaps).getByText("only when nothing else wants the processor").getAttribute("title")).toBe("CPUWeight=idle · Nice 19 · IOSchedulingClass=idle");
+    for (const jargon of ["CPUWeight", "IOSchedulingClass", "CI proves"]) expect(hardCaps.textContent).not.toContain(jargon);
+    expect(within(now_).getByText("Held back")).toBeTruthy();
+    expect(within(now_).getByText("time it wanted more processor than its limit")).toBeTruthy();
+    expect(now_.textContent).not.toMatch(/Throttled|kernel/);
     // Unsloth is not the release BoxPilot was measured with, and says so.
     expect(screen.getByText(/is not the release BoxPilot was measured with/)).toBeTruthy();
     const models = screen.getByRole("table", { name: "Models agents can use" });
@@ -635,6 +810,33 @@ describe("usage and the runtime", () => {
     expect(within(models).getByRole("button", { name: "Use Qwen 3.5 2B" }).getAttribute("data-risk")).toBe("medium");
     expect(within(models).queryByRole("button", { name: "Remove Qwen 3.5 4B" })).toBeNull();
     expect(screen.getByRole("button", { name: /Stop the runner/ }).getAttribute("data-risk")).toBe("low");
+  });
+
+  // "1800 s of model time" and "Model seconds a day" were the unit the server keeps, not one a person thinks in.
+  it("says the day's thinking time in minutes on Usage, and saves the seconds the server keeps", async () => {
+    window.history.replaceState(null, "", "/?view=agents&tab=usage");
+    const budgeted = { ...module, budget: { runsUsed: 3, runsPerDay: 300, modelMsUsed: 1_800_000, modelSecondsPerDay: 7200, modelMsLeft: 5_400_000, refusal: null } };
+    const calls = serve(base({
+      "GET /api/v1/agents": overview({ module: budgeted }),
+      "GET /api/v1/agents/usage": { ...usage, today: { ...usage.today, modelSeconds: 1800 }, module: budgeted },
+      "GET /api/v1/agents/runtime": runtime,
+      "PUT /api/v1/settings/agents": { module: budgeted },
+    }));
+    render(<AgentsPage csrfToken="csrf" now={() => now} />);
+    const today = await screen.findByRole("region", { name: "Today" });
+    expect(today.textContent).toContain("30 min of model time");
+    expect(today.textContent).not.toContain("1800");
+    // The settings are drawn a render after the rest: waited for, as the other settings tests do.
+    const field = await screen.findByRole("spinbutton", { name: "Thinking time a day (minutes), all together" }) as HTMLInputElement;
+    expect(field.value).toBe("120");
+    expect([field.min, field.max]).toEqual(["1", "1440"]);
+    expect(screen.getByText("1 to 1,440").parentElement?.textContent).toBe("1 to 1,440 · 2 h");
+    expect(screen.queryByText(/Model seconds/)).toBeNull();
+    fireEvent.change(field, { target: { value: "90" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "right" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.find((call) => call.method === "PUT" && call.path === "/api/v1/settings/agents")?.body).toMatchObject({ budget: { runsPerDay: 300, modelSecondsPerDay: 5400 } }));
   });
 });
 
@@ -879,7 +1081,8 @@ describe("a runner that is not running", () => {
     expect(await screen.findByText("of a 800% cap (eight processors, while someone waits)")).toBeTruthy();
     const hard = screen.getByRole("region", { name: "Hard caps" });
     expect(hard.textContent).toContain("4 in the background · 8 while you wait");
-    expect(hard.textContent).toContain("800% · raised while someone waits");
+    expect(hard.textContent).toContain("Processors noweight processors (800%) · raised while someone waits");
+    expect(hard.textContent).not.toContain("CPUQuota");
     const waiting = await screen.findByRole("spinbutton", { name: "Processors while you wait" });
     expect(waiting.getAttribute("max")).toBe("8");
     fireEvent.change(screen.getByRole("spinbutton", { name: "Processors in the background" }), { target: { value: "3" } });
@@ -1265,8 +1468,8 @@ describe("findings (M44)", () => {
     const team = screen.getByRole("heading", { name: /Team/ }).closest("section") as HTMLElement;
     expect(team.textContent).toContain("so the other agents need not look again");
     expect(team.textContent).toContain("when you ask it to check now");
-    // Where to raise a run that keeps running out of time.
-    expect(screen.getByText(/If its runs end with a card saying it ran out of time or reached a limit, raise the longest run, its steps or its tokens here\./)).toBeTruthy();
+    // Which limit to raise for a run that keeps running out: each is said by what it does.
+    expect(screen.getByText(/the time limit is when the run is stopped\./)).toBeTruthy();
     fireEvent.click(use);
     fireEvent.click(screen.getByRole("button", { name: "Save as version 3" }));
     await waitFor(() => expect((calls.find((call) => call.method === "PUT")?.body as { spec: AgentSpec } | undefined)?.spec.sharing).toEqual({ shareFindings: true, useFindings: false }));

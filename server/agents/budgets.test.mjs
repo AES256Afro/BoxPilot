@@ -58,6 +58,30 @@ describe("budgets that follow the work", () => {
     expect(h.service.getAgent(h.caller("owner"), guide.id).spec.budget.tokensPerRun).toBe(4_000);
   });
 
+  it("raises nothing for an answer the model server cut short, and the card names the model's setting, not the run's tokens", async () => {
+    h = await createAgentsHarness();
+    h.enable();
+    const owner = h.caller("owner");
+    const scout = h.service.createAgent(owner, { template: "environment-scout" });
+    const spec = h.service.getAgent(owner, scout.id).spec;
+    h.service.updateAgent(owner, scout.id, { spec: { ...spec, budget: { ...spec.budget, tokensPerRun: 10_000, runSeconds: 600 } } });
+    const versions = h.service.getAgent(owner, scout.id).versions.length;
+    const cardOf = (run) => h.service.listProposals(owner).find((card) => card.runId === run.id && card.kind === "escalation");
+    // Cut at the longest answer the model may write, twice running: the run's tokens were never short.
+    const first = await scheduledRunHitting(scout, { limit: "answer" });
+    expect(first.flags).toMatchObject({ limitReached: true, limit: "answer" });
+    expect(cardOf(first).reason).toBe(`Its answer stops short: it reached the longest answer the model may write (${h.service.runtimeSettings().maxTokens} tokens). The longest answer in tokens is one of the model's settings, on the Usage tab.`);
+    await scheduledRunHitting(scout, { limit: "answer" });
+    // Cut by the time left to write it, twice running: no budget of tokens either.
+    const late = await scheduledRunHitting(scout, { limit: "time" });
+    expect(late.flags).toMatchObject({ limitReached: true, limit: "time" });
+    expect(cardOf(late).reason).toBe("Its answer stops short: there was too little time left to write the rest.");
+    await scheduledRunHitting(scout, { limit: "time" });
+    const after = h.service.getAgent(owner, scout.id);
+    expect(after.spec.budget).toMatchObject({ tokensPerRun: 10_000, runSeconds: 600 });
+    expect(after.versions).toHaveLength(versions);
+  });
+
   it("tells the Usage tab the context and how many runs this week filled it", async () => {
     h = await createAgentsHarness();
     h.enable();

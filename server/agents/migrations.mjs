@@ -221,7 +221,12 @@ export function createAgentMigrations({ store, state, now, audit, nextRunFor, sh
         "Asked about the firewall or Repair alone, read firewall.status or repair.findings for it; the weekly survey reads both.": "Asked about the firewall or Repair alone",
         "Open ports, SSH settings and waiting system package updates no tool of yours sees: name them under Not checked, with the page to open (Updates).": "firewall.status lists the ports",
       };
-      const scoutTwice = "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed, firewall.status for the firewall, repair.findings for what Repair found.";
+      // The rule said twice, in both wordings a Scout may carry: the template's until M66, and the
+      // one before M47.1 gave it the firewall and Repair, which a Scout made before then still has.
+      const scoutTwice = [
+        "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed, firewall.status for the firewall, repair.findings for what Repair found.",
+        "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed.",
+      ];
       let reworded = 0;
       for (const agent of store.listAgents()) {
         const template = agent.template ? templateById(agent.template) : null;
@@ -234,7 +239,7 @@ export function createAgentMigrations({ store, state, now, audit, nextRunFor, sh
         } else {
           rules = rules.map((rule) => (scoutOld[rule] ? template.spec.prompt.rules.find((entry) => entry.startsWith(scoutOld[rule]) && entry !== rule) ?? rule : rule));
           // The second saying of it goes only where the first now names its tools.
-          if (rules.some((rule) => rule.startsWith("Asked about the firewall or Repair alone") && rule.includes("services.status"))) rules = rules.filter((rule) => rule !== scoutTwice);
+          if (rules.some((rule) => rule.startsWith("Asked about the firewall or Repair alone") && rule.includes("services.status"))) rules = rules.filter((rule) => !scoutTwice.includes(rule));
         }
         if (steps.join("\n") === (agent.spec.prompt?.steps ?? []).join("\n") && rules.join("\n") === (agent.spec.prompt?.rules ?? []).join("\n")) continue;
         let spec;

@@ -93,4 +93,25 @@ describe("the longest run's default", () => {
     expect(h.service.getAgent(owner, keeper.id).versions[0]).toMatchObject({ note: "BoxPilot reworded its steps and rules for what it is already shown and what its tools read", createdBy: null });
     expect(h.service.migrateDefaults()).toBe(0);
   });
+
+  it("takes out the Scout's rule said twice in the wording from before it read the firewall, too (M66)", async () => {
+    h = await createAgentsHarness();
+    const owner = h.caller("owner");
+    const scout = h.service.createAgent(owner, { template: "environment-scout" });
+    const lone = h.service.createAgent(owner, { template: "environment-scout" });
+    // As a Scout made before M47.1 has it: the rule ends at the jobs, and names neither the firewall nor Repair.
+    const older = "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed.";
+    const firewallOld = "Asked about the firewall or Repair alone, read firewall.status or repair.findings for it; the weekly survey reads both.";
+    const withRules = (id, change) => { const spec = h.store.getAgent(id).spec; h.service.updateAgent(owner, id, { spec: { ...spec, prompt: { ...spec.prompt, rules: change(spec.prompt.rules) } } }); };
+    withRules(scout.id, (rules) => [...rules.filter((rule) => !rule.startsWith("Asked about the firewall or Repair alone")), firewallOld, older]);
+    // One whose maker took the firewall's rule out keeps the older line: it is said once there.
+    withRules(lone.id, (rules) => [...rules.filter((rule) => !rule.startsWith("Asked about the firewall or Repair alone")), older]);
+    h.state.setSetting(agentsMigrationsKey, { runSeconds: {}, sharing: {}, examples: {}, eyes: {}, surveyWide: {}, eyesMore: {}, headroom: {} }, { updatedBy: null });
+    expect(h.service.migrateDefaults()).toBe(1);
+    const rules = h.store.getAgent(scout.id).spec.prompt.rules;
+    expect(rules).not.toContain(older);
+    expect(rules).not.toContain(firewallOld);
+    expect([...rules].sort()).toEqual([...templateById("environment-scout").spec.prompt.rules].sort());
+    expect(h.store.getAgent(lone.id).spec.prompt.rules).toContain(older);
+  });
 });
