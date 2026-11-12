@@ -82,12 +82,14 @@ export async function cloudflareConnect({ tunnelName, running = null, replaceRun
   const replacing = Boolean(inUse) && !reached;
   if (replacing && !replaceRunningTunnel) {
     const what = unreadable
-      ? "The Cloudflare Tunnel app is already running a tunnel, with a key BoxPilot cannot tell the tunnel from"
+      ? "The Cloudflare Tunnel app is already on this server, and BoxPilot cannot tell which tunnel it runs: its token could not be read, or names no tunnel"
       : `The Cloudflare Tunnel app is already running a tunnel this token cannot reach (tunnel ${inUse.tunnelId} in the Cloudflare account ${inUse.accountTag})`;
     const keep = unreadable
       ? "paste that tunnel's token from the Cloudflare dashboard into the app's Settings and connect again"
       : `give the token ${tokenPermissions[0]} for that account and connect again, and BoxPilot will use that tunnel as it is`;
-    throw new Error(`${what}, so BoxPilot has not replaced it and nothing was changed. Either ${keep}; or connect again choosing to replace the running tunnel (replaceRunningTunnel), which gives the app the key of ${tunnelName} instead: the names the old tunnel serves stop answering until they are moved.`);
+    // The way on that the Tunnel tab can take; replaceRunningTunnel does the same in one step for a caller that can send it.
+    const move = unreadable ? "uninstall the Cloudflare Tunnel app and connect again" : "copy the app's token from its Settings somewhere safe, uninstall the Cloudflare Tunnel app and connect again";
+    throw new Error(`${what}, so BoxPilot has not replaced it and nothing was changed. Either ${keep}; or, to move this server to ${tunnelName}, ${move}: the names the old tunnel serves stop answering until they are moved.`);
   }
 
   const account = reached
@@ -161,10 +163,13 @@ export async function cloudflarePublish(parameters = {}, deps = {}) {
 
   // Routes first: a name that resolves before its route exists shows Cloudflare's 404 page; a route with no name yet is harmless.
   const { config, ingress } = await api.configuration(current.accountId, current.tunnelId);
-  // A route for this name that BoxPilot did not record, going somewhere else, is someone's own
-  // (a tunnel taken over as it ran has them): never replaced. The same address is this publish, unfinished.
+  // A route for this name that BoxPilot did not record is someone's own (a tunnel taken over as it
+  // ran has them): never replaced, even when it goes to the same address, or their rule would lose
+  // its own settings and be removed by a later unpublish. One exception, a publish BoxPilot began
+  // and its record lost: the same address, and a DNS record for the name that carries BoxPilot's comment.
   const known = current.routes.find((entry) => sameName(entry.hostname, hostname)) ?? null;
-  const theirs = known ? null : ingress.find((rule) => sameName(rule.hostname, hostname) && !rule.path && rule.service !== service) ?? null;
+  const routed = known ? null : ingress.find((rule) => sameName(rule.hostname, hostname) && !rule.path) ?? null;
+  const theirs = routed && !(routed.service === service && ours?.comment.startsWith(recordComment)) ? routed : null;
   if (theirs) throw new Error(`${hostname} is already routed by your tunnel${typeof theirs.service === "string" ? ` to ${theirs.service.slice(0, 120)}` : ""}, and BoxPilot did not add that route, so it will not replace it. Choose another name, or remove that route in Cloudflare first. Nothing was changed.`);
   const next = withRoute(ingress, { hostname, service, originRequest: noTLSVerify ? { noTLSVerify: true } : {} });
   await api.setConfiguration(current.accountId, current.tunnelId, { ...config, ingress: next });
@@ -183,7 +188,11 @@ export async function cloudflarePublish(parameters = {}, deps = {}) {
         throw Object.assign(new Error(`${error.message}. The route the tunnel was given for ${hostname} was rolled back, so nothing changed.`), { rolledBack: true });
       }
       log(`Could not take ${hostname}'s route back out of the tunnel: ${restored.message}`, "stderr");
-      throw Object.assign(new Error(`${error.message}, and taking its route back out of the tunnel also failed (${restored.message}). The tunnel still sends ${hostname} to ${service}: Publish it again to finish, or remove that route in the Cloudflare dashboard.`), { rolledBack: false });
+      // The route is BoxPilot's and still there: recorded with no DNS record, so publishing again
+      // finishes it and unpublishing takes it out, where an unrecorded route is left as someone else's.
+      const left = await connectedState(state);
+      await state.write({ ...left, routes: [...left.routes.filter((entry) => !sameName(entry.hostname, hostname)), { hostname, zoneId, dnsRecordId: null, appId, portId, hostPort, service, publishedAt: now().toISOString() }] }).catch(() => {});
+      throw Object.assign(new Error(`${error.message}, and taking its route back out of the tunnel also failed (${restored.message}). The tunnel still sends ${hostname} to ${service}: Publish it again to finish, or unpublish it to take the route out.`), { rolledBack: false });
     }
   }
   // A record that was there already is BoxPilot's only when it made it: the one this name was

@@ -4148,9 +4148,17 @@ no faster than four on it (137 against 136 tokens a second read, 21.5 against 21
   unpublishing would have deleted it. A route BoxPilot did not record is now refused unless it
   goes where the publish sends it, and a record is BoxPilot's only when it made it. A tunnel whose
   routes are kept in a file on a machine is used for running, and publishing to it says why it
-  cannot. Left: the Tunnel tab has no control for the replace choice, so it is reachable through
-  the API only; what Cloudflare answers for a tunnel set up from a file has not been seen on a
-  real one.
+  cannot. The independent review of this found five faults, all fixed before it shipped. Connect
+  still replaced the key when the app's settings read as nothing, because the app helper answers a
+  file it cannot read with no settings and a record it cannot read with "not installed": an app
+  that is installed, or whose container is there, with no key BoxPilot can read is now refused
+  like a tunnel the token cannot reach. Publishing is refused, and its button disabled, while the
+  app runs another tunnel than the one recorded. A published name goes before the wildcard rule
+  that would have answered for it, and a rule for every name (`*`) is the catch-all. An owner's
+  rule for the same name and the same address is no longer taken for BoxPilot's. The refusal names
+  the way on the tab can take (uninstall the app and connect again). Left: the Tunnel tab has no
+  control for the replace choice, so it is reachable through the API only; what Cloudflare answers
+  for a tunnel set up from a file has not been seen on a real one.
 - ✅ **M67.1 The Agents page in plain words** (1.243.0). The five limits are "Each day: runs,
   thinking time" and "Each run: tool rounds, reading room, time limit", typed in minutes and pages,
   and the cards use the same words; Guardrails is three sections (Limits, What it leaves, Model); a

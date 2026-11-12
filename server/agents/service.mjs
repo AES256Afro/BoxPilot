@@ -1225,7 +1225,11 @@ export function createAgentService({
     // out for room (M66), so the trace can say that too.
     if (!store.countSteps(run.id, "prompt")) {
       const truncated = taskContent.length > limits.promptChars;
-      store.addStep(run.id, { kind: "prompt", name: "task", output: redact(truncated ? `${taskContent.slice(0, limits.promptChars - 1)}…` : taskContent), flags: { notes: notes.length, memories: recalled.length, findings: findings.length, notesLeftOut: leftOut.notes, memoriesLeftOut: leftOut.memories, findingsLeftOut: leftOut.findings, handoffs: handoffSteps.length, thread: Boolean(context), ...(truncated ? { truncated: true } : {}) } });
+      // Cut in the middle (M66.2): the notes open the task now and the question ends it, and a
+      // trace that kept only the opening would show the notes and not what was asked.
+      const keptTail = Math.floor(limits.promptChars / 4);
+      const shown = truncated ? `${taskContent.slice(0, limits.promptChars - keptTail - 3)}\n…\n${taskContent.slice(-keptTail)}` : taskContent;
+      store.addStep(run.id, { kind: "prompt", name: "task", output: redact(shown), flags: { notes: notes.length, memories: recalled.length, findings: findings.length, notesLeftOut: leftOut.notes, memoriesLeftOut: leftOut.memories, findingsLeftOut: leftOut.findings, handoffs: handoffSteps.length, thread: Boolean(context), ...(truncated ? { truncated: true } : {}) } });
       // Said in words too, as a line of the trace of its own: the step above is the prompt as the
       // model read it, which the training record is made from, so nothing is added to its text.
       const left = leftOutWords(leftOut);

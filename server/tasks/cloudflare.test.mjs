@@ -132,14 +132,18 @@ describe("connecting when the Cloudflare Tunnel app already runs a tunnel (M65.3
       // In an account the token does not cover (403), not in the account its key names (404), and a key that is not one.
       { given: elsewhere, fake: { accounts: [fakeAccount.id], tunnels: [existingTunnel] }, says: new RegExp(`already running a tunnel this token cannot reach \\(tunnel ${ownersTunnel.id} in the Cloudflare account ${otherAccount}\\)`) },
       { given: running, fake: { tunnels: [existingTunnel] }, says: /already running a tunnel this token cannot reach/ },
-      { given: { unreadable: true }, fake: { tunnels: [existingTunnel, ownersTunnel] }, says: /already running a tunnel, with a key BoxPilot cannot tell the tunnel from/ },
+      { given: { unreadable: true }, fake: { tunnels: [existingTunnel, ownersTunnel] }, says: /already on this server, and BoxPilot cannot tell which tunnel it runs: its token could not be read, or names no tunnel/ },
     ];
     for (const { given, fake, says } of cases) {
       const { cloudflare, deps, state, credentials } = setup({ state: memoryState(), ...fake });
       const error = await cloudflareConnect({ tunnelName: "boxpilot-homebox", running: given }, deps).catch((caught) => caught);
       expect(error.message).toMatch(says);
       // What happened, and the two ways on.
-      expect(error.message).toMatch(/BoxPilot has not replaced it and nothing was changed\. Either .+ connect again.*; or connect again choosing to replace the running tunnel \(replaceRunningTunnel\), which gives the app the key of boxpilot-homebox instead: the names the old tunnel serves stop answering until they are moved\./);
+      // What happened, and the two ways on: both ones the Tunnel tab can take (it cannot send replaceRunningTunnel).
+      expect(error.message).toMatch(/BoxPilot has not replaced it and nothing was changed\. Either .+ connect again.*; or, to move this server to boxpilot-homebox, (?:copy the app's token from its Settings somewhere safe, )?uninstall the Cloudflare Tunnel app and connect again: the names the old tunnel serves stop answering until they are moved\.$/);
+      expect(error.message).not.toContain("replaceRunningTunnel");
+      // A token that could not be read cannot be copied first.
+      expect(error.message.includes("copy the app's token from its Settings somewhere safe")).toBe(given.unreadable !== true);
       expect(writes(cloudflare)).toEqual([]);
       expect(state.current).toBeNull();
       expect([...credentials.values.keys()]).toEqual([cloudflareApiCredential]);
@@ -232,6 +236,22 @@ describe("connecting when the Cloudflare Tunnel app already runs a tunnel (M65.3
     expect(writes(cloudflare)).toEqual([]);
     expect(state.current.routes).toEqual([]);
 
+    // The review's probe (A4): their rule for the name going to the very address being published was taken
+    // for a publish BoxPilot had begun. It lost its own settings, and a later unpublish removed it.
+    const sameAddress = { ingress: [{ hostname: "www.example.com", service: "http://127.0.0.1:3022", originRequest: { httpHostHeader: "example.com" } }, { service: "http_status:404" }] };
+    for (const records of [[theirRecords[1]], []]) {
+      const same = setup({ state: adopted(), tunnels: [ownersTunnel], configs: { [ownersTunnel.id]: sameAddress }, records });
+      await expect(cloudflarePublish(www, same.deps)).rejects.toThrow("www.example.com is already routed by your tunnel to http://127.0.0.1:3022, and BoxPilot did not add that route, so it will not replace it.");
+      expect(writes(same.cloudflare)).toEqual([]);
+      expect(same.cloudflare.state.configs[ownersTunnel.id]).toEqual(sameAddress);
+      expect(same.state.current.routes).toEqual([]);
+      await expect(cloudflareUnpublish({ hostname: "www.example.com" }, same.deps)).rejects.toThrow(/BoxPilot did not publish www\.example\.com/);
+    }
+    // Its own, when the record of it was lost: the same address, and the DNS record BoxPilot made for the name.
+    const lost = setup({ state: adopted(), tunnels: [ownersTunnel], configs: { [ownersTunnel.id]: { ingress: [{ hostname: "www.example.com", service: "http://127.0.0.1:3022", originRequest: {} }, { service: "http_status:404" }] } }, records: [{ ...theirRecords[1], comment: "BoxPilot: pingvin-share" }] });
+    expect(await cloudflarePublish(www, lost.deps)).toMatchObject({ dnsRecord: "kept" });
+    expect(lost.state.current.routes).toMatchObject([{ hostname: "www.example.com", dnsRecordId: "recWww" }]);
+
     // A name with their DNS record and no route of its own (a wildcard's, say): the route is added, and the record stays theirs.
     const bare = setup({ state: adopted(), tunnels: [ownersTunnel], configs: { [ownersTunnel.id]: { ingress: [{ service: "http_status:404" }] } }, records: [theirRecords[1]] });
     expect(await cloudflarePublish(www, bare.deps)).toMatchObject({ dnsRecord: "kept" });
@@ -241,6 +261,16 @@ describe("connecting when the Cloudflare Tunnel app already runs a tunnel (M65.3
     expect(gone).toMatchObject({ dnsRemoved: false, note: "www.example.com has a DNS record BoxPilot did not make, so BoxPilot left it." });
     expect(bare.cloudflare.state.records).toEqual([theirRecords[1]]);
     expect(bare.cloudflare.state.configs[ownersTunnel.id].ingress).toEqual([{ service: "http_status:404" }]);
+  });
+
+  // The review's probe (A3): added last, the name's rule stood behind their wildcard and was never reached.
+  it("puts a published name before the wildcard rule that would otherwise answer for it", async () => {
+    const wildcard = { hostname: "*.example.com", service: "http://localhost:8080" };
+    const { cloudflare, deps } = setup({ state: memoryState({ ...connected(), tunnelId: ownersTunnel.id, tunnelName: "home" }), tunnels: [ownersTunnel], configs: { [ownersTunnel.id]: { ingress: [theirSite[0], wildcard, { service: "http_status:404" }] } } });
+    await cloudflarePublish(publish, deps);
+    expect(cloudflare.state.configs[ownersTunnel.id].ingress).toEqual([theirSite[0], { hostname: "share.example.com", service: "http://127.0.0.1:3022", originRequest: {} }, wildcard, { service: "http_status:404" }]);
+    await cloudflareUnpublish({ hostname: "share.example.com" }, deps);
+    expect(cloudflare.state.configs[ownersTunnel.id].ingress).toEqual([theirSite[0], wildcard, { service: "http_status:404" }]);
   });
 
   it("uses a running tunnel whose routes are kept in a file on a machine, and says plainly why it cannot add a name to it", async () => {
@@ -317,23 +347,36 @@ describe("publishing an app (M42)", () => {
 
   it("says so, and how to clear it, when putting the routes back fails too", async () => {
     let puts = 0;
-    const { cloudflare, deps } = setup({
+    let limited = true;
+    const failing = () => setup({
       fail: ({ method, route }) => {
+        if (!limited) return null;
         if (method === "POST" && route.endsWith("/dns_records")) return tooManyRequests();
         if (method === "PUT" && route.endsWith("/configurations") && ++puts > 1) return tooManyRequests();
         return null;
       },
     });
+    const { cloudflare, deps, state } = failing();
     const error = await cloudflarePublish(publish, deps).catch((caught) => caught);
     expect(error.message).toMatch(/^Cloudflare refused adding share\.example\.com to your domain/);
     expect(error.message).toMatch(/taking its route back out of the tunnel also failed .*Rate limited/);
-    expect(error.message).toContain("Publish it again");
+    expect(error.message).toContain("Publish it again to finish, or unpublish it to take the route out.");
     expect(error.rolledBack).toBe(false);
     expect(cloudflare.state.configs[tunnelId].ingress.map((rule) => rule.hostname ?? null)).toEqual(["share.example.com", null]);
-    // "Publish it again to finish": the route left behind goes where this publish sends it, so it is not someone else's.
-    const finishing = setup({ configs: { [tunnelId]: cloudflare.state.configs[tunnelId] } });
-    expect(await cloudflarePublish(publish, finishing.deps)).toMatchObject({ dnsRecord: "added" });
-    expect(finishing.state.current.routes.map((route) => route.hostname)).toEqual(["share.example.com"]);
+    // The route left behind is recorded as BoxPilot's, with no DNS record: an unrecorded one would be
+    // refused as someone else's (M65.3), and neither way on in the message would work.
+    expect(state.current.routes).toEqual([{ ...publish, dnsRecordId: null, publishedAt: now().toISOString() }]);
+    limited = false;
+    expect(await cloudflarePublish(publish, deps)).toMatchObject({ dnsRecord: "added" });
+    expect(state.current.routes).toMatchObject([{ hostname: "share.example.com", dnsRecordId: expect.stringMatching(/^rec/) }]);
+    // Or unpublished: the route comes out, and there is no name to remove.
+    limited = true; puts = 0;
+    const other = failing();
+    await cloudflarePublish(publish, other.deps).catch(() => {});
+    limited = false;
+    expect(await cloudflareUnpublish({ hostname: "share.example.com" }, other.deps)).toMatchObject({ dnsRemoved: false, note: "share.example.com was already gone from your domain." });
+    expect(other.cloudflare.state.configs[tunnelId].ingress).toEqual([{ service: "http_status:404" }]);
+    expect(other.state.current.routes).toEqual([]);
   });
 
   it("publishes a name again for another port, keeping the record it made for it", async () => {

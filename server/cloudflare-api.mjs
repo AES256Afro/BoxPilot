@@ -175,10 +175,12 @@ export function createCloudflareApi({ token, fetcher = fetch, timeoutMs = 20_000
   return { listZones, findTunnel, createTunnel, tunnelRunKey, tunnel, configuration, setConfiguration, dnsRecords, createCname, deleteDnsRecord };
 }
 
-/** The last rule, which every tunnel's routes end with: no name, no path. */
-const isCatchAll = (rule) => !rule?.hostname && !rule?.path;
+/** The last rule, which every tunnel's routes end with: no path, and no name or the name "*". */
+const isCatchAll = (rule) => (!rule?.hostname || rule.hostname === "*") && !rule?.path;
 /** One of BoxPilot's rules for this name: the whole name, no path. */
 const isRuleFor = (rule, hostname) => sameName(rule?.hostname, hostname) && !rule?.path;
+/** Whether a rule's name takes in this one: "*", or "*.example.com" for any name under example.com, as cloudflared matches them. */
+const covers = (rule, hostname) => typeof rule?.hostname === "string" && (rule.hostname === "*" || (rule.hostname.startsWith("*.") && hostname.toLowerCase().endsWith(rule.hostname.slice(1).toLowerCase())));
 
 function split(ingress) {
   const rules = (Array.isArray(ingress) ? ingress : []).filter(isObject);
@@ -188,16 +190,18 @@ function split(ingress) {
 }
 
 /**
- * The routes with this name sent to `service`: a rule for the same name is replaced where it stood,
- * otherwise the new one goes last; every other rule stays as it is, in its order, and the catch-all
- * is last, as Cloudflare requires.
+ * The routes with this name sent to `service`. The first rule that matches a request answers it, so
+ * the name's rule goes where it stood when it had one, otherwise last, and in either case before the
+ * first rule whose wildcard takes the name in, or it would never be reached. Every other rule stays
+ * as it is, in its order, and the catch-all is last, as Cloudflare requires.
  */
 export function withRoute(ingress, { hostname, service, originRequest = {} }) {
   const { rules, catchAll } = split(ingress);
-  const ours = { hostname, service, originRequest };
-  const at = rules.findIndex((rule) => isRuleFor(rule, hostname));
-  const next = at < 0 ? [...rules, ours] : rules.flatMap((rule, index) => (index === at ? [ours] : isRuleFor(rule, hostname) ? [] : [rule]));
-  return [...next, catchAll];
+  const stood = rules.findIndex((rule) => isRuleFor(rule, hostname));
+  const others = rules.filter((rule) => !isRuleFor(rule, hostname));
+  const wildcard = others.findIndex((rule) => covers(rule, hostname));
+  const at = Math.min(stood < 0 ? others.length : stood, wildcard < 0 ? others.length : wildcard);
+  return [...others.slice(0, at), { hostname, service, originRequest }, ...others.slice(at), catchAll];
 }
 
 /** The routes without this name's rule; everything else as it was, the catch-all last. */

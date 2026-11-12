@@ -24,17 +24,37 @@ const reachableBinds = new Set(["*", "0.0.0.0", "::", "127.0.0.1"]);
 const storeOf = (cloudflareState) => cloudflareState ?? createTunnelStateStore();
 const savedNames = async (credentials) => new Set((await credentials.listNames().catch(() => [])).map((entry) => entry.name));
 
+/** Whether a container of the app's name is there, whatever BoxPilot's record of the app says. */
+const containerThere = (app) => app?.container?.exists === true || app?.container?.running === true;
+
 /**
- * The key the Cloudflare Tunnel app runs with now: null when the app is not installed or has none.
- * Read here in the helper, from the app's own settings file; it goes to the credential store or
- * through tunnelOfKey and nowhere else (never a log, a result, or a task's parameters).
+ * What the Cloudflare Tunnel app runs with now. Null when there is no such app here: not installed,
+ * and no container of its name. Otherwise `key` is its TUNNEL_TOKEN, or null when that reads as
+ * nothing: the app helper answers an unreadable settings file with no settings, and an unreadable
+ * record with "not installed", so neither is taken to mean nothing is running.
+ *
+ * Read here in the helper; the key goes to the credential store or through tunnelOfKey and nowhere
+ * else (never a log, a result, or a task's parameters).
  */
-async function runningTunnelKey(apps) {
+async function runningTunnelApp(apps) {
   const { applications = [] } = await apps.inspect({ id: tunnelAppId });
-  if (!applications.find((entry) => entry.id === tunnelAppId)?.installed) return null;
+  const app = applications.find((entry) => entry.id === tunnelAppId);
+  if (!app?.installed && !containerThere(app)) return null;
   const { secrets = [] } = await apps.secrets({ id: tunnelAppId });
-  const key = secrets.find((entry) => entry.name === tunnelKeySetting)?.value;
-  return typeof key === "string" && key.trim() ? key.trim() : null;
+  const value = secrets.find((entry) => entry.name === tunnelKeySetting)?.value;
+  return { installed: Boolean(app?.installed), key: typeof value === "string" && value.trim() ? value.trim() : null };
+}
+
+/**
+ * Why nothing should be published now, or null: the Cloudflare Tunnel app runs another tunnel than
+ * the one recorded (M65.3), so a name added to the recorded one would answer nowhere. Only a key
+ * that names another tunnel counts: one that cannot be read says nothing either way.
+ */
+async function otherTunnelRunning({ apps, state, connected }) {
+  if (!state?.tunnelId || !apps) return null;
+  const running = tunnelOfKey((await runningTunnelApp(apps).catch(() => null))?.key);
+  if (!running || running.tunnelId === state.tunnelId.toLowerCase()) return null;
+  return `The Cloudflare Tunnel app is running another tunnel than the one BoxPilot recorded (${state.tunnelName ?? state.tunnelId}), so a name published here would go to a tunnel nothing runs. ${connected ? "Disconnect, then connect Cloudflare again" : "Connect Cloudflare again"}: BoxPilot will use the tunnel that is running and leave its names as they are.`;
 }
 
 /**
@@ -48,13 +68,7 @@ export async function inspectCloudflareTunnel({ credentials, store = createTunne
   let state = null;
   let problem = null;
   try { state = await store.read(); } catch (error) { problem = error.message; }
-  if (!problem && state?.tunnelId && apps) {
-    // Only a key that names another tunnel counts: one that cannot be read says nothing either way.
-    const running = tunnelOfKey(await runningTunnelKey(apps).catch(() => null));
-    if (running && running.tunnelId !== state.tunnelId.toLowerCase()) {
-      problem = `The Cloudflare Tunnel app is running another tunnel than the one BoxPilot recorded (${state.tunnelName ?? state.tunnelId}), so a name published here would go to a tunnel nothing runs. ${names.has(cloudflareApiCredential) ? "Disconnect, then connect Cloudflare again" : "Connect Cloudflare again"}: BoxPilot will use the tunnel that is running and leave its names as they are.`;
-    }
-  }
+  if (!problem) problem = await otherTunnelRunning({ apps, state, connected: names.has(cloudflareApiCredential) });
   return {
     connected: names.has(cloudflareApiCredential),
     account: state?.accountId ? { id: state.accountId, name: state.accountName ?? state.accountId } : null,
@@ -99,6 +113,8 @@ export async function ensureTunnelApp({ apps, credentials, progress = null, time
   const app = applications.find((entry) => entry.id === tunnelAppId);
   const values = { env: { TUNNEL_TOKEN: key } };
   if (!app?.installed) {
+    // Its container without a record BoxPilot can read: an install would write over a project that is running.
+    if (!replaceKey && containerThere(app)) throw new Error("its container is there but BoxPilot cannot read the app's record, so it was left as it is");
     progress?.("Installing the Cloudflare Tunnel app with your tunnel's key", "stdout");
     await apps.install({ id: tunnelAppId, values, devices: null }, { progress, timeScale });
     return "installed";
@@ -154,16 +170,19 @@ export function cloudflareOperations() {
     defineOperation({
       // high: the token can change the owner's DNS, and this decides which tunnel the tunnel app runs.
       id: "cloudflare.connect", title: "Connect Cloudflare", risk: "high", minimumRole: "owner", timeoutMs: minutes(25),
-      description: `Saves your Cloudflare API token as a root-only credential and checks it with Cloudflare. If the Cloudflare Tunnel app is already running a tunnel of yours that the token can reach, BoxPilot uses that tunnel: it makes no other, leaves the app's key and the names the tunnel serves as they are, and saves that key as a credential. If the app is running a tunnel the token cannot reach, nothing is changed and BoxPilot says so, unless you choose to replace the running tunnel: then its key is kept as the credential ${cloudflarePreviousTunnelCredential}, and the names it serves stop answering until they are moved. Otherwise BoxPilot finds this server's tunnel (boxpilot- and this server's name) in your account or makes it, saves its key as a credential, and installs the Cloudflare Tunnel app with it. Nothing is published yet. If Cloudflare refuses the token, the one saved before stays.`,
+      description: `Saves your Cloudflare API token as a root-only credential and checks it with Cloudflare. If the Cloudflare Tunnel app is already running a tunnel of yours that the token can reach, BoxPilot uses that tunnel: it makes no other, leaves the app's key and the names the tunnel serves as they are, and saves that key as a credential. If the app is running a tunnel the token cannot reach, or one BoxPilot cannot tell from the app's settings, nothing is changed and BoxPilot says so, unless you choose to replace the running tunnel: then its key is kept as the credential ${cloudflarePreviousTunnelCredential}, and the names it serves stop answering until they are moved. Otherwise BoxPilot finds this server's tunnel (boxpilot- and this server's name) in your account or makes it, saves its key as a credential, and installs the Cloudflare Tunnel app with it. Nothing is published yet. If Cloudflare refuses the token, the one saved before stays.`,
       parameters: { fields: {
         token: { type: "string", secret: true, maxLength: 4096, validate: (value) => (/^\S{20,4096}$/.test(value) ? null : "must be the token Cloudflare showed you: 20 to 4096 characters, no spaces") },
         // Only for a tunnel the token cannot reach: without it, Connect refuses rather than strand the names that tunnel serves.
         replaceRunningTunnel: { type: "boolean", optional: true },
       } },
       run: async (parameters, { credentials, runUnit, apps, jobLog, progress, timeScale, cloudflareState }) => {
-        // Before anything is saved: what the app runs decides the rest, and a key that cannot be read stops here.
-        const runningKey = await runningTunnelKey(apps).catch((error) => { throw new Error(`BoxPilot could not read which tunnel the Cloudflare Tunnel app runs (${error.message}), so nothing was changed`); });
-        const running = runningKey ? await tunnelToAskAbout({ key: runningKey, credentials, store: storeOf(cloudflareState) }) : null;
+        // Before anything is saved: what the app runs decides the rest.
+        const tunnelApp = await runningTunnelApp(apps).catch((error) => { throw new Error(`BoxPilot could not read which tunnel the Cloudflare Tunnel app runs (${error.message}), so nothing was changed`); });
+        const runningKey = tunnelApp?.key ?? null;
+        // An app that is here with no key BoxPilot can read, or with a container and no record, runs
+        // something BoxPilot cannot name: the task is told so, and refuses to replace it unasked.
+        const running = !tunnelApp ? null : tunnelApp.installed && runningKey ? await tunnelToAskAbout({ key: runningKey, credentials, store: storeOf(cloudflareState) }) : { unreadable: true };
         const before = await credentials.read(cloudflareApiCredential).catch(() => null);
         await credentials.set({ name: cloudflareApiCredential, value: parameters.token });
         progress?.(`Saved your Cloudflare API token as the root-only credential ${cloudflareApiCredential}; it is not written to this log.`, "stdout");
@@ -185,7 +204,9 @@ export function cloudflareOperations() {
         } else if (runningKey && runningKey !== await credentials.read(cloudflareTunnelCredential)) {
           // Kept before it is replaced: the only other copy is the one the app is about to lose.
           await credentials.set({ name: cloudflarePreviousTunnelCredential, value: runningKey });
-          progress?.(`Kept the key the Cloudflare Tunnel app ran with until now as the root-only credential ${cloudflarePreviousTunnelCredential}, so the tunnel it ran can be put back; it is not written to this log.`, "stdout");
+          progress?.(`Kept the key the Cloudflare Tunnel app ran with until now as the root-only credential ${cloudflarePreviousTunnelCredential}, for recovery from the server's console; it is not written to this log.`, "stdout");
+        } else if (tunnelApp && !runningKey) {
+          progress?.("The key the Cloudflare Tunnel app ran with could not be read, so none is kept.", "stderr");
         }
         const app = await ensureTunnelApp({ apps, credentials, progress, timeScale, replaceKey: !adopted });
         return {
@@ -213,6 +234,9 @@ export function cloudflareOperations() {
       } },
       run: async (parameters, { credentials, runUnit, apps, jobLog, progress, timeScale, cloudflareState }) => {
         const state = await readyToChange({ credentials, store: storeOf(cloudflareState) });
+        // On the tunnel nothing runs, the name would be added at Cloudflare and answer nowhere.
+        const elsewhere = await otherTunnelRunning({ apps, state, connected: true });
+        if (elsewhere) throw new Error(`${elsewhere} Nothing was published.`);
         const zone = state.zones.find((entry) => sameName(entry.name, parameters.domain));
         if (!zone) throw new Error(`${parameters.domain} is not one of the domains your token covers${state.zones.length ? ` (${state.zones.map((entry) => entry.name).join(", ")})` : ""}. Give the token that domain in Cloudflare, then connect again.`);
         const target = await publishTarget({ apps, appId: parameters.appId, portId: parameters.portId });
@@ -238,6 +262,8 @@ export function cloudflareOperations() {
       parameters: { fields: { hostname: domainField } },
       run: async (parameters, { credentials, runUnit, jobLog, cloudflareState }) => {
         const state = await readyToChange({ credentials, store: storeOf(cloudflareState) });
+        // Not refused while the app runs another tunnel: it takes out of the recorded tunnel only what
+        // BoxPilot put there, and connecting again forgets those names, so this is the one way to tidy them.
         if (!state.routes.some((route) => sameName(route.hostname, parameters.hostname))) throw new Error(`BoxPilot did not publish ${parameters.hostname}, so it leaves it alone; change it in the Cloudflare dashboard`);
         return runUnit.runTask("cloudflare.unpublish", { hostname: parameters.hostname }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null });
       },

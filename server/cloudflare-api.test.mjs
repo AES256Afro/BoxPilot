@@ -131,6 +131,35 @@ describe("a tunnel's routes", () => {
     expect(next).toEqual([pathRule, { hostname: "Share.Example.com", service: "https://127.0.0.1:3022", originRequest: { noTLSVerify: true } }, foreign, { service: catchAllService }]);
   });
 
+  // M65.3 review (A3): the first rule that matches answers, so a name added after a wildcard that takes it in is never reached.
+  it("put a name before the first wildcard rule that takes it in, and nowhere else", () => {
+    const wildcard = { hostname: "*.example.com", service: "http://localhost:8080" };
+    const elsewhere = { hostname: "*.example.org", service: "http://localhost:9090" };
+    const ours = { hostname: "share.example.com", service: "http://127.0.0.1:3022", originRequest: {} };
+    const route = { hostname: "share.example.com", service: "http://127.0.0.1:3022" };
+    expect(withRoute([foreign, wildcard, { service: catchAllService }], route)).toEqual([foreign, ours, wildcard, { service: catchAllService }]);
+    // A wildcard for another domain, the bare domain's own rule, and a name that only ends alike take nothing in.
+    expect(withRoute([elsewhere, { hostname: "example.com", service: "x" }, { service: catchAllService }], route)).toEqual([elsewhere, { hostname: "example.com", service: "x" }, ours, { service: catchAllService }]);
+    expect(withRoute([{ hostname: "*.ple.com", service: "x" }, { hostname: "*.Example.COM", path: "^/api", service: "y" }, { service: catchAllService }], { hostname: "a.b.example.com", service: "z" }))
+      .toEqual([{ hostname: "*.ple.com", service: "x" }, { hostname: "a.b.example.com", service: "z", originRequest: {} }, { hostname: "*.Example.COM", path: "^/api", service: "y" }, { service: catchAllService }]);
+    expect(withRoute([wildcard, { service: catchAllService }], { hostname: "example.com", service: "z" })).toEqual([wildcard, { hostname: "example.com", service: "z", originRequest: {} }, { service: catchAllService }]);
+    // Its own rule, published before this was known and standing behind the wildcard, moves in front of it; one in front already stays where it stood.
+    expect(withRoute([foreign, wildcard, { hostname: "share.example.com", service: "old" }, { service: catchAllService }], route)).toEqual([foreign, ours, wildcard, { service: catchAllService }]);
+    expect(withRoute([{ hostname: "share.example.com", service: "old" }, foreign, wildcard, { service: catchAllService }], route)).toEqual([ours, foreign, wildcard, { service: catchAllService }]);
+    // Taking it out leaves the wildcard where it was.
+    expect(withoutRoute([foreign, ours, wildcard, { service: catchAllService }], "share.example.com")).toEqual([foreign, wildcard, { service: catchAllService }]);
+  });
+
+  it("take the owner's rule for every name (*) as the catch-all: kept last, and no second one added", () => {
+    const everything = { hostname: "*", service: "http://localhost:8080" };
+    const ours = { hostname: "share.example.com", service: "http://127.0.0.1:3022", originRequest: {} };
+    expect(withRoute([foreign, everything], { hostname: "share.example.com", service: "http://127.0.0.1:3022" })).toEqual([foreign, ours, everything]);
+    expect(withoutRoute([foreign, ours, everything], "share.example.com")).toEqual([foreign, everything]);
+    // With a path it is a rule like any other, which takes the name in for that path.
+    const some = { hostname: "*", path: "^/health", service: "http_status:200" };
+    expect(withRoute([some, { service: catchAllService }], { hostname: "share.example.com", service: "http://127.0.0.1:3022" })).toEqual([ours, some, { service: catchAllService }]);
+  });
+
   it("drop only BoxPilot's rule when it is taken out, and always end with a catch-all", () => {
     const ingress = [{ hostname: "share.example.com", service: "http://127.0.0.1:3022" }, foreign, pathRule];
     expect(withoutRoute(ingress, "share.example.com")).toEqual([foreign, pathRule, { service: catchAllService }]);

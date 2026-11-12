@@ -179,6 +179,26 @@ describe("the Cloudflare Tunnel app's Tunnel tab", () => {
     expect(dialog.textContent).toContain("leaves its key and the names it serves as they are");
     expect(dialog.textContent).toContain("nothing is changed");
     expect(dialog.textContent).not.toMatch(/replacing the token/);
+    // The two installed cases in which the app is still given a key and restarted.
+    expect(dialog.textContent).toContain("Only in two cases is the app given a key and restarted: it already runs this server's own tunnel boxpilot-homebox, whose key is read again, or the tunnel it runs was deleted at Cloudflare");
+  });
+
+  // M65.3: published while the app ran another tunnel, a name was added to the tunnel nothing ran.
+  it("will not publish while the tunnel app runs another tunnel than the one recorded", async () => {
+    const problem = "The Cloudflare Tunnel app is running another tunnel than the one BoxPilot recorded (boxpilot-homebox), so a name published here would go to a tunnel nothing runs. Disconnect, then connect Cloudflare again: BoxPilot will use the tunnel that is running and leave its names as they are.";
+    const staged = serve({ tunnel: { ...connected, problem } });
+    const sheet = await openTunnelTab();
+    fireEvent.click(within(sheet).getByRole("tab", { name: "Tunnel" }));
+    expect(await within(sheet).findByText(problem)).toBeTruthy();
+    expect(within(sheet).getByText("The tunnel needs your attention")).toBeTruthy();
+    const form = within(sheet).getByRole("form", { name: "Publish an app" });
+    fireEvent.change(within(form).getByLabelText("App"), { target: { value: "pingvin-share" } });
+    fireEvent.change(within(form).getByLabelText("Name"), { target: { value: "share" } });
+    expect((await within(form).findAllByText("https://share.example.com", { selector: "code" })).length).toBeGreaterThan(0);
+    const publish = within(form).getByRole("button", { name: /^Publish/ }) as HTMLButtonElement;
+    expect(publish.disabled).toBe(true);
+    fireEvent.submit(form);
+    expect(staged["cloudflare.publish"]).toBeUndefined();
   });
 
   it("shows the tunnel and what is published, and stages publishing an app with its name, domain and port", async () => {

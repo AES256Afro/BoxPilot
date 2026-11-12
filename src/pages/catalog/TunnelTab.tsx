@@ -175,7 +175,7 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
     title: "Connect Cloudflare",
     parameters: { token },
     preview: <span>Checks the token with Cloudflare and saves it on this server, readable by root only. {appInstalled
-      ? <>Then, if the Cloudflare Tunnel app is already running a tunnel of yours that the token can reach, BoxPilot uses that tunnel and <strong>leaves its key and the names it serves as they are</strong>. If the token cannot reach the tunnel it runs, <strong>nothing is changed</strong> and BoxPilot says what to do</>
+      ? <>Then, if the Cloudflare Tunnel app is already running a tunnel of yours that the token can reach, BoxPilot uses that tunnel and <strong>leaves its key and the names it serves as they are</strong>. If the token cannot reach the tunnel it runs, <strong>nothing is changed</strong> and BoxPilot says what to do. Only in two cases is the app given a key and restarted: it already runs this server&apos;s own tunnel <code>{state.plannedTunnelName}</code>, whose key is read again, or the tunnel it runs was deleted at Cloudflare, and it is given this server&apos;s tunnel instead</>
       : <>Then BoxPilot uses the tunnel called <code>{state.tunnel?.name ?? state.plannedTunnelName}</code> in your Cloudflare account, or makes it if it is not there, and installs the Cloudflare Tunnel app with that tunnel&apos;s key</>}. Nothing is published yet.</span>,
   });
 
@@ -271,7 +271,9 @@ export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext })
       hint: check ? `asked ${new Date(check.checkedAt).toLocaleTimeString()}` : undefined,
     },
   ];
-  const canPublish = Boolean(choice && chosenPort && fqdn && !taken && !offServer);
+  // While the tunnel needs attention (the app runs another tunnel than the one recorded), a name
+  // published would answer nowhere: the server refuses it, and the button says so first.
+  const canPublish = Boolean(choice && chosenPort && fqdn && !taken && !offServer && !state.problem);
 
   return (
     <div className="catalog-tab">

@@ -444,3 +444,26 @@ describe("what a finished run leaves behind", () => {
     expect(run.usage.toolCalls).toBeGreaterThan(run.steps.filter((step) => step.kind === "tool").length);
   });
 });
+
+describe("a task longer than the trace keeps (M66.2)", () => {
+  it("is cut in the middle, so the trace still shows what happened after the notes", async () => {
+    h = await createAgentsHarness({ limits: { promptChars: 1_200 } });
+    h.enable();
+    const keeper = h.service.createAgent(h.caller("owner"), { template: "server-keeper" });
+    for (let index = 0; index < 3; index += 1) {
+      h.advance(60_000);
+      h.store.writeNote(keeper.id, { title: `Reading ${index}`, body: "The drive was looked at and nothing about it had changed. ".repeat(12), source: { kind: "learn" }, readRole: "owner" });
+    }
+    h.store.enqueueRun({ agentId: keeper.id, version: 1, kind: "event", trigger: { event: "alert", title: "The garage sensor stopped answering" }, requestedBy: null, readRole: "owner", readAs: h.accounts.owner.id });
+    const claimed = await h.service.runnerNext(h.runnerId, { waitMs: 0 });
+    const task = claimed.messages[1].content;
+    const kept = h.store.listSteps(claimed.run.id).find((step) => step.kind === "prompt").output;
+    expect(task.length).toBeGreaterThan(1_200);
+    expect(kept.length).toBeLessThanOrEqual(1_200);
+    // The notes open it and what happened ends it: both are there, with the cut marked between.
+    expect(kept.startsWith(task.slice(0, 200))).toBe(true);
+    expect(kept).toMatch(/\n…\n/);
+    expect(kept).toContain("The garage sensor stopped answering");
+    expect(kept.endsWith(task.slice(-100))).toBe(true);
+  });
+});
