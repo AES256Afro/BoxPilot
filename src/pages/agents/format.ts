@@ -167,6 +167,26 @@ export function duration(value: number | null | undefined): string {
 }
 
 /**
+ * A limit kept in seconds, as the minutes its field shows and takes: 1800 is "30", 90 is "1.5",
+ * 100 is "1.67". Two decimals are enough for every whole second to come back as itself.
+ */
+export function minutesOf(value: number): string {
+  return String(Math.round((value / 60) * 100) / 100);
+}
+
+/** The seconds a field's minutes stand for; null while what is typed is not a number. */
+export function secondsOf(minutes: string): number | null {
+  const value = Number(minutes.trim() || Number.NaN);
+  return Number.isFinite(value) && value >= 0 ? Math.round(value * 60) : null;
+}
+
+/** How much a run can read, as pages: about 500 tokens a page. "about 24 pages". */
+export function pagesWords(tokens: number): string {
+  const pages = Math.max(1, Math.round(tokens / 500));
+  return `about ${pages} ${pages === 1 ? "page" : "pages"}`;
+}
+
+/**
  * A tool as the page names it (M48.7): its title from the catalog ("App usage") where the trace,
  * the memory and the evaluation used to show its id ("apps.usage"), which the model also spells
  * "apps_usage". The id when the catalog has not arrived or does not know it.

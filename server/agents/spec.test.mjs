@@ -44,7 +44,7 @@ describe("an agent's spec", () => {
 
   it("keeps a budget inside its ceilings", () => {
     expect(normalizeSpec({ ...minimal, budget: { stepsPerRun: 20, runSeconds: 3_600 } }).budget).toMatchObject({ stepsPerRun: 20, runSeconds: 3_600 });
-    expect(() => normalizeSpec({ ...minimal, budget: { runSeconds: 3_601 } })).toThrow(/Seconds a run/);
+    expect(() => normalizeSpec({ ...minimal, budget: { runSeconds: 3_601 } })).toThrow(/Time limit, in seconds a run, must be/);
   });
 
   it("turns a tool off when its output is off", () => {

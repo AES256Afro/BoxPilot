@@ -203,7 +203,7 @@ export function Console({ agents, agentId, runId, csrfToken, role, now, module, 
             <Select value={agent.id} onValueChange={onSelectAgent} options={usable.map((entry) => ({ value: entry.id, label: entry.name }))} />
           </Field>
           <Field label="Question" hint={mayTest ? "Leave it empty to run its routine once: the digest, the check, whatever it does on its schedule." : undefined}>
-            <Textarea rows={3} maxLength={2000} value={question} placeholder={agent.name === "Pi-hole Watcher" ? "Is Pi-hole blocking, and are its lists fresh?" : "What runs on this server, and is anything failing?"} onValueChange={setQuestion} />
+            <Textarea rows={3} maxLength={2000} value={question} placeholder={agent.template === "pihole-watcher" ? "Is Pi-hole blocking, and are its lists fresh?" : "What runs on this server, and is anything failing?"} onValueChange={setQuestion} />
           </Field>
           <div className="agents-ask__actions">
             {agent.canAsk && <Button variant="primary" busy={busy} disabled={held || !question.trim() || running} onClick={() => void start("ask")}>Ask</Button>}

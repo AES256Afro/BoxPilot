@@ -34,7 +34,7 @@ describe("budgets that follow the work", () => {
     await scheduledRunHitting(watch, { limit: "tokens" });
     const raised = h.service.getAgent(h.caller("owner"), watch.id);
     expect(raised.spec.budget.tokensPerRun).toBe(template.tokensPerRun);
-    expect(raised.versions[0].note).toBe(`BoxPilot raised its tokens a run from 10000 to ${template.tokensPerRun}, the template's: its last two scheduled runs ran out`);
+    expect(raised.versions[0].note).toBe(`BoxPilot raised its reading room (tokens a run) from 10000 to ${template.tokensPerRun}, the template's: its last two scheduled runs ran out`);
     // Already at the template's: left to the owner, however many runs run out.
     await scheduledRunHitting(watch, { limit: "tokens" });
     await scheduledRunHitting(watch, { limit: "tokens" });
@@ -56,6 +56,30 @@ describe("budgets that follow the work", () => {
       await h.service.runnerFinish(claim.run.id, claim.lease, { outcome: "completed", answer: "It blocks ads [T1].", usage: { modelMs: 5_000 }, limitReached: true, limit: "tokens" });
     }
     expect(h.service.getAgent(h.caller("owner"), guide.id).spec.budget.tokensPerRun).toBe(4_000);
+  });
+
+  it("raises nothing for an answer the model server cut short, and the card names the model's setting, not the run's tokens", async () => {
+    h = await createAgentsHarness();
+    h.enable();
+    const owner = h.caller("owner");
+    const scout = h.service.createAgent(owner, { template: "environment-scout" });
+    const spec = h.service.getAgent(owner, scout.id).spec;
+    h.service.updateAgent(owner, scout.id, { spec: { ...spec, budget: { ...spec.budget, tokensPerRun: 10_000, runSeconds: 600 } } });
+    const versions = h.service.getAgent(owner, scout.id).versions.length;
+    const cardOf = (run) => h.service.listProposals(owner).find((card) => card.runId === run.id && card.kind === "escalation");
+    // Cut at the longest answer the model may write, twice running: the run's tokens were never short.
+    const first = await scheduledRunHitting(scout, { limit: "answer" });
+    expect(first.flags).toMatchObject({ limitReached: true, limit: "answer" });
+    expect(cardOf(first).reason).toBe(`Its answer stops short: it reached the longest answer the model may write (${h.service.runtimeSettings().maxTokens} tokens).`);
+    await scheduledRunHitting(scout, { limit: "answer" });
+    // Cut by the time left to write it, twice running: no budget of tokens either.
+    const late = await scheduledRunHitting(scout, { limit: "time" });
+    expect(late.flags).toMatchObject({ limitReached: true, limit: "time" });
+    expect(cardOf(late).reason).toBe("Its answer stops short: there was too little time left to write the rest.");
+    await scheduledRunHitting(scout, { limit: "time" });
+    const after = h.service.getAgent(owner, scout.id);
+    expect(after.spec.budget).toMatchObject({ tokensPerRun: 10_000, runSeconds: 600 });
+    expect(after.versions).toHaveLength(versions);
   });
 
   it("tells the Usage tab the context and how many runs this week filled it", async () => {

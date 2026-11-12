@@ -190,10 +190,10 @@ export function normalizeSpec(input) {
   const rawBudget = section(input.budget, "The budget must be a set of limits");
   const budget = {
     runsPerDay: integer(rawBudget.runsPerDay, budgetCeilings.runsPerDay, "Runs a day"),
-    modelSecondsPerDay: integer(rawBudget.modelSecondsPerDay, budgetCeilings.modelSecondsPerDay, "Model seconds a day"),
-    stepsPerRun: integer(rawBudget.stepsPerRun, budgetCeilings.stepsPerRun, "Steps a run"),
-    tokensPerRun: integer(rawBudget.tokensPerRun, budgetCeilings.tokensPerRun, "Tokens a run"),
-    runSeconds: integer(rawBudget.runSeconds, budgetCeilings.runSeconds, "Seconds a run"),
+    modelSecondsPerDay: integer(rawBudget.modelSecondsPerDay, budgetCeilings.modelSecondsPerDay, "Thinking time a day, in seconds,"),
+    stepsPerRun: integer(rawBudget.stepsPerRun, budgetCeilings.stepsPerRun, "Tool rounds a run"),
+    tokensPerRun: integer(rawBudget.tokensPerRun, budgetCeilings.tokensPerRun, "Reading room, in tokens a run,"),
+    runSeconds: integer(rawBudget.runSeconds, budgetCeilings.runSeconds, "Time limit, in seconds a run,"),
   };
 
   const rawOutputs = section(input.outputs, "Outputs must say what it may produce");

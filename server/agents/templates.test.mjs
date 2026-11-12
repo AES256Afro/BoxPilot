@@ -14,9 +14,11 @@ import { createAgentsRouter } from "../routes/agents.mjs";
 import { defaultQuietHours, inQuietHours } from "./budget.mjs";
 import { gradeFact, serviceLimits } from "./service.mjs";
 import { understandingSchema } from "./intent.mjs";
+import { specialistsFor } from "./orchestrator.mjs";
+import { systemMessage } from "./prompt.mjs";
 import { budgetCeilings, normalizeSpec, scopeWarnings } from "./spec.mjs";
 import { agentTemplates, builtInQuestions, evaluationFacts, templateById, templateQuestions } from "./templates.mjs";
-import { actToolLimit, toolById, toolCatalog } from "./tool-catalog.mjs";
+import { actToolIds, actToolLimit, toModelTool, toolById, toolCatalog, toolIds } from "./tool-catalog.mjs";
 import { appUpdatesOf, failedServicesOf, unhealthyAppsOf } from "./tool-text.mjs";
 import { createToolRunner } from "./tools.mjs";
 
@@ -108,6 +110,57 @@ describe("every template", () => {
   });
 });
 
+/**
+ * M66: what a run reads before its request, on every call that acts - the system message and the
+ * schemas of the tools the call carries. The model's context is 16,384 tokens and it reads slowly,
+ * so every template keeps this under two fifths of the smallest context a server may run (8,192
+ * tokens: 3,276), counted as the audit counted it: 3.6 characters a token. The rest is the task, what
+ * the tools say and the answer.
+ */
+describe("every template's fixed prompt", () => {
+  const budget = Math.floor(8_192 * 0.4);
+  const tokens = (chars) => Math.ceil(chars / 3.6);
+  const schemaChars = (id) => JSON.stringify(toModelTool(toolById(id))).length;
+  // A server with every template made into an agent: the supervisor's prompt lists the ones it may hand to.
+  const everyAgent = agentTemplates.map((template) => ({ id: template.id, name: template.spec.name, paused: false, spec: template.spec }));
+
+  /** The system message and the heaviest set of tools one acting call of this template can carry. */
+  const fixedPrompt = (template) => {
+    const { spec } = template;
+    const specialists = spec.tools["agents.handoff"] === "off" ? [] : specialistsFor(spec, everyAgent, template.id);
+    // What a person's question is offered (service.mjs, offeredTools): every tool it has on, "ask" ones
+    // included; memory.search only with memory on, handing off only with someone to hand to.
+    const offered = on(spec).filter((id) => (id !== "memory.search" || spec.memory.enabled) && (id !== "agents.handoff" || specialists.length > 0));
+    // The always-on ones come with every call; the plan fills the rest, and the heaviest plan names the biggest schemas.
+    const heaviestPlan = [...offered].sort((a, b) => schemaChars(b) - schemaChars(a));
+    const carried = actToolIds(offered, { planned: heaviestPlan, kind: "ask" });
+    const system = tokens(systemMessage(spec, { specialists }).length);
+    const tools = tokens(carried.reduce((sum, id) => sum + schemaChars(id), 0));
+    return { id: template.id, system, tools, total: system + tools, carried };
+  };
+
+  it("fits in two fifths of the smallest context: the system message and the tool schemas of the heaviest call that acts", () => {
+    const sized = agentTemplates.map(fixedPrompt);
+    for (const entry of sized) expect(entry.carried.length, entry.id).toBeLessThanOrEqual(actToolLimit);
+    const line = (entry) => `${entry.id}: ${entry.total} (system ${entry.system} + ${entry.carried.length} tools ${entry.tools})`;
+    expect(sized.filter((entry) => entry.total >= budget).map(line), `every template:\n${sized.map(line).join("\n")}`).toEqual([]);
+  });
+
+  it("counts what would put a template over: longer rules, and a tool turned on", () => {
+    const guide = templateById("house-guide");
+    const sized = fixedPrompt(guide);
+    // Nine rules of the longest a spec takes are 2,700 characters more to read.
+    const wordier = { ...guide, spec: { ...guide.spec, prompt: { ...guide.spec.prompt, rules: [...guide.spec.prompt.rules, ...Array.from({ length: 9 }, () => "x".repeat(300))] } } };
+    expect(fixedPrompt(wordier).system - sized.system).toBeGreaterThanOrEqual(750);
+    expect(fixedPrompt(wordier).tools).toBe(sized.tools);
+    // A tool turned on is carried, and its schema counted.
+    const reading = { ...guide, spec: { ...guide.spec, tools: { ...guide.spec.tools, "logs.query": "auto" } } };
+    expect(fixedPrompt(reading).carried).toEqual([...sized.carried, "logs.query"].sort((a, b) => toolIds.indexOf(a) - toolIds.indexOf(b)));
+    expect(fixedPrompt(reading).tools).toBeGreaterThan(sized.tools + 150);
+    expect(fixedPrompt(reading).system).toBe(sized.system);
+  });
+});
+
 describe("the templates added in M43", () => {
   it("fit in one call that acts, and the Builder has no warning for them", () => {
     for (const id of added) {
@@ -138,9 +191,14 @@ describe("the templates added in M43", () => {
   });
 
   it("say what their tools cannot see instead of guessing at it", () => {
-    // M47: the firewall and Repair are read on request; open ports, SSH settings and package updates still are not.
-    expect(promptText(templateById("environment-scout").spec)).toMatch(/Asked about the firewall or Repair alone, read firewall\.status or repair\.findings for it; the weekly survey reads both/);
-    expect(promptText(templateById("environment-scout").spec)).toMatch(/Open ports, SSH settings and waiting system package updates no tool of yours sees/);
+    // M47: the firewall and Repair are read on request; listening ports, SSH settings and package updates still are not.
+    const scout = templateById("environment-scout").spec;
+    expect(promptText(scout)).toMatch(/Asked about the firewall or Repair alone, read firewall\.status or repair\.findings for it; asked which services or jobs failed, read services\.status or jobs\.recent\./);
+    // M66: one rule says which tool a question about one area reads, not two.
+    expect(scout.prompt.rules.filter((rule) => rule.startsWith("Asked about"))).toHaveLength(1);
+    // And what it names as not checked is what its tools do not read: firewall.status lists the allowed ports.
+    expect(promptText(scout)).toMatch(/firewall\.status lists the ports the firewall allows\. Which ports programs listen on, SSH settings and waiting system package updates no tool of yours reads: name them under Not checked, with the page to open \(Users & SSH, Updates & packages\)\./);
+    expect(scout.tools).toMatchObject({ "firewall.status": "auto", "updates.status": "off", "users.access": "off" });
     expect(promptText(templateById("environment-scout").spec)).toMatch(/Cloudflare Tunnel app/);
     // M47.6: package updates and what takes the space are read too; the snapshots' ages still are not.
     expect(promptText(templateById("update-planner").spec)).toMatch(/updates\.status says how many system packages are waiting/);

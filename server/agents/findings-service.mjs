@@ -55,14 +55,25 @@ export function createAgentFindings({ store, state, limits, now, audit, redact, 
    * the trace numbered F1, F2 as the model sees it. None when the agent does not use findings, for
    * an evaluation (it measures the agent) or a supervisor's follow-up, or when the person asked for
    * a fresh check - which the trace says.
+   *
+   * `fits` is asked of each, best first, as the model would read it (`wrapped`): one there is no
+   * room for is not offered at all - no step, no flag on the run, nothing an answer can cite - and
+   * is counted in `leftOut`. The ones offered are numbered without a gap.
+   *
+   * @param {any} run
+   * @param {any} spec
+   * @param {any} agent
+   * @param {{ fits?: (finding: { id: string, wrapped: string }) => boolean }} [options]
+   * @returns {{ findings: Array<{ id: string, title: string, text: string, wrapped: string }>, leftOut: number }}
    */
-  function offerFindings(run, spec, agent) {
-    if (!sharingFor(agent, spec).useFindings || !findingReaderKinds.includes(run.kind)) return [];
+  function offerFindings(run, spec, agent, { fits = () => true } = {}) {
+    const none = { findings: [], leftOut: 0 };
+    if (!sharingFor(agent, spec).useFindings || !findingReaderKinds.includes(run.kind)) return none;
     const root = run.rootRunId && run.rootRunId !== run.id ? store.getRun(run.rootRunId) : null;
     if (wantsFresh(run.question, root?.question)) {
       const step = store.addStep(run.id, { kind: "system", name: "findings", flags: { detail: "Asked for a fresh check, so the other agents' findings were not offered." } });
       if (step) emit(run.id, "step", step);
-      return [];
+      return none;
     }
     const toCloud = runGoesToCloud(run, spec);
     const candidates = usableFindings(run.readRole, { exceptAgentId: agent.id, toCloud });
@@ -70,38 +81,54 @@ export function createAgentFindings({ store, state, limits, now, audit, redact, 
       const heldBack = usableFindings(run.readRole, { exceptAgentId: agent.id }).length - candidates.length;
       if (heldBack > 0) { const step = store.addStep(run.id, { kind: "system", name: "findings", flags: { detail: `${heldBack} ${heldBack === 1 ? "finding was" : "findings were"} not offered: ${heldBack === 1 ? "its agent stays" : "their agents stay"} on the local model, so nothing of theirs goes to Claude.` } }); if (step) emit(run.id, "step", step); }
     }
-    if (!candidates.length) return [];
+    if (!candidates.length) return none;
     const query = run.question ?? [run.trigger?.title, spec.job, spec.purpose, ...(spec.prompt?.steps ?? [])].filter(Boolean).join(" ");
     const ranked = candidates.map((finding) => ({ finding, ...findingScore(query, finding) })).filter((entry) => entry.shared > 0)
       .sort((a, b) => b.score - a.score || b.shared - a.shared || b.finding.updatedAt.localeCompare(a.finding.updatedAt))
       .slice(0, limits.findingsInPrompt);
     const names = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
-    return ranked.map(({ finding }, position) => offerFinding(run, finding, position + 1, names, "words"));
+    const offered = [];
+    let leftOut = 0;
+    for (const { finding } of ranked) {
+      const read = findingAsRead(run, finding, offered.length + 1, names);
+      if (fits(read)) offered.push(offerFinding(run, read, "words"));
+      else leftOut += 1;
+    }
+    return { findings: offered, leftOut };
   }
 
   /**
-   * One finding offered to a run as F<index>: boxed as untrusted data, a step in the trace saying
-   * which and how it was matched (`by`: "words" before the plan, "meaning" once the request was
-   * embedded, M47.3), and this run flagged when the finding reads like an instruction.
+   * A finding as a run would read it as F<index>: boxed as untrusted data, with whether it reads
+   * like an instruction to this run. Nothing is written: whether it is offered is decided on this.
    */
-  function offerFinding(run, finding, index, names, by) {
+  function findingAsRead(run, finding, index, names) {
     const from = names.get(finding.agentId) ?? "another agent";
     const cleaned = sanitizeUntrusted(`${finding.title}\n${finding.body}`, { maxChars: limits.findingPromptChars, redact });
     const doubts = { unsure: Boolean(finding.source?.unsure), partial: Boolean(finding.source?.partial) };
-    // Another agent's words, read here: a flag of this run's own (hop 0) - but not a person's own
-    // question, its title (sweep 3).
+    // Another agent's words, read here - but not a person's own question, its title (sweep 3).
     const flagged = findingReadsLikeInstruction(finding, run);
-    if (flagged) flagInjection(run.id, { hop: 0 });
-    const step = store.addStep(run.id, {
-      kind: "finding", name: from, output: cleaned.text,
-      input: { id: `F${index}`, noteId: finding.id, agentId: finding.agentId, agent: from, writtenAt: finding.updatedAt, freshUntil: finding.freshUntil, by, ...doubts },
-      flags: { finding: `F${index}`, ...(flagged ? { injection: true } : {}) },
-    });
-    if (step) emit(run.id, "step", step);
     return {
-      id: `F${index}`, title: `${from}'s finding`, text: cleaned.text,
+      id: `F${index}`, title: `${from}'s finding`, text: cleaned.text, from, finding, doubts, flagged,
       wrapped: wrapFinding({ index, from, writtenAt: finding.updatedAt.slice(0, 16), age: findingAge(finding), text: cleaned.text, ...doubts, flags: { injection: flagged } }),
     };
+  }
+
+  /**
+   * One finding offered to a run (`read`, from findingAsRead): a step in the trace saying which and
+   * how it was matched (`by`: "words" before the plan, "meaning" once the request was embedded,
+   * M47.3), and this run flagged - a flag of its own, hop 0 - when the finding reads like an
+   * instruction.
+   */
+  function offerFinding(run, read, by) {
+    const { id, title, text, wrapped, from, finding, doubts, flagged } = read;
+    if (flagged) flagInjection(run.id, { hop: 0 });
+    const step = store.addStep(run.id, {
+      kind: "finding", name: from, output: text,
+      input: { id, noteId: finding.id, agentId: finding.agentId, agent: from, writtenAt: finding.updatedAt, freshUntil: finding.freshUntil, by, ...doubts },
+      flags: { finding: id, ...(flagged ? { injection: true } : {}) },
+    });
+    if (step) emit(run.id, "step", step);
+    return { id, title, text, wrapped };
   }
 
   /**
@@ -136,7 +163,7 @@ export function createAgentFindings({ store, state, limits, now, audit, redact, 
       .sort((a, b) => b.score - a.score || b.finding.updatedAt.localeCompare(a.finding.updatedAt)).slice(0, room);
     if (!ranked.length) return { findings: [] };
     const names = new Map(store.listAgents().map((entry) => [entry.id, entry.name]));
-    const offered = ranked.map(({ finding }, position) => offerFinding(run, finding, already.length + position + 1, names, "meaning"));
+    const offered = ranked.map(({ finding }, position) => offerFinding(run, findingAsRead(run, finding, already.length + position + 1, names), "meaning"));
     audit("agents.findings.by-meaning", { subjectId: run.agentId, details: { runId: run.id, offered: offered.length } });
     return { findings: offered };
   }

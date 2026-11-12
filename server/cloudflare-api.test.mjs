@@ -26,8 +26,26 @@ describe("the Cloudflare client (M42)", () => {
     expect(error.message).toMatch(/^Cloudflare did not accept this token while listing your domains/);
     expect(error.message).toContain("Account · Cloudflare Tunnel · Edit");
     expect(error.message).not.toContain(token);
-    const forbidden = createCloudflareApi({ token, fetcher: async () => new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }), { status: 401 }) });
+    const answering = (status) => createCloudflareApi({ token, fetcher: async () => new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }), { status }) });
+    const forbidden = answering(403);
     await expect(forbidden.findTunnel(fakeAccount.id, "boxpilot-x")).rejects.toThrow(/did not accept this token while looking for the tunnel/);
+    // The step says which of the three it needed: a token that reads tunnels and cannot make one is told Edit, not Read.
+    await expect(forbidden.findTunnel(fakeAccount.id, "boxpilot-x")).rejects.toThrow(/This step needs Account · Cloudflare Tunnel · Edit\. Check/);
+    await expect(forbidden.createTunnel(fakeAccount.id, "boxpilot-x")).rejects.toThrow(/while making the tunnel\. This step needs Account · Cloudflare Tunnel · Edit\. A token that may only read tunnels/);
+    await expect(forbidden.listZones()).rejects.toThrow(/This step needs Zone · Zone · Read\./);
+    // Reading the tunnel's key is a GET, and needs Edit as making one does.
+    await expect(forbidden.tunnelRunKey(fakeAccount.id, "tunnel-1")).rejects.toThrow(/while reading the tunnel's key\. This step needs Account · Cloudflare Tunnel · Edit\. A token that may only read tunnels gets this far and no further: the permission must be Edit, not Read\./);
+  });
+
+  it("says a token Cloudflare does not know was not recognised, not that a permission is missing", async () => {
+    const unknown = createCloudflareApi({ token, fetcher: async () => new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }), { status: 401 }) });
+    for (const refused of [unknown.listZones(), unknown.createTunnel(fakeAccount.id, "boxpilot-x"), unknown.tunnelRunKey(fakeAccount.id, "tunnel-1")]) {
+      const error = await refused.catch((caught) => caught);
+      expect(error).toMatchObject({ status: 401, code: 10000 });
+      expect(error.message).toMatch(/^Cloudflare did not accept this token while .+: it was not recognised, so it may have been revoked or not pasted whole\. Paste it again, or make a new one with the three permissions \(/);
+      expect(error.message).not.toMatch(/This step needs|Edit, not Read/);
+      expect(error.message).not.toContain(token);
+    }
   });
 
   it("scrubs the token out of anything Cloudflare or the network says back", async () => {

@@ -29,6 +29,7 @@
 .agents-last { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 
 /* A row's actions, right-aligned and a size smaller than the page's. */
+.agents-today-cell span { display: block; white-space: nowrap; }
 .agents-actions-cell { width: 1%; }
 .agents-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
 .agents-actions .ui-button { min-height: 26px; padding-right: 8px; padding-left: 8px; font-size: 12.5px; }
@@ -117,6 +118,9 @@
 .agents-grants__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .agents-grants__what { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
 .agents-form__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr)); gap: 8px 12px; }
+/* The limits, a row for the day and a row for one run, each named at its start. */
+.agents-limits { display: grid; grid-template-columns: 5rem minmax(0, 1fr); align-items: start; gap: 6px 12px; }
+.agents-limits__when { padding-top: 2px; color: var(--text-strong); font-size: 13px; font-weight: 600; }
 .agents-tool { display: grid; gap: 2px; min-width: 0; padding-block: 5px; white-space: normal; }
 .agents-tool__name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .agents-tool__title { color: var(--text-strong); font-size: 13.5px; font-weight: 600; }
@@ -207,7 +211,7 @@
 .agents-card__foot { gap: 6px; }
 
 /* ---- the builder's steps ---- */
-.agents-form__step { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 8px; border-radius: 50%; color: var(--accent-text-on); background: var(--accent); font-size: 10.5px; letter-spacing: 0; }
+.agents-form__step { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 8px; color: var(--accent-text-on); background: var(--accent); font-size: 10.5px; letter-spacing: 0; }
 .agents-form__output { display: grid; gap: 8px; }
 .agents-form__fields { display: grid; gap: 6px; }
 .agents-form__field-row { display: grid; grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr) auto; align-items: end; gap: 6px 10px; }
@@ -267,6 +271,7 @@
   .agents-form__field-row { grid-template-columns: minmax(0, 1fr); }
   .agents-answer--fields { grid-template-columns: minmax(0, 1fr); }
   .agents-zulip__channel, .agents-chat__row { grid-template-columns: minmax(0, 1fr); }
+  .agents-limits { grid-template-columns: minmax(0, 1fr); }
   .agents-step__facts { margin-left: 0; }
   .agents-form__section--flush .ui-table-wrap, .agents-form__section--flush .ui-table { margin-inline: 0; }
 }
@@ -277,7 +282,7 @@
 .agents-answer__cite--link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .agents-chip-link { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
 .agents-chip-link:hover .ui-chip { text-decoration: underline; }
-.agents-chip-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 999px; }
+.agents-chip-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .agents-step__tool { color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; }
 .agents-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .agents-export { display: grid; gap: 12px; margin: 12px 0 0; padding: 0; list-style: none; }
@@ -291,3 +296,18 @@
 .agents-cardgroup__count b { color: var(--text-strong); }
 .agents-cardgroup__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .agents-cardgroup__cards { display: grid; gap: 8px; }
+
+/* Under a finger every press gets 44px of height, as the kit's own buttons do (src/styles.css). The
+   small buttons in a row, a trace step's Show and a question's Remove grow to it. Text that is a
+   button grows around its words by its padding and the row keeps its height by the margin, as
+   .ops-link does (15px a side: the smallest line here is 14px tall). A citation is drawn on a tint,
+   which padding would stretch, so its target grows behind it instead. Nothing here applies to a mouse. */
+@media (pointer: coarse) {
+  .agents-actions .ui-button,
+  .agents-step__toggle.ui-button,
+  .agents-question__remove.ui-button { min-height: 44px; }
+  .agents-link,
+  .agents-chip-link { padding-block: 15px; margin-block: -15px; }
+  .agents-answer__cite--link { position: relative; }
+  .agents-answer__cite--link::after { content: ""; position: absolute; inset: -15px -4px; min-height: 44px; }
+}

@@ -134,8 +134,19 @@ export function createModelSession({
     get settings() { return settings; },
     get speed() { return speed; },
     get charsPerToken() { return charsPerToken; },
-    /** About how many tokens a conversation is, at this run's measured characters a token. */
-    tokensOf: (conversation) => Math.ceil(promptChars(conversation) / charsPerToken),
+    /**
+     * About how many tokens a conversation is. Where the server has answered this conversation
+     * before, its own count of what it read and wrote then, plus what was added since at this run's
+     * measured characters a token; all of it at that ratio where it has not. The ratio is learned
+     * from every conversation of the run, so alone it measures one with tools by one without. The
+     * model's last turn is in both parts: a little high, never low.
+     */
+    tokensOf(conversation) {
+      const chars = promptChars(conversation);
+      const last = conversation.last;
+      if (!(last?.promptTokens > 0)) return Math.ceil(chars / charsPerToken);
+      return last.promptTokens + last.completionTokens + Math.ceil(Math.max(0, chars - last.chars) / charsPerToken);
+    },
     /** How many characters of a tool's output the model can read in `seconds` at its speed. */
     readChars: (seconds = pace.toolReadSeconds) => Math.max(1_200, Math.round(seconds * speed.get().promptPerSecond * charsPerToken)),
     /** Put the run on a model: its settings (temperature, maxTokens, extra) and its pace. */

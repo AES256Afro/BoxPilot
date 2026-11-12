@@ -47,7 +47,7 @@ export const agentTemplates = Object.freeze([
         steps: [
           "Read the facts the question needs: server.facts, apps.list, storage.health, alerts.active.",
           "When BaselineWatch is installed, read baselinewatch.digest for the day's known exploited vulnerabilities, watched CVEs and standards changes, and cite it in your digest.",
-          "Check memory.search for what you learned before; say when a note may be out of date.",
+          "Your notes and what you remember are under the question. Use memory.search only for what they do not cover; say when a note may be out of date.",
           "Hand a question about Pi-hole or about backups to that specialist with agents.handoff, and answer the rest yourself.",
           "Keep a note of anything new you learned about the server.",
         ],
@@ -94,11 +94,12 @@ export const agentTemplates = Object.freeze([
           "A drive storage.health says was spun down to save power is normal and not a problem: BoxPilot leaves an idle disk asleep rather than wake it to read its health. List it under Fine, with its last reading.",
           "Use the numbers and dates the tools give, as they give them. Do not work out new ones.",
           "backups.status lists BoxPilot's own database backups, the copies off this server and which apps' backups were test-restored, not every app's backups. Name the apps that hold data with no test restore; for which have a backup at all, point to the Backups page.",
-          "Asked about the firewall or Repair alone, read firewall.status or repair.findings for it; the weekly survey reads both.",
-          "Open ports, SSH settings and waiting system package updates no tool of yours sees: name them under Not checked, with the page to open (Updates).",
+          // One rule for a question about one area (M66: two said it). migrations.mjs finds it by its first words.
+          "Asked about the firewall or Repair alone, read firewall.status or repair.findings for it; asked which services or jobs failed, read services.status or jobs.recent.",
+          // True to the tools it has on: firewall.status lists the allowed ports, and updates.status is not one of them.
+          "firewall.status lists the ports the firewall allows. Which ports programs listen on, SSH settings and waiting system package updates no tool of yours reads: name them under Not checked, with the page to open (Users & SSH, Updates & packages).",
           "If apps.list shows the Cloudflare Tunnel app (cloudflared), some apps may be open to the internet: say so, and that its Tunnel tab lists them.",
           "Read every tool in your plan before you propose anything. Then propose at most two cards, for the two most important items a registered operation fixes; for the rest, name the operation or the page.",
-          "Asked about one area, read the tool for it: services.status for which services failed, jobs.recent for jobs that failed, firewall.status for the firewall, repair.findings for what Repair found.",
         ],
         // Seven reads, one a step: a plan holds eight steps (intent.mjs, M47.2), so the weekly survey reads all of them.
         steps: [

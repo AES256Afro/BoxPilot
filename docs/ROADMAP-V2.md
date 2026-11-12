@@ -4091,15 +4091,32 @@ no faster than four on it (137 against 136 tokens a second read, 21.5 against 21
   the library (the owner's decision: it cannot do the work on a server without a graphics card, so
   it should not be there to pick), and a newer Qwen is offered only up to 4B.
   The model library shows this server's own measured speed.
-- **M66: A prompt that fits** (1 week). The task has no budget against the context: eight notes at
-  their cap are 2,900 tokens, more than the system message and the tools together. Notes chosen by
-  the question, the task budgeted from the context, `Now:` last and the tools fixed per agent so the
-  prompt's head is reused from run to run, no planner call where the steps already name the tools,
-  no tool sent to a run that cannot use it. A template test that every template's reads fit.
-- **M67: The Agents page says what happened** (1 to 2 weeks). A limit card with the raise on it; the
-  five limits in plain words, each drawn against what the last runs used; how full the context was on
-  every run; fourteen runs as a strip on each agent's row; a name before an agent exists, and a way
-  to delete from the list; Guardrails as three sections. Joins M58's rolling health card.
+- ✅ **M66.1 A prompt that fits** (1.243.0). The task had no budget against the context: eight notes
+  at their cap are 2,900 tokens, more than the system message and the tools together. Notes,
+  memories and findings share a quarter of the context, pinned notes first, then the notes the
+  question bears on (a scheduled run: the latest), whole or not at all, and the trace says what was
+  left out; `Now:` is last and to the minute, and notes keep one order, so the prompt's head is
+  reused. The loop answers at once when a prompt is past its room, asks for no more tokens than the
+  context holds, runs no tool whose output it could not show, goes by the server's own token count,
+  and says when an answer was cut short (its own limit, "answer": no budget is raised for it). The
+  Keeper no longer spends a step on memory it was already shown, the Scout loses a rule it had
+  twice and one its tools contradict (saved agents reworded once), `apps.list` is a quarter
+  shorter, and a test holds every template's fixed prompt under two fifths of the smallest context.
+  The independent review of this found ten faults, all fixed before it shipped.
+- **M66.2, left** (3 days). No planner call where the steps already name the tools; the tools fixed
+  per agent and run kind rather than per plan, and `notify.owner` and `plan.propose` not sent to a
+  run that cannot use them; notes above the findings in the task. Each wants a measurement on a real
+  server first (`timings.cache_n` on two questions in a row).
+- ✅ **M67.1 The Agents page in plain words** (1.243.0). The five limits are "Each day: runs,
+  thinking time" and "Each run: tool rounds, reading room, time limit", typed in minutes and pages,
+  and the cards use the same words; Guardrails is three sections (Limits, What it leaves, Model); a
+  template asks for a name before it makes an agent (three untouched "New agent" rows stood on the
+  owner's server); a row has two actions, Ask and Pause; touch sizes are 44 px on a phone; the Usage
+  tab says processors and priority, not CPUQuota and CPUWeight. Looked at in the browser, which
+  found the row's buttons pushed out of sight at 1,280 px.
+- **M67.2, left** (1 week). A limit card with the raise on it; each limit drawn against what the
+  last runs used; how full the context was on every run; fourteen runs as a strip on each agent's
+  row; Delete on the row of an agent never set up. Joins M58's rolling health card.
 - **M68: It knows the house it lives in** (1 to 2 weeks). A platform card built at release from the
   pages, their features and the 247 operations with their tiers, searched by meaning; a `help.where`
   tool over the command bar's own index; a dismissed card is not proposed again for a while; release

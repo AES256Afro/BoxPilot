@@ -16,7 +16,7 @@ import { agentEvents, budgetCeilings, outputFormats } from "../../../server/agen
  * Templates in the Builder (M37, M43): every template the server offers is listed with its job,
  * its tools and when it runs, and making an agent from each fills the Build form with that
  * template's own words, schedule and tool permissions - the Environment Scout and the four others
- * M43 added among them.
+ * M43 added among them. Its name is asked before it is made.
  */
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
@@ -101,7 +101,20 @@ describe("the templates on the Build tab", () => {
       render(<AgentsPage csrfToken="csrf" now={() => now} />);
       fireEvent.click(await screen.findByRole("tab", { name: "Build" }));
       fireEvent.click(await screen.findByRole("button", { name: makeLabel(template) }));
-      await waitFor(() => expect(calls.find((call) => call.method === "POST" && call.path === "/api/v1/agents")?.body, template.id).toEqual({ template: template.id }));
+      // Its name is asked first: the template's title to start from, nothing for a blank one, with its job under it.
+      const naming = screen.getByRole("dialog", { name: "Name your agent" });
+      const name = within(naming).getByLabelText(/^Name/) as HTMLInputElement;
+      expect(name.value, template.id).toBe(template.id === "blank" ? "" : template.title);
+      expect(naming.textContent, template.id).toContain(template.spec.job);
+      expect(calls.some((call) => call.method === "POST"), template.id).toBe(false);
+      const called = template.id === "blank" ? "Garden Watch" : template.title;
+      if (template.id === "blank") fireEvent.change(name, { target: { value: called } });
+      fireEvent.click(within(naming).getByRole("button", { name: "Make it" }));
+      // One request: the template, and its definition under that name. Which model runs it is left
+      // for the server to choose, as it does for a template alone (Claude when a run needs it, once connected).
+      const { route: _route, ...model } = template.spec.model;
+      await waitFor(() => expect(calls.find((call) => call.method === "POST" && call.path === "/api/v1/agents")?.body, template.id).toEqual({ template: template.id, spec: { ...template.spec, name: called, model } }));
+      expect(template.spec.model.route, template.id).toBe("local");
 
       const { spec } = template;
       expect(((await screen.findByLabelText("Name")) as HTMLInputElement).value, template.id).toBe(spec.name);

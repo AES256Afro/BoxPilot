@@ -430,7 +430,7 @@ describe("the Environment Scout's weekly survey on a busy server (M44)", () => {
     // What apps.list said of Plex: stopped on purpose, with its date, apart from the apps down.
     const apps = run.steps.find((step) => step.name === "apps.list").output;
     expect(apps).toMatch(/Of those, stopped on purpose \(by the owner, or never started\): plex; not running for another reason: none\./);
-    expect(apps).toMatch(/- plex: stopped \(exited\), 0 restarts; container bp-plex\. Stopped on purpose: the owner stopped it from BoxPilot on 2026-09-20; not a fault\./);
+    expect(apps).toMatch(/- plex: stopped \(exited\)\. Stopped on purpose: the owner stopped it from BoxPilot on 2026-09-20; not a fault\./);
     // And the survey is the Scout's finding, fresh for the week until the next one.
     const [finding] = h.store.listFindings({ agentId: scout.id });
     expect(finding).toMatchObject({ finding: "routine", source: { runId: run.id, partial: false } });
@@ -448,7 +448,7 @@ describe("the Environment Scout's weekly survey on a busy server (M44)", () => {
     expect(run.flags).toMatchObject({ limitReached: true, limit: "steps" });
     expect(run.answer).toBe("Where to focus\n1. The backup drive sdb is failing [T3].\nFine: the rest [T7].");
     const [card] = h.service.listProposals(h.caller("owner")).filter((entry) => entry.runId === run.id && entry.kind === "escalation");
-    expect(card.reason).toBe("It reached its limit of 8 steps a run before it finished. If that keeps happening, raise \"Steps a run\" on its Build tab, under Guardrails.");
+    expect(card.reason).toBe("It reached its limit of 8 tool rounds a run before it finished. If that keeps happening, raise \"Tool rounds\" on its Build tab, under Limits.");
     // A survey cut short is shared said to be so, and never stands in for a specialist's run.
     expect(h.store.listFindings({ agentId: scout.id })[0].source).toMatchObject({ partial: true });
     expect(h.store.listFindings({ agentId: scout.id })[0].body).toMatch(/^It reached a limit before it finished, so this may be incomplete\./);

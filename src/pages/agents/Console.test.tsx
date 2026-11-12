@@ -36,6 +36,21 @@ const run = (id: string, question: string, minutes: number): Run => ({
   usage: { modelMs: 8000, loadMs: 0, promptTokens: 900, completionTokens: 40, toolCalls: 1 }, flags: {}, proposals: [], steps: [],
 } as unknown as Run);
 
+describe("the question's example", () => {
+  // It was chosen by the agent's name: a Pi-hole Watcher that was renamed lost it, and anything given that name gained it.
+  it("follows the template the agent was made from, not what it is called", async () => {
+    const otherId = "22222222-2222-4222-8222-222222222222";
+    const renamed = { ...agent, name: "Ad blocker", template: "pihole-watcher" } as AgentSummary;
+    const namesake = { ...agent, id: otherId, name: "Pi-hole Watcher", template: "server-keeper" } as AgentSummary;
+    const console_ = (id: string) => <Console agents={[renamed, namesake]} agentId={id} runId={null} csrfToken="csrf" role="owner" now={now} module={live} onSelectAgent={() => undefined} onStage={() => undefined} onRunFinished={() => undefined} />;
+    const view = render(console_(agentId));
+    expect((await screen.findByLabelText("Question") as HTMLTextAreaElement).placeholder).toBe("Is Pi-hole blocking, and are its lists fresh?");
+    view.rerender(console_(otherId));
+    await screen.findByRole("region", { name: "Earlier runs" });
+    expect((screen.getByLabelText("Question") as HTMLTextAreaElement).placeholder).toBe("What runs on this server, and is anything failing?");
+  });
+});
+
 describe("earlier runs", () => {
   // A failed read left "Reading the runs…" there for good.
   it("says when the earlier runs could not be read, and reads them again when asked", async () => {

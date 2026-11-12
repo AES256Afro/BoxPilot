@@ -139,13 +139,13 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
       <div class="fill" style="height:45%"></div><div class="fill ok" style="height:45%"></div>
     </div>
     <div class="hero-main">
-      <div class="eyebrow">BoxPilot · agent platform audit · 12 November 2026 · pull request 652 · ships as 1.242.0</div>
+      <div class="eyebrow">BoxPilot · agent platform audit · 12 November 2026 · 1.242.1 live on the server · 1.243.0 in review</div>
       <h1>The server had room. <em>The agents didn't.</em></h1>
       <p class="lede">Five read-only sweeps, a month of the server's own runs, and a timing of both models on its disk. The limits that stopped the agents were ours, not the machine's: a quarter of its memory in use, load under one. So the limits were raised, the loop that wasted them was fixed, and the rest is laid out below as six milestones.</p>
       <div class="stats">
         <div><b>1,546</b><span>runs read from the server's last 30 days</span></div>
         <div><b>54</b><span>findings across bugs, speed, code and the page, and 5 more from a review of today's own diff</span></div>
-        <div><b>12</b><span>changes made today, held by 5,999 passing tests</span></div>
+        <div><b>3</b><span>pull requests today, the last held by 6,042 passing tests and two outside reviews</span></div>
         <div><b>6</b><span>milestones planned, M58 and M66 to M70</span></div>
       </div>
     </div>
@@ -167,7 +167,7 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
   </section>
 
   <section>
-    <div class="sec-head"><div class="eyebrow">Done today · ships as 1.242.0</div><h2>Room given. Hatched is what it was, solid is what it is.</h2>
+    <div class="sec-head"><div class="eyebrow">Done today · live as 1.242.1</div><h2>Room given. Hatched is what it was, solid is what it is.</h2>
       <p>Agents still at the old limits were raised once, as a version BoxPilot made and named. A limit you set yourself, lower or higher, was left alone.</p></div>
     <div class="bars" style="margin-top:18px">
       <div class="bar"><div class="what">Steps a run<small>the most a spec may give</small></div><div class="track"><u style="width:60%"></u></div><div class="nums">12 → <b>20</b></div></div>
@@ -185,18 +185,21 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
   <section>
     <div class="sec-head"><div class="eyebrow">The wall</div><h2>Done, next, planned, suggested.</h2></div>
     <div class="panels" style="margin-top:22px">
-      <div class="panel"><div class="band b-done"><b>Done</b><span>ships as 1.242.0</span></div><ul>
+      <div class="panel"><div class="band b-done"><b>Done</b><span>live as 1.242.1</span></div><ul>
         <li><b>The run that ended with nothing</b><span class="tag">bug</span><p>A forced answer that comes back empty is asked for once more, in words, before the run gives up. This was most of the orange squares.</p></li>
         <li><b>A failed tool may be tried again</b><span class="tag">bug</span><p>One timeout used to count as "already asked"; two retries ended the run.</p></li>
         <li><b>Out of context says context</b><span class="tag">bug</span><p>The card told you to raise steps, which made it worse.</p></li>
         <li><b>An interrupted nightly question is skipped</b><span class="tag">bug</span><p>Every upgrade restarted the runner mid-question and the evaluation scored it as wrong.</p></li>
         <li><b>The trace tells the truth</b><span class="tag">page</span><p>"The model stopped without writing an answer", not "could not be reached".</p></li>
         <li><b>This server's measured speed in the model library</b><span class="tag">page</span><p>The column showed a GitHub runner's numbers.</p></li>
-        <li><b>All the room in the chart above</b><span class="tag">limits</span><p>Ceilings, defaults, twelve templates, the one-time raise, the memory cap, the context.</p></li>
+        <li><b>All the room in the chart above</b><span class="tag">limits</span><p>Ceilings, defaults, twelve templates, the memory cap, the context. Eight agents on the server were raised once.</p></li>
+        <li><b>Releases publish again</b><span class="tag">found</span><p>The install test called a route removed on 9 November, so nothing after 1.238.0 had published. 1.242.1 is the first that did.</p></li>
+        <li><b>The 4B model, 6 hours a day, 4 processors</b><span class="tag">server</span><p>Set on the server itself. All agents together had 1 h 23 min a day and had used 32 minutes of it.</p></li>
       </ul></div>
-      <div class="panel"><div class="band b-next"><b>Next</b><span>M58 · M66 · about 3 weeks</span></div><ul>
-        <li><b>A task that fits its context</b><span class="tag">M66</span><p>Eight notes at their cap are 2,900 tokens, more than the system message and tools together. Pick notes by the question; budget the task from the context.</p></li>
-        <li><b>A prompt head that is reused</b><span class="tag">M66</span><p>The time stamp is the first line and the tool list changes per plan, so every run re-reads everything. Fixing both saves 20 to 50 seconds a run.</p></li>
+      <div class="panel"><div class="band b-next"><b>Next</b><span>1.243.0 in review · then M58</span></div><ul>
+        <li><b>A task that fits its context</b><span class="tag">in review</span><p>Notes, memories and findings share a quarter of the context: pinned first, then what the question bears on. Built, reviewed twice, waiting on CI.</p></li>
+        <li><b>The Agents page in plain words</b><span class="tag">in review</span><p>Runs, thinking time, tool rounds, reading room, time limit. A name before an agent exists. Two row actions. 44 px touch targets.</p></li>
+        <li><b>A prompt head that is reused</b><span class="tag">M66</span><p>The time is now last and to the minute. Still to do: tools fixed per agent rather than per plan, measured on the server first.</p></li>
         <li><b>No planner call when the steps already say</b><span class="tag">M66</span><p>A scheduled run spends one of its three calls deciding what its own steps name.</p></li>
         <li><b>A digest that is never raw tool output</b><span class="tag">M58</span><p>Already on the roadmap: composed in code, the model adds two sentences.</p></li>
         <li><b>One rolling health card per agent</b><span class="tag">M58</span><p>With the raise on the card itself.</p></li>
