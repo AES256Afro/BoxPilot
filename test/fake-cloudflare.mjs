@@ -6,6 +6,12 @@
  */
 export const fakeAccount = { id: "0123456789abcdef0123456789abcdef", name: "Example household" };
 
+/**
+ * A connector's key as Cloudflare hands it out (cloudflared's TUNNEL_TOKEN): base64 of the account
+ * tag, the tunnel's id and its secret. `secret` is there so a test can look for it where it must not be.
+ */
+export const fakeTunnelKey = (tunnelId, { account = fakeAccount.id, secret = "c2VjcmV0LW9mLXRoZS10dW5uZWw=" } = {}) => Buffer.from(JSON.stringify({ a: account, t: tunnelId, s: secret })).toString("base64");
+
 export function createFakeCloudflare({
   token = "cf-test-token-0000000000000000000000",
   zones = [{ id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", name: "example.com", account: fakeAccount }],
@@ -13,6 +19,8 @@ export function createFakeCloudflare({
   configs = {},
   records = [],
   runKey = "eyJhIjoiZmFrZS1ydW4ta2V5LWZvci10ZXN0cyJ9",
+  // The accounts the token covers; null for any. A tunnel in another account answers 403.
+  accounts = null,
   fail = null,
 } = {}) {
   const calls = [];
@@ -30,6 +38,7 @@ export function createFakeCloudflare({
     if (failure) return failure;
 
     let match;
+    if (accounts && (match = /^\/accounts\/([^/]+)\//.exec(route)) && !accounts.includes(match[1])) return answer(null, 403, { message: "Authentication error" });
     if (method === "GET" && route === "/zones") {
       const page = Number(url.searchParams.get("page") ?? 1);
       const per = Number(url.searchParams.get("per_page") ?? 50);
@@ -49,7 +58,7 @@ export function createFakeCloudflare({
       if (method === "PUT") { state.configs[match[2]] = body.config; return answer({ tunnel_id: match[2], version: 2, config: body.config }); }
     }
     if ((match = /^\/accounts\/([^/]+)\/cfd_tunnel\/([^/]+)$/.exec(route)) && method === "GET") {
-      const tunnel = state.tunnels.find((entry) => entry.id === match[2]);
+      const tunnel = state.tunnels.find((entry) => entry.id === match[2] && entry.account === match[1]);
       return tunnel ? answer(tunnel) : answer(null, 404, { message: "Tunnel not found" });
     }
     if ((match = /^\/zones\/([^/]+)\/dns_records$/.exec(route))) {

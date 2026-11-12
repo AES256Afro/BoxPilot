@@ -114,4 +114,18 @@ describe("the longest run's default", () => {
     expect([...rules].sort()).toEqual([...templateById("environment-scout").spec.prompt.rules].sort());
     expect(h.store.getAgent(lone.id).spec.prompt.rules).toContain(older);
   });
+
+  it("rewords the Keeper's step that said its notes were under the question, once (M66.2)", async () => {
+    h = await createAgentsHarness();
+    const owner = h.caller("owner");
+    const keeper = h.service.createAgent(owner, { template: "server-keeper" });
+    const said = "Your notes and what you remember are under the question. Use memory.search only for what they do not cover; say when a note may be out of date.";
+    const spec = h.store.getAgent(keeper.id).spec;
+    h.service.updateAgent(owner, keeper.id, { spec: { ...spec, prompt: { ...spec.prompt, steps: spec.prompt.steps.map((step) => (step.startsWith("Your notes and what you remember") ? said : step)) } } });
+    h.state.setSetting(agentsMigrationsKey, { runSeconds: {}, sharing: {}, examples: {}, eyes: {}, surveyWide: {}, eyesMore: {}, headroom: {}, wording: {} }, { updatedBy: null });
+    expect(h.service.migrateDefaults()).toBe(1);
+    expect(h.store.getAgent(keeper.id).spec.prompt.steps).toEqual(templateById("server-keeper").spec.prompt.steps);
+    expect(h.store.getAgent(keeper.id).spec.prompt.steps).not.toContain(said);
+    expect(h.service.migrateDefaults()).toBe(0);
+  });
 });

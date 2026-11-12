@@ -96,7 +96,6 @@
     "server/catalog/schema.mjs: isKnownTimeZone": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/catalog/schema.mjs: networkModeChoices": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/catalog/schema.mjs: portTailnetModes": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
-    "server/cloudflare-api.mjs: CloudflareError": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/cloudflare-api.mjs: cloudflareApiBase": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/cloudflare-tunnel.mjs: defaultTunnelStateFile": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/controller-doctor.mjs: controllerDoctorPaths": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",

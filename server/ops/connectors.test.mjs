@@ -10,17 +10,18 @@ import { describe, expect, it } from "vitest";
 import { registry } from "./index.mjs";
 import { validatePlan } from "../assistant/plan.mjs";
 import { managedCredentialNames } from "../credentials.mjs";
-import { cloudflareApiCredential, cloudflareTunnelCredential } from "../cloudflare-tunnel.mjs";
+import { cloudflareApiCredential, cloudflarePreviousTunnelCredential, cloudflareTunnelCredential } from "../cloudflare-tunnel.mjs";
 import { heartbeatCredential } from "../heartbeat.mjs";
 import { zulipCredentialName } from "../agents/zulip.mjs";
 
-const reserved = ["cloudflare-api-token", "cloudflare-tunnel-token", "heartbeat-url", "zulip-agents-bot"];
+const reserved = ["cloudflare-api-token", "cloudflare-tunnel-token", "cloudflare-tunnel-token-previous", "heartbeat-url", "zulip-agents-bot"];
 
 describe("the credentials BoxPilot manages itself", () => {
   it("are every name BoxPilot writes to the store on its own", () => {
     expect([...managedCredentialNames].sort()).toEqual(reserved);
     expect(managedCredentialNames.has(cloudflareApiCredential)).toBe(true);
     expect(managedCredentialNames.has(cloudflareTunnelCredential)).toBe(true);
+    expect(managedCredentialNames.has(cloudflarePreviousTunnelCredential)).toBe(true);
     expect(managedCredentialNames.has(heartbeatCredential)).toBe(true);
     expect(managedCredentialNames.has(zulipCredentialName)).toBe(true);
   });
