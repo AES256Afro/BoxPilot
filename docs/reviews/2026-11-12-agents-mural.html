@@ -139,13 +139,13 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
       <div class="fill" style="height:45%"></div><div class="fill ok" style="height:45%"></div>
     </div>
     <div class="hero-main">
-      <div class="eyebrow">BoxPilot · agent platform audit · 12 November 2026 · release 1.242.0</div>
+      <div class="eyebrow">BoxPilot · agent platform audit · 12 November 2026 · pull request 652 · ships as 1.242.0</div>
       <h1>The server had room. <em>The agents didn't.</em></h1>
       <p class="lede">Five read-only sweeps, a month of the server's own runs, and a timing of both models on its disk. The limits that stopped the agents were ours, not the machine's: a quarter of its memory in use, load under one. So the limits were raised, the loop that wasted them was fixed, and the rest is laid out below as six milestones.</p>
       <div class="stats">
         <div><b>1,546</b><span>runs read from the server's last 30 days</span></div>
-        <div><b>54</b><span>findings across bugs, speed, code and the page</span></div>
-        <div><b>12</b><span>changes shipped today, held by 5,999 passing tests</span></div>
+        <div><b>54</b><span>findings across bugs, speed, code and the page, and 5 more from a review of today's own diff</span></div>
+        <div><b>12</b><span>changes made today, held by 5,999 passing tests</span></div>
         <div><b>6</b><span>milestones planned, M58 and M66 to M70</span></div>
       </div>
     </div>
@@ -167,13 +167,14 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
   </section>
 
   <section>
-    <div class="sec-head"><div class="eyebrow">Done today · 1.242.0</div><h2>Room given. Hatched is what it was, solid is what it is.</h2>
+    <div class="sec-head"><div class="eyebrow">Done today · ships as 1.242.0</div><h2>Room given. Hatched is what it was, solid is what it is.</h2>
       <p>Agents still at the old limits were raised once, as a version BoxPilot made and named. A limit you set yourself, lower or higher, was left alone.</p></div>
     <div class="bars" style="margin-top:18px">
       <div class="bar"><div class="what">Steps a run<small>the most a spec may give</small></div><div class="track"><u style="width:60%"></u></div><div class="nums">12 → <b>20</b></div></div>
       <div class="bar"><div class="what">Tokens a run<small>the most a spec may give</small></div><div class="track"><u style="width:33.3%"></u></div><div class="nums">32,000 → <b>96,000</b></div></div>
       <div class="bar"><div class="what">Longest run</div><div class="track"><u style="width:50%"></u></div><div class="nums">30 → <b>60 min</b></div></div>
       <div class="bar"><div class="what">Model time a day<small>per agent</small></div><div class="track"><u style="width:33.3%"></u></div><div class="nums">2 → <b>6 h</b></div></div>
+      <div class="bar"><div class="what">All agents together<small>model time a day</small></div><div class="track"><u style="width:50%"></u></div><div class="nums">3 → <b>6 h</b></div></div>
       <div class="bar"><div class="what">Runner memory cap<small>enforced by the kernel</small></div><div class="track"><u style="width:66.7%"></u></div><div class="nums">8 → <b>12 GB</b></div></div>
       <div class="bar"><div class="what">Context, new installs<small>this server was already at 16,384</small></div><div class="track"><u style="width:50%"></u></div><div class="nums">8,192 → <b>16,384</b></div></div>
       <div class="bar"><div class="what">Server Keeper<small>steps · tokens a run</small></div><div class="track"><u style="width:55%"></u></div><div class="nums">6 · 20k → <b>10 · 40k</b></div></div>
@@ -184,7 +185,7 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
   <section>
     <div class="sec-head"><div class="eyebrow">The wall</div><h2>Done, next, planned, suggested.</h2></div>
     <div class="panels" style="margin-top:22px">
-      <div class="panel"><div class="band b-done"><b>Done</b><span>in 1.242.0</span></div><ul>
+      <div class="panel"><div class="band b-done"><b>Done</b><span>ships as 1.242.0</span></div><ul>
         <li><b>The run that ended with nothing</b><span class="tag">bug</span><p>A forced answer that comes back empty is asked for once more, in words, before the run gives up. This was most of the orange squares.</p></li>
         <li><b>A failed tool may be tried again</b><span class="tag">bug</span><p>One timeout used to count as "already asked"; two retries ended the run.</p></li>
         <li><b>Out of context says context</b><span class="tag">bug</span><p>The card told you to raise steps, which made it worse.</p></li>
