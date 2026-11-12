@@ -245,8 +245,9 @@ export function normalizeRuntimeSettings(input, current = defaultRuntimeSettings
     driver,
     endpoint,
     contextTokens: integer(input.contextTokens, current.contextTokens, 2_048, 32_768, "The context"),
-    // Unsloth unloads the model itself after 15 quiet minutes (UNSLOTH_MODEL_IDLE_TTL); this stops the
-    // whole server, its Python backend too, so idle is then no process at all.
+    // This stops the whole server, its Python backend too, so idle is then no process at all. Unsloth
+    // keeps the model loaded as long (UNSLOTH_MODEL_IDLE_TTL, never under 15 minutes), and with it
+    // the prompts it has read: a change here restarts the model server at the next run.
     idleStopMinutes: integer(input.idleStopMinutes, current.idleStopMinutes, 5, 720, "Minutes before an idle model server stops"),
     maxTokens: integer(input.maxTokens, current.maxTokens, 128, 4_096, "The longest answer in tokens"),
   };

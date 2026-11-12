@@ -47,7 +47,7 @@ import { webPortOf } from "../env-file.mjs";
 import { planMessage, plannerMessages, readUnderstanding, understandingFormatFor } from "./intent.mjs";
 import { answerNowNote, fallbackAnswer } from "./prompt.mjs";
 import { ModelUnavailable } from "./runtime.mjs";
-import { actToolIds, toolById, toolCatalog, toolsForQuestion } from "./tool-catalog.mjs";
+import { actToolIds, coreToolIds, toolById, toolCatalog, toolsForQuestion } from "./tool-catalog.mjs";
 
 export const runnerDefaults = Object.freeze({
   pollWaitMs: 25_000,
@@ -423,10 +423,14 @@ export function createRunner({ api, runtime, client, usage = null, now = () => D
       }
 
       // 2. Act, then check, in the harness's loop (M45.8): one conversation that only grows, carrying
-      // the tools the plan named and the always-on ones. A plan that did not fit in the time or the
-      // budget left leaves nothing for acting either.
+      // the agent's own set of tools (M66.2: the always-on ones and the ones its steps name), so the
+      // tool list, which the model reads first, is the same from one run to the next; a plan that
+      // names a tool outside that set carries the plan's instead. A plan that did not fit in the
+      // time or the budget left leaves nothing for acting either.
       if (session.model && !clarify && !["budget", "timeout"].includes(state.degraded)) {
-        const ids = actToolIds((claim.tools ?? []).map((tool) => tool.id), { planned: understanding?.tools?.length ? understanding.tools : null, hinted, kind: run.kind });
+        const offeredIds = (claim.tools ?? []).map((tool) => tool.id);
+        const core = coreToolIds(offeredIds, { steps: claim.agent?.steps ?? [], kind: run.kind });
+        const ids = actToolIds(offeredIds, { planned: understanding?.tools?.length ? understanding.tools : null, hinted, kind: run.kind, core });
         const byId = new Map((claim.tools ?? []).map(({ id, ...tool }) => [id, tool]));
         const messages = claim.messages.map((message) => ({ ...message }));
         const lastUser = messages.findLastIndex((message) => message.role === "user");

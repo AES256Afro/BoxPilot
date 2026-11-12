@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { registry } from "../ops/index.mjs";
-import { actToolIds, actToolLimit, describeTools, lesserRole, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolIdOf } from "./tool-catalog.mjs";
+import { actToolIds, actToolLimit, coreToolIds, describeTools, lesserRole, readToolInput, roleAtLeast, toModelTool, toolAllowed, toolById, toolCatalog, toolIdOf } from "./tool-catalog.mjs";
 
 describe("the tools catalog", () => {
   it("names each tool once, in a form a model can call, with a role and a cost", () => {
@@ -52,6 +52,71 @@ describe("the tools a call that acts carries", () => {
     expect(actToolIds(keeper, { planned: null })).toEqual(["memory.search", "plan.propose", "notify.owner", "agents.handoff", "server.facts", "apps.list", "services.status", "storage.health", "alerts.active", "where.runs"]);
     // A learning run keeps its notes whatever it planned.
     expect(actToolIds(keeper, { planned: ["server.facts"], kind: "learn" })).toEqual(["memory.search", "notes.read", "notes.write", "plan.propose", "notify.owner", "agents.handoff", "server.facts"]);
+  });
+
+  // M66.2: thirty tools on, as an agent with a lot to read has: far more than one call carries.
+  const thirty = toolCatalog.map((tool) => tool.id).filter((id) => !["web.search", "operations.run", "operations.plan", "json.extract", "regex.match", "theyspy.status", "baselinewatch.digest", "document.read"].includes(id));
+  const everyRun = ["memory.search", "plan.propose", "notify.owner", "agents.handoff"];
+  // Five tools, by id and by the name the model calls; time.calc is not calc, and app.backup is an operation, not a tool.
+  const fiveSteps = ["Read the drives with storage.health, and what is wrong now with alerts.active.", "Call apps_list, then where.runs for where each one runs.", "Work out the growth with time.calc.", "Propose the fix with plan.propose. A card that rebuilds an app starts with app.backup."];
+
+  it("has a set of its own for each agent: every tool it has on when they fit in one call", () => {
+    expect(thirty).toHaveLength(30);
+    // Five on: all five, the always-on ones first, whatever its steps say.
+    expect(coreToolIds(["docs.search", "plan.propose", "alerts.active", "memory.search", "server.facts"], { steps: ["Answer from docs.search."] })).toEqual(["memory.search", "plan.propose", "server.facts", "alerts.active", "docs.search"]);
+    // Exactly ten on is still all ten; an eleventh is where the steps begin to choose.
+    const ten = thirty.filter((id) => !everyRun.includes(id)).slice(0, 8).concat("memory.search", "plan.propose");
+    expect(coreToolIds(ten)).toHaveLength(actToolLimit);
+    expect([...coreToolIds(ten)].sort()).toEqual([...ten].sort());
+    const eleven = coreToolIds([...ten, "notify.owner"], { steps: ["Read server.facts."] });
+    // The three always-on ones, the one its steps name, and the cheap reads up to the six a run with no plan carries.
+    expect(eleven).toHaveLength(9);
+    expect(eleven.slice(0, 3)).toEqual(["memory.search", "plan.propose", "notify.owner"]);
+    expect(eleven).toContain("server.facts");
+  });
+
+  it("is the always-on ones, the ones its steps name, then the cheap reads up to six, when it has more on than fit", () => {
+    // Five named, so one cheap read more: the first not yet in it.
+    expect(coreToolIds(thirty, { steps: fiveSteps })).toEqual([...everyRun, "server.facts", "apps.list", "storage.health", "alerts.active", "where.runs", "time.calc"]);
+    // A learning run's notes are always on for it, as they are for its plan.
+    expect(coreToolIds(thirty, { steps: fiveSteps, kind: "learn" })).toEqual(["memory.search", "notes.read", "notes.write", "plan.propose", "notify.owner", "agents.handoff", "apps.list", "storage.health", "alerts.active", "where.runs"]);
+    // A tool it does not have on is not carried for being named, and steps that name none leave the always-on ones.
+    // A tool it does not have on is not carried for being named; steps that name none leave the cheap reads.
+    const cheap = [...everyRun, "server.facts", "apps.list", "services.status", "storage.health", "alerts.active", "where.runs"];
+    expect(coreToolIds(thirty, { steps: ["Search the web with web.search, then read baselinewatch_digest."] })).toEqual(cheap);
+    expect(coreToolIds(thirty)).toEqual(cheap);
+  });
+
+  it("keeps the ones the steps name first when they name more than fit", () => {
+    const eight = ["Use pihole.stats and where.runs.", "Check jobs.recent.", "Read server.facts, apps.list and storage.health.", "Then alerts.active and backups.status."];
+    const core = coreToolIds(thirty, { steps: eight });
+    expect(core).toHaveLength(actToolLimit);
+    // Six fit beside the four always-on ones: the first six named, and then in the catalog's order.
+    expect(core).toEqual([...everyRun, "server.facts", "apps.list", "storage.health", "where.runs", "jobs.recent", "pihole.stats"]);
+  });
+
+  it("carry the agent's own set whatever the plan, while the plan asks for nothing outside it", () => {
+    const core = coreToolIds(thirty, { steps: fiveSteps });
+    // Two questions, two plans, one list: the same bytes at the head of both prompts.
+    expect(actToolIds(thirty, { planned: ["storage.health"], core })).toEqual(core);
+    expect(actToolIds(thirty, { planned: ["apps_list", "alerts-active"], hinted: ["where.runs"], core })).toEqual(core);
+    // A name that is no tool, or a tool it has off, was never carried: it does not count as asking for more.
+    expect(actToolIds(thirty, { planned: ["storage.health", "shell.run", "web.search"], core })).toEqual(core);
+    // Without a plan too, since the set holds tools to read with.
+    expect(actToolIds(thirty, { planned: null, core })).toEqual(core);
+    expect(actToolIds(thirty, { planned: null, hinted: ["where.runs"], core })).toEqual(core);
+  });
+
+  it("carry the plan's tools, as before, when it asks for one outside the agent's own set", () => {
+    const core = coreToolIds(thirty, { steps: fiveSteps });
+    expect(actToolIds(thirty, { planned: ["storage.health", "logs.query"], core })).toEqual([...everyRun, "logs.query", "storage.health"]);
+    expect(actToolIds(thirty, { planned: ["storage.health", "logs.query"], core })).toEqual(actToolIds(thirty, { planned: ["storage.health", "logs.query"] }));
+    // The request's own words count as the plan does.
+    expect(actToolIds(thirty, { planned: ["storage.health"], hinted: ["pihole.stats"], core })).toEqual([...everyRun, "storage.health", "pihole.stats"]);
+    expect(actToolIds(thirty, { planned: null, hinted: ["pihole.stats"], core })).toEqual(actToolIds(thirty, { planned: null, hinted: ["pihole.stats"] }));
+    // A set of only the always-on ones has nothing to read with: without a plan, the cheap reads as before.
+    expect(actToolIds(thirty, { planned: null, core: coreToolIds(thirty) })).toEqual(actToolIds(thirty, { planned: null }));
+    expect(actToolIds(thirty, { planned: null, core: coreToolIds(thirty) })).toContain("server.facts");
   });
 
   it("describe themselves to the model in fewer words when they are sent every time, and in full to the Builder", () => {

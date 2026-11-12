@@ -354,10 +354,11 @@ describe("the Environment Scout's weekly survey", () => {
     expect(run).toMatchObject({ agentId: scout.id, kind: "schedule", state: "completed", outputKind: "answer" });
     expect(run.steps.filter((step) => step.kind === "tool" && step.state === "done").map((step) => step.name)).toEqual(["alerts.active", "storage.health", "apps.list", "backups.status", "server.facts"]);
     expect(run.answer).toMatch(/^Where to focus/);
-    // Every call that acted carried the plan's five reads and proposing: the whole survey fits.
+    // Every call that acted carried the Scout's own set (M66.2): its ten tools, the plan's five
+    // reads and proposing among them, the same whatever a survey plans. The whole survey fits.
     const acting = h.fake.prompts().filter((body) => Array.isArray(body.tools) && body.tools.length);
     expect(acting.length).toBeGreaterThan(0);
-    for (const body of acting) expect(body.tools.map((tool) => tool.function.name).sort()).toEqual(["alerts_active", "apps_list", "backups_status", "plan_propose", "server_facts", "storage_health"]);
+    for (const body of acting) expect(body.tools.map((tool) => tool.function.name).sort()).toEqual(["alerts_active", "apps_list", "backups_status", "firewall_status", "jobs_recent", "plan_propose", "repair_findings", "server_facts", "services_status", "storage_health"]);
 
     // Two cards, as the owner's to approve; the step it may not propose never reached one.
     const cards = h.service.listProposals(h.caller("owner")).filter((card) => card.kind === "plan" && card.runId === run.id);

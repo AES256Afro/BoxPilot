@@ -4103,10 +4103,30 @@ no faster than four on it (137 against 136 tokens a second read, 21.5 against 21
   twice and one its tools contradict (saved agents reworded once), `apps.list` is a quarter
   shorter, and a test holds every template's fixed prompt under two fifths of the smallest context.
   The independent review of this found ten faults, all fixed before it shipped.
-- **M66.2, left** (3 days). No planner call where the steps already name the tools; the tools fixed
-  per agent and run kind rather than per plan, and `notify.owner` and `plan.propose` not sent to a
-  run that cannot use them; notes above the findings in the task. Each wants a measurement on a real
-  server first (`timings.cache_n` on two questions in a row).
+- ✅ **M66.2 The same head from run to run** (1.244.0). Measured on the owner's server (the 4B model
+  on its processor, 16,384 tokens of context, a gigabyte of prompt cache, one slot): 5,600 tokens
+  read cold take 104 s; the same head read again after a different conversation ran in between
+  comes back from the model server's cache, 512 tokens read again (12 s) the first time and 23
+  (0.9 s) after that. The chat template writes the tool list before the system message: the same
+  system message under another tool list reused nothing, and the same tools under a new question
+  read 15 tokens again. One question to the Server Keeper took 228 s: 31 s to plan, 118 s for the
+  first call that acts to read 5,787 tokens cold (the tools, the system message, and a task that
+  began with the question and then pasted eight notes), then 35 s and 41 s. That head was never the
+  same twice, for three reasons. The tools were chosen per plan: an agent now has a set of its own,
+  the always-on tools and the ones its steps name (all of them when ten or fewer are on), carried
+  whatever the plan while the plan asks for nothing outside it; a plan that does is carried as
+  before. The task began with the question: an agent's notes are now its first lines, and what
+  changes at every run (the question or the trigger, the conversation, what it recalls, the other
+  agents' findings, the time) comes after them. And Unsloth freed the model, and with it everything
+  the server had read, after 15 quiet minutes whatever the owner's idle time: it now keeps the model
+  as long as "Stop an idle model server after" says (an hour by default, never under 15 minutes),
+  and a changed idle time restarts the model server once. A first call that acts reads more tools
+  cold than a plan of one read gave it (the Keeper eight against four: some 390 tokens, about 7 s
+  at 52 tokens a second); every run after it reads them from the cache. No template changed, and
+  nothing is migrated.
+- **M66.2, left** (2 days). No planner call where the steps already name the tools; `notify.owner`
+  and `plan.propose` not sent to a run that cannot use them. Both want the measurement again on a
+  real server first (`timings.cache_n` on two questions in a row, and across an idle hour).
 - ✅ **M67.1 The Agents page in plain words** (1.243.0). The five limits are "Each day: runs,
   thinking time" and "Each run: tool rounds, reading room, time limit", typed in minutes and pages,
   and the cards use the same words; Guardrails is three sections (Limits, What it leaves, Model); a
