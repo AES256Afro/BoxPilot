@@ -15,8 +15,8 @@ website: https://github.com/AES256Afro/SecurityX
 risk: low
 defaultExposure: tailnet
 image:
-  reference: ghcr.io/aes256afro/securityx:0.2.1@sha256:214713d015eb3a10fafd2a91a991c90bbf32a95330e0e36fb398a1f70b5882f4
-  version: "0.2.1"
+  reference: ghcr.io/aes256afro/securityx:0.2.2@sha256:ce8c6be56bed0bbdf106f46e360fad8179562c412534dd85940b348f434014e4
+  version: "0.2.2"
 user: "1000:1000"
 ports:
   - id: web
