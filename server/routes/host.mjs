@@ -133,6 +133,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     const summarize = (manifest) => ({
       id: manifest.id, name: manifest.name, category: manifest.category, icon: manifest.icon ?? null, website: manifest.website ?? null,
       description: manifest.description, image: { version: manifest.image?.version ?? null },
+      // Built in, or the owner's own from this server's private catalog (M71).
+      source: manifest.source ?? "catalog",
       ports: (manifest.ports ?? []).map((port) => ({ id: port.id, label: port.label, host: port.host, protocol: port.protocol, exposure: port.exposure })),
       volumes: (manifest.volumes ?? []).map((volume) => ({ id: volume.id, label: volume.label ?? null, hostPath: volume.hostPath ?? null, configurable: Boolean(volume.configurable), readOnly: Boolean(volume.readOnly) })),
       // Whether an app backup archives anything of it, sidecars included, so the command bar offers

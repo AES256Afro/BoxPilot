@@ -58,6 +58,12 @@ they are written, and retention keeps at least the three newest.
 
 The backup folders are root-only, and `/var/lib/boxpilot/` is the boxpilot user's only. Nothing is world-readable, and no archive is served over HTTP.
 
+Private apps (ADR-019) are backed up and restored like any other app, but two things they need are
+in no backup and no machine snapshot: their manifests (`/var/lib/boxpilot-managed/private-catalog`)
+and the registry sign-in their images are pulled with (`/var/lib/boxpilot-managed/registry-auth`).
+Keep your own copy of each manifest. On a rebuilt server, add the manifests again and sign in to the
+registry (Apps → Private apps) before reinstalling or restoring those apps.
+
 ## Restoring
 
 - **An app**: its Backups tab in Apps offers each recorded backup; restoring stops the app, replaces the volumes,

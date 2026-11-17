@@ -24,6 +24,8 @@ export interface Manifest {
   defaultExposure?: "lan" | "tailnet";
   /** Buttons on an installed app's sheet, each a registered operation run with { id } (Zulip's "Create your organization"). */
   actions?: Array<{ id: string; label: string; description: string | null; operation: string }>;
+  /** Where it came from: BoxPilot's catalog, or this server's private catalog (M71). Set by the loader, never by the file. */
+  source?: "catalog" | "private";
   sha256: string;
 }
 

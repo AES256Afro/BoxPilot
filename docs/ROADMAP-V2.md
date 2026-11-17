@@ -4131,6 +4131,27 @@ no faster than four on it (137 against 136 tokens a second read, 21.5 against 21
   red-team set on the real adapter, and the weekly bench as a gate. `service.mjs` in five more
   factories and one shared typedef file ride along.
 
+## M71: Private apps
+
+Asked for 2026-11-17: the owner wants to run apps of their own whose source and images are private
+on their BoxPilot server, managed like catalog apps. The catalog is in this public repository, and
+the helper held no registry credentials. Decided in ADR-019.
+
+- ✅ **M71.1 A private catalog and a registry sign-in** (unreleased, `feat/m71-private-apps`). A
+  **Private apps** tab on Apps, owner only. **Add or replace** (`catalog.private.save`, high, the id
+  typed): a manifest pasted or chosen as a file, previewed as its id, name and image, saved to
+  `/var/lib/boxpilot-managed/private-catalog` (root:boxpilot, 0750/0640, written by the helper only).
+  Its id starts with `private-`, which no built-in app uses, and its image is pinned by digest; a
+  replaced manifest with a new digest is offered by Update. **Remove** (`catalog.private.remove`,
+  high) once the app is uninstalled and its data deleted. The catalog service merges the folder into
+  the catalog for the web service and the helper alike, each manifest tagged `source: private`, and
+  the app's card says **private**; `loadCatalog`, the scripts and the README count stay built-in only.
+  **Registry sign-in** (`registry.signin`, high; `registry.signout`, medium; `registry.inspect`,
+  operator): checked with `docker login --password-stdin` in a fresh folder before it is kept, in a
+  root-only Docker client config at `/var/lib/boxpilot-managed/registry-auth`, and given only to
+  private apps' docker and compose calls (`DOCKER_CONFIG`), never to a catalog app's. Neither the
+  manifests nor the sign-in is in a machine snapshot yet.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

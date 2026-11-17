@@ -8,6 +8,7 @@ import { strandedServes } from "../../strandedServes";
 import { AppIcon, Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, SearchField, Select, Sheet, StatusChip, Table, Tabs, Tag, Tile, Toolbar, appHue, mayStart, riskOf, useUrlParam, type Status, type TableColumn } from "../../ui";
 import { AppSheet, type SheetTab } from "./AppSheet";
 import { ConfigSheet } from "./ConfigSheet";
+import { PrivateAppsTab } from "./PrivateAppsTab";
 import { appStatus, installTier, isRunning, runRead, shortImage, tileDetail } from "./appState";
 import type { AppStats, CatalogContext, CatalogResponse, Entry, KillswitchSchedule, Serve, Tunnel, TunnelDraft, Values } from "./types";
 import "./catalog.css";
@@ -19,14 +20,15 @@ const updateBatchLimit = 20;
  * Apps (M33.11), rebuilt in the console on the kit. Facts first: whether the installed
  * apps are well, and how many are installed, running and waiting for an update. Then the apps: the
  * ones on this server as Home's colour squares, the catalog to browse as cards, and the Compose
- * stacks BoxPilot did not start, a tab each, with one search and a category across them. Each app
+ * stacks BoxPilot did not start, a tab each, with one search and a category across them; the owner
+ * also has Private apps (M71), their own apps from this server's private catalog. Each app
  * opens its sheet (?view=catalog&app=<id> opens it straight away), which holds everything the
  * Classic card did; installing or changing settings is a form in a sheet of its own.
  */
 
-type CatalogTab = "installed" | "browse" | "stacks";
+type CatalogTab = "installed" | "browse" | "private" | "stacks";
 interface ForeignStack { name: string; status: string; configFiles: string[] }
-const catalogTabs: readonly CatalogTab[] = ["installed", "browse", "stacks"];
+const catalogTabs: readonly CatalogTab[] = ["installed", "browse", "private", "stacks"];
 
 export interface CatalogPageProps {
   csrfToken: string;
@@ -274,6 +276,8 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     .sort((left, right) => Number(isRunning(right.live)) - Number(isRunning(left.live)) || left.manifest.name.localeCompare(right.manifest.name)), [visible]);
   const availableVisible = useMemo(() => visible.filter((entry) => !entry.live?.installed), [visible]);
   const installedAll = applications.filter((entry) => entry.live?.installed);
+  const privateEntries = useMemo(() => applications.filter((entry) => entry.manifest.source === "private").sort((left, right) => left.manifest.name.localeCompare(right.manifest.name)), [applications]);
+  const isOwner = role === "owner";
   const runningCount = installedVisible.filter((entry) => isRunning(entry.live)).length;
   const updatable = installedAll.filter((entry) => entry.live?.updateAvailable);
   // app.update.many takes at most this many ids; more wait for the next run.
@@ -315,7 +319,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
     configure: (entry, mode) => { const back = sheet; setSheet(null); setScheduleError(null); setConfig({ entry, mode, back }); },
   } : null;
   const sheetEntry = sheet ? applications.find((entry) => entry.manifest.id === sheet.id) ?? null : null;
-  const shownTab: CatalogTab = tab === "stacks" && !foreign?.length ? "installed" : tab;
+  const shownTab: CatalogTab = (tab === "stacks" && !foreign?.length) || (tab === "private" && !isOwner) ? "installed" : tab;
 
   const toolbar = (
     <Toolbar
@@ -379,6 +383,7 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
         about={<>
           <p>Install, update, configure and remove applications. Each one is a Compose project BoxPilot deploys from the catalog, and each opens a sheet with its state, who can reach it, its backups and restore drills, its logs and its configuration.</p>
           <p>Other stacks lists Compose projects started outside BoxPilot. Their compose files stay theirs; they are listed so this page tells the whole truth about this server.</p>
+          {isOwner && <p>Private apps adds your own apps, whose images are private, from a manifest kept on this server only, and signs this server in to the registry they come from.</p>}
         </>}
       />
 
@@ -398,10 +403,13 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
         tabs={[
           { id: "installed", label: "On this server", count: data ? installedVisible.length : undefined, status: unwell.length ? worst : undefined, statusLabel: unwell.length ? `${unwell.length} ${unwell.length === 1 ? "needs" : "need"} a look` : undefined },
           { id: "browse", label: "Catalog", count: data ? availableVisible.length : undefined },
+          ...(isOwner ? [{ id: "private" as const, label: "Private apps", count: data ? privateEntries.length : undefined }] : []),
           ...(foreign?.length ? [{ id: "stacks" as const, label: "Other stacks", count: foreign.length }] : []),
         ]}
       >
-        {(current) => current === "stacks" ? (
+        {(current) => current === "private" ? (
+          <PrivateAppsTab csrfToken={csrfToken} entries={privateEntries} onChanged={() => void refresh({ quiet: true })} />
+        ) : current === "stacks" ? (
           <Panel className="catalog-stacks" title="Also on this server" count={foreign?.length ?? 0} meta={<><b>{(foreign ?? []).filter(stackRunning).length}</b> running · started outside BoxPilot</>}>
             <Table caption="Compose stacks started outside BoxPilot" columns={stackColumns} rows={foreign ?? []} rowKey={(stack) => stack.name} />
           </Panel>
@@ -463,7 +471,10 @@ export default function CatalogPage({ csrfToken, focusApp, role = "owner" }: Cat
                             </button>
                             <p className="catalog-card__description">{manifest.description}</p>
                             <div className="catalog-card__foot">
-                              {live?.dataPresent ? <Tag tone="warning" title="Its data is still on this server from before">data kept</Tag> : !live ? <Tag>state unknown</Tag> : <span />}
+                              <span className="catalog-card__tags">
+                                {manifest.source === "private" && <Tag tone="accent" title="From this server's private catalog">private</Tag>}
+                                {live?.dataPresent ? <Tag tone="warning" title="Its data is still on this server from before">data kept</Tag> : !live ? <Tag>state unknown</Tag> : null}
+                              </span>
                               {mayStart(role, "app.install") && <Button aria-label={`Install ${manifest.name}`} risk={installTier(manifest)} onClick={() => ctx?.configure(entry, "install")}>Install</Button>}
                             </div>
                           </li>

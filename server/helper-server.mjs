@@ -5,6 +5,8 @@ import { productVersion } from "./version.mjs";
 import { registry } from "./ops/index.mjs";
 import { createRunUnitClient } from "./run-unit.mjs";
 import { createCredentialStore } from "./credentials.mjs";
+import { createPrivateCatalogStore } from "./private-catalog.mjs";
+import { createRegistryAuth } from "./registry-auth.mjs";
 import { createVpnProfileStore } from "./vpn-profile.mjs";
 import { createAppHelper } from "./app-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
@@ -68,8 +70,12 @@ const prerequisites = createPrerequisiteHelper();
 const runUnit = createRunUnitClient();
 const credentials = createCredentialStore();
 const vpnProfile = createVpnProfileStore();
+// The private catalog's files and the registry sign-ins private apps pull with (M71): the app helper
+// uses the same sign-ins the registry operations change.
+const privateCatalog = createPrivateCatalogStore();
+const registryAuth = createRegistryAuth();
 // The port check before `compose up` needs the host's listeners, which this sandbox cannot see.
-const apps = createAppHelper({ vpnProfile, hostListeners: async () => (await runUnit.runTask("host.listeners", {}, { timeoutMs: 30_000 })).listeners });
+const apps = createAppHelper({ vpnProfile, registryAuth, hostListeners: async () => (await runUnit.runTask("host.listeners", {}, { timeoutMs: 30_000 })).listeners });
 const vmCloud = createVmCloudHelper();
 const foundation = createLibvirtFoundationHelper();
 const controllerBackups = createControllerBackupHelper();
@@ -89,7 +95,7 @@ const machineSnapshot = createMachineSnapshotHelper({ controllerBackups });
 const housekeeping = createHousekeepingService({ apps, runUnit });
 const performance = createPerformanceService();
 const localDns = createLocalDnsService({ apps, runDocker: fixedRun });
-const helperDependencies = { runUnit, credentials, vpnProfile, apps, housekeeping, performance, localDns, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot, selfRestart };
+const helperDependencies = { runUnit, credentials, vpnProfile, privateCatalog, registryAuth, apps, housekeeping, performance, localDns, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot, selfRestart };
 if (recovery.blocked) {
   console.error("BoxPilot is serving requests; restore drills stay unavailable until that is resolved.");
 }
