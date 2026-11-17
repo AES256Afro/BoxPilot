@@ -10,7 +10,7 @@ BoxPilot runs a home server from a web page. You install apps, keep them updated
 
 One computer at home can run your own versions of things you pay for or hand your data to: movies and TV, photo backup from your phone, file sync, a password manager, ad blocking for every device in the house, home automation, game servers. Setting those up and keeping them running is the hard part. BoxPilot does that part.
 
-- **Install** any of 175 apps and game servers from a catalog. Each one's address, username and password are in one place.
+- **Install** any of 176 apps and game servers from a catalog. Each one's address, username and password are in one place.
 - **Run your own apps** whose code and images are private: their manifests stay on your server, and they install, update and back up like catalog apps.
 - **Back up** every app and BoxPilot itself. A backup only counts once BoxPilot has restored it somewhere safe and checked it.
 - **Update** the system and the apps. An app whose new version does not come up healthy goes back to the old one.
@@ -305,7 +305,7 @@ Finds what is wrong and offers the fix for each one: a drive that dropped off an
 </details>
 <!-- /every-look -->
 
-175 apps and game servers, each installed and managed the same way:
+176 apps and game servers, each installed and managed the same way:
 
 - **Sign in**: its address, username and password, and a way to change them.
 - **Metrics**: each app's live CPU and memory on the Metrics page, with pause and stop.
@@ -331,10 +331,10 @@ Each app is a short description file plus a Docker Compose template, so installi
 | Network (8) | Apache Guacamole, Cloudflare DDNS, Cloudflare Tunnel, NetAlertX, Nginx Proxy Manager, SmokePing, UniFi Network Application, WireGuard (wg-easy) |
 | Productivity (6) | Baïkal, FreshRSS, Miniflux, Planka, SearXNG, Vikunja |
 | Household (5) | Grocy, Homebox, Mealie, Monica, Tandoor Recipes |
+| Security (5) | 2FAuth, Pocket ID, SecurityX, TheySpy, Vaultwarden |
 | Backup (4) | Backrest, Duplicati, Kopia, MinIO |
 | Books (4) | Calibre-Web, Kavita, Komga, Suwayomi |
 | Finance (4) | Actual Budget, FinancialAuthority, Firefly III, Wallos |
-| Security (4) | 2FAuth, Pocket ID, TheySpy, Vaultwarden |
 | Ad blocking and DNS (3) | AdGuard Home, Pi-hole, Technitium DNS Server |
 | Photos (2) | Immich, PhotoPrism |
 | Administration (1) | Protec |
