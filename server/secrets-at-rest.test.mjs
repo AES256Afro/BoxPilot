@@ -55,6 +55,8 @@ const fixtures = {
   "heartbeat.set": (s) => ({ enabled: true, url: `https://hc-ping.example/${s("url")}`, intervalMinutes: 5 }),
   // M42: the owner's Cloudflare API token.
   "cloudflare.connect": (s) => ({ token: s("token") }),
+  // M71: a container registry's token, for private apps' images.
+  "registry.signin": (s) => ({ registry: "ghcr.io", username: "someone", token: s("token") }),
   // M45.3: the owner's Anthropic key, shaped as one (a key has no dots).
   "agents.cloud.connect": (s) => ({ key: `sk-ant-${s("key").replace(/[^A-Za-z0-9_-]/g, "_")}`, capUsd: 20 }),
   "vpn.profile.set": (s) => ({ provider: vpnFields.provider.enum[0], type: vpnFields.type.enum[0], wireguardPrivateKey: s("wireguardPrivateKey"), openvpnPassword: s("openvpnPassword") }),

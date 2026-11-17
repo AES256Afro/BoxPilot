@@ -2,6 +2,8 @@ import { registry } from "./ops/index.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createRunUnitClient } from "./run-unit.mjs";
 import { createCredentialStore } from "./credentials.mjs";
+import { createPrivateCatalogStore } from "./private-catalog.mjs";
+import { createRegistryAuth } from "./registry-auth.mjs";
 import { createVpnProfileStore } from "./vpn-profile.mjs";
 import { createAppHelper } from "./app-helper.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
@@ -59,6 +61,6 @@ export async function executeHelperOperation(request, dependencies = {}) {
   // Every service the ops can name is passed explicitly (with its default), so a
   // dependency missing from the caller's set can never reach an op as undefined.
   try {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), vmCloud: dependencies.vmCloud ?? createVmCloudHelper(), credentials: dependencies.credentials ?? createCredentialStore(), vpnProfile: dependencies.vpnProfile ?? createVpnProfileStore(), ...dependencies, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRetention, vmRestoreDrill, vmRecovery, machineSnapshot, progress, jobLog, timeScale }) };
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), vmCloud: dependencies.vmCloud ?? createVmCloudHelper(), credentials: dependencies.credentials ?? createCredentialStore(), vpnProfile: dependencies.vpnProfile ?? createVpnProfileStore(), privateCatalog: dependencies.privateCatalog ?? createPrivateCatalogStore(), registryAuth: dependencies.registryAuth ?? createRegistryAuth(), ...dependencies, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRetention, vmRestoreDrill, vmRecovery, machineSnapshot, progress, jobLog, timeScale }) };
   } finally { await jobLog.flush(); }
 }

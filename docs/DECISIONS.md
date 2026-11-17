@@ -1430,3 +1430,83 @@ taken, and the catalog says so in Backrest's own description.
 Accept 1–5, or accept it only for apps whose data passes a size threshold (the eighteen small apps
 gain nothing and would carry the key risk for no reason), or keep tarballs and answer only the
 off-box growth with a lifecycle rule at the destination.
+
+## ADR-019: private apps come from a catalog on the server, and pull with a root-only registry sign-in
+
+**Date:** 2026-11-17 · **Status:** Accepted
+
+### Context
+
+The owner wants to run apps of their own whose source and container images are private (a private
+repository, a private package on a registry), managed exactly like catalog apps: install, update,
+back up, restore, the sign-in card. BoxPilot could not. The catalog lives in this repository, which
+is public, so listing a private app there publishes its name, its image and its settings to
+everyone. And the helper held no registry credentials: every pull was anonymous, so a private image
+could not be installed at all. Built-in catalog images must stay publicly pullable; that does not
+change (`catalog-check-images` still reports a 401 as `MISSING`).
+
+A manifest is not just data. It tells the root helper what to deploy, and it can ask for a writable
+host folder up to `/`, Docker's socket, a device or any capability: on this server, root. The
+install's tier comes from the risk the manifest declares (`installRiskLookup`), so whoever can add a
+manifest decides how hard installing it is.
+
+### Decision
+
+- **A private catalog on the server.** Manifests live in `/var/lib/boxpilot-managed/private-catalog`
+  (`BOXPILOT_PRIVATE_CATALOG_DIRECTORY`), root:boxpilot, folder 0750 and files 0640, written only by
+  the helper and always as a new file renamed into place. Never under `/var/lib/boxpilot`, which the
+  web process can write: a manifest planted there would be deployed by root.
+- **Merged in one place.** `createCatalogService` loads it beside the built-in catalog and tags every
+  manifest with a `source` (`catalog` or `private`) the file cannot set (the schema refuses unknown
+  keys). The web service and the helper both use it, so they list the same apps; `loadCatalog`, and
+  every script and catalog test that reads it, still sees the built-in catalog only. A private
+  folder's mtime joins the change signature; a server without one reads as "absent", so the catalog
+  is not re-parsed on every look.
+- **Private rules.** A private app's id starts with `private-`, and no built-in app's does (a test
+  holds the catalog to it), so a later release can never take a private app's id and with it its data
+  folder and backups. Its image is pinned by digest, as is a sidecar's from the same registry and
+  owner: Update offers the catalog's image when it differs from the installed one, so a new digest in
+  a replaced manifest is exactly a new version. A private manifest that breaks a rule, or takes a
+  built-in id, is listed as a problem named `private/<file>`, and the built-in app wins.
+- **Owner-only, high.** `catalog.private.save` and `catalog.private.remove` are high risk and the
+  owner's, with the app's id typed. Saving can replace a manifest; removing one is refused while the
+  app is installed or its data folder is still there, since every app operation, uninstall included,
+  needs the manifest. `registry.signin` is high and the owner's; `registry.signout` is medium and the
+  owner's, as removing a credential is; `registry.inspect` lists registries and user names for an
+  operator or the owner (ADR-003: it is the root helper's to read).
+- **A registry sign-in only the helper's Docker client reads.** The helper keeps a Docker client
+  config at `/var/lib/boxpilot-managed/registry-auth/config.json` (`BOXPILOT_REGISTRY_AUTH_DIRECTORY`),
+  folder 0700 and file 0600, root's. A sign-in is checked first: `docker login --password-stdin` runs
+  with `DOCKER_CONFIG` at a fresh folder inside that one (the daemon makes the call to the registry,
+  so the helper's `PrivateNetwork=true` is no obstacle), and only when the registry accepts it is
+  that registry's entry copied into the config. The token is not in the credential store
+  (`credentials.json`): there, `http.request` and a connector sync can send any credential by name.
+- **Only private apps' calls use it.** Every docker and compose call acting on an app whose manifest
+  is private carries `DOCKER_CONFIG` pointing at that folder, while one is saved: the pulls that read
+  an image's user and the probe that runs it, install, reinstall, update, going back a version, a
+  settings change, a compose edit, start, stop and restart, and the restore of a backup. No other
+  call does: an expired or revoked token must not break pulls of public catalog images from the same
+  registry.
+
+### Consequences
+
+- The owner can add their own apps without publishing anything about them, and they get the whole
+  app life cycle the catalog has: Update, checkpoints, backups, restore rehearsals, the sign-in card.
+- Adding or replacing a private app is a password and a typed id, because a manifest can make its
+  author root. An operator can install one once it is saved, at the tier its manifest declares.
+- **Not in machine snapshots.** Private manifests and the registry sign-in are not part of a machine
+  snapshot (`machine-snapshot-helper.mjs`). A rebuilt server needs both put back, from the owner's
+  own copies, before its private apps can be reinstalled or restored from their backups; until then
+  their snapshot entries and backups name an app the catalog does not have.
+- **Compose must be installed system-wide.** `DOCKER_CONFIG` also moves where the Docker client
+  looks for its plugins, so for a private app's calls a Compose plugin in root's `~/.docker/cli-plugins`
+  is not found. A package install is unaffected: Docker's `docker-compose-plugin` (what the Ubuntu
+  runbook installs) and Ubuntu's `docker-compose-v2` both put it in `/usr/libexec/docker/cli-plugins`.
+- **The token is never readable by the web process**, by a job record, or by anything BoxPilot shows:
+  it arrives as a staged secret, goes to `docker login` on stdin, and is kept in a file only root
+  can open. Listing shows registries and user names.
+- A Docker client set up with a system credential helper (`pass`, `secretservice`) would keep the
+  token there; the check seeds its folder so the client keeps it in the file, and a sign-in that
+  leaves nothing usable in the file is refused rather than half kept.
+- Viewers see private apps' manifests through `/catalog`, as they see catalog apps'. A manifest
+  holds no secrets; an app's secrets are settings entered at install and kept in its `.env`.

@@ -470,6 +470,8 @@ export const inspections = {
     { name: "ntfy-token", createdAt: "2026-08-20T10:00:00.000Z", updatedAt: "2026-08-26T09:30:00.000Z" },
     { name: "weather-api", createdAt: "2026-08-24T18:00:00.000Z", updatedAt: "2026-08-24T18:00:00.000Z" },
   ] },
+  // Apps → Private apps (M71): the registries private apps pull from. User names only, never a token.
+  "registry.inspect": { registries: [{ registry: "ghcr.io", username: "example-user" }] },
   "app.reachability.inspect": { headline: null, probedFrom: "this server", addresses: [
     { id: "probe-0", portId: "web", portLabel: "Web UI", kind: "lan", url: "http://192.168.1.10:8096", probe: true, note: null, outcome: "answered", status: 200, ms: 14, verdict: "Answers (HTTP 200 in 14ms)." },
     { id: "probe-1", portId: "web", portLabel: "Web UI", kind: "tailnet", url: "http://100.101.102.103:8096", probe: true, note: "In a browser on your tailnet, use http://homebox:<port> (the short name; the full ts.net name only works for https through Serve).", outcome: "answered", status: 200, ms: 21, verdict: "Answers (HTTP 200 in 21ms)." },

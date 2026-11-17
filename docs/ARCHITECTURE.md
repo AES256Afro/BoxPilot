@@ -98,6 +98,13 @@ app handed the Docker socket to write to, or a writable folder that holds the ba
 Each app lives in `/var/lib/boxpilot-managed/catalog/<id>/` with its own `.env`, Compose file and
 volumes. Ports bind to the LAN address or to loopback, as the manifest says.
 
+The owner's own apps, whose images are private, are **private apps** (ADR-019). Their manifests are
+kept on the server in `/var/lib/boxpilot-managed/private-catalog`, never in this repository, and the
+catalog service merges them in, each tagged `source: private`, so the web service and the helper list
+the same apps. Ids start with `private-`, images are pinned by digest, and only the owner adds or
+removes one. Their pulls, and only theirs, use the registry sign-in the helper keeps in
+`/var/lib/boxpilot-managed/registry-auth`.
+
 ## Concurrency
 
 The helper runs one operation at a time *per subject*: one lane per app, one per VM, one shared
@@ -128,6 +135,8 @@ required on every change. Repeated wrong passwords throttle that account.
 | `/opt/boxpilot` | the release; replaced wholesale by an update, with the previous tree kept for rollback |
 | `/var/lib/boxpilot` | SQLite database, job logs, audit log (the boxpilot user only) |
 | `/var/lib/boxpilot-managed` | app projects, app backups, machine snapshots |
+| `/var/lib/boxpilot-managed/private-catalog` | private apps' manifests (root:boxpilot, 0750/0640: the web service reads them, only the helper writes) |
+| `/var/lib/boxpilot-managed/registry-auth` | the registry sign-in private apps pull with, a Docker client config (0700/0600, root) |
 | `/etc/boxpilot/secrets` | credentials for shares and cloud destinations (0600, root) |
 | `/run/boxpilot` | the helper socket and one spec file per running root task |
 

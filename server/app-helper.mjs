@@ -13,6 +13,7 @@ import { fixedRun } from "./exec.mjs";
 import { redactLine } from "./redaction.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
+import { createRegistryAuth } from "./registry-auth.mjs";
 import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
 import { bindingFor, deployedImages, deviceMatchesPattern, hostNetworkPorts, publishedPorts, renderCompose, projectNameFor, resolveDevices, usesTailnetHost, wantsGpu } from "./catalog/compose.mjs";
 import { coversEveryAddress, findPortConflicts, holderWords, normalizeBind, portHolders, serveTargetPort, serveUrl } from "./ports.mjs";
@@ -94,9 +95,16 @@ export async function resolveExisting(target, { realpath: resolve = realpath } =
   }
 }
 
-/** @param {string} binary @param {string[]} args @param {{ timeout?: number, cwd?: string, onLine?: ((line: string, stream: string) => void) | null }} [options] */
-async function defaultDockerRunner(binary, args, { timeout = 120_000, cwd, onLine = null } = {}) {
-  return fixedRun(binary, args, { timeout, cwd, onLine, maxBuffer: 4 * 1024 * 1024, env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" } });
+/**
+ * Docker with the helper's fixed environment. `env` adds to it (DOCKER_CONFIG for a private app's
+ * calls, registryAccess below) and never moves PATH; `input` is written to stdin, and only reaches a
+ * call that does not stream its lines (fixedRun).
+ *
+ * @param {string} binary @param {string[]} args
+ * @param {{ timeout?: number, cwd?: string, onLine?: ((line: string, stream: string) => void) | null, env?: Record<string, string>, input?: string }} [options]
+ */
+async function defaultDockerRunner(binary, args, { timeout = 120_000, cwd, onLine = null, env = {}, input } = {}) {
+  return fixedRun(binary, args, { timeout, cwd, onLine, maxBuffer: 4 * 1024 * 1024, env: { ...env, PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }, ...(typeof input === "string" ? { input } : {}) });
 }
 
 /** What a failure quotes from Docker or an app's log: secrets out (redactLine), and no more than 2000 characters. */
@@ -157,6 +165,8 @@ export function createAppHelper({
   runCommand = fixedRun,
   scanCommand = dataScanCommand,
   catalog = createCatalogService(),
+  // The registry sign-ins a private app's pulls use (M71); every other app's pulls are anonymous.
+  registryAuth = createRegistryAuth(),
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   clock = () => new Date(),
   lanAddress = "0.0.0.0",
@@ -186,6 +196,19 @@ export function createAppHelper({
    *  when no project directory remains, because a rollback that could not stop them removes it. */
   const recentlyTouched = new Set();
   const docker = (args, options) => runDocker(dockerBinary, args, options);
+
+  /**
+   * What a docker or compose call acting on this app adds so the registry sign-ins reach it: the
+   * helper's Docker client config, for an app from the private catalog when anything is signed in
+   * (M71, ADR-019), and nothing for any other app. Never for all calls: an expired token would then
+   * fail pulls of public images from the same registry, and DOCKER_CONFIG moves where the client
+   * looks for its plugins.
+   */
+  async function registryAccess(manifest) {
+    if (manifest?.source !== "private") return {};
+    const directory = await registryAuth.dockerConfigDirectory().catch(() => null);
+    return directory ? { env: { DOCKER_CONFIG: directory } } : {};
+  }
   const gpuReady = nvidiaReady ?? createNvidiaInspector({ run: (binary, args, options) => (binary === "/usr/bin/docker" ? docker(args, options) : runCommand(binary, args, options)) }).dockerRuntimeReady;
 
   async function readState(id) {
@@ -337,11 +360,17 @@ export function createAppHelper({
     throw new Error(`${manifest.name} did not start properly within ${manifest.health.timeoutSeconds} seconds (Docker last reported it as ${last})`);
   }
 
-  /** @param {string} id @param {string[]} args @param {{ progress?: ((line: string, stream: string) => void) | null, timeout?: number }} [options] */
+  /**
+   * Every compose call for an app: up, pull, down, start, exec, the restore's own up (app-backups.mjs)
+   * and the models' exec (app-models.mjs). A private app's carry its registry access.
+   *
+   * @param {string} id @param {string[]} args @param {{ progress?: ((line: string, stream: string) => void) | null, timeout?: number }} [options]
+   */
   async function compose(id, args, { progress = null, ...options } = {}) {
     const directory = dirFor(id);
+    const access = await registryAccess(await Promise.resolve().then(() => catalog.get(id)).catch(() => null));
     progress?.(`$ docker compose ${args.join(" ")}`, "stdout");
-    return docker(["compose", "--project-name", projectNameFor(id), "--file", path.join(directory, "compose.yaml"), "--env-file", path.join(directory, ".env"), ...args], { timeout: 300_000, cwd: directory, ...(progress ? { onLine: progress } : {}), ...options });
+    return docker(["compose", "--project-name", projectNameFor(id), "--file", path.join(directory, "compose.yaml"), "--env-file", path.join(directory, ".env"), ...args], { timeout: 300_000, cwd: directory, ...(progress ? { onLine: progress } : {}), ...options, ...access });
   }
 
   async function ensureManifest(id) {
@@ -664,8 +693,11 @@ export function createAppHelper({
    * A numeric USER is taken at face value; a name has to be resolved against the image's own passwd
    * file, which means asking the image. Anything that cannot answer (no `id`, a distroless base)
    * leaves ownership alone rather than guessing, which is the behaviour we had before.
+   *
+   * `access` is what registryAccess gave the app the image belongs to, for the pull and the probe
+   * that may pull: a private app's image needs the registry sign-in to be fetched at all.
    */
-  async function imageDeclaredOwner(reference, { mayRun = true } = {}) {
+  async function imageDeclaredOwner(reference, { mayRun = true, access = {} } = {}) {
     if (declaredOwnerCache.has(reference)) return declaredOwnerCache.get(reference);
     let resolved = null;
     // What the image itself says its USER is, remembered from the last successful inspect. A named
@@ -683,7 +715,7 @@ export function createAppHelper({
     // data folder is left owned by root and the container crash-loops on its first mkdir.
     if (!inspected.ok && mayRun) {
       declaredUserCache.delete(reference); declaredOwnerCache.delete(reference);
-      await docker(["pull", reference], { timeout: 15 * 60_000 }).catch(() => null);
+      await docker(["pull", reference], { timeout: 15 * 60_000, ...access }).catch(() => null);
       inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
     }
     // Never cache "could not read it". The cache is keyed on the reference alone, so a read-only
@@ -704,8 +736,9 @@ export function createAppHelper({
         // either — the next deploy is allowed to ask properly.
         return null;
       } else {
-        const ids = await docker(["run", "--rm", "--entrypoint", "id", reference, "-u"], { timeout: 60_000 }).catch(() => ({ ok: false, stdout: "" }));
-        const groupIds = await docker(["run", "--rm", "--entrypoint", "id", reference, "-g"], { timeout: 60_000 }).catch(() => ({ ok: false, stdout: "" }));
+        // `run` pulls an image that is not here, so it carries the same access as the pull.
+        const ids = await docker(["run", "--rm", "--entrypoint", "id", reference, "-u"], { timeout: 60_000, ...access }).catch(() => ({ ok: false, stdout: "" }));
+        const groupIds = await docker(["run", "--rm", "--entrypoint", "id", reference, "-g"], { timeout: 60_000, ...access }).catch(() => ({ ok: false, stdout: "" }));
         const uid = Number.parseInt(ids.ok ? ids.stdout.trim() : "", 10);
         const gid = Number.parseInt(groupIds.ok ? groupIds.stdout.trim() : "", 10);
         // The image could not be asked: the probe failed, or the pull before it did. That is not an
@@ -758,7 +791,8 @@ export function createAppHelper({
     // managed volumes, which the helper creates as root. Ownership is set on the directory only;
     // existing files are never touched.
     // Who the container runs as: what the manifest declares, else what the image declares itself.
-    const managedOwner = effectiveOwner(manifest) ?? await imageDeclaredOwner(manifest.image.reference).catch(() => null);
+    const access = await registryAccess(manifest);
+    const managedOwner = effectiveOwner(manifest) ?? await imageDeclaredOwner(manifest.image.reference, { access }).catch(() => null);
     for (const volume of manifest.volumes) {
       if (!volume.path) continue;
       const target = path.join(directory, volume.path);
@@ -766,7 +800,7 @@ export function createAppHelper({
       if (managedOwner) await chownDirectory(target, managedOwner.uid, managedOwner.gid).catch(() => {});
     }
     for (const sidecar of manifest.sidecars ?? []) {
-      const sidecarOwner = await imageDeclaredOwner(sidecar.image).catch(() => null);
+      const sidecarOwner = await imageDeclaredOwner(sidecar.image, { access }).catch(() => null);
       for (const volume of sidecar.volumes) {
         if (!volume.path) continue;                 // a read-only host bind has no project directory to create
         const target = path.join(directory, volume.path);
@@ -1067,8 +1101,9 @@ export function createAppHelper({
     // to read one value, and its failure is silent. Failures stay with `up`, which reports them
     // properly; this is only so the ownership can be worked out.
     progress?.(`Downloading the images for ${manifest.name}`, "stdout");
+    const access = await registryAccess(manifest);
     for (const reference of [manifest.image.reference, ...(manifest.sidecars ?? []).map((sidecar) => sidecar.image)]) {
-      await docker(["pull", reference], { timeout: scaled(15 * 60_000, timeScale) }).catch(() => null);
+      await docker(["pull", reference], { timeout: scaled(15 * 60_000, timeScale), ...access }).catch(() => null);
     }
     progress?.(`Writing compose project for ${manifest.name} (${manifest.image.reference})`, "stdout");
     // writeProject makes the app's folder before it can refuse (no saved VPN profile, a device that

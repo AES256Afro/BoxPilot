@@ -29,6 +29,7 @@
 .catalog-card__meta { overflow: hidden; color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-card__description { display: -webkit-box; margin: 0; overflow: hidden; color: var(--text); font-size: 13px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .catalog-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.catalog-card__tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 
 /* Rows of actions in a table: right-aligned, a size smaller than the page's. */
 .catalog-actions-cell { width: 1%; }
@@ -105,6 +106,15 @@
 .catalog-tunnel__preview { margin: 0; color: var(--text); font-size: 13px; line-height: 1.45; }
 .catalog-tunnel__disconnect { align-items: center; justify-content: space-between; }
 .catalog-tunnel__disconnect .catalog-quiet { flex: 1 1 18rem; padding: 0; }
+
+/* Private apps (M71): the registry sign-in, the owner's own apps, and adding one from its manifest. */
+.catalog-private { display: grid; gap: 10px; min-width: 0; }
+.catalog-private__form { display: grid; gap: 10px; min-width: 0; }
+.catalog-private__form--inset { padding: 10px 12px; border-top: 1px solid var(--border); }
+.catalog-private__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); align-items: start; gap: 10px; min-width: 0; }
+.catalog-private__file { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--text-muted); font-size: 13px; }
+.catalog-private__file input { max-width: 100%; color: var(--text); font: inherit; }
+.catalog-private__app { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
 
 @media (max-width: 640px) {
   .catalog-tiles { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); padding: 8px; }
