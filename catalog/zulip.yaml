@@ -153,7 +153,7 @@ sidecars:
       MEMCACHED_SASL_PWDB: /home/memcache/memcached-sasl-db
       MEMCACHED_PASSWORD: ${SECRETS_memcached_password}
   - id: rabbitmq
-    image: rabbitmq:4.2.9@sha256:97f4d5e14f7c59e585554b9e90c3dec2c7bb6b249792fa54f7e7cf56b6582203
+    image: rabbitmq:4.2.9@sha256:b9d197873347be3a527ce3bf1056b4d7ddc522417731cbd1489f3b05d51c4d35
     command:
       - sh
       - -euc

@@ -7,7 +7,7 @@ description: Reach any desktop in your house from a browser tab. RDP to a Window
 website: https://guacamole.apache.org
 risk: medium
 image:
-  reference: abesnier/guacamole:1.6.0@sha256:feac21a9b07a7e1b54c690650e2027908206a4b95c76025f4d58c6fad854cbd9
+  reference: abesnier/guacamole:1.6.0@sha256:5d546f9c464a88e5f48c4701de6a74692eb44182a34a5986e193c266665debc8
   version: 1.6.0
 ports:
   - id: web
