@@ -10,8 +10,8 @@ description: "Security news, CVEs and advisories in one timeline; a change regis
 website: https://github.com/AES256Afro/BaselineWatch
 risk: low
 image:
-  reference: ghcr.io/aes256afro/baselinewatch:0.55.0@sha256:3223f77367228dbbda3b5055cff88ae6a29525e86522a9c4b0233cb8180f8e71
-  version: "0.55.0"
+  reference: ghcr.io/aes256afro/baselinewatch:0.56.0@sha256:9a6bd274db9510d19e845ac980b7ff91c261721560f30a1b9af1318b3e659e63
+  version: "0.56.0"
 ports:
   - id: web
     label: Web UI
@@ -31,13 +31,13 @@ env:
     default: Etc/UTC
   - name: BW_BASE_URL
     label: Address people use
-    description: Used in digest and notification links.
+    description: The site's public address, without a trailing slash. Used for canonical links, the sitemap, robots.txt, the RSS feeds, and digest and notification links.
     default: http://localhost:8790
   - name: BW_PUBLIC_READ
     label: Anyone on the network can read
     type: boolean
     default: "true"
-    description: BaselineWatch holds no private data. Reading is open; changing sources, watchlist and triage needs the owner once sign-in lands (M7).
+    description: Yes lets anyone who can reach the site read it. No requires sign-in for everything. Writes and the owner's own pages always need the owner's password.
   - name: BW_ADMIN_PASSWORD
     label: Owner password
     type: password
