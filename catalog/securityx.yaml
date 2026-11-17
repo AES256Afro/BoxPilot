@@ -1,5 +1,5 @@
-# SecurityX (schemaVersion 2). Source of truth: boxpilot/securityx.yaml in the SecurityX
-# repository, whose CI validates it with this repository's validateManifest. The image is pinned to
+# SecurityX (schemaVersion 2). Source of truth: AES256Afro/SecurityX boxpilot/securityx.yaml,
+# whose CI validates it with this repository's validateManifest. The image is pinned to
 # the digest the v0.2.0 release published, an image index for amd64 and arm64, with an SBOM and
 # build provenance attached. It holds gitleaks and osv-scanner, pinned by checksum.
 # Port 4747 is free (BoxPilot itself 8787, BaselineWatch 8790, TheySpy 8797). The scanned folder is
@@ -11,6 +11,7 @@ name: SecurityX
 category: Security
 icon: "🔐"
 description: "Scans the git repositories on this server for committed secrets (gitleaks, whole history, values redacted) and vulnerable dependencies (osv-scanner), ranked in one report. Also drives the SecurityX attack-surface monitor for domains you own: new hostnames, DNS changes, expiring certificates and missing security headers."
+website: https://github.com/AES256Afro/SecurityX
 risk: low
 defaultExposure: tailnet
 image:
