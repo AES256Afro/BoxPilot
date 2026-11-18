@@ -1,10 +1,12 @@
 # SecurityX (schemaVersion 2). Source of truth: AES256Afro/SecurityX boxpilot/securityx.yaml,
-# whose CI validates it with this repository's validateManifest. The image is pinned to
-# the digest the v0.2.0 release published, an image index for amd64 and arm64, with an SBOM and
-# build provenance attached. It holds gitleaks and osv-scanner, pinned by checksum.
+# whose CI validates it with this repository's validateManifest. The image is pinned by digest
+# to a release's image index for amd64 and arm64, with an SBOM and build provenance attached.
+# It holds gitleaks and osv-scanner, pinned by checksum.
 # Port 4747 is free (BoxPilot itself 8787, BaselineWatch 8790, TheySpy 8797). The scanned folder is
 # mounted read-only, and the app starts on the tailnet only: a report names the files and commits
 # where secrets were found (never the secrets themselves).
+# The optional local model is this server's Ollama app, which publishes port 11434 on the host.
+# It is sent only what the page shows, never secret values or the monitor's admin token.
 schemaVersion: 2
 id: securityx
 name: SecurityX
@@ -15,8 +17,8 @@ website: https://github.com/AES256Afro/SecurityX
 risk: low
 defaultExposure: tailnet
 image:
-  reference: ghcr.io/aes256afro/securityx:0.2.2@sha256:ce8c6be56bed0bbdf106f46e360fad8179562c412534dd85940b348f434014e4
-  version: "0.2.2"
+  reference: ghcr.io/aes256afro/securityx:0.3.0@sha256:ba62518140ed1cad84f188eb4d5e68ec94913285f6208f2914b139a2088b8e24
+  version: "0.3.0"
 user: "1000:1000"
 ports:
   - id: web
@@ -38,6 +40,12 @@ volumes:
     configurable: true
     backup: false
     description: Folder on this server whose git repositories are scanned, up to six levels down. Mounted read-only.
+extraHosts: ["host.docker.internal:host-gateway"]
+connections:
+  - app: ollama
+    role: Local model
+    where: "Settings → Local model address and Local model"
+    note: Optional. Explains findings, summarises the roadmap and a domain's changes, and answers questions about a scan.
 env:
   - name: SECURITYX_UI_KEY
     label: Access key
@@ -55,6 +63,15 @@ env:
     secret: true
     description: The monitor's ADMIN_TOKEN. It is only ever sent to the monitor address above and never reaches the browser.
     default: ""
+  - name: SECURITYX_LLM_URL
+    label: Local model address (optional)
+    description: "This server's Ollama app is at http://host.docker.internal:11434. Empty turns the model features off: Explain, Summarise, Explain changes and Ask. The model only sees what the page shows, never secret values."
+    default: ""
+  - name: SECURITYX_LLM_MODEL
+    label: Local model
+    optionsFrom: ollama-models
+    description: "The model's name in Ollama. Add it in the Ollama app first under exactly this name. Without a graphics card an answer takes from tens of seconds to a few minutes."
+    default: hf.co/hauhaucs/qwen3.5-9b-uncensored-hauhaucs-aggressive:Q4_K_M
 signIn:
   path: /
   port: web
@@ -69,4 +86,6 @@ notes: >-
   the full commit history, so one deleted in a later commit is still reported and must be rotated;
   the report never holds the secret itself. Dependency scanning sends package names and versions
   to the OSV database (api.osv.dev). The Domains page needs the monitor's address and admin token:
-  the monitor runs on Cloudflare, not on this server.
+  the monitor runs on Cloudflare, not on this server. To have a local model explain findings and
+  answer questions, install the Ollama app, add the model in its Models tab, and set Local model
+  address and Local model here.
