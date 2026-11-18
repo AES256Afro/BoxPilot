@@ -5,8 +5,11 @@
 # Port 4747 is free (BoxPilot itself 8787, BaselineWatch 8790, TheySpy 8797). The scanned folder is
 # mounted read-only, and the app starts on the tailnet only: a report names the files and commits
 # where secrets were found (never the secrets themselves).
-# The optional local model is this server's Ollama app, which publishes port 11434 on the host.
-# It is sent only what the page shows, never secret values or the monitor's admin token.
+# The optional model is this server's Ollama app (port 11434 on the host), another server that
+# speaks OpenAI's format, or a hosted provider under the owner's own API key. It is sent only what
+# the page shows, never secret values or the monitor's admin token.
+# The page can fetch repositories from GitHub into the data volume; the optional token is sent to
+# GitHub only.
 schemaVersion: 2
 id: securityx
 name: SecurityX
@@ -17,8 +20,8 @@ website: https://github.com/AES256Afro/SecurityX
 risk: low
 defaultExposure: tailnet
 image:
-  reference: ghcr.io/aes256afro/securityx:0.3.0@sha256:ba62518140ed1cad84f188eb4d5e68ec94913285f6208f2914b139a2088b8e24
-  version: "0.3.0"
+  reference: ghcr.io/aes256afro/securityx:0.4.0@sha256:a87ecaffaf70ea016d6ba95bb72cfe661dfd1e11087d5021d95ae92f4d933244
+  version: "0.4.0"
 user: "1000:1000"
 ports:
   - id: web
@@ -28,10 +31,10 @@ ports:
     exposure: lan
 volumes:
   - id: data
-    label: Latest scan report
+    label: Scan report and fetched repositories
     container: /data
     path: data
-    description: The latest repository scan. A new scan from the page replaces it.
+    description: The latest repository scan, which a new scan from the page replaces, and the copies of repositories fetched from GitHub.
   - id: repos
     label: Repositories to scan
     container: /repos
@@ -39,7 +42,7 @@ volumes:
     readOnly: true
     configurable: true
     backup: false
-    description: Folder on this server whose git repositories are scanned, up to six levels down. Mounted read-only.
+    description: Optional. Folder on this server whose git repositories are scanned, up to six levels down. Mounted read-only. Leave it as it is to scan only what the page fetches from GitHub.
 extraHosts: ["host.docker.internal:host-gateway"]
 connections:
   - app: ollama
@@ -63,6 +66,22 @@ env:
     secret: true
     description: The monitor's ADMIN_TOKEN. It is only ever sent to the monitor address above and never reaches the browser.
     default: ""
+  - name: SECURITYX_GITHUB_TOKEN
+    label: GitHub token (optional)
+    type: password
+    secret: true
+    description: "Lets the page fetch your private repositories to scan. Make a fine-grained token on GitHub with read-only access to Contents for the repositories you want checked. It is only ever sent to GitHub and never reaches the browser. Empty fetches public repositories only."
+    default: ""
+  - name: SECURITYX_LLM_PROVIDER
+    label: Model provider (optional)
+    description: "Which model explains and analyses findings. Empty or ollama: this server's Ollama app. compatible: another server that speaks OpenAI's format, such as LM Studio, at the model address below. anthropic, openai or deepseek: a hosted model, which needs the API key below and sends what the pages show to that company."
+    default: ""
+  - name: SECURITYX_LLM_API_KEY
+    label: Model API key (optional)
+    type: password
+    secret: true
+    description: "Your API key for a hosted provider. It is only ever sent to that provider and never reaches the browser. Not needed for Ollama."
+    default: ""
   - name: SECURITYX_LLM_URL
     label: Local model address (optional)
     description: "This server's Ollama app is at http://host.docker.internal:11434. Empty turns the model features off: Explain, Summarise, Explain changes and Ask. The model only sees what the page shows, never secret values."
@@ -81,8 +100,9 @@ health:
   kind: healthcheck
   timeoutSeconds: 60
 notes: >-
-  Point "Repositories to scan" at the folder that holds your checkouts before installing; it is
-  mounted read-only. Open the page, paste the access key, and start a scan. Secrets are found in
+  Open the page, paste the access key, and choose what to check: fetch repositories from GitHub
+  on the page (add a GitHub token here for private ones), or point "Repositories to scan" at a
+  folder of checkouts on this server, which is mounted read-only. Secrets are found in
   the full commit history, so one deleted in a later commit is still reported and must be rotated;
   the report never holds the secret itself. Dependency scanning sends package names and versions
   to the OSV database (api.osv.dev). The Domains page needs the monitor's address and admin token:
