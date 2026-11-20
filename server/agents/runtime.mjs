@@ -23,9 +23,12 @@
  *   - --cache-ram 1024: llama-server keeps earlier prompts in memory to reuse them (8 GiB unless
  *     told), and each of this hybrid model's holds its checkpoints too; a gigabyte keeps the last
  *     few inside the memory cap.
- *   - UNSLOTH_MODEL_IDLE_TTL=900: Unsloth frees the model itself after 15 quiet minutes (about 2 GB)
- *     and reloads it in about 4 s on the next request; this runner stops the whole server, its Python
- *     backend too, after the owner's longer idle time (an hour by default).
+ *   - UNSLOTH_MODEL_IDLE_TTL: Unsloth frees the model itself (about 2 GB) once it has been quiet
+ *     this long, and reloads it in about 4 s on the next request. It is the owner's idle time (an
+ *     hour by default), and never under 900 s: it was 900 s whatever the owner chose, and the
+ *     prompts the server had read went with the model, so runs more than 15 minutes apart read
+ *     everything again (104 s for 5,600 tokens on the owner's server, against 1 to 12 s reused).
+ *     After the same idle time this runner stops the whole server, its Python backend too.
  *   - UNSLOTH_STUDIO_PASSWORD: Studio's management API stays mounted under --api-only and creates an
  *     admin account on first start; its password is a secret the runner keeps in its own state
  *     (0600), not the generated one Studio would print. Studio takes it only as the first password:
@@ -59,6 +62,12 @@ const secretLine = /password|api[ _-]?key|secret|bearer/i;
 // Its own process group on Linux, so stopping it stops what it started too (Studio's llama-server).
 const ownGroup = process.platform !== "win32";
 export const unslothIdleUnloadSeconds = 900;
+/**
+ * How long Unsloth keeps a quiet model loaded, in seconds: as long as the owner keeps an idle model
+ * server, and never less than it always did.
+ * @param {{ idleStopMs?: number }} runtime
+ */
+const unslothIdleSeconds = (runtime) => Math.max(unslothIdleUnloadSeconds, Math.ceil((Number(runtime.idleStopMs) || 0) / 1000));
 export const contextCheckpoints = 4;
 export const promptBatch = 512;
 export const promptCacheMiB = 1024;
@@ -173,7 +182,8 @@ export function serverCommand(runtime, { port, runtimeDir, stateDir, node = proc
         HF_HUB_OFFLINE: "1",
         UNSLOTH_STUDIO_HOME: runtimeDir,
         UNSLOTH_STUDIO_DISABLE_PUBLIC_CHECK: "1",
-        UNSLOTH_MODEL_IDLE_TTL: String(unslothIdleUnloadSeconds),
+        // The model, and the prompts the server has read, stay as long as the owner's idle time.
+        UNSLOTH_MODEL_IDLE_TTL: String(unslothIdleSeconds(runtime)),
         // Only until Studio has it: given again, `unsloth run` refuses to start.
         ...(secrets.studioPasswordSet ? {} : { UNSLOTH_STUDIO_PASSWORD: secrets.studioPassword }),
       },
@@ -220,7 +230,9 @@ export function createRuntime({
   let phase = "idle";
   let starting = null;
 
-  const specOf = (runtime) => [runtime.driver, runtime.model, runtime.requestModel, runtime.file, runtime.projector, runtime.contextTokens, runtime.threads].map((part) => part ?? "").join("|");
+  // What a running server was started with: a run that asks for anything else here starts it again.
+  // Unsloth's own idle unload is in its environment, so a changed idle time restarts it, once.
+  const specOf = (runtime) => [runtime.driver, runtime.model, runtime.requestModel, runtime.file, runtime.projector, runtime.contextTokens, runtime.threads, runtime.driver === "unsloth" ? unslothIdleSeconds(runtime) : null].map((part) => part ?? "").join("|");
 
   /** The secrets and files a start needs, found before anything is run. */
   const passwordSetPath = path.join(stateDir, studioPasswordSetFile);

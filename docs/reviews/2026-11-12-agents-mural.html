@@ -139,7 +139,7 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
       <div class="fill" style="height:45%"></div><div class="fill ok" style="height:45%"></div>
     </div>
     <div class="hero-main">
-      <div class="eyebrow">BoxPilot · agent platform audit · 12 November 2026 · 1.242.1 live on the server · 1.243.0 in review</div>
+      <div class="eyebrow">BoxPilot · agent platform audit · 12 November 2026 · 1.243.0 live on the server · 1.244.0 in review</div>
       <h1>The server had room. <em>The agents didn't.</em></h1>
       <p class="lede">Five read-only sweeps, a month of the server's own runs, and a timing of both models on its disk. The limits that stopped the agents were ours, not the machine's: a quarter of its memory in use, load under one. So the limits were raised, the loop that wasted them was fixed, and the rest is laid out below as six milestones.</p>
       <div class="stats">
@@ -194,12 +194,13 @@ footer { color: var(--soft); font-size: 12.5px; border-top: 1px solid var(--rule
         <li><b>This server's measured speed in the model library</b><span class="tag">page</span><p>The column showed a GitHub runner's numbers.</p></li>
         <li><b>All the room in the chart above</b><span class="tag">limits</span><p>Ceilings, defaults, twelve templates, the memory cap, the context. Eight agents on the server were raised once.</p></li>
         <li><b>Releases publish again</b><span class="tag">found</span><p>The install test called a route removed on 9 November, so nothing after 1.238.0 had published. 1.242.1 is the first that did.</p></li>
+        <li><b>A task that fits its context</b><span class="tag">1.243.0</span><p>Notes, memories and findings share a quarter of the context, pinned first. The loop never asks for more than the context holds. Safer, but no faster on this server: 228 s against 234 s for the same question.</p></li>
+        <li><b>The Agents page in plain words</b><span class="tag">1.243.0</span><p>Runs, thinking time, tool rounds, reading room, time limit. A name before an agent exists. Two row actions. 44 px touch targets.</p></li>
         <li><b>The 4B model, 6 hours a day, 4 processors</b><span class="tag">server</span><p>Set on the server itself. All agents together had 1 h 23 min a day and had used 32 minutes of it.</p></li>
       </ul></div>
       <div class="panel"><div class="band b-next"><b>Next</b><span>1.243.0 in review · then M58</span></div><ul>
-        <li><b>A task that fits its context</b><span class="tag">in review</span><p>Notes, memories and findings share a quarter of the context: pinned first, then what the question bears on. Built, reviewed twice, waiting on CI.</p></li>
-        <li><b>The Agents page in plain words</b><span class="tag">in review</span><p>Runs, thinking time, tool rounds, reading room, time limit. A name before an agent exists. Two row actions. 44 px touch targets.</p></li>
-        <li><b>A prompt head that is reused</b><span class="tag">M66</span><p>The time is now last and to the minute. Still to do: tools fixed per agent rather than per plan, measured on the server first.</p></li>
+        <li><b>A prompt head that is reused</b><span class="tag">1.244.0</span><p>Measured on the server: 5,600 tokens cost 104 s cold and 1 to 12 s when seen before. One tool set per agent, notes ahead of the question, the model kept loaded for your idle time. In review.</p></li>
+        <li><b>Connect Cloudflare adopts a running tunnel</b><span class="tag">1.244.0</span><p>Today's connect swapped the tunnel app onto an empty tunnel and a public site answered 530 for three minutes. It now adopts what is running, and refuses rather than replace a key it cannot read. In review.</p></li>
         <li><b>No planner call when the steps already say</b><span class="tag">M66</span><p>A scheduled run spends one of its three calls deciding what its own steps name.</p></li>
         <li><b>A digest that is never raw tool output</b><span class="tag">M58</span><p>Already on the roadmap: composed in code, the model adds two sentences.</p></li>
         <li><b>One rolling health card per agent</b><span class="tag">M58</span><p>With the raise on the card itself.</p></li>

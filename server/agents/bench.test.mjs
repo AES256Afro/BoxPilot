@@ -17,7 +17,9 @@ describe("the owner's first question, at 20 tokens a second read and 4 written",
     expect(result.run.answer).toMatch(/backup drive/);
     // Well inside the 15-minute run, and every call inside the old 300 s one.
     // M47 added six tools to the Keeper's planner list, about 150 tokens: 7 s at 20 a second.
-    expect(result.wallMs).toBeLessThan(320_000);
+    // M66.2: the calls that act carry the agent's ten tools whatever the plan (two more schemas, about
+    // 260 tokens: 13 s at 20 a second), read once and the same from run to run.
+    expect(result.wallMs).toBeLessThan(335_000);
     expect(result.wallMs).toBeLessThan(budgetCeilings.runSeconds.default * 1000);
     for (const call of result.calls) expect(call.seconds, call.call).toBeLessThan(150);
     // The plan reads its own small prompt; the calls that act carry 8 of the 22 tools, and each
@@ -29,10 +31,11 @@ describe("the owner's first question, at 20 tokens a second read and 4 written",
     // M47: four more tool lines in the Keeper's planner list (about 100 tokens).
     // M47.6: three more (about 45 tokens). M51.1: one more, and a step to cite it (about 30 tokens).
     expect(plan.promptTokens).toBeLessThan(1_200);
-    expect(first.tools).toBe(8);
-    expect(first.promptTokens).toBeLessThan(2_400);
+    // M66.2: ten, the agent's own set, whatever the plan (two more schemas than the plan's eight).
+    expect(first.tools).toBe(10);
+    expect(first.promptTokens).toBeLessThan(2_700);
     for (const call of later) {
-      expect(call.tools).toBe(8);
+      expect(call.tools).toBe(10);
       expect(call.readTokens, call.call).toBeLessThan(700);
       expect(call.cachedTokens, call.call).toBeGreaterThan(first.promptTokens);
     }

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { registry } from "./index.mjs";
 import { secretPaths } from "./registry.mjs";
 import { inspectCloudflareTunnel } from "./cloudflare.mjs";
-import { cloudflareApiCredential, cloudflareTunnelCredential, normalizeTunnelState } from "../cloudflare-tunnel.mjs";
+import { cloudflareApiCredential, cloudflarePreviousTunnelCredential, cloudflareTunnelCredential, normalizeTunnelState } from "../cloudflare-tunnel.mjs";
 import { laneFor } from "../helper-lanes.mjs";
+import { cloudflareConnect } from "../tasks/cloudflare.mjs";
+import { createFakeCloudflare, fakeAccount, fakeTunnelKey } from "../../test/fake-cloudflare.mjs";
 
 const token = "cf-test-token-0000000000000000000000";
 const runKey = "eyJhIjoiZmFrZS1ydW4ta2V5LWZvci10ZXN0cyJ9";
@@ -24,20 +26,28 @@ function credentialStore(initial = {}) {
 }
 function memoryState(initial = null) {
   let saved = initial ? normalizeTunnelState(initial) : null;
-  return { read: async () => saved, write: async (state) => { saved = normalizeTunnelState(state); return saved; } };
+  return { read: async () => saved, write: async (state) => { saved = normalizeTunnelState(state); return saved; }, get current() { return saved; } };
 }
 
-/** An app helper that knows Pingvin Share and the Cloudflare Tunnel app, and says what it was asked. */
+/**
+ * An app helper that knows Pingvin Share and the Cloudflare Tunnel app, and says what it was asked.
+ * `tunnelApp.key` is the TUNNEL_TOKEN an installed tunnel app runs with (the fake run key unless given).
+ * `unreadable` is what the real helper answers when it cannot read the app's settings file: no
+ * settings at all, and no error. `containerExists` without `installed` is a container of the app's
+ * name beside a record the helper could not read.
+ */
 function fakeApps({ tunnelApp = { installed: false }, pingvin = { installed: true, bind: "0.0.0.0", running: true } } = {}) {
   const calls = [];
+  const secretsOf = async ({ id }) => ({ id, secrets: id === "cloudflared" && !tunnelApp.unreadable && (tunnelApp.installed || tunnelApp.key) ? [{ name: "TUNNEL_TOKEN", label: "Tunnel token", value: tunnelApp.key ?? runKey }] : [] });
   const describe = (id) => (id === "cloudflared"
-    ? { id, name: "Cloudflare Tunnel", installed: Boolean(tunnelApp.installed), container: { running: Boolean(tunnelApp.running), status: tunnelApp.status ?? (tunnelApp.running ? "running" : "exited") }, published: [] }
+    ? { id, name: "Cloudflare Tunnel", installed: Boolean(tunnelApp.installed), container: { exists: tunnelApp.containerExists ?? Boolean(tunnelApp.installed), running: Boolean(tunnelApp.running), status: tunnelApp.status ?? (tunnelApp.running ? "running" : "exited") }, published: [] }
     : id === "pingvin-share"
       ? { id, name: "Pingvin Share", installed: pingvin.installed, container: { running: pingvin.running, status: pingvin.running ? "running" : "exited" }, published: [{ id: "web", host: 3022, protocol: "tcp", bind: pingvin.bind, fixed: false, web: true }] }
       : null);
   return {
     calls,
     inspect: async ({ id }) => ({ applications: [describe(id)].filter(Boolean) }),
+    secrets: secretsOf,
     install: async (request) => { calls.push({ install: request }); return { installed: true }; },
     reconfigure: async (request, options) => { calls.push({ reconfigure: request, options }); return { reconfigured: true }; },
     action: async (request) => { calls.push({ action: request }); return { action: request.action }; },
@@ -70,6 +80,8 @@ describe("the Cloudflare operations (M42)", () => {
     expect(registry.validate("cloudflare.connect", { token: "short" })).toMatch(/token/);
     expect(registry.validate("cloudflare.connect", { token: `${token} ` })).toMatch(/no spaces/);
     expect(registry.validate("cloudflare.connect", { token: "x".repeat(4097) })).toMatch(/too long/);
+    expect(registry.validate("cloudflare.connect", { token, replaceRunningTunnel: true })).toBeNull();
+    expect(registry.validate("cloudflare.connect", { token, replaceRunningTunnel: "yes" })).toMatch(/replaceRunningTunnel/);
     expect(registry.validate("cloudflare.publish", publish)).toBeNull();
     expect(registry.validate("cloudflare.publish", { ...publish, https: true })).toBeNull();
     // One label: not the domain itself (the apex), not two labels, not a bad one.
@@ -111,6 +123,27 @@ describe("reading the tunnel", () => {
     const damaged = await inspectCloudflareTunnel({ credentials: credentialStore(), store: { read: async () => { throw new Error("BoxPilot's Cloudflare record is damaged"); } }, hostname: "homebox" });
     expect(damaged.problem).toMatch(/damaged/);
   });
+
+  // M65.3: the owner put their own tunnel's key back by hand, and BoxPilot still named the empty one it had made.
+  it("says when the Cloudflare Tunnel app runs another tunnel than the one recorded, and what to do", async () => {
+    const credentials = credentialStore({ [cloudflareApiCredential]: token, [cloudflareTunnelCredential]: runKey });
+    const theirs = fakeTunnelKey("11111111-1111-4111-8111-111111111111");
+    const reading = (tunnelApp, state = connected([route])) => inspectCloudflareTunnel({ credentials, store: memoryState(state), hostname: "homebox", apps: fakeApps({ tunnelApp }) });
+    const inspected = await reading({ installed: true, running: true, key: theirs });
+    expect(inspected.problem).toBe("The Cloudflare Tunnel app is running another tunnel than the one BoxPilot recorded (boxpilot-homebox), so a name published here would go to a tunnel nothing runs. Disconnect, then connect Cloudflare again: BoxPilot will use the tunnel that is running and leave its names as they are.");
+    expect(inspected.tunnel).toEqual({ id: "00000000-0000-4000-8000-0000000000aa", name: "boxpilot-homebox" });
+    // Disconnected already, there is nothing to disconnect first.
+    const disconnected = await inspectCloudflareTunnel({ credentials: credentialStore(), store: memoryState(connected()), hostname: "homebox", apps: fakeApps({ tunnelApp: { installed: true, running: true, key: theirs } }) });
+    expect(disconnected.problem).toMatch(/nothing runs\. Connect Cloudflare again: BoxPilot will use the tunnel that is running/);
+    expect(JSON.stringify(inspected)).not.toContain(theirs);
+    expect(JSON.stringify(inspected)).not.toContain("c2VjcmV0");
+    // The recorded tunnel's own key, a key that names no tunnel, no app, an app that cannot be read, and nothing recorded: no problem.
+    expect((await reading({ installed: true, running: true, key: fakeTunnelKey("00000000-0000-4000-8000-0000000000AA") })).problem).toBeNull();
+    expect((await reading({ installed: true, running: true })).problem).toBeNull();
+    expect((await reading({ installed: false, key: theirs })).problem).toBeNull();
+    expect((await reading({ installed: true, unreadable: true })).problem).toBeNull();
+    expect((await reading({ installed: true, running: true, key: theirs }, null)).problem).toBeNull();
+  });
 });
 
 describe("connecting", () => {
@@ -124,18 +157,22 @@ describe("connecting", () => {
     expect(credentials.values.get(cloudflareApiCredential)).toBe(token);
     expect(runUnit.tasks).toEqual([{ task: "cloudflare.connect", parameters: { tunnelName: expect.stringMatching(/^boxpilot-[a-z0-9-]+$/) } }]);
     expect(apps.calls).toEqual([{ install: { id: "cloudflared", values: { env: { TUNNEL_TOKEN: runKey } }, devices: null } }]);
-    expect(result).toEqual({ connected: true, account: "Example household", tunnel: "boxpilot-homebox", tunnelMade: true, domains: ["example.com"], app: "installed" });
+    expect(result).toEqual({ connected: true, account: "Example household", tunnel: "boxpilot-homebox", tunnelMade: true, tunnelAdopted: false, domains: ["example.com"], app: "installed" });
     for (const text of [JSON.stringify(result), lines.join("\n")]) {
       expect(text).not.toContain(token);
       expect(text).not.toContain(runKey);
     }
   });
 
-  it("gives an installed tunnel app the new key in place of the old one", async () => {
+  it("gives a tunnel app that runs this server's own tunnel that tunnel's key again", async () => {
     const credentials = credentialStore({ [cloudflareTunnelCredential]: runKey });
     const apps = fakeApps({ tunnelApp: { installed: true, running: true } });
-    await registry.execute("cloudflare.connect", { token }, { credentials, runUnit: runUnitAnswering({ "cloudflare.connect": { zones: [zone] } }), apps });
+    const runUnit = runUnitAnswering({ "cloudflare.connect": { zones: [zone] } });
+    await registry.execute("cloudflare.connect", { token }, { credentials, runUnit, apps, cloudflareState: memoryState(connected()) });
+    // The key BoxPilot saved for the tunnel it recorded: the task is told that tunnel, never the key.
+    expect(runUnit.tasks[0].parameters).toEqual({ tunnelName: expect.any(String), running: { tunnelId: "00000000-0000-4000-8000-0000000000aa", accountTag: "0123456789abcdef0123456789abcdef" }, replaceRunningTunnel: false });
     expect(apps.calls).toEqual([{ reconfigure: { id: "cloudflared", values: { env: { TUNNEL_TOKEN: runKey } }, devices: null }, options: { progress: null, checkpoint: false } }]);
+    expect(credentials.values.has(cloudflarePreviousTunnelCredential)).toBe(false);
   });
 
   it("does not keep a token Cloudflare refused, and puts back the one saved before", async () => {
@@ -146,6 +183,171 @@ describe("connecting", () => {
     const earlier = credentialStore({ [cloudflareApiCredential]: "the-earlier-token-0000000000" });
     await expect(registry.execute("cloudflare.connect", { token }, { credentials: earlier, runUnit: runUnitAnswering({ "cloudflare.connect": refused }), apps: fakeApps() })).rejects.toThrow();
     expect(earlier.values.get(cloudflareApiCredential)).toBe("the-earlier-token-0000000000");
+  });
+});
+
+// M65.3. The Cloudflare Tunnel app ran the owner's own tunnel, with their site on it. Connect made
+// boxpilot-<this server>, gave the app its key in place of theirs, and kept the old key nowhere.
+// These run the operation against the root task and a stand-in for Cloudflare, end to end.
+describe("connecting when the Cloudflare Tunnel app already runs a tunnel (M65.3)", () => {
+  const theirTunnel = { id: "11111111-1111-4111-8111-111111111111", name: "home", account: fakeAccount.id, status: "healthy", remote_config: true, connections: [] };
+  const theirSecret = "dGhlaXItdHVubmVsLXNlY3JldA==";
+  const theirKey = fakeTunnelKey(theirTunnel.id, { secret: theirSecret });
+  const otherAccount = "fedcba9876543210fedcba9876543210";
+  const at = () => new Date("2026-11-12T09:00:00.000Z");
+
+  function connecting({ tunnelApp, state = memoryState(), saved = {}, ...fake } = {}) {
+    const cloudflare = createFakeCloudflare({ token, ...fake });
+    const credentials = credentialStore(saved);
+    const apps = fakeApps({ tunnelApp });
+    const lines = [];
+    const tasks = [];
+    const runUnit = { runTask: async (task, parameters) => { tasks.push({ task, parameters }); return cloudflareConnect(parameters, { credentials, state, fetcher: cloudflare.fetcher, now: at, log: (line) => lines.push(line) }); } };
+    const run = (parameters = { token }) => registry.execute("cloudflare.connect", parameters, { credentials, runUnit, apps, cloudflareState: state, progress: (line) => lines.push(line) });
+    const made = () => cloudflare.calls.filter((call) => call.method !== "GET");
+    return { cloudflare, credentials, apps, lines, tasks, state, run, made };
+  }
+  /** The key and its secret reach the credential store and the app, and nothing that is kept or shown. */
+  const expectKeyUnsaid = (key, ...things) => {
+    for (const thing of things) {
+      expect(JSON.stringify(thing)).not.toContain(key);
+      expect(JSON.stringify(thing)).not.toContain(theirSecret);
+    }
+  };
+
+  it("uses the tunnel that is running: none is made, the app keeps its key, and that key is the one saved", async () => {
+    const { cloudflare, credentials, apps, lines, tasks, state, run, made } = connecting({ tunnelApp: { installed: true, running: true, key: theirKey }, tunnels: [theirTunnel] });
+    const result = await run();
+    expect(result).toEqual({ connected: true, account: "Example household", tunnel: "home", tunnelMade: false, tunnelAdopted: true, domains: ["example.com"], app: "running" });
+    expect(made()).toEqual([]);
+    expect(cloudflare.state.tunnels.map((tunnel) => tunnel.name)).toEqual(["home"]);
+    expect(apps.calls).toEqual([]);
+    expect(state.current).toMatchObject({ tunnelId: theirTunnel.id, tunnelName: "home", accountId: fakeAccount.id, routes: [] });
+    expect(credentials.values.get(cloudflareTunnelCredential)).toBe(theirKey);
+    expect(credentials.values.get(cloudflareApiCredential)).toBe(token);
+    expect(credentials.values.has(cloudflarePreviousTunnelCredential)).toBe(false);
+    expect(tasks).toEqual([{ task: "cloudflare.connect", parameters: { tunnelName: expect.any(String), running: { tunnelId: theirTunnel.id, accountTag: fakeAccount.id }, replaceRunningTunnel: false } }]);
+    expect(lines).toContain("The Cloudflare Tunnel app is already running your tunnel home; BoxPilot will use it and leave its names as they are.");
+    expect(lines).toContain(`Saved the key the Cloudflare Tunnel app runs with as the root-only credential ${cloudflareTunnelCredential}; it is not written to this log.`);
+    expectKeyUnsaid(theirKey, result, lines, tasks, state.current);
+  });
+
+  it("starts a stopped tunnel app with the key it has, where it used to give it another", async () => {
+    const { apps, run } = connecting({ tunnelApp: { installed: true, running: false, key: theirKey }, tunnels: [theirTunnel] });
+    expect(await run()).toMatchObject({ tunnelAdopted: true, app: "started" });
+    expect(apps.calls).toEqual([{ action: { id: "cloudflared", action: "start" } }]);
+  });
+
+  it("goes back to the running tunnel after an earlier Connect made an empty one, which it leaves and names", async () => {
+    const empty = { id: "00000000-0000-4000-8000-0000000000aa", name: "boxpilot-homebox", account: fakeAccount.id, status: "inactive", remote_config: true, connections: [] };
+    const { cloudflare, credentials, apps, lines, state, run, made } = connecting({ tunnelApp: { installed: true, running: true, key: theirKey }, tunnels: [empty, theirTunnel], state: memoryState(connected()), saved: { [cloudflareTunnelCredential]: runKey } });
+    expect(await run()).toMatchObject({ tunnel: "home", tunnelAdopted: true });
+    expect(state.current).toMatchObject({ tunnelId: theirTunnel.id, tunnelName: "home" });
+    expect(credentials.values.get(cloudflareTunnelCredential)).toBe(theirKey);
+    expect(apps.calls).toEqual([]);
+    expect(made()).toEqual([]);
+    expect(cloudflare.state.tunnels).toHaveLength(2);
+    expect(lines.join("\n")).toMatch(/The tunnel boxpilot-homebox that BoxPilot used before is no longer used, and nothing runs it\./);
+  });
+
+  it("refuses to replace a running tunnel the token cannot reach, and leaves the app, the record and the saved token as they were", async () => {
+    const elsewhere = fakeTunnelKey(theirTunnel.id, { account: otherAccount, secret: theirSecret });
+    for (const [key, says] of [[elsewhere, /already running a tunnel this token cannot reach/], ["a-key-pasted-by-hand-that-names-no-tunnel", /BoxPilot cannot tell which tunnel it runs: its token could not be read, or names no tunnel/]]) {
+      const earlier = "the-earlier-token-0000000000";
+      const { credentials, apps, tasks, state, run, made, lines } = connecting({ tunnelApp: { installed: true, running: true, key }, accounts: [fakeAccount.id], saved: { [cloudflareApiCredential]: earlier } });
+      const error = await run().catch((caught) => caught);
+      expect(error.message).toMatch(says);
+      // The second way on is one the Tunnel tab can take, not a parameter it cannot send.
+      expect(error.message).toMatch(/nothing was changed\. Either .+; or, to move this server to boxpilot-[a-z0-9-]+, .*uninstall the Cloudflare Tunnel app and connect again: the names the old tunnel serves stop answering until they are moved\./);
+      expect(error.message).not.toContain("replaceRunningTunnel");
+      expect(made()).toEqual([]);
+      expect(apps.calls).toEqual([]);
+      expect(state.current).toBeNull();
+      // As for any Connect that fails: the token saved before is put back, and no other credential appears.
+      expect(Object.fromEntries(credentials.values)).toEqual({ [cloudflareApiCredential]: earlier });
+      expect(tasks[0].parameters).toMatchObject({ replaceRunningTunnel: false });
+      expectKeyUnsaid(key, error.message, tasks, lines);
+    }
+    // With no token saved before, the refused one is not kept either.
+    const fresh = connecting({ tunnelApp: { installed: true, running: true, key: elsewhere }, accounts: [fakeAccount.id] });
+    await expect(fresh.run()).rejects.toThrow(/cannot reach/);
+    expect([...fresh.credentials.values.keys()]).toEqual([]);
+  });
+
+  it("replaces it when the owner chose to, keeping the key the app ran with first", async () => {
+    const elsewhere = fakeTunnelKey(theirTunnel.id, { account: otherAccount, secret: theirSecret });
+    const { cloudflare, credentials, apps, lines, tasks, state, run } = connecting({ tunnelApp: { installed: true, running: true, key: elsewhere }, accounts: [fakeAccount.id] });
+    // The old key is in the store by the time the app is given the new one.
+    const reconfigure = apps.reconfigure;
+    let keptWhenReplaced = null;
+    apps.reconfigure = async (...given) => { keptWhenReplaced = credentials.values.get(cloudflarePreviousTunnelCredential); return reconfigure(...given); };
+    const result = await run({ token, replaceRunningTunnel: true });
+    expect(result).toMatchObject({ tunnelMade: true, tunnelAdopted: false, app: "updated" });
+    expect(keptWhenReplaced).toBe(elsewhere);
+    expect(credentials.values.get(cloudflarePreviousTunnelCredential)).toBe(elsewhere);
+    expect(credentials.values.get(cloudflareTunnelCredential)).toBe(cloudflare.runKey);
+    expect(apps.calls).toEqual([{ reconfigure: { id: "cloudflared", values: { env: { TUNNEL_TOKEN: cloudflare.runKey } }, devices: null }, options: { progress: expect.any(Function), checkpoint: false } }]);
+    expect(state.current.tunnelName).toMatch(/^boxpilot-/);
+    expect(tasks[0].parameters).toMatchObject({ replaceRunningTunnel: true });
+    const log = lines.join("\n");
+    expect(log).toMatch(/The names the old tunnel serves stop answering until they are moved to boxpilot-/);
+    // Nothing in BoxPilot puts it back: it is said to be kept, not to be restorable from here.
+    expect(log).toContain(`Kept the key the Cloudflare Tunnel app ran with until now as the root-only credential ${cloudflarePreviousTunnelCredential}, for recovery from the server's console; it is not written to this log.`);
+    expect(log).not.toMatch(/can be put back/);
+    expectKeyUnsaid(elsewhere, result, lines, tasks, state.current);
+  });
+
+  // The review's probe (A1). The app helper answers a settings file it cannot read with no settings,
+  // and a record it cannot read with "not installed": both read as "nothing runs", so Connect made
+  // this server's tunnel and gave the running app its key, with no old key to keep. The same outage.
+  it("does not take an app whose key reads as nothing, or whose record cannot be read, for no app at all", async () => {
+    const earlier = "the-earlier-token-0000000000";
+    const cases = [
+      { installed: true, running: true, unreadable: true },
+      // Its container is there, and BoxPilot's record of it is not: with a key it can read, and without.
+      { installed: false, containerExists: true, running: true, key: theirKey },
+      { installed: false, containerExists: true, running: true, unreadable: true },
+    ];
+    for (const tunnelApp of cases) {
+      const { credentials, apps, tasks, state, run, made, lines } = connecting({ tunnelApp, tunnels: [theirTunnel], saved: { [cloudflareApiCredential]: earlier } });
+      const error = await run().catch((caught) => caught);
+      expect(error?.message, JSON.stringify(tunnelApp)).toMatch(/The Cloudflare Tunnel app is already on this server, and BoxPilot cannot tell which tunnel it runs.*BoxPilot has not replaced it and nothing was changed/);
+      expect(tasks).toEqual([{ task: "cloudflare.connect", parameters: { tunnelName: expect.any(String), running: { unreadable: true }, replaceRunningTunnel: false } }]);
+      expect(apps.calls).toEqual([]);
+      expect(made()).toEqual([]);
+      expect(state.current).toBeNull();
+      expect(Object.fromEntries(credentials.values)).toEqual({ [cloudflareApiCredential]: earlier });
+      expectKeyUnsaid(theirKey, error.message, tasks, lines);
+    }
+  });
+
+  it("replaces an app whose key it cannot read only when told to, and says no key could be kept", async () => {
+    const { credentials, apps, lines, run } = connecting({ tunnelApp: { installed: true, running: true, unreadable: true } });
+    expect(await run({ token, replaceRunningTunnel: true })).toMatchObject({ tunnelMade: true, tunnelAdopted: false, app: "updated" });
+    expect(apps.calls).toHaveLength(1);
+    expect(credentials.values.has(cloudflarePreviousTunnelCredential)).toBe(false);
+    expect(lines).toContain("The key the Cloudflare Tunnel app ran with could not be read, so none is kept.");
+    // A container beside a record that cannot be read: the key that could be read is kept before the app is installed over it.
+    const orphan = connecting({ tunnelApp: { installed: false, containerExists: true, running: true, key: theirKey } });
+    expect(await orphan.run({ token, replaceRunningTunnel: true })).toMatchObject({ tunnelAdopted: false, app: "installed" });
+    expect(orphan.credentials.values.get(cloudflarePreviousTunnelCredential)).toBe(theirKey);
+  });
+
+  it("changes nothing, and saves no token, when asking what the app runs fails", async () => {
+    const { credentials, apps, tasks, run } = connecting({ tunnelApp: { installed: true, running: true } });
+    apps.secrets = async () => { throw new Error("EACCES"); };
+    await expect(run()).rejects.toThrow("BoxPilot could not read which tunnel the Cloudflare Tunnel app runs (EACCES), so nothing was changed");
+    expect(tasks).toEqual([]);
+    expect([...credentials.values.keys()]).toEqual([]);
+  });
+
+  it("makes this server's tunnel and installs the app when no tunnel app is installed, as before", async () => {
+    const { cloudflare, credentials, apps, tasks, run } = connecting({ tunnelApp: { installed: false, key: theirKey } });
+    const result = await run();
+    expect(result).toMatchObject({ tunnelMade: true, tunnelAdopted: false, app: "installed" });
+    expect(tasks).toEqual([{ task: "cloudflare.connect", parameters: { tunnelName: expect.stringMatching(/^boxpilot-[a-z0-9-]+$/) } }]);
+    expect(apps.calls).toEqual([{ install: { id: "cloudflared", values: { env: { TUNNEL_TOKEN: cloudflare.runKey } }, devices: null } }]);
+    expect(credentials.values.has(cloudflarePreviousTunnelCredential)).toBe(false);
   });
 });
 
@@ -166,6 +368,31 @@ describe("publishing", () => {
     const result = await registry.execute("cloudflare.publish", { ...publish, https: true }, { credentials: ready(), runUnit, apps: fakeApps({ tunnelApp: { installed: true, running: true }, pingvin: { installed: true, bind: "127.0.0.1", running: false } }), cloudflareState: memoryState(connected()) });
     expect(runUnit.tasks[0].parameters).toMatchObject({ service: "https://127.0.0.1:3022", noTLSVerify: true });
     expect(result.warnings).toEqual(["Pingvin Share is not running, so https://share.example.com shows an error page until it is started."]);
+  });
+
+  // The review's probe (A2): in the state the tab reports as a problem, Publish still put a route on
+  // the tunnel nothing runs and made a DNS name for it, and said it had worked.
+  it("refuses while the tunnel app runs another tunnel than the one recorded, and still unpublishes what is recorded", async () => {
+    const theirs = fakeTunnelKey("11111111-1111-4111-8111-111111111111");
+    const apps = fakeApps({ tunnelApp: { installed: true, running: true, key: theirs } });
+    const runUnit = runUnitAnswering({ "cloudflare.unpublish": { hostname: "share.example.com", dnsRemoved: true } });
+    const error = await registry.execute("cloudflare.publish", publish, { credentials: ready(), runUnit, apps, cloudflareState: memoryState(connected()) }).catch((caught) => caught);
+    expect(error.message).toBe("The Cloudflare Tunnel app is running another tunnel than the one BoxPilot recorded (boxpilot-homebox), so a name published here would go to a tunnel nothing runs. Disconnect, then connect Cloudflare again: BoxPilot will use the tunnel that is running and leave its names as they are. Nothing was published.");
+    expect(error.message).not.toContain(theirs);
+    expect(runUnit.tasks).toEqual([]);
+    expect(apps.calls).toEqual([]);
+    // What BoxPilot put on the recorded tunnel can still be taken off it: connecting again forgets those names.
+    expect(await registry.execute("cloudflare.unpublish", { hostname: "share.example.com" }, { credentials: ready(), runUnit, apps, cloudflareState: memoryState(connected([route])) })).toEqual({ hostname: "share.example.com", dnsRemoved: true });
+    // The recorded tunnel's own key: published as ever.
+    const own = fakeApps({ tunnelApp: { installed: true, running: true, key: fakeTunnelKey("00000000-0000-4000-8000-0000000000aa") } });
+    expect(await registry.execute("cloudflare.publish", publish, { credentials: ready(), runUnit: runUnitAnswering(), apps: own, cloudflareState: memoryState(connected()) })).toMatchObject({ hostname: "share.example.com", app: "running" });
+  });
+
+  it("does not install the tunnel app over a container whose record it cannot read", async () => {
+    const apps = fakeApps({ tunnelApp: { installed: false, containerExists: true, running: true } });
+    const result = await registry.execute("cloudflare.publish", publish, { credentials: ready(), runUnit: runUnitAnswering(), apps, cloudflareState: memoryState(connected()) });
+    expect(apps.calls).toEqual([]);
+    expect(result.warnings).toEqual(["share.example.com is set up at Cloudflare, but the Cloudflare Tunnel app could not be started (its container is there but BoxPilot cannot read the app's record, so it was left as it is); start it from its Overview tab."]);
   });
 
   it("refuses a port the tunnel app cannot reach, a domain not connected, a forgotten token, and an app not installed", async () => {

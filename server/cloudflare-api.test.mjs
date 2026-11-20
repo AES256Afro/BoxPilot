@@ -69,6 +69,36 @@ describe("the Cloudflare client (M42)", () => {
     expect(await api.tunnelRunKey(fakeAccount.id, made.id)).toBe(cloudflare.runKey);
   });
 
+  // M65.3: a tunnel BoxPilot did not make is read by its id, and may be set up from a file or deleted.
+  it("reads one tunnel by its id, and says it is set up from a file or deleted only when Cloudflare does", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const reading = async (fields) => {
+      const cloudflare = createFakeCloudflare({ token, tunnels: [{ id, name: "home", account: fakeAccount.id, ...fields }] });
+      return createCloudflareApi({ token, fetcher: cloudflare.fetcher }).tunnel(fakeAccount.id, id);
+    };
+    expect(await reading({ remote_config: true })).toMatchObject({ id, name: "home", remoteConfig: true, localConfig: false, deleted: false });
+    expect(await reading({ config_src: "cloudflare", remote_config: false })).toMatchObject({ remoteConfig: true, localConfig: false });
+    expect(await reading({ config_src: "local" })).toMatchObject({ remoteConfig: false, localConfig: true });
+    expect(await reading({ remote_config: false })).toMatchObject({ remoteConfig: false, localConfig: true });
+    expect(await reading({})).toMatchObject({ remoteConfig: false, localConfig: false });
+    expect(await reading({ remote_config: true, deleted_at: "2026-09-01T00:00:00Z" })).toMatchObject({ deleted: true });
+    // In another account, or not there: an error that carries the status, which Connect reads as "cannot reach".
+    const cloudflare = createFakeCloudflare({ token, accounts: [fakeAccount.id] });
+    const api = createCloudflareApi({ token, fetcher: cloudflare.fetcher });
+    await expect(api.tunnel(fakeAccount.id, id)).rejects.toMatchObject({ name: "CloudflareError", status: 404 });
+    await expect(api.tunnel("fedcba9876543210fedcba9876543210", id)).rejects.toMatchObject({ name: "CloudflareError", status: 403 });
+  });
+
+  it("says which DNS records carry a comment, so BoxPilot's own can be told from the owner's", async () => {
+    const zone = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const cloudflare = createFakeCloudflare({ token, records: [{ id: "recTheirs", zone, type: "CNAME", name: "www.example.com", content: "x.cfargotunnel.com", proxied: true }] });
+    const api = createCloudflareApi({ token, fetcher: cloudflare.fetcher });
+    expect(await api.dnsRecords(zone, "www.example.com")).toEqual([{ id: "recTheirs", type: "CNAME", name: "www.example.com", content: "x.cfargotunnel.com", proxied: true, comment: "" }]);
+    const made = await api.createCname(zone, { name: "share.example.com", target: "x.cfargotunnel.com", comment: "BoxPilot: pingvin-share" });
+    expect(await api.dnsRecords(zone, "share.example.com")).toEqual([made]);
+    expect(made.comment).toBe("BoxPilot: pingvin-share");
+  });
+
   it("names the tunnel after the server, made safe", () => {
     expect(tunnelNameFor("HomeBox")).toBe("boxpilot-homebox");
     expect(tunnelNameFor("home_box.lan")).toBe("boxpilot-home-box");
@@ -99,6 +129,35 @@ describe("a tunnel's routes", () => {
     const ingress = [pathRule, { hostname: "share.example.com", service: "http://127.0.0.1:9999" }, foreign, { service: catchAllService }];
     const next = withRoute(ingress, { hostname: "Share.Example.com", service: "https://127.0.0.1:3022", originRequest: { noTLSVerify: true } });
     expect(next).toEqual([pathRule, { hostname: "Share.Example.com", service: "https://127.0.0.1:3022", originRequest: { noTLSVerify: true } }, foreign, { service: catchAllService }]);
+  });
+
+  // M65.3 review (A3): the first rule that matches answers, so a name added after a wildcard that takes it in is never reached.
+  it("put a name before the first wildcard rule that takes it in, and nowhere else", () => {
+    const wildcard = { hostname: "*.example.com", service: "http://localhost:8080" };
+    const elsewhere = { hostname: "*.example.org", service: "http://localhost:9090" };
+    const ours = { hostname: "share.example.com", service: "http://127.0.0.1:3022", originRequest: {} };
+    const route = { hostname: "share.example.com", service: "http://127.0.0.1:3022" };
+    expect(withRoute([foreign, wildcard, { service: catchAllService }], route)).toEqual([foreign, ours, wildcard, { service: catchAllService }]);
+    // A wildcard for another domain, the bare domain's own rule, and a name that only ends alike take nothing in.
+    expect(withRoute([elsewhere, { hostname: "example.com", service: "x" }, { service: catchAllService }], route)).toEqual([elsewhere, { hostname: "example.com", service: "x" }, ours, { service: catchAllService }]);
+    expect(withRoute([{ hostname: "*.ple.com", service: "x" }, { hostname: "*.Example.COM", path: "^/api", service: "y" }, { service: catchAllService }], { hostname: "a.b.example.com", service: "z" }))
+      .toEqual([{ hostname: "*.ple.com", service: "x" }, { hostname: "a.b.example.com", service: "z", originRequest: {} }, { hostname: "*.Example.COM", path: "^/api", service: "y" }, { service: catchAllService }]);
+    expect(withRoute([wildcard, { service: catchAllService }], { hostname: "example.com", service: "z" })).toEqual([wildcard, { hostname: "example.com", service: "z", originRequest: {} }, { service: catchAllService }]);
+    // Its own rule, published before this was known and standing behind the wildcard, moves in front of it; one in front already stays where it stood.
+    expect(withRoute([foreign, wildcard, { hostname: "share.example.com", service: "old" }, { service: catchAllService }], route)).toEqual([foreign, ours, wildcard, { service: catchAllService }]);
+    expect(withRoute([{ hostname: "share.example.com", service: "old" }, foreign, wildcard, { service: catchAllService }], route)).toEqual([ours, foreign, wildcard, { service: catchAllService }]);
+    // Taking it out leaves the wildcard where it was.
+    expect(withoutRoute([foreign, ours, wildcard, { service: catchAllService }], "share.example.com")).toEqual([foreign, wildcard, { service: catchAllService }]);
+  });
+
+  it("take the owner's rule for every name (*) as the catch-all: kept last, and no second one added", () => {
+    const everything = { hostname: "*", service: "http://localhost:8080" };
+    const ours = { hostname: "share.example.com", service: "http://127.0.0.1:3022", originRequest: {} };
+    expect(withRoute([foreign, everything], { hostname: "share.example.com", service: "http://127.0.0.1:3022" })).toEqual([foreign, ours, everything]);
+    expect(withoutRoute([foreign, ours, everything], "share.example.com")).toEqual([foreign, everything]);
+    // With a path it is a rule like any other, which takes the name in for that path.
+    const some = { hostname: "*", path: "^/health", service: "http_status:200" };
+    expect(withRoute([some, { service: catchAllService }], { hostname: "share.example.com", service: "http://127.0.0.1:3022" })).toEqual([ours, some, { service: catchAllService }]);
   });
 
   it("drop only BoxPilot's rule when it is taken out, and always end with a catch-all", () => {

@@ -394,16 +394,82 @@ export const actToolLimit = 10;
 const defaultActOrder = ["server.facts", "alerts.active", "storage.health", "services.status", "apps.list", "where.runs", "backups.status", "jobs.recent", "docs.search", "pihole.stats"];
 const defaultActCount = 6;
 
+/** The ids of the tools a run was offered, however each is written: an id, a function name, or a tool. */
+const offeredSet = (offered) => new Set((offered ?? []).map((entry) => toolIdOf(typeof entry === "string" ? entry : entry?.id ?? entry?.fn)).filter(Boolean));
+/** The always-on tools among the offered ones, for a run of this kind. */
+const alwaysOf = (offeredIds, kind) => toolCatalog.filter((tool) => offeredIds.has(tool.id) && (tool.always || (kind && tool.alwaysFor?.includes(kind)))).map((tool) => tool.id);
+/** The catalog's order: the same set is always the same bytes. */
+const inCatalogOrder = (ids) => toolCatalog.filter((tool) => ids.includes(tool.id)).map((tool) => tool.id);
+
+/**
+ * The tools a text names, as ids, in the order it first names each: by id (apps.list) or by the
+ * function name the model calls (apps_list). A name inside a longer one is not a mention: time.calc
+ * does not name calc, and app.backup, an operation, names no tool.
+ */
+function toolsNamedIn(text) {
+  const words = String(text ?? "");
+  const found = [];
+  for (const tool of toolCatalog) {
+    const at = [tool.id, tool.fn].map((name) => words.search(new RegExp(`(?<![\\w.-])${name.replace(/\./g, "\\.")}(?![\\w-]|\\.[a-z0-9])`))).filter((index) => index >= 0);
+    if (at.length) found.push({ id: tool.id, at: Math.min(...at) });
+  }
+  return found.sort((a, b) => a.at - b.at).map((entry) => entry.id);
+}
+
+/**
+ * The tools every acting call of an agent carries when its plan asks for nothing else (M66.2): the
+ * always-on ones it was offered, then the ones its own steps name ("How you work"), each group in
+ * the catalog's order. An agent with `limit` tools on or fewer carries all of them. One with more
+ * carries the ones its steps name (the first named kept, when they do not all fit), and, when
+ * they name fewer than a run with no plan carries, the cheap reads up to that many.
+ *
+ * The chat template writes the tool list before the system message, so a different list means the
+ * model server reads the whole prompt again: measured on the owner's server, the same system
+ * message under another tool list reused nothing, and one question's first call that acts read
+ * 5,787 tokens cold in 118 s. With one list from run to run that head is read once and reused.
+ *
+ * @param {Array<string | { id?: string, fn?: string }> | null | undefined} offered
+ * @param {{ steps?: string[], kind?: string | null, limit?: number }} [options]
+ */
+export function coreToolIds(offered, { steps = [], kind = null, limit = actToolLimit } = {}) {
+  const offeredIds = offeredSet(offered);
+  const always = alwaysOf(offeredIds, kind);
+  const others = (ids) => ids.filter((id) => offeredIds.has(id) && !always.includes(id));
+  // More on than fit: the ones its steps name, then the cheap reads a question most often needs,
+  // up to as many as a run with no plan carries. No fuller: every schema is read cold by the first
+  // run after the model loads, and on a slow server four more of them are a minute a short run
+  // does not have. A set that left the common reads out would send those questions back to a list
+  // of their own.
+  const named = others(toolsNamedIn((Array.isArray(steps) ? steps : []).join("\n")));
+  const filled = named.length >= defaultActCount ? named : others([...new Set([...named, ...defaultActOrder])]).slice(0, defaultActCount);
+  const rest = offeredIds.size <= limit ? others(toolIds) : filled.slice(0, Math.max(0, limit - always.length));
+  return [...inCatalogOrder(always), ...inCatalogOrder(rest)].slice(0, limit);
+}
+
 /**
  * The tools a run's calls that act carry, as ids, in the catalog's order so the prompt's prefix is
  * the same byte for byte from one call (and one run) to the next: the always-on ones this run was
  * offered, then the ones its plan named. Without a plan (none was asked for, or it did not parse),
  * the cheap reads come first. At most `limit`, the always-on ones and the plan's first steps kept.
+ *
+ * `core` is the agent's own set (coreToolIds), when the caller has it: a run whose plan and whose
+ * request's words ask for nothing outside it carries exactly that set, whatever the plan, and so
+ * does a run with no plan when the set holds a tool to read with. A plan that names a tool outside
+ * it is carried as before, by the plan.
+ *
+ * @param {Array<string | { id?: string, fn?: string }> | null | undefined} offered
+ * @param {{ planned?: string[] | null, hinted?: string[], kind?: string | null, limit?: number, core?: string[] | null }} [options]
  */
-export function actToolIds(offered, { planned = null, hinted = [], kind = null, limit = actToolLimit } = {}) {
-  const offeredIds = new Set((offered ?? []).map((entry) => toolIdOf(typeof entry === "string" ? entry : entry?.id ?? entry?.fn)).filter(Boolean));
-  const always = toolCatalog.filter((tool) => offeredIds.has(tool.id) && (tool.always || (kind && tool.alwaysFor?.includes(kind)))).map((tool) => tool.id);
+export function actToolIds(offered, { planned = null, hinted = [], kind = null, limit = actToolLimit, core = null } = {}) {
+  const offeredIds = offeredSet(offered);
+  const always = alwaysOf(offeredIds, kind);
   const fromPlan = Array.isArray(planned);
+  if (Array.isArray(core)) {
+    const own = core.map(toolIdOf).filter((id) => id && offeredIds.has(id));
+    // What the run asks for: a name that is no tool, or a tool it was not offered, is carried by neither.
+    const asked = [...hinted, ...(fromPlan ? planned : [])].map(toolIdOf).filter((id) => id && offeredIds.has(id));
+    if (asked.every((id) => own.includes(id)) && (fromPlan || own.some((id) => !always.includes(id)))) return own;
+  }
   // The tools the request's words point at come first (M40), then the plan's, or the cheap reads.
   const wanted = [...hinted.map(toolIdOf), ...(fromPlan ? planned.map(toolIdOf) : [...defaultActOrder, ...toolIds])];
   const room = Math.max(0, limit - always.length);
@@ -413,9 +479,7 @@ export function actToolIds(offered, { planned = null, hinted = [], kind = null, 
     if (!id || !offeredIds.has(id) || always.includes(id) || chosen.includes(id)) continue;
     chosen.push(id);
   }
-  // The catalog's order within each group: the same set is always the same bytes.
-  const inOrder = (ids) => toolCatalog.filter((tool) => ids.includes(tool.id)).map((tool) => tool.id);
-  return [...inOrder(always), ...inOrder(chosen)];
+  return [...inCatalogOrder(always), ...inCatalogOrder(chosen)];
 }
 
 /** Permissions an agent can give a tool: use it freely, only when a person asked, or not at all. */

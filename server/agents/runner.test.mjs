@@ -24,9 +24,9 @@ describe("the tools each call carries", () => {
     expect(result.run.state).toBe("completed");
     const [plan, ...act] = result.requests;
     expect(plan.tools ?? null).toBeNull();
-    // Always-on first, then the plan's, each in the catalog's order: 8 of the 30 Steve may use (M51.1: baselinewatch.digest).
+    // Always-on first, then its own set, in the catalog's order: 10 of the 30 Steve may use, the same whatever the plan (M66.2).
     expect(result.claim.tools).toHaveLength(30);
-    for (const request of act) expect(names(request)).toEqual(["memory_search", "plan_propose", "notify_owner", "agents_handoff", "apps_list", "services_status", "storage_health", "alerts_active"]);
+    for (const request of act) expect(names(request)).toEqual(["memory_search", "plan_propose", "notify_owner", "agents_handoff", "server_facts", "apps_list", "services_status", "storage_health", "alerts_active", "baselinewatch_digest"]);
     for (let index = 1; index < act.length; index += 1) {
       expect(act[index].tools).toEqual(act[0].tools);
       expect(act[index].messages.slice(0, act[index - 1].messages.length)).toEqual(act[index - 1].messages);

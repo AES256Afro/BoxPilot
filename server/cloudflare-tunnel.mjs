@@ -9,6 +9,11 @@
  * have the network the helper does not), and the tunnel's run token, which the helper hands to the
  * Cloudflare Tunnel app as its TUNNEL_TOKEN.
  *
+ * A tunnel the Cloudflare Tunnel app already runs is used, not replaced (M65.3): Connect reads which
+ * tunnel the app's key is for (tunnelOfKey) and takes that one as BoxPilot's when the API token can
+ * reach it. A key that is replaced all the same, because the owner chose it, is kept first as a
+ * third credential.
+ *
  * The state file says what BoxPilot made: the account, the tunnel, the domains the token covers, and
  * each name it published with the DNS record it made for it. It is root-only (0600) beside the
  * credential store. Unpublishing touches only what is recorded here, so a name or a record the
@@ -20,6 +25,10 @@ import { writeFileDurably } from "./durable-file.mjs";
 
 export const cloudflareApiCredential = "cloudflare-api-token";
 export const cloudflareTunnelCredential = "cloudflare-tunnel-token";
+/** The key the Cloudflare Tunnel app ran with before Connect replaced it: the last one only. */
+export const cloudflarePreviousTunnelCredential = "cloudflare-tunnel-token-previous";
+/** The setting of the Cloudflare Tunnel app that holds the key it runs with (catalog/cloudflared.yaml). */
+export const tunnelKeySetting = "TUNNEL_TOKEN";
 /** The catalog app that runs the tunnel (catalog/cloudflared.yaml). */
 export const tunnelAppId = "cloudflared";
 export const defaultTunnelStateFile = process.env.BOXPILOT_CLOUDFLARE_STATE ?? "/var/lib/boxpilot-managed/cloudflare-tunnel.json";
@@ -44,6 +53,30 @@ export const tunnelTargetFor = (tunnelId) => `${tunnelId}.cfargotunnel.com`;
 export const sameName = (a, b) => typeof a === "string" && typeof b === "string" && a.replace(/\.$/, "").toLowerCase() === b.replace(/\.$/, "").toLowerCase();
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
+const tunnelIdShape = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
+const accountTagShape = /^[0-9a-f]{32}$/;
+
+/**
+ * Which tunnel a connector's key (cloudflared's TUNNEL_TOKEN) runs, and in which account. The key is
+ * base64 of {"a": account tag, "t": tunnel id, "s": secret}, with or without its padding, in either
+ * base64 alphabet; the account tag is the account id Cloudflare's API uses. Only the two ids come
+ * back, lower-cased: never the key, never its secret. Null for anything that is not such a key.
+ * @param {unknown} key
+ * @returns {{ tunnelId: string, accountTag: string } | null}
+ */
+export function tunnelOfKey(key) {
+  if (typeof key !== "string") return null;
+  const compact = key.trim();
+  if (!compact || compact.length > 4096 || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(compact)) return null;
+  let parsed = null;
+  try { parsed = JSON.parse(Buffer.from(compact.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")); } catch { return null; }
+  if (!isObject(parsed) || typeof parsed.t !== "string" || typeof parsed.a !== "string") return null;
+  const tunnelId = parsed.t.toLowerCase();
+  const accountTag = parsed.a.toLowerCase();
+  return tunnelIdShape.test(tunnelId) && accountTagShape.test(accountTag) ? { tunnelId, accountTag } : null;
+}
+
 const text = (value, limit = 253) => (typeof value === "string" && value.length && value.length <= limit ? value : null);
 
 /** The state as read, with anything malformed in it dropped rather than trusted. */

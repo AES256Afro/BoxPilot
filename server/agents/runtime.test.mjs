@@ -42,6 +42,17 @@ describe("the command that serves a model", () => {
     expect(later.env.UNSLOTH_STUDIO_PASSWORD).toBeUndefined();
   });
 
+  it("has Unsloth keep a quiet model loaded as long as the owner keeps an idle model server, and never under 15 minutes", () => {
+    const ttl = (idleStopMs) => serverCommand({ driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", ...(idleStopMs === undefined ? {} : { idleStopMs }) }, { port: 1, runtimeDir: "/", stateDir: "/", secrets: { studioPassword: "p".repeat(32) } }).env.UNSLOTH_MODEL_IDLE_TTL;
+    // The default hour, and the longest the setting takes: scheduled runs hours apart find the model, and what it read, still there.
+    expect(ttl(60 * 60_000)).toBe("3600");
+    expect(ttl(720 * 60_000)).toBe("43200");
+    // The shortest setting is five minutes: Unsloth's own unload stays where it always was.
+    expect(ttl(5 * 60_000)).toBe("900");
+    expect(ttl(undefined)).toBe("900");
+    expect(ttl(15 * 60_000 + 1)).toBe("901");
+  });
+
   it("serves llama.cpp's own server when the owner chose it: loopback, a key from a file, the files it was handed", () => {
     const { command, args } = serverCommand({ driver: "llama-server", requestModel: "unsloth/Qwen3.5-4B-GGUF", contextTokens: 8192, threads: 4 }, {
       port: 18889, runtimeDir: "/r", stateDir: "/s", secrets: { apiKeyFile: "/s/llama-server.key" },
@@ -109,6 +120,46 @@ describe("starting and stopping", () => {
     await runtime.stop("idle");
     await runtime.ensure(unsloth);
     expect(started.map((env) => Boolean(env.UNSLOTH_STUDIO_PASSWORD))).toEqual([true, false, false]);
+  }, 30_000);
+
+  it("starts Unsloth again, once, when the idle time changes what it is started with, and leaves a server with no unload of its own running", async () => {
+    const stateDir = await mkdtemp(path.join(scratch, "studio-idle-"));
+    const studio = path.join(stateDir, "studio.mjs");
+    await writeFile(studio, [
+      `import { startFakeModel } from ${JSON.stringify(pathToFileURL(fakeModelPath).href)};`,
+      "const args = process.argv.slice(2);",
+      "const fake = await startFakeModel({ port: Number(args[args.indexOf('-p') + 1]), apiKey: 'sk-unsloth-' + 'i'.repeat(24) });",
+      "console.log('API Key: ' + fake.apiKey);",
+    ].join("\n"));
+    const started = [];
+    const spawn = (_command, args, options) => { started.push(options.env.UNSLOTH_MODEL_IDLE_TTL); return spawnProcess(process.execPath, [studio, ...args], options); };
+    const runtime = make({ spawn, stateDir, runtimeDir: path.join(stateDir, "unsloth") });
+    const unsloth = { driver: "unsloth", model: "unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL", threads: 4 };
+    await runtime.ensure({ ...unsloth, idleStopMs: 60 * 60_000 });
+    const pid = runtime.status().pid;
+    // The same setting: the same server, and everything it has read.
+    expect(await runtime.ensure({ ...unsloth, idleStopMs: 60 * 60_000 })).toMatchObject({ loadMs: 0 });
+    expect(runtime.status().pid).toBe(pid);
+    // The owner chose two hours: Unsloth reads its unload time only when it starts.
+    await runtime.ensure({ ...unsloth, idleStopMs: 120 * 60_000 });
+    expect(started).toEqual(["3600", "7200"]);
+    expect(runtime.status().pid).not.toBe(pid);
+    const second = runtime.status().pid;
+    await runtime.ensure({ ...unsloth, idleStopMs: 120 * 60_000 });
+    expect(runtime.status().pid).toBe(second);
+    expect(started).toHaveLength(2);
+    await runtime.stop("test");
+    // Five minutes and ten are both under Unsloth's floor: nothing it is started with changes.
+    await runtime.ensure({ ...unsloth, idleStopMs: 5 * 60_000 });
+    await runtime.ensure({ ...unsloth, idleStopMs: 10 * 60_000 });
+    expect(started).toEqual(["3600", "7200", "900"]);
+
+    // The fake driver (and llama-server) has no unload of its own: a new idle time is only the runner's to keep.
+    const fake = make();
+    await fake.ensure({ driver: "fake", model: null, idleStopMs: 60 * 60_000 });
+    const fakePid = fake.status().pid;
+    expect(await fake.ensure({ driver: "fake", model: null, idleStopMs: 120 * 60_000 })).toMatchObject({ loadMs: 0 });
+    expect(fake.status().pid).toBe(fakePid);
   }, 30_000);
 
   it("asks the model server it started whether it can see, with the start's key, once a start (M40.6)", async () => {

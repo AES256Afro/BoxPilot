@@ -245,8 +245,9 @@ export function normalizeRuntimeSettings(input, current = defaultRuntimeSettings
     driver,
     endpoint,
     contextTokens: integer(input.contextTokens, current.contextTokens, 2_048, 32_768, "The context"),
-    // Unsloth unloads the model itself after 15 quiet minutes (UNSLOTH_MODEL_IDLE_TTL); this stops the
-    // whole server, its Python backend too, so idle is then no process at all.
+    // This stops the whole server, its Python backend too, so idle is then no process at all. Unsloth
+    // keeps the model loaded as long (UNSLOTH_MODEL_IDLE_TTL, never under 15 minutes), and with it
+    // the prompts it has read: a change here restarts the model server at the next run.
     idleStopMinutes: integer(input.idleStopMinutes, current.idleStopMinutes, 5, 720, "Minutes before an idle model server stops"),
     maxTokens: integer(input.maxTokens, current.maxTokens, 128, 4_096, "The longest answer in tokens"),
   };
@@ -1224,7 +1225,11 @@ export function createAgentService({
     // out for room (M66), so the trace can say that too.
     if (!store.countSteps(run.id, "prompt")) {
       const truncated = taskContent.length > limits.promptChars;
-      store.addStep(run.id, { kind: "prompt", name: "task", output: redact(truncated ? `${taskContent.slice(0, limits.promptChars - 1)}…` : taskContent), flags: { notes: notes.length, memories: recalled.length, findings: findings.length, notesLeftOut: leftOut.notes, memoriesLeftOut: leftOut.memories, findingsLeftOut: leftOut.findings, handoffs: handoffSteps.length, thread: Boolean(context), ...(truncated ? { truncated: true } : {}) } });
+      // Cut in the middle (M66.2): the notes open the task now and the question ends it, and a
+      // trace that kept only the opening would show the notes and not what was asked.
+      const keptTail = Math.floor(limits.promptChars / 4);
+      const shown = truncated ? `${taskContent.slice(0, limits.promptChars - keptTail - 3)}\n…\n${taskContent.slice(-keptTail)}` : taskContent;
+      store.addStep(run.id, { kind: "prompt", name: "task", output: redact(shown), flags: { notes: notes.length, memories: recalled.length, findings: findings.length, notesLeftOut: leftOut.notes, memoriesLeftOut: leftOut.memories, findingsLeftOut: leftOut.findings, handoffs: handoffSteps.length, thread: Boolean(context), ...(truncated ? { truncated: true } : {}) } });
       // Said in words too, as a line of the trace of its own: the step above is the prompt as the
       // model read it, which the training record is made from, so nothing is added to its text.
       const left = leftOutWords(leftOut);

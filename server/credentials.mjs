@@ -17,7 +17,7 @@ export const defaultCredentialFile = process.env.BOXPILOT_CREDENTIAL_FILE ?? "/v
 
 /**
  * The credentials BoxPilot saves for itself, each through its own operation at its own tier: the
- * Cloudflare API token and the tunnel's run token (cloudflare.connect, high, ADR-011), the
+ * Cloudflare API token, the tunnel's run token and the one it replaced (cloudflare.connect, high, ADR-011), the
  * heartbeat's secret address (heartbeat.set), and the agents' Zulip bot key (agents.zulip.connect).
  * Every name BoxPilot writes to this store on its own belongs here; ops/connectors.test.mjs holds
  * the list to the modules that write them.
@@ -29,7 +29,7 @@ export const defaultCredentialFile = process.env.BOXPILOT_CREDENTIAL_FILE ?? "/v
  * replace one without the checks of the operation that owns it, or take it away from under its
  * feature. Their own operations reach the store directly and are not affected.
  */
-export const managedCredentialNames = new Set(["cloudflare-api-token", "cloudflare-tunnel-token", "heartbeat-url", "zulip-agents-bot"]);
+export const managedCredentialNames = new Set(["cloudflare-api-token", "cloudflare-tunnel-token", "cloudflare-tunnel-token-previous", "heartbeat-url", "zulip-agents-bot"]);
 
 /** Why a credential name may not be used, saved or removed by hand, or null when it may. */
 export function managedCredentialProblem(name) {

@@ -11,8 +11,9 @@
  * (M47 gave them eyes on most of what they once named: the firewall, package updates, Repair's
  * findings, each app's backups and resource use, the space a clean-up would free). Each one's routine work
  * names at most eight tools in its steps, because a plan holds eight steps (M47.2) and a call that acts
- * carries only the plan's tools and the always-on ones (intent.mjs, actToolIds); its own notes come
- * with every request, so none spends a step reading them. Each one's budget holds its own nightly
+ * carries the always-on tools and the ones its steps name (M66.2: the same list at every run, so the
+ * model server reads it once), or the plan's when it names another (intent.mjs, actToolIds,
+ * coreToolIds); its own notes come with every request, so none spends a step reading them. Each one's budget holds its own nightly
  * evaluation, which runs only when it leaves half the day's model time free (240 s a question).
  *
  * M44: every template shares its findings with the other agents and uses theirs, except the IT
@@ -47,7 +48,7 @@ export const agentTemplates = Object.freeze([
         steps: [
           "Read the facts the question needs: server.facts, apps.list, storage.health, alerts.active.",
           "When BaselineWatch is installed, read baselinewatch.digest for the day's known exploited vulnerabilities, watched CVEs and standards changes, and cite it in your digest.",
-          "Your notes and what you remember are under the question. Use memory.search only for what they do not cover; say when a note may be out of date.",
+          "Your notes and what you remember are already in what you were given. Use memory.search only for what they do not cover; say when a note may be out of date.",
           "Hand a question about Pi-hole or about backups to that specialist with agents.handoff, and answer the rest yourself.",
           "Keep a note of anything new you learned about the server.",
         ],

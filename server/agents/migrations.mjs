@@ -249,6 +249,23 @@ export function createAgentMigrations({ store, state, now, audit, nextRunFor, sh
       next.wording = { at: now().toISOString(), reworded };
       changed += reworded;
     }
+    // M66.2: the notes moved above the question, and the Keeper's step of two releases back said
+    // they were under it. A Keeper still on that step, word for word, gets the template's.
+    if (!done.wording2) {
+      const said = "Your notes and what you remember are under the question. Use memory.search only for what they do not cover; say when a note may be out of date.";
+      let reworded = 0;
+      for (const agent of store.listAgents()) {
+        const template = agent.template === "server-keeper" ? templateById(agent.template) : null;
+        const steps = agent.spec.prompt?.steps ?? [];
+        const fresh = template?.spec.prompt.steps.find((step) => step.startsWith("Your notes and what you remember"));
+        if (!fresh || fresh === said || !steps.includes(said)) continue;
+        let spec;
+        try { spec = normalizeSpec({ ...agent.spec, prompt: { ...agent.spec.prompt, steps: steps.map((step) => (step === said ? fresh : step)) }, sharing: sharingFor(agent) }); } catch { continue; }
+        if (save(agent, spec, "BoxPilot reworded a step: its notes are now given to it before the question", ["prompt"])) reworded += 1;
+      }
+      next.wording2 = { at: now().toISOString(), reworded };
+      changed += reworded;
+    }
     // M46: agents made before the example book get their template's examples, once.
     if (!done.examples) {
       let seeded = 0;
@@ -256,7 +273,7 @@ export function createAgentMigrations({ store, state, now, audit, nextRunFor, sh
       next.examples = { at: now().toISOString(), seeded };
       changed += seeded;
     }
-    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.surveyWide !== done.surveyWide || next.eyesMore !== done.eyesMore || next.headroom !== done.headroom || next.wording !== done.wording) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
+    if (next.runSeconds !== done.runSeconds || next.sharing !== done.sharing || next.examples !== done.examples || next.eyes !== done.eyes || next.surveyWide !== done.surveyWide || next.eyesMore !== done.eyesMore || next.headroom !== done.headroom || next.wording !== done.wording || next.wording2 !== done.wording2) state.setSetting?.(agentsMigrationsKey, next, { updatedBy: null });
     return changed;
   }
 

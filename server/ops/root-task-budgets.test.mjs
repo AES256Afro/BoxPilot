@@ -25,7 +25,8 @@ async function rootTaskLimits(operation, timeScale) {
     runUnit: { runTask: async (task, _parameters, options = {}) => { limits.push({ task, timeoutMs: options.timeoutMs }); return {}; } },
     // An installed, running app on a loopback port, and a saved credential: what the operations
     // that talk to an app or use a credential check before their root task.
-    apps: { inspect: async ({ id } = {}) => ({ applications: [{ id, installed: true, container: { running: true }, urls: [{ host: 8080 }] }] }) },
+    // No secret settings of its own: Connect Cloudflare reads the tunnel app's key before its task (M65.3).
+    apps: { inspect: async ({ id } = {}) => ({ applications: [{ id, installed: true, container: { running: true }, urls: [{ host: 8080 }] }] }), secrets: async ({ id } = {}) => ({ id, secrets: [] }) },
     credentials: { read: async () => "x", set: async () => ({}), remove: async () => ({}) },
     jobLog: { path: null },
     progress: () => {},
