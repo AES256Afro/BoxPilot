@@ -331,7 +331,7 @@ Each app is a short description file plus a Docker Compose template, so installi
 | Network (8) | Apache Guacamole, Cloudflare DDNS, Cloudflare Tunnel, NetAlertX, Nginx Proxy Manager, SmokePing, UniFi Network Application, WireGuard (wg-easy) |
 | Productivity (6) | Baïkal, FreshRSS, Miniflux, Planka, SearXNG, Vikunja |
 | Household (5) | Grocy, Homebox, Mealie, Monica, Tandoor Recipes |
-| Security (5) | 2FAuth, Pocket ID, SecurityX, TheySpy, Vaultwarden |
+| Security (5) | 2FAuth, Pocket ID, Porchlight, TheySpy, Vaultwarden |
 | Backup (4) | Backrest, Duplicati, Kopia, MinIO |
 | Books (4) | Calibre-Web, Kavita, Komga, Suwayomi |
 | Finance (4) | Actual Budget, FinancialAuthority, Firefly III, Wallos |
