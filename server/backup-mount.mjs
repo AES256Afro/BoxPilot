@@ -20,6 +20,29 @@ export const backupMountParent = "/mnt/boxpilot";
 export const backupMountpoint = "/mnt/boxpilot/backup";
 export const legacyBackupMountpoint = "/mnt/boxpilot-backup";
 
+/**
+ * Every folder that holds the backup destination, now or before the move: the folder the helper is
+ * given (which holds /mnt/boxpilot/backup) and the old /mnt/boxpilot-backup, which a server not yet
+ * moved still mounts. Every app's secrets and the database are copied there, so a share, an export or
+ * an app's folder that reaches either reads them, ships them or deletes them (M72: the Samba and NFS
+ * deny lists named the new one only). A deny list that refuses a prefix and anything above it can
+ * spread this in.
+ */
+export const backupDestinationPaths = Object.freeze([backupMountParent, legacyBackupMountpoint]);
+
+/**
+ * Does `folder` hold, or sit inside, where the backups are kept (either of backupDestinationPaths)?
+ * /mnt is true, since it holds both; /mnt/boxpilot-backups is false. Anything but a string is false.
+ *
+ * @param {unknown} folder an absolute path, trailing slashes allowed
+ * @returns {boolean}
+ */
+export function isBackupDestinationPath(folder) {
+  if (typeof folder !== "string") return false;
+  const normalized = folder.replace(/\/+$/, "") || "/";
+  return backupDestinationPaths.some((kept) => normalized === kept || normalized.startsWith(`${kept}/`) || kept.startsWith(normalized === "/" ? "/" : `${normalized}/`));
+}
+
 /** A drive mounted at /mnt/boxpilot would sit where the helper may write, over the destination. */
 export const reservedMountNames = Object.freeze(["boxpilot"]);
 

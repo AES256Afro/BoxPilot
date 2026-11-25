@@ -96,16 +96,22 @@ async function copyInto(source, target, mode, owner = null) {
  */
 async function replaceWith(source, target, owner) {
   const staged = `${target}.restoring`;
-  await rm(staged, { force: true });
+  // A failure before the rename leaves `target` as it was; one after it does not (M73: the caller
+  // words its outcome from which it was).
+  const untouched = (error) => Object.assign(error, { untouched: true });
+  await rm(staged, { force: true }).catch((error) => { throw untouched(error); });
   try {
     await copyInto(source, staged, owner.mode & 0o7777, owner);
   } catch (error) {
     await rm(staged, { force: true }).catch(() => {});
-    throw error;
+    throw untouched(error);
   }
-  await rename(staged, target);
+  await rename(staged, target).catch((error) => { throw untouched(error); });
   for (const suffix of ["-wal", "-shm", "-journal"]) await rm(`${target}${suffix}`, { force: true });
 }
+
+/** @param {{ ok: boolean, stderr?: string }} started */
+const startedAgain = (started) => (started.ok ? "BoxPilot started again" : `BoxPilot would not start again (${started.stderr?.trim() || "systemctl failed"}); see the service log`);
 
 /** Copy the live database (with whatever its -wal holds) to `target`, and check the result. */
 function saveCurrent(database, target) {
@@ -187,35 +193,59 @@ async function putBack({ database, copyName, version, stamp, run, healthy, log =
       await copyInto(before, path.join(directory, savedName), 0o600);
       say(`database copy: ${path.join(directory, savedName)} (the database as it was before this)`);
     } catch (error) {
-      await startBoxPilot();
-      throw new Error(`the current database could not be saved first, so it was left as it was: ${error.message}`);
+      const started = await startBoxPilot();
+      throw new Error(`the current database could not be saved first, so it was left as it was: ${error.message}. ${startedAgain(started)}`);
     }
 
+    // Each outcome below is worded from what happened (M73): the message said the database it had
+    // was put back, and BoxPilot started, when that put-back had thrown or the start had failed.
     try {
       await replaceWith(chosen, database, owner);
     } catch (error) {
-      // Out of space, most likely. Whatever stage it stopped at, the database before is put back.
-      say(`ERROR: could not write ${copyName} in place (${error.message}); putting back the database it had`);
-      await replaceWith(before, database, owner).catch((again) => say(`ERROR: could not put it back either (${again.message})`));
-      await startBoxPilot();
-      throw new Error(`${copyName} could not be written in place (${error.message}); the database it had was put back and BoxPilot started again`);
+      // Out of space, most likely. Stopped before the rename, the database was never touched;
+      // after it, the database before is put back.
+      let outcome;
+      let rolledBack = false;
+      if (error.untouched) {
+        say(`ERROR: could not write ${copyName} in place (${error.message}); the database was left as it was`);
+        outcome = "the database was left as it was";
+      } else {
+        say(`ERROR: could not write ${copyName} in place (${error.message}); putting back the database it had`);
+        try {
+          await replaceWith(before, database, owner);
+          rolledBack = true;
+          outcome = "the database it had was put back";
+        } catch (again) {
+          say(`ERROR: could not put it back either (${again.message})`);
+          outcome = `the database it had could not be put back either (${again.message}); it is saved as ${savedName}`;
+        }
+      }
+      const started = await startBoxPilot();
+      throw Object.assign(new Error(`${copyName} could not be written in place (${error.message}); ${outcome}. ${startedAgain(started)}`), { rolledBack });
     }
     say(`${copyName} is the database now; starting BoxPilot`);
-    await startBoxPilot();
-    if (await healthy()) {
+    const started = await startBoxPilot();
+    if (!started.ok) say(`ERROR: BoxPilot would not start on ${copyName} (${started.stderr?.trim() || "systemctl failed"})`);
+    if (started.ok && await healthy()) {
       say(`RESTORED: BoxPilot answers on ${copyName}; everyone was signed out; the database before this is ${savedName}`);
       return { restored: copyName, saved: savedName, rolledBack: false };
     }
 
     say(`ERROR: BoxPilot did not answer on ${copyName}; putting back the database it had`);
     await run("/usr/bin/systemctl", ["stop", "boxpilot.service"]);
+    let putBackError = null;
     try {
       await replaceWith(before, database, owner);
-    } finally {
-      await startBoxPilot();
+    } catch (error) {
+      putBackError = error;
+      say(`ERROR: could not put it back (${error.message})`);
     }
-    const back = await healthy();
-    throw Object.assign(new Error(`BoxPilot did not answer on ${copyName}, so the database it had was put back${back ? " and BoxPilot answers again" : "; BoxPilot does not answer on it either, see the service log"}`), { rolledBack: true });
+    const restarted = await startBoxPilot();
+    if (putBackError) {
+      throw Object.assign(new Error(`BoxPilot did not answer on ${copyName}, and the database it had could not be put back (${putBackError.message}); it is saved as ${savedName}. ${startedAgain(restarted)}`), { rolledBack: false });
+    }
+    const back = restarted.ok && await healthy();
+    throw Object.assign(new Error(`BoxPilot did not answer on ${copyName}, so the database it had was put back${back ? " and BoxPilot answers again" : restarted.ok ? "; BoxPilot does not answer on it either, see the service log" : `; ${startedAgain(restarted)}`}`), { rolledBack: true });
   } finally {
     await rm(work, { recursive: true, force: true });
   }

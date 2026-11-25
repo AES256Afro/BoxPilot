@@ -2,6 +2,7 @@ import { readdir, readFile, rename, stat, unlink } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { managedDriveEntries, verificationAllows, verifyFstab } from "./drive-shutdown.mjs";
+import { backupMountName } from "../backup-mount.mjs";
 import { appUserId, hostMountAt, managedDrive, permissionlessFilesystems, remountDrive } from "./storage.mjs";
 
 /**
@@ -35,6 +36,9 @@ const defaultFiles = { readFile, writeFile, rename, unlink, stat, readable: (tar
 
 /** @param {{ name?: string }} [parameters] */
 export async function storageWritable({ name } = {}, { run = fixedRun, log = null, files = defaultFiles, sleep = undefined, processes = undefined, now = () => new Date(), uid = appUserId, gid = appUserId } = {}) {
+  // M73 (SEC-4): the backup drive holds every app's secrets; on these filesystems it is mounted for
+  // root alone (tasks/storage.mjs storageMount), and handing it to the apps user would undo that.
+  if (name === backupMountName) throw new Error("The backup drive stays readable by root only, because it holds every app's secrets and database copies, so it is not handed to apps. Nothing was changed.");
   const drive = await managedDrive(name, files);
   if (!drive.readWrite) throw new Error(`${drive.mountpoint} is mounted read-only on purpose (its fstab entry says ro), so nothing was changed`);
   const before = await files.readFile(fstabPath, "utf8");
@@ -68,13 +72,17 @@ export async function storageWritable({ name } = {}, { run = fixedRun, log = nul
       throw new Error(`findmnt --verify rejected the new entry, so fstab was left as it was: ${proposed.text || "no details"}`);
     }
     await files.rename(candidatePath, fstabPath);
-    await run(systemctl, ["daemon-reload"], { timeout: 60_000 });
+    // M73: mount reads fstab itself, so a failed reload does not stop the new entry taking effect;
+    // systemd keeps its old generated unit until the next reload, which the log says.
+    const reloaded = await run(systemctl, ["daemon-reload"], { timeout: 60_000 });
+    if (!reloaded.ok) log?.(`systemctl daemon-reload failed (${reloaded.stderr || "no details"}); systemd keeps the old entry until the next reload`, "stderr");
     log?.(`${drive.mountpoint}: ${entry.options} -> ${options}`, "stdout");
     const undo = async () => {
       log?.(`Putting ${drive.mountpoint}'s old entry back`, "stderr");
       await files.writeFile(candidatePath, before, { mode: 0o644 });
       await files.rename(candidatePath, fstabPath);
-      await run(systemctl, ["daemon-reload"], { timeout: 60_000 }).catch(() => {});
+      const undone = await run(systemctl, ["daemon-reload"], { timeout: 60_000 });
+      if (!undone.ok) log?.(`systemctl daemon-reload failed (${undone.stderr || "no details"}); systemd keeps the new entry until the next reload`, "stderr");
     };
     return { summary: { changed: true, backup, previousOptions: entry.options, options }, undo };
   };

@@ -117,9 +117,13 @@ export function createVmCloudHelper({
     let diskCreated = false; let defined = false;
     try {
       progress?.(`Creating ${diskGiB} GiB disk from the base image`, "stdout");
+      // Ours from before the convert starts (M73): the check above proved no file had this name, and
+      // a convert that fails part way (a full disk, a timeout) leaves a partial disk behind. Marked
+      // only after it succeeded, that partial was kept, the job still said rolled back, and a retry
+      // with the same name was refused as possibly holding a deleted VM's data.
+      diskCreated = true;
       const convert = await run(qemuImgBinary, ["convert", "-f", "qcow2", "-O", "qcow2", base.path, diskPath], { timeout: 30 * 60_000 });
       if (!convert.ok) throw new Error(`qemu-img convert failed: ${convert.stderr.split("\n").slice(-2).join(" ")}`);
-      diskCreated = true;
       const resize = await run(qemuImgBinary, ["resize", diskPath, `${diskGiB}G`], { timeout: 5 * 60_000 });
       if (!resize.ok) throw new Error(`qemu-img resize failed: ${resize.stderr.split("\n").slice(-2).join(" ")}`);
       const rendered = renderCloudInit(input);

@@ -189,6 +189,15 @@ describe("setting the UPS up", () => {
     expect(calls).toContain("chown nut:nut /var/lib/boxpilot-power /var/lib/boxpilot-power/events.log");
   });
 
+  it("fails when a configuration file cannot be given to the nut group, and starts the monitor again (M73)", async () => {
+    const files = fakeFiles();
+    const { run: base, calls } = nutHost();
+    const run = vi.fn(async (binary, args, options) => (binary.endsWith("chown") && args[0] === "root:nut" ? { ok: false, stdout: "", stderr: "chown: invalid group: 'root:nut'" } : base(binary, args, options)));
+    await expect(upsSetup({ name: "ups" }, dependencies(files, run))).rejects.toThrow(/could not give it to the nut group \(chown: invalid group: 'root:nut'\), so NUT could not read it, and the UPS files are half-written\. The UPS monitor was started again\./);
+    expect(calls).toContain("systemctl start nut-monitor.service");
+    expect(calls.some((call) => call.startsWith("systemctl restart nut-server"))).toBe(false);
+  });
+
   it("logs that it is watching and records what it set up, for the pages", async () => {
     const files = fakeFiles();
     const { run } = nutHost();

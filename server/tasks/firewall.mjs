@@ -166,28 +166,38 @@ export async function firewallProfileApply({ profile, services = [], replace = f
     }
     log?.(`Copied ${saved.length} rule file(s) aside so they can be put back if this fails`, "stdout");
   }
+  /** Rule files whose put-back failed: their copies are kept, so the owner still has them. */
+  const notPutBack = new Set();
   const putBack = async (reason) => {
     if (!saved.length) return "";
-    for (const { source, copy } of saved) await copyFile(copy, source).catch(() => {});
+    // M73: each copy's outcome is recorded and the message is worded from it. It used to say
+    // "Your previous rules were put back" whether or not the copies went back.
+    for (const { name, source, copy } of saved) {
+      await copyFile(copy, source).catch((error) => { notPutBack.add(name); log?.(`${name} could not be put back: ${error.message}`, "stderr"); });
+    }
+    const failed = saved.filter(({ name }) => notPutBack.has(name)).map(({ name }) => name);
+    const rules = failed.length === 0 ? " Your previous rules were put back"
+      : failed.length === saved.length ? ` Your previous rules could not be put back; copies are kept in ${rulesDirectory} as *.boxpilot-pre`
+        : ` Your previous rules were put back except ${failed.join(", ")}, which could not be copied back; copies are kept in ${rulesDirectory} as *.boxpilot-pre`;
     if (!wasEnabled) {
       // The reset already turned ufw off; this covers a failure at the enable step itself.
-      await run(ufw, ["--force", "disable"], { timeout: 60_000 });
-      log?.(`Put the previous rules back after ${reason}; the firewall was off before and stays off`, "stderr");
-      return " Your previous rules were put back and the firewall was left off, as it was.";
+      const disabled = await run(ufw, ["--force", "disable"], { timeout: 60_000 });
+      log?.(`Put the previous rules back after ${reason}${failed.length ? ` (not ${failed.join(", ")})` : ""}; the firewall was off before${disabled.ok ? " and stays off" : ", but could not be turned off again"}`, "stderr");
+      return disabled.ok ? `${rules}, and the firewall was left off, as it was.` : `${rules}, but the firewall could not be turned off again (${tail(disabled.stderr) || "ufw returned an error"}).`;
     }
     const reloaded = await run(ufw, ["--force", "enable"], { timeout: 60_000 });
-    log?.(`Put the previous rules back after ${reason}${reloaded.ok ? "" : " (the firewall could not be re-enabled)"}`, "stderr");
-    if (!reloaded.ok) return " Your previous rules were put back on disk, but the firewall could not be turned back on.";
+    log?.(`Put the previous rules back after ${reason}${failed.length ? ` (not ${failed.join(", ")})` : ""}${reloaded.ok ? "" : " (the firewall could not be re-enabled)"}`, "stderr");
+    if (!reloaded.ok) return `${rules}, but the firewall could not be turned back on.`;
     // The restored after.rules holds the old Docker block; a sync reattaches its chain without duplicates.
     await dockerSync({ enabled: true }, { run, log }).catch((error) => log?.(`Docker rules not refreshed: ${error.message}`, "stderr"));
-    return " Your previous rules were put back.";
+    return `${rules}.`;
   };
   const keepCustomRules = async () => {
     for (const { name, source, copy } of saved) {
       if (keptThroughReset.has(name)) await copyFile(copy, source).catch((error) => log?.(`${name} could not be put back after the reset: ${error.message}`, "stderr"));
     }
   };
-  const discardSaved = async () => { for (const { copy } of saved) await rm(copy, { force: true }).catch(() => {}); };
+  const discardSaved = async () => { for (const { name, copy } of saved) if (!notPutBack.has(name)) await rm(copy, { force: true }).catch(() => {}); };
   try {
     for (const step of plan.steps) {
       log?.(`$ ufw ${step.args.join(" ")}  # ${step.label}`, "stdout");

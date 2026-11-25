@@ -43,12 +43,26 @@ export async function webBindSet({ scope } = {}, { run = fixedRun, log = null, f
 
   // Open (or close) the web port for the network, so binding it is not undone by the firewall.
   // Idempotent: ufw allow twice is a no-op, and delete of an absent rule is harmless.
-  if (scope === "lan") await run(ufw, ["allow", `${port}/tcp`], { timeout: 30_000 }).catch(() => {});
-  else await run(ufw, ["--force", "delete", "allow", `${port}/tcp`], { timeout: 30_000 }).catch(() => {});
+  // M73: a failed opening is a warning the job shows (the page answers on the LAN only once the
+  // firewall lets it); a failed closing only leaves a rule for a port nothing listens on, so it is logged.
+  /** @type {string[]} */
+  const warnings = [];
+  const rule = scope === "lan"
+    ? await run(ufw, ["allow", `${port}/tcp`], { timeout: 30_000 })
+    : await run(ufw, ["--force", "delete", "allow", `${port}/tcp`], { timeout: 30_000 });
+  if (!rule.ok && !/ENOENT/.test(rule.stderr)) {
+    if (scope === "lan") {
+      const warning = `BoxPilot will listen on the LAN, but the firewall could not be opened for port ${port} (${rule.stderr || "ufw failed"}); allow ${port}/tcp on the Firewall page, or other devices cannot reach it.`;
+      warnings.push(warning);
+      log?.(warning, "stderr");
+    } else {
+      log?.(`Could not remove the firewall rule for ${port}/tcp (${rule.stderr || "ufw failed"}); nothing listens there beyond this server now`, "stderr");
+    }
+  }
 
   // Restart a few seconds out so the response returns first; 0.0.0.0 keeps loopback, so even if the
   // restart hiccups the Serve/tailnet path is unaffected.
   const scheduled = await run(systemdRun, ["--quiet", "--on-active", "5", "--unit", "boxpilot-rebind", systemctl, "restart", "boxpilot.service"], { timeout: 30_000 });
   if (!scheduled.ok) throw new Error(`Wrote the new bind but could not schedule the restart: ${scheduled.stderr || "systemd-run failed"}. Restart boxpilot.service to apply it.`);
-  return { scope, host, port, restartScheduled: true };
+  return { scope, host, port, restartScheduled: true, ...(warnings.length ? { warnings } : {}) };
 }

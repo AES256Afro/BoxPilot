@@ -160,6 +160,24 @@ describe("machine snapshot helper", () => {
     expect((await helper.inspect()).snapshots).toHaveLength(2);
   });
 
+  // M73: with the clock behind the stamps on disk, retention sorted the new snapshot oldest and
+  // removed it, and the job still said created.
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("never removes the snapshot it just wrote, when the clock is behind the ones on disk", async () => {
+    const { helper, paths } = await fixture({ now: () => new Date("2026-11-25T02:00:00.000Z") });
+    await mkdir(paths.snapshotRoot, { recursive: true });
+    for (const stamp of ["20270101T000000Z", "20270102T000000Z", "20270103T000000Z"]) {
+      await writeFile(path.join(paths.snapshotRoot, `machine-snapshot-${stamp}-aaaaaaaa.tar.gz`), "old");
+      await writeFile(path.join(paths.snapshotRoot, `machine-snapshot-${stamp}-aaaaaaaa.tar.gz.meta.json`), "{}");
+    }
+    const result = await helper.create({ snapshotId });
+    expect(result.artifact).toBe("machine-snapshot-20261125T020000Z-11111111.tar.gz");
+    expect(result.removedByRetention).toEqual(["machine-snapshot-20270101T000000Z-aaaaaaaa.tar.gz"]);
+    expect(result.removedByRetention).not.toContain(result.artifact);
+    await expect(stat(result.artifactPath)).resolves.toBeTruthy();
+    await expect(stat(`${result.artifactPath}.meta.json`)).resolves.toBeTruthy();
+  });
+
   // Linux only: needs /usr/bin/tar.
   it.skipIf(onWindows)("mirrors the local backup roots onto the mount with hash verification and no deletes", async () => {
     const { helper, paths } = await fixture();

@@ -188,6 +188,14 @@ describe("giving existing drive entries the ordering", () => {
     expect(calls.filter((call) => call === "systemctl daemon-reload")).toHaveLength(2);
   });
 
+  it("says so when systemd cannot reload the file it put back (M73)", async () => {
+    const files = fakeFiles();
+    const { run: base } = systemdRun({ reloadFails: true });
+    const run = vi.fn(async (binary, args, options) => (args[0] === "daemon-reload" ? { ok: false, stdout: "", stderr: "Failed to reload" } : base(binary, args, options)));
+    await expect(storageDockerOrder({}, { run, files, now: at })).rejects.toThrow(/put back as it was \(the copy taken first is .*\), but systemd could not reload it, so it keeps the new order until the next reload or boot/);
+    expect(files.disk.get("/etc/fstab")).toBe(OWNER_FSTAB);
+  });
+
   it("puts the original back when systemd does not show the drive ordered before Docker", async () => {
     const files = fakeFiles();
     const { run } = systemdRun({ orderedUnits: [] });

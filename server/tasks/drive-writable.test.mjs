@@ -60,6 +60,12 @@ describe("letting apps write to a drive that keeps no owners (M35)", () => {
     expect(result.rewritten).toMatchObject({ changed: true, previousOptions: "defaults,nofail,x-systemd.before=docker.service" });
   });
 
+  it("never hands the backup drive to apps, which would undo its root-only mount (M73)", async () => {
+    const fakes = rig();
+    await expect(storageWritable({ name: "boxpilot-backup" }, { run: fakes.run, files: fakes.files, now: fakes.now, sleep: async () => {} })).rejects.toThrow("The backup drive stays readable by root only");
+    expect(fakes.run).not.toHaveBeenCalled();
+  });
+
   it("keeps every other option in its order and replaces an owner that was there", () => {
     expect(withOwnerOptions("rw,uid=0,nofail,gid=0,x-systemd.device-timeout=30s")).toBe("rw,nofail,x-systemd.device-timeout=30s,uid=1000,gid=1000");
     expect(withOwnerOptions("defaults", 1001, 1002)).toBe("defaults,uid=1001,gid=1002");

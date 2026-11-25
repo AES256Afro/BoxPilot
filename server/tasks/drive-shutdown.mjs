@@ -156,8 +156,10 @@ export async function storageDockerOrder(_parameters = {}, { run = fixedRun, log
   } catch (error) {
     await files.writeFile(candidatePath, before, { mode: 0o644 });
     await files.rename(candidatePath, fstabPath);
-    await run(binaries.systemctl, ["daemon-reload"], { timeout: 60_000 }).catch(() => {});
-    throw new Error(`${error.message}; /etc/fstab was put back as it was (the copy taken first is ${backup})`);
+    // M73: the message says whether systemd reread the old file too; fstab itself is back either way.
+    const reloaded = await run(binaries.systemctl, ["daemon-reload"], { timeout: 60_000 });
+    if (!reloaded.ok) log?.(`systemctl daemon-reload failed after putting fstab back: ${tail(reloaded.stderr)}`, "stderr");
+    throw new Error(`${error.message}; /etc/fstab was put back as it was (the copy taken first is ${backup})${reloaded.ok ? "" : ", but systemd could not reload it, so it keeps the new order until the next reload or boot"}`);
   }
   return { changed: true, backup, drives: plan.drives };
 }

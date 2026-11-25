@@ -230,6 +230,37 @@ describe("starting from scratch", () => {
     } finally { await host.cleanup(); }
   });
 
+  it("says which rule files could not be put back, and keeps their copies, rather than claiming all were (M73)", async () => {
+    const host = await box({ enabled: false });
+    try {
+      const dockerSync = vi.fn(async ({ enabled }) => ({ synced: true, enabled }));
+      const base = runner({ enabled: false, reset: host.reset, failOn: "allow 53/tcp" });
+      // A folder where user.rules was: copying the saved file back over it fails, as a full or
+      // read-only disk would make it.
+      const run = vi.fn(async (binary, args, options) => {
+        if (args.join(" ").startsWith("allow 53/tcp")) { await rm(path.join(host.directory, "user.rules")); await fs.mkdir(path.join(host.directory, "user.rules")); }
+        return base(binary, args, options);
+      });
+      const failure = await firewallProfileApply({ profile: "home-server", services: ["dns"], replace: true }, { run, ...lanEnv, dockerSync, ufwDirectory: host.directory }).catch((error) => error);
+      expect(failure.message).toContain("Your previous rules were put back except user.rules, which could not be copied back");
+      expect(failure.message).toContain("and the firewall was left off, as it was.");
+      expect(failure.message).not.toContain("Your previous rules were put back.");
+      const leftovers = (await fs.readdir(host.directory)).filter((name) => name.endsWith(".boxpilot-pre"));
+      expect(leftovers).toEqual(["user.rules.boxpilot-pre"]);
+    } finally { await host.cleanup(); }
+  });
+
+  it("says so when the firewall cannot be turned off again after a failed from-scratch apply (M73)", async () => {
+    const host = await box({ enabled: false });
+    try {
+      const dockerSync = vi.fn(async ({ enabled }) => ({ synced: true, enabled }));
+      const base = runner({ enabled: false, reset: host.reset, failOn: "allow 53/tcp" });
+      const run = vi.fn(async (binary, args, options) => (args.join(" ") === "--force disable" ? { ok: false, stdout: "", stderr: "ERROR: problem running ufw-init" } : base(binary, args, options)));
+      await expect(firewallProfileApply({ profile: "home-server", services: ["dns"], replace: true }, { run, ...lanEnv, dockerSync, ufwDirectory: host.directory }))
+        .rejects.toThrow("Your previous rules were put back, but the firewall could not be turned off again (ERROR: problem running ufw-init).");
+    } finally { await host.cleanup(); }
+  });
+
   it("clears the owner's rules but keeps hand-written before/after rules such as VPN NAT", async () => {
     const host = await box({ enabled: true });
     try {

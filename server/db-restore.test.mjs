@@ -125,6 +125,29 @@ describe.skipIf(onWindows)("putting a database copy back", () => {
     expect(await readFile(database)).toBeTruthy();
   });
 
+  // M73: the message said the database it had was put back, and BoxPilot started again, without
+  // looking at whether either had happened; rolledBack was never set on this path.
+  it("says the database was left as it was when the copy never reached it, and that BoxPilot would not start", async () => {
+    const { database, copyName, run } = await setup();
+    await mkdir(`${database}.restoring`);
+    run.mockImplementation(async (binary, args) => (args[0] === "is-active" ? { ok: false, stderr: "" } : args.join(" ") === "start boxpilot.service" ? { ok: false, stderr: "Job for boxpilot.service failed.\n" } : { ok: true, stderr: "" }));
+    const failure = await restoreDatabaseCopy({ database, copyName, version: "1.151.0", stamp: "20261019T130000Z", run, healthy: async () => true, log: () => {} }).catch((error) => error);
+    expect(failure.message).toMatch(/could not be written in place .*; the database was left as it was\. BoxPilot would not start again \(Job for boxpilot\.service failed\.\); see the service log/);
+    expect(failure.message).not.toMatch(/put back/);
+    expect(failure.rolledBack).toBe(false);
+    expect(owners(database)).toEqual(["now-alex", "now-sam"]);
+  });
+
+  it("says the database could not be put back, and where it is saved, when that fails too", async () => {
+    const { database, copyName, run } = await setup();
+    // Something lands in the put-back's way while BoxPilot is being checked on the copy.
+    const healthy = vi.fn(async () => { await mkdir(`${database}.restoring`, { recursive: true }); return false; });
+    const failure = await restoreDatabaseCopy({ database, copyName, version: "1.151.0", stamp: "20261019T130000Z", run, healthy, log: () => {} }).catch((error) => error);
+    expect(failure.message).toMatch(/did not answer on .*, and the database it had could not be put back \(.*\); it is saved as boxpilot-rollback-1\.151\.0-20261019T130000Z\.sqlite3\. BoxPilot started again/);
+    expect(failure.rolledBack).toBe(false);
+    expect(owners(database)).toEqual(["then-alex"]);
+  });
+
   it("writes how it ended where the System page reads it", async () => {
     const { directory, database, copyName, run } = await setup();
     const resultFile = path.join(directory, "elsewhere-result.json");

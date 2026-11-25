@@ -39,6 +39,8 @@
 #   9. A rollback checks the old tree went back and asks the restarted service, and says what it
 #      found: back and answering, back and silent, or not back (and where both trees are). It asks
 #      the helper as the upgrade does (active, with its socket) and says when it is not up.
+#  10. Pruning the previous trees never removes the one the upgrade just made, even when the clock
+#      is behind the stamps of the trees already there.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -633,6 +635,21 @@ run_upgrade STUB_LISTEN= STUB_MV_FAIL=prev
 show "$out"
 check "rolled back, the old tree cannot be moved back: it never claims it was restored" '[ "$status" -ne 0 ] && ! grep -q "restored" <<<"$out"'
 check "rolled back, the old tree cannot be moved back: it says plainly where both trees are" 'last_line | grep -q "ERROR: update failed and the previous version.s files could not be put back: they are at .*/opt/boxpilot\.prev\.[0-9TZ]*; .*/opt/boxpilot is missing, the new version.s files are at .*/opt/boxpilot\.failed\.[0-9TZ]*\." && [ -d "$(ls -d "${FAKE}"/opt/boxpilot.prev.* | head -n 1)" ]'
+
+echo "10. The pruning of previous trees keeps the one this upgrade just made"
+# M73: STAMP is the wall clock's, and the trees were pruned by name order, so with the clock behind
+# the trees already there (a dead clock battery before the time is set) the new one went first.
+fresh_box 'BOXPILOT_PORT=8787'
+for stamp in 20990101T000000Z 20990102T000000Z 20990103T000000Z; do
+  mkdir -p "${FAKE}/opt/boxpilot.prev.${stamp}"
+  printf '{"name":"boxpilot","version":"0.9.0"}\n' > "${FAKE}/opt/boxpilot.prev.${stamp}/package.json"
+done
+run_upgrade STUB_LISTEN=http://127.0.0.1:8787/api/v1/health
+show "$out"
+just_made="$(sed -n "s/.*previous version's files at \(.*\)$/\1/p" <<<"$out" | tail -n 1)"
+check "clock behind the trees there: the upgrade went live" '[ "$status" -eq 0 ] && [ "$(version_at "${FAKE}/opt/boxpilot")" = 2.0.0 ]'
+check "clock behind the trees there: the tree it just made is still there, holding 1.0.0" '[ -n "$just_made" ] && [ "$(version_at "$just_made")" = 1.0.0 ]'
+check "clock behind the trees there: the newest two by name stay, the oldest goes" '[ -d "${FAKE}/opt/boxpilot.prev.20990103T000000Z" ] && [ -d "${FAKE}/opt/boxpilot.prev.20990102T000000Z" ] && [ ! -e "${FAKE}/opt/boxpilot.prev.20990101T000000Z" ]'
 
 if [ "$failures" -gt 0 ]; then echo "${failures} check(s) failed"; exit 1; fi
 echo "all checks passed"

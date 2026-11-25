@@ -115,4 +115,28 @@ describe("cloud-init VM helper", () => {
     await expect(helper.create(good, { runUnit })).rejects.toThrow(/rolled back.*virt-install failed/);
     expect(await readdir(imagesRoot)).toEqual(expect.not.arrayContaining(["dev-1.qcow2"]));
   });
+
+  // M73: the disk counted as ours only once convert succeeded, so one that failed part way left
+  // its partial disk behind, the job said rolled back, and a retry was refused over that file.
+  it("removes the partial disk a failed convert leaves, so a retry with the same name goes ahead", async () => {
+    const imagesRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-images-")); directories.push(imagesRoot);
+    let convertFails = true;
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("virsh") && args.includes("dominfo")) return { ok: false, stdout: "", stderr: "not found" };
+      if (binary.endsWith("qemu-img") && args[0] === "convert") {
+        await writeFile(args[args.length - 1], "half a disk");
+        return convertFails ? { ok: false, stdout: "", stderr: "qemu-img: error while writing at byte 1073741824: No space left on device" } : { ok: true, stdout: "", stderr: "" };
+      }
+      if (binary.endsWith("virt-install")) return { ok: false, stdout: "", stderr: "ERROR    stopped here" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const runUnit = { runTask: vi.fn(async () => ({ path: "/nonexistent/base.img", digest: "abc" })) };
+    const helper = createVmCloudHelper({ imagesRoot, seedRoot: path.join(imagesRoot, "seeds"), baseRoot: imagesRoot, run, wait: async () => {}, clock: () => 1 });
+    await expect(helper.create(good, { runUnit })).rejects.toThrow(/rolled back.*qemu-img convert failed.*No space left/);
+    expect(await readdir(imagesRoot)).toEqual([]);
+    // The retry reaches convert again instead of being refused over a disk the failed one left.
+    convertFails = false;
+    await expect(helper.create(good, { runUnit })).rejects.toThrow(/rolled back.*virt-install failed/);
+    expect(run.mock.calls.filter(([binary, args]) => binary.endsWith("qemu-img") && args[0] === "convert")).toHaveLength(2);
+  });
 });

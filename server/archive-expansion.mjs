@@ -16,22 +16,31 @@ export const gib = (bytes) => `${(Math.max(0, bytes) / 1024 ** 3).toFixed(1)} Gi
 
 /**
  * The bytes the archive (or just `members` of it) holds once unpacked; throws when it cannot be listed.
- * @param {(binary: string, args: string[], options?: object) => Promise<{ ok: boolean, stdout: string, stderr: string }>} run
+ *
+ * Summed a line at a time as tar prints them (M73): buffered whole under a 64 MiB cap, a listing
+ * past ~690k files had tar killed for overflowing it, and the restore was refused as an unreadable
+ * archive. The runner's `onLine` streams the listing, so only the running total is kept.
+ * @param {(binary: string, args: string[], options?: { timeout?: number, onLine?: (line: string, stream: string) => void }) => Promise<{ ok: boolean, stdout?: string, stderr?: string }>} run
  * @param {string} tarBinary
  * @param {string} artifactPath
  * @param {string[]} [members]
  */
 export async function expandedBytes(run, tarBinary, artifactPath, members = []) {
-  const listing = await run(tarBinary, ["-tvzf", artifactPath, "--numeric-owner", ...(members.length ? ["--", ...members] : [])], { timeout: 30 * 60_000, maxBuffer: 64 * 1024 * 1024 });
-  if (!listing.ok) throw new Error(`Could not read the archive: ${String(listing.stderr ?? "").split("\n").slice(-2).join(" ")}`);
   let total = 0;
-  for (const line of listing.stdout.split("\n")) total += Number(/^\S+\s+\S+\s+(\d+)\s/.exec(line)?.[1] ?? 0);
+  const listing = await run(tarBinary, ["-tvzf", artifactPath, "--numeric-owner", ...(members.length ? ["--", ...members] : [])], {
+    timeout: 30 * 60_000,
+    onLine: (line, stream) => {
+      if (stream !== "stdout") return;   // tar warns on stderr; a warning is not an archive member
+      total += Number(/^\S+\s+\S+\s+(\d+)\s/.exec(String(line ?? ""))?.[1] ?? 0);
+    },
+  });
+  if (!listing.ok) throw new Error(`Could not read the archive: ${String(listing.stderr ?? "").split("\n").slice(-2).join(" ")}`);
   return total;
 }
 
 /**
  * Throw, with nothing changed, when unpacking would leave less than `reserveBytes` free where it goes.
- * @param {{ run: (binary: string, args: string[], options?: object) => Promise<{ ok: boolean, stdout: string, stderr: string }>, tarBinary: string, artifactPath: string, directory: string, members?: string[], reserveBytes?: number, free?: (directory: string) => Promise<number>, what?: string }} options
+ * @param {{ run: Parameters<typeof expandedBytes>[0], tarBinary: string, artifactPath: string, directory: string, members?: string[], reserveBytes?: number, free?: (directory: string) => Promise<number>, what?: string }} options
  */
 export async function assertArchiveFits({ run, tarBinary, artifactPath, directory, members = [], reserveBytes = 1024 ** 3, free = freeBytesOf, what = "The archive" }) {
   const expanded = await expandedBytes(run, tarBinary, artifactPath, members);

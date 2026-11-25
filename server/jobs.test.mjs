@@ -1180,6 +1180,42 @@ describe("a tier that depends on what an operation acts on", () => {
     } finally { store.close(); }
   });
 
+  // M72: the tier was fixed at staging, and a job waits up to a week. What a risk hook reads can
+  // change in that week, so an operator's medium job whose target had become high was approved by the
+  // operator alone, without a password. It is asked again at approval, of the parameters that run.
+  it("asks the tier again at approval, so a job whose target became high risk needs the owner and a password", async () => {
+    const helper = { request: vi.fn(async () => ({ installed: true })) };
+    const { store, owner } = await setup(helper);
+    try {
+      const operator = store.createOwnerAccount({ username: "sam", passwordHash: await hashPassword("sams long password"), role: "operator", createdBy: owner.id });
+      const operatorToken = store.createSession(operator.id).token;
+      let tier = "medium";
+      const jobs = createJobService(store, helper, { operationRiskHooks: { "app.install": async () => tier } });
+      const job = await jobs.createOperationJob("app.install", { id: "jellyfin" }, operator.id, { role: "operator" });
+      expect(job.risk).toBe("medium");
+      tier = "high";
+      // The operator alone, with or without their password: refused, and no unlocked window is left behind.
+      await expect(jobs.approveAndRun(job.id, operator.id, { session: store.getSession(operatorToken) })).rejects.toThrow("Only the owner can approve this: Install application is high risk now");
+      await expect(jobs.approveAndRun(job.id, operator.id, { password: "sams long password", session: store.getSession(operatorToken) })).rejects.toThrow(/high risk now/);
+      expect(store.getSession(operatorToken).elevatedUntil ?? null).toBeNull();
+      // The owner, without a password: asked for one.
+      await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toMatchObject({ code: "password_required", message: expect.stringMatching(/high risk now/) });
+      expect(helper.request).not.toHaveBeenCalled();
+      expect(store.getJob(job.id).state).toBe("awaiting_approval");
+      // With it, it runs, and the record says the tier it was approved at.
+      await expect(jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery" })).resolves.toMatchObject({ state: "completed" });
+      const done = store.getJob(job.id);
+      expect(done.approvals).toEqual([expect.objectContaining({ tier: "high", method: "password" })]);
+      expect(done.steps).toEqual(expect.arrayContaining([expect.objectContaining({ name: "checkpoint", detail: expect.stringMatching(/^High risk now: staged at medium/) })]));
+      expect(done.steps.find((step) => step.name === "approval").detail).toMatch(/\(high risk, password\)/);
+      // A lower answer at approval never lowers it.
+      tier = "high";
+      const high = await jobs.createOperationJob("app.install", { id: "pi-hole" }, owner.id);
+      tier = "low";
+      await expect(jobs.approveAndRun(high.id, owner.id, {})).rejects.toMatchObject({ code: "password_required" });
+    } finally { store.close(); }
+  });
+
   it("answers the tier a job would be staged at without staging one, for schedules and flows to check", async () => {
     const helper = { request: vi.fn() };
     const { store } = await setup(helper);

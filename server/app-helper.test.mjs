@@ -2859,6 +2859,26 @@ describe.skipIf(onWindows)("what an app backup leaves out on purpose", () => {
     expect(await readFile(path.join(replaced, "data", "notes.txt"), "utf8")).toBe("changed since");
   });
 
+  // M73: a move back that failed was ignored, and the error still said .replaced held the original.
+  it("says which kept folder could not be moved back to the original, and where it is", async () => {
+    const { apps, app, made, runDocker, catalogRoot } = await stack();
+    const replaced = path.join(catalogRoot, "stack.replaced");
+    const original = runDocker.getMockImplementation();
+    runDocker.mockImplementation(async (binary, args, options) => {
+      if (args[0] === "compose" && args.includes("up")) {
+        // Something in the original's way where models goes back: the move back cannot land.
+        await mkdir(path.join(replaced, "models", "in-the-way"), { recursive: true });
+        return { ok: false, stdout: "", stderr: "fixture start failure" };
+      }
+      return original(binary, args, options);
+    });
+    const failure = apps.restoreAppBackup({ id: "stack", backup: made.artifact });
+    await expect(failure).rejects.toThrow(/would not start: fixture start failure\. Its folder as it was before the restore is kept beside it as stack\.replaced\. models could not be moved back into stack\.replaced and is still in .*stack; preserve it too\./);
+    await expect(failure).rejects.not.toThrow(/cache-data could not/);
+    expect(await readFile(path.join(app, "models", "llama.gguf"), "utf8")).toBe("forty gigabytes");
+    expect(await readFile(path.join(replaced, "cache-data", "dump.rdb"), "utf8")).toBe("warm cache");
+  });
+
   it("verifies a backup the app folder completes, and fails one whose restore would lose a shipped file", async () => {
     const { apps, app, made } = await stack();
     await expect(apps.verifyAppBackup({ id: "stack", backup: made.artifact })).resolves.toMatchObject({ verified: true });

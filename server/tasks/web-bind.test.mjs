@@ -45,6 +45,17 @@ describe("setting the control plane's listening address", () => {
     expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["--force", "delete", "allow", "9000/tcp"], expect.anything());
   });
 
+  it("warns when the firewall cannot be opened for the LAN, and only logs a rule it could not remove (M73)", async () => {
+    const run = vi.fn(async (binary) => (binary === "/usr/sbin/ufw" ? { ok: false, stdout: "", stderr: "ERROR: problem running iptables" } : { ok: true, stdout: "", stderr: "" }));
+    const files = { readFile: async () => "BOXPILOT_PORT=8787\n", writeFile: async () => {} };
+    const lan = await webBindSet({ scope: "lan" }, { run, files });
+    expect(lan.warnings).toEqual([expect.stringContaining("the firewall could not be opened for port 8787")]);
+    const log = vi.fn();
+    const loopback = await webBindSet({ scope: "loopback" }, { run, files, log });
+    expect(loopback).not.toHaveProperty("warnings");
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("Could not remove the firewall rule for 8787/tcp"), "stderr");
+  });
+
   it("refuses an unknown scope and reports a failed restart schedule", async () => {
     await expect(webBindSet({ scope: "everywhere" }, {})).rejects.toThrow(/scope must be/);
     const run = vi.fn(async (binary) => (binary === "/usr/bin/systemd-run" ? { ok: false, stdout: "", stderr: "dbus down" } : { ok: true, stdout: "", stderr: "" }));

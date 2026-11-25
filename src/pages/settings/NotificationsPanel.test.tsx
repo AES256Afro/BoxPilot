@@ -4,6 +4,8 @@ import NotificationSettings from "./NotificationsPanel";
 import { openViewEvent } from "../../activityEvents";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+// newTopic()'s shape (server/ops/notifications.mjs): boxpilot- and twelve random bytes, base64url.
+const randomTopic = /^boxpilot-[A-Za-z0-9_-]{16}$/;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 describe("Notification settings", () => {
@@ -73,7 +75,7 @@ describe("Notification settings", () => {
     expect(tests).toBe(1);
     expect(screen.getByText("On · ntfy")).toBeTruthy();
     expect(screen.queryByText("No notification server yet")).toBeNull();
-    expect(JSON.parse(saved ?? "{}")).toEqual({ target: { kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" }, password: "correct horse battery" });
+    expect(JSON.parse(saved ?? "{}")).toEqual({ target: { kind: "ntfy", url: "http://127.0.0.1:8093", topic: expect.stringMatching(randomTopic) }, password: "correct horse battery" });
   });
 
   it("offers the ntfy running on this server, prefilling its loopback address in one click", async () => {
@@ -105,7 +107,53 @@ describe("Notification settings", () => {
     fireEvent.change(screen.getByLabelText("Owner password"), { target: { value: "correct horse battery" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText(/Saved\./)).toBeTruthy();
-    expect(JSON.parse(saved ?? "{}").target).toEqual({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot" });
+    // M72: never "boxpilot", which anyone can subscribe to on a public server.
+    expect(JSON.parse(saved ?? "{}").target).toEqual({ kind: "ntfy", url: "http://127.0.0.1:8093", topic: expect.stringMatching(randomTopic) });
+  });
+
+  // M72: on public ntfy.sh anyone subscribed to "boxpilot" read every alert, sign-in pushes included.
+  it("starts the topic as one nobody can guess, and keeps a saved one when changing the target", async () => {
+    const answer = (saved: boolean) => vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/notifications")) return json(saved ? { configured: true, kind: "ntfy", url: "https://ntfy.sh", topic: "my-own-topic", hasToken: false } : { configured: false, kind: null, url: null, topic: null, hasToken: false });
+      return json({ applications: [], host: {} });
+    });
+    vi.stubGlobal("fetch", answer(false));
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    const first = ((await screen.findByLabelText("Topic")) as HTMLInputElement).value;
+    expect(first).toMatch(randomTopic);
+    cleanup();
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    expect(((await screen.findByLabelText("Topic")) as HTMLInputElement).value).toMatch(randomTopic);
+    expect((screen.getByLabelText("Topic") as HTMLInputElement).value).not.toBe(first);
+    cleanup();
+
+    vi.stubGlobal("fetch", answer(true));
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Change" }));
+    expect((screen.getByLabelText("Topic") as HTMLInputElement).value).toBe("my-own-topic");
+  });
+
+  it("says a short topic on a public server can be read by anyone who knows it, and not on this house's own", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/settings/notifications")) return json({ configured: false, kind: null, url: null, topic: null, hasToken: false });
+      return json({ applications: [], host: {} });
+    }));
+    render(<NotificationSettings csrfToken="csrf-token" />);
+    await screen.findByLabelText("Topic");
+    const warning = "Anyone who knows this topic can read it on a public server";
+    fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://ntfy.sh" } });
+    // The random topic it starts with is long enough.
+    expect(screen.queryByText(warning)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Topic"), { target: { value: "boxpilot" } });
+    expect(screen.getByText(warning)).toBeTruthy();
+    for (const local of ["http://127.0.0.1:8093", "http://192.168.1.10:8093", "http://172.20.0.5", "https://homebox.example.ts.net", "http://100.64.0.5:8093", "http://ntfy.local", "http://homebox:8093", "http://[::1]:8093"]) {
+      fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: local } });
+      expect(screen.queryByText(warning), local).toBeNull();
+    }
+    fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://push.example.net" } });
+    expect(screen.getByText(warning)).toBeTruthy();
   });
 
   // "Change" cannot show the saved token, and saving without retyping it wiped it (Gotify was refused).

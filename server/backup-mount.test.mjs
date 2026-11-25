@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backupMountName, backupMountParent, backupMountpoint, legacyBackupMountpoint, mountNameFor, mountpointFor, reservedMountNames } from "./backup-mount.mjs";
+import { backupDestinationPaths, backupMountName, backupMountParent, backupMountpoint, isBackupDestinationPath, legacyBackupMountpoint, mountNameFor, mountpointFor, reservedMountNames } from "./backup-mount.mjs";
 import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor as uiMountpointFor } from "../src/mountpoints.ts";
 
 describe("where a mount of a given name lands", () => {
@@ -27,5 +27,18 @@ describe("where a mount of a given name lands", () => {
     expect(BACKUP_MOUNT_NAME).toBe(backupMountName);
     expect(BACKUP_MOUNTPOINT).toBe(backupMountpoint);
     for (const name of ["media", "share-nas", backupMountName]) expect(uiMountpointFor(name)).toBe(mountpointFor(name));
+  });
+});
+
+// M72: the Samba and NFS deny lists named /mnt/boxpilot and not the old /mnt/boxpilot-backup.
+describe("where the backups are kept, for a deny list", () => {
+  it("is the folder the destination lives in now and where it used to be mounted", () => {
+    expect(backupDestinationPaths).toEqual([backupMountParent, legacyBackupMountpoint]);
+    expect(Object.isFrozen(backupDestinationPaths)).toBe(true);
+  });
+
+  it("is reached by either, anything inside them, and any folder that holds them", () => {
+    for (const folder of [backupMountpoint, `${backupMountpoint}/apps`, "/mnt/boxpilot/", legacyBackupMountpoint, `${legacyBackupMountpoint}/apps/x`, "/mnt", "/mnt/", "/"]) expect(isBackupDestinationPath(folder), folder).toBe(true);
+    for (const folder of ["/mnt/media", "/mnt/boxpilot2", "/mnt/boxpilot-backups", "/srv/files", "/media/usb", undefined, null, 7]) expect(isBackupDestinationPath(folder), String(folder)).toBe(false);
   });
 });

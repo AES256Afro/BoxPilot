@@ -116,7 +116,8 @@ export async function webTlsProvision(
   if (!haveCa) {
     log?.("Creating the BoxPilot local certificate authority", "stdout");
     await step(openssl, ["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", caKey], "generate CA key");
-    await files.chmod(caKey, 0o600).catch(() => {});
+    // M73: the CA private key signs every certificate a device trusts; it is root's alone or nobody's.
+    await files.chmod(caKey, 0o600).catch((error) => { throw new Error(`Could not make the CA key readable by root only: ${error.message}`); });
     await step(openssl, [
       "req", "-x509", "-new", "-nodes", "-key", caKey, "-sha256", "-days", caDays, "-out", caCrt,
       "-subj", "/O=BoxPilot/CN=BoxPilot Local CA",
@@ -138,8 +139,11 @@ export async function webTlsProvision(
 
   // The web process runs as boxpilot and must read the key it presents; the CA private key never
   // leaves root. Certificates are public, so their mode does not matter.
-  await run(chownBin, [`root:${webGroup}`, leafKey], { timeout: 15_000 }).catch(() => {});
-  await files.chmod(leafKey, 0o640).catch(() => {});
+  // M73: both are essential. Without them the service cannot read its key after the restart, so
+  // this fails before the env file points at the key: the plain HTTP path keeps working as it was.
+  const handed = await run(chownBin, [`root:${webGroup}`, leafKey], { timeout: 15_000 });
+  if (!handed.ok) throw new Error(`Issued the certificate, but could not give its key to the ${webGroup} group (${handed.stderr || "chown failed"}), so the web service could not read it. Nothing was switched to HTTPS.`);
+  await files.chmod(leafKey, 0o640).catch((error) => { throw new Error(`Issued the certificate, but could not make its key readable by the ${webGroup} group (${error.message}). Nothing was switched to HTTPS.`); });
   await files.chmod(leafCrt, 0o644).catch(() => {});
   await files.rm(leafCsr, { force: true }).catch(() => {});
   await files.rm(extPath, { force: true }).catch(() => {});
@@ -154,8 +158,16 @@ export async function webTlsProvision(
   env = setEnvValue(env, "BOXPILOT_TLS_PORT", tlsPort);
   await files.writeFile(envPath, env);
 
-  // Open the HTTPS port for the network; harmless if it is already open.
-  await run(ufw, ["allow", `${tlsPort}/tcp`], { timeout: 30_000 }).catch(() => {});
+  // Open the HTTPS port for the network; harmless if it is already open. HTTPS still works on the
+  // tailnet and from the box without it, so a failure is a warning the job shows (M73), not a failure.
+  /** @type {string[]} */
+  const warnings = [];
+  const opened = await run(ufw, ["allow", `${tlsPort}/tcp`], { timeout: 30_000 });
+  if (!opened.ok && !/ENOENT/.test(opened.stderr)) {
+    const warning = `HTTPS is set up, but the firewall could not be opened for port ${tlsPort} (${opened.stderr || "ufw failed"}), so other devices on the network may not reach it; allow ${tlsPort}/tcp on the Firewall page.`;
+    warnings.push(warning);
+    log?.(warning, "stderr");
+  }
 
   // Restart a few seconds out so the response returns first. The plain HTTP path is untouched, so a
   // hiccup here cannot lock the owner out.
@@ -171,5 +183,6 @@ export async function webTlsProvision(
     caFingerprint: caMeta.fingerprint,
     caPath: caCrt,
     restartScheduled: true,
+    ...(warnings.length ? { warnings } : {}),
   };
 }
