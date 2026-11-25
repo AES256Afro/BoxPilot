@@ -34,6 +34,13 @@ describe("read-only local Action Center", () => {
     expect(serialized).not.toContain("private-owner");
   });
 
+  it("has advice for the copy off this server, rather than listing it as unexplained (M91)", async () => {
+    const recoveryKit = { inspect: vi.fn(async () => ({ checks: [{ id: "offbox.copy", state: "action-required", title: "A copy of the backups off this server", evidence: "Every backup is on this server only.", action: "Set one up." }], evidence: { jobs: [] } })) };
+    const result = await createActionCenterService({ recoveryKit, now }).inspect();
+    expect(result.notices.map((item) => item.id)).toEqual(["recovery.offbox.copy"]);
+    expect(result.notices[0]).toMatchObject({ severity: "warning", category: "If this server died", recommendation: { view: "backups", title: "Open Backups" } });
+  });
+
   it("fails closed to a critical notice when recovery evidence cannot be collected", async () => {
     const service = createActionCenterService({ recoveryKit: { inspect: vi.fn(async () => { throw new Error("offline secret"); }) }, now });
     const result = await service.inspect();

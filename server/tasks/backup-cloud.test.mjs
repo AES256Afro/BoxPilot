@@ -118,8 +118,13 @@ describe("cloud backup tasks", () => {
 
   it("tests the destination by creating and listing the folder, and mirrors with rclone copy", async () => {
     const secretsDirectory = await secretsDir();
-    const run = withObscure(async (binary, args) => {
-      const verb = args.find((arg) => ["mkdir", "lsjson", "about", "copy"].includes(arg));
+    let marker = null;
+    const run = withObscure(async (binary, args, options) => {
+      const verb = args.find((arg) => ["mkdir", "lsjson", "about", "copy", "rcat", "cat"].includes(arg));
+      // The marker the test writes through the sealed remote, read back the same (M91).
+      if (verb === "rcat") { marker = options.input; return { ok: true, stdout: "", stderr: "" }; }
+      if (verb === "cat") return { ok: true, stdout: marker, stderr: "" };
+      if (verb === "lsjson" && args.at(-1).startsWith("boxpilot-sealed:")) return { ok: false, stdout: "", stderr: "error listing: directory not found" };
       if (verb === "lsjson") return { ok: true, stdout: JSON.stringify([{ Name: "controller-backups" }]), stderr: "" };
       if (verb === "about") return { ok: true, stdout: JSON.stringify({ free: 50 * 1024 ** 3 }), stderr: "" };
       if (verb === "copy") return { ok: true, stdout: "", stderr: "Transferred:   \t  1.000 MiB / 1.000 MiB, 100%\nErrors:                 0\nTransferred:            1 / 1, 100%\n" };
@@ -127,7 +132,7 @@ describe("cloud backup tasks", () => {
     });
     await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox", key: "k", passphrase: PASS }, { run, secretsDirectory, rclone: "/" });
     const tested = await backupCloudTest({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox" }, { run, secretsDirectory, rclone: "/" });
-    expect(tested).toEqual({ reachable: true, writable: true, target: "boxpilot:home-backups/homebox", entries: 1, freeBytes: 50 * 1024 ** 3 });
+    expect(tested).toEqual({ reachable: true, writable: true, target: "boxpilot:home-backups/homebox", entries: 1, freeBytes: 50 * 1024 ** 3, sealed: true, sealedRoundTrip: true, existingCopiesReadable: null, newestSnapshot: null });
     expect(run).toHaveBeenCalledWith("/", expect.arrayContaining(["--config", configPath(secretsDirectory), "mkdir", "boxpilot:home-backups/homebox"]), expect.anything());
 
     const sources = [{ name: "controller-backups", root: secretsDirectory }, { name: "missing", root: "/nonexistent/root" }];

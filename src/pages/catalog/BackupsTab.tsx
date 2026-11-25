@@ -17,7 +17,12 @@ import type { CatalogContext, Entry } from "./types";
  * the server types out as a confirmation. One the server cannot restore at all says why instead.
  */
 
-interface Backup { artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }
+/**
+ * `location`: "drive" for one only on the backup drive (M91), restored by copying it in first; it is
+ * rehearsed and deleted from this server only. `skippedFolders`: the folders the owner chose that the
+ * backup leaves out, by label (absent from a record written before it said so).
+ */
+interface Backup { artifact: string; location?: "local" | "drive"; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedFolders?: Array<{ label: string; path: string }>; skippedVolumes?: string[]; image: string | null }
 type BackupFile = { path: string; sizeBytes: number; type: string };
 interface FileListing { files?: BackupFile[]; truncated?: boolean; matched?: number }
 /** A backup's files as the server listed them: `filter` is what it filtered by ("" for none), `matched` how many there were. */
@@ -61,7 +66,7 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
       const { response, body } = await runRead<{ backups?: Backup[] }>(csrfToken, "app.backups.inspect", { id: manifest.id });
       if (!response.ok || !body.result) throw new Error(body.error ?? "Could not list backups");
       // Normalised here rather than guarded at each read: a partial answer no longer costs the list.
-      setBackups((body.result.backups ?? []).map((backup) => ({ ...backup, skippedVolumes: backup.skippedVolumes ?? [], skippedHostPaths: backup.skippedHostPaths ?? [] })));
+      setBackups((body.result.backups ?? []).map((backup) => ({ ...backup, skippedVolumes: backup.skippedVolumes ?? [], skippedHostPaths: backup.skippedHostPaths ?? [], skippedFolders: backup.skippedFolders ?? [] })));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not list backups");
     }
@@ -124,7 +129,7 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
       title: `Restore ${name} from ${when(backup)}`,
       parameters: { id: manifest.id, backup: backup.artifact, ...(allow ? { allowCompose: allow } : {}) },
       preview: <>
-        <span>Saves the current state as a safety copy first, then replaces {name}'s data and configuration with this backup and starts it.</span>
+        <span>{backup.location === "drive" ? "Copies this backup in from the backup drive, then saves" : "Saves"} the current state as a safety copy first, then replaces {name}'s data and configuration with this backup and starts it.</span>
         {allow && review ? <ComposeAllowance name={name} review={review} /> : null}
       </>,
     });
@@ -137,10 +142,18 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
   const shownFiles = useMemo(() => (browsing?.files ?? []).filter((file) => restorablePath(file.path) && (!filter || file.path.toLowerCase().includes(filter.toLowerCase()))).slice(0, 200), [browsing, filter]);
   // What these backups never hold: the folders the catalog leaves out of them (a media library, a
   // download folder). Said where someone looks for a file from one and finds nothing.
-  const leftOut = manifest.volumes.filter((volume) => !volume.backup).map((volume) => ({ label: volume.label, path: live?.state?.values?.volumes?.[volume.id] || volume.hostPath || volume.container }));
+  // The folder each backup recorded as left out is the one the owner chose (M91); the newest says it,
+  // where the app is no longer installed to ask.
+  const recordedFolders = archives.find((backup) => (backup.skippedFolders ?? []).length > 0)?.skippedFolders ?? [];
+  const leftOut = manifest.volumes.filter((volume) => !volume.backup).map((volume) => ({ label: volume.label, path: live?.state?.values?.volumes?.[volume.id] || recordedFolders.find((folder) => folder.label === volume.label)?.path || volume.hostPath || volume.container }));
   const leftOutWords = leftOut.length > 0 ? `${name}'s ${wordList(leftOut.map((volume) => `${volume.label} (${volume.path})`))} ${leftOut.length === 1 ? "is" : "are"} not in these backups: they hold its settings and database only.` : null;
   const skippedVolumes = [...new Set((backups ?? []).flatMap((backup) => backup.skippedVolumes ?? []))];
-  const skippedHostPaths = [...new Set((backups ?? []).flatMap((backup) => backup.skippedHostPaths))];
+  // Said only where nothing above says it: a backup recorded before the label was, by its folder alone.
+  const said = new Set(leftOut.map((volume) => volume.path));
+  const skippedFolders = recordedFolders.length
+    ? recordedFolders.filter((folder) => !said.has(folder.path))
+    : [...new Set((backups ?? []).flatMap((backup) => backup.skippedHostPaths))].filter((folder) => !said.has(folder)).map((folder) => ({ label: null, path: folder }));
+  const skippedWords = skippedFolders.length > 0 ? `${wordList(skippedFolders.map((folder) => (folder.label ? `${folder.label} (${folder.path})` : folder.path)))} ${skippedFolders.length === 1 ? "is" : "are"} not in these backups.` : null;
   const schedule = rehearsal[manifest.id];
   const history = verification?.history ?? [];
 
@@ -208,14 +221,14 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
                 {archives.map((backup) => (
                   <li key={backup.artifact} className="catalog-row">
                     <span className="catalog-row__main">
-                      <span className="catalog-archive__when">{when(backup)}</span>
+                      <span className="catalog-archive__when">{when(backup)}{backup.location === "drive" && <> <StatusChip status="neutral">on the backup drive</StatusChip></>}</span>
                       <span className="catalog-archive__facts"><span>{formatBytes(backup.sizeBytes)}</span><span>offline for <span className="catalog-archive__offline">{offlineFor(backup.downtimeMs)}</span></span></span>
                     </span>
                     <span className="catalog-actions catalog-actions--wrap">
                       {may("app.backup.restore") && <Button risk={riskOf("app.backup.restore")} aria-label={`Restore ${when(backup)}`} busy={checking === backup.artifact} disabled={checking !== null} onClick={() => void restore(backup)}>Restore</Button>}
                       <Button variant="ghost" aria-label={`Browse ${when(backup)}`} onClick={() => void browse(backup.artifact)}>Browse</Button>
-                      {may("app.backup.verify") && <Button risk={riskOf("app.backup.verify")} aria-label={`Rehearse restoring ${when(backup)}`} onClick={() => act({ operationId: "app.backup.verify", title: `Rehearse restoring ${name}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Checks this archive against its recorded checksum, unpacks all of it into scratch space to prove it opens and holds what it claims, then deletes the scratch copy. {name} keeps running and nothing it holds is changed.</span> })}>Rehearse</Button>}
-                      {may("app.backup.delete") && <Button risk={riskOf("app.backup.delete")} aria-label={`Delete ${when(backup)}`} onClick={() => act({ operationId: "app.backup.delete", title: `Delete backup of ${name}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Deletes the archive from {when(backup)}. This cannot be undone.</span> })}>Delete</Button>}
+                      {may("app.backup.verify") && backup.location !== "drive" && <Button risk={riskOf("app.backup.verify")} aria-label={`Rehearse restoring ${when(backup)}`} onClick={() => act({ operationId: "app.backup.verify", title: `Rehearse restoring ${name}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Checks this archive against its recorded checksum, unpacks all of it into scratch space to prove it opens and holds what it claims, then deletes the scratch copy. {name} keeps running and nothing it holds is changed.</span> })}>Rehearse</Button>}
+                      {may("app.backup.delete") && backup.location !== "drive" && <Button risk={riskOf("app.backup.delete")} aria-label={`Delete ${when(backup)}`} onClick={() => act({ operationId: "app.backup.delete", title: `Delete backup of ${name}`, parameters: { id: manifest.id, backup: backup.artifact }, preview: <span>Deletes the archive from {when(backup)}. This cannot be undone.</span> })}>Delete</Button>}
                     </span>
                   </li>
                 ))}
@@ -225,7 +238,7 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
       {leftOutWords
         ? <p className="catalog-quiet">{leftOutWords}</p>
         : skippedVolumes.length > 0 && <p className="catalog-quiet">Not included in these archives: {skippedVolumes.join(", ")}.</p>}
-      {skippedHostPaths.length > 0 && <p className="catalog-quiet">Volumes at operator-managed host paths are not included: {skippedHostPaths.join(", ")}</p>}
+      {skippedWords && <p className="catalog-quiet">{skippedWords}</p>}
     </div>
   );
 }

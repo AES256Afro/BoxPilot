@@ -3928,3 +3928,102 @@ describe("which image a backup or saved history may pin", () => {
     expect(catalogImagePin("", "ghcr.io/acme/app:2.0")).toBeNull();
   });
 });
+
+// M91: restore from anywhere. Backups a restore cannot reach do the owner no good.
+describe.skipIf(onWindows)("an app's backups after a rebuild or Delete data", () => {
+  // Linux only: needs /usr/bin/tar.
+  it("records a restore's safety copy as one, so a restore looking for the newest data never takes it", async () => {
+    const { apps, catalogRoot, advance } = await setup();
+    await apps.install({ id: "demo" });
+    await writeFile(path.join(catalogRoot, "demo", "data", "file.txt"), "precious");
+    const first = await apps.backup({ id: "demo" });
+    advance(60_000);
+    await apps.restoreAppBackup({ id: "demo", backup: first.artifact });
+    const listed = (await apps.listAppBackups({ id: "demo" })).backups;
+    expect(listed.map((backup) => [backup.artifact === first.artifact, backup.safetyCopy])).toEqual([[false, true], [true, false]]);
+  });
+
+  // M91 review: an earlier release's record could not say whether an archive was a restore's safety
+  // copy of the app installed empty, nor a nightly of an app a snapshot restore installed without its
+  // data. Every record now says which release wrote it, and the second when it is so.
+  it("records which release wrote each backup, and a backup of an app a snapshot restore installed without its data as such", async () => {
+    const { apps, catalogRoot, backupRoot, advance } = await setup();
+    await apps.install({ id: "demo" });
+    const recordOf = async (artifact) => JSON.parse(await readFile(path.join(backupRoot, "demo", artifact.replace(/\.tar\.gz$/, ".json")), "utf8"));
+    const plain = await apps.backup({ id: "demo" });
+    expect(await recordOf(plain.artifact)).toMatchObject({ recordVersion: 2, id: "demo" });
+    expect((await recordOf(plain.artifact)).snapshotRestore).toBeUndefined();
+    const stateFile = path.join(catalogRoot, "demo", "boxpilot.json");
+    const state = JSON.parse(await readFile(stateFile, "utf8"));
+    const snapshot = "machine-snapshot-20260820T020000Z-abcdef12.tar.gz";
+    await writeFile(stateFile, JSON.stringify({ ...state, restoredFrom: snapshot, restoredInstalledAt: "2026-08-21T09:00:00.000Z" }));
+    advance(60_000);
+    const empty = await apps.backup({ id: "demo" });
+    expect(await recordOf(empty.artifact)).toMatchObject({ recordVersion: 2, snapshotRestore: { snapshot, installedAt: "2026-08-21T09:00:00.000Z", dataFrom: null } });
+    await writeFile(stateFile, JSON.stringify({ ...state, restoredFrom: snapshot, restoredInstalledAt: "2026-08-21T09:00:00.000Z", restoredDataFrom: "20260816T030000Z.tar.gz" }));
+    advance(60_000);
+    const whole = await apps.backup({ id: "demo" });
+    expect(await recordOf(whole.artifact)).toMatchObject({ snapshotRestore: { dataFrom: "20260816T030000Z.tar.gz" } });
+  });
+
+  it("lists the archives only on the backup drive, and restores one by copying it in first", async () => {
+    const mount = await mkdtemp(path.join(os.tmpdir(), "boxpilot-backup-drive-")); directories.push(mount);
+    process.env.BOXPILOT_BACKUP_SYNC_MOUNT = mount;
+    try {
+      const { apps, catalogRoot, backupRoot, advance } = await setup();
+      await apps.install({ id: "demo" });
+      await writeFile(path.join(catalogRoot, "demo", "data", "file.txt"), "thursday's data");
+      const thursday = await apps.backup({ id: "demo" });
+      // What the nightly mirror left on the drive; this server, rebuilt since, no longer has it.
+      const drive = path.join(mount, "boxpilot-local-mirror", "application-backups", "demo");
+      await mkdir(drive, { recursive: true });
+      for (const name of [thursday.artifact, thursday.artifact.replace(/\.tar\.gz$/, ".json")]) {
+        await writeFile(path.join(drive, name), await readFile(path.join(backupRoot, "demo", name)));
+        await rm(path.join(backupRoot, "demo", name));
+      }
+      advance(60_000);
+      const listed = await apps.listAppBackups({ id: "demo" });
+      expect(listed.backups).toEqual([expect.objectContaining({ artifact: thursday.artifact, location: "drive", checksumSha256: thursday.checksumSha256 })]);
+      expect(listed.drive).toEqual({ answered: true, onlyThere: 1 });
+      await expect(apps.reviewAppBackup({ id: "demo", backup: thursday.artifact })).resolves.toMatchObject({ backup: thursday.artifact });
+
+      await writeFile(path.join(catalogRoot, "demo", "data", "file.txt"), "empty after the rebuild");
+      await expect(apps.restoreAppBackup({ id: "demo", backup: thursday.artifact })).resolves.toMatchObject({ restored: true });
+      expect(await readFile(path.join(catalogRoot, "demo", "data", "file.txt"), "utf8")).toBe("thursday's data");
+      // Now on this server too, and listed once.
+      expect((await apps.listAppBackups({ id: "demo" })).backups.filter((backup) => backup.artifact === thursday.artifact)).toEqual([expect.objectContaining({ location: "local" })]);
+    } finally {
+      delete process.env.BOXPILOT_BACKUP_SYNC_MOUNT;
+    }
+  });
+
+  it("says which apps that are not installed still have backups, after Delete data", async () => {
+    const { apps } = await setup();
+    await apps.install({ id: "demo" });
+    await apps.backup({ id: "demo" });
+    expect((await apps.countAppBackups()).notInstalled).toEqual([]);
+    await apps.uninstall({ id: "demo", purge: true });
+    const counted = await apps.countAppBackups();
+    expect(counted.counts.demo).toBe(1);
+    expect(counted.notInstalled).toEqual([{ id: "demo", name: "Demo", backups: 1, newestAt: expect.stringMatching(/^2026-08-19T12:00/) }]);
+  });
+
+  it("names the folder the owner chose when it leaves one out, not the catalog's default", async () => {
+    const { apps, catalogDirectory } = await setup();
+    // Resolved: a macOS tmpdir sits behind /var -> /private/var, a link an install refuses.
+    const photos = await realpath(await mkdtemp(path.join(os.tmpdir(), "boxpilot-photos-"))); directories.push(photos);
+    await writeFile(path.join(catalogDirectory, "gallery.yaml"), [
+      "schemaVersion: 2", "id: gallery", "name: Gallery", "category: T", "description: d",
+      "image:", "  reference: nginx:1.27",
+      "ports:", "  - id: web", "    container: 80", "    host: 8095",
+      "volumes:", "  - id: config", "    container: /config", "    path: config",
+      "  - id: library", "    label: Photo library", "    container: /photos", "    hostPath: /srv/gallery", "    configurable: true", "    backup: false",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "gallery", values: { volumes: { library: photos } } });
+    const made = await apps.backup({ id: "gallery" });
+    expect(made.skippedHostPaths).toEqual([photos]);
+    expect(made.skippedFolders).toEqual([{ label: "Photo library", path: photos }]);
+    expect((await apps.listAppBackups({ id: "gallery" })).backups[0]).toMatchObject({ skippedHostPaths: [photos], skippedFolders: [{ label: "Photo library", path: photos }] });
+  });
+});

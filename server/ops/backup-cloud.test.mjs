@@ -29,3 +29,27 @@ describe("cloud backup operations", () => {
     expect(JSON.stringify(state)).not.toContain("secret_access_key");
   });
 });
+
+describe("reading the cloud copy back (M91)", () => {
+  it("lists for an operator, read-only, and fetches for the owner only, one snapshot by name", async () => {
+    const list = operations["backup.cloud.snapshots"];
+    expect(list).toMatchObject({ readOnly: true, minimumRole: "operator", risk: "low" });
+    const fetch = operations["backup.cloud.fetch"];
+    expect(fetch).toMatchObject({ risk: "medium", minimumRole: "owner" });
+    expect(fetch.readOnly).toBeFalsy();
+    const artifact = "machine-snapshot-20261124T020000Z-1a2b3c4d.tar.gz";
+    expect(validateParameters(fetch.parameters, { artifact }, "t")).toBeNull();
+    for (const bad of ["../x", "machine-snapshot-20261124T020000Z-1a2b3c4d.tar.gz.meta.json", ""]) expect(validateParameters(fetch.parameters, { artifact: bad }, "t")).not.toBeNull();
+    expect(validateParameters(fetch.parameters, { artifact, root: "/etc" }, "t")).not.toBeNull();
+    const runUnit = { runTask: vi.fn(async () => ({ ok: true })) };
+    await list.run({}, { runUnit, jobLog: null });
+    expect(runUnit.runTask).toHaveBeenLastCalledWith("backup.cloud.snapshots", {}, expect.anything());
+    await fetch.run({ artifact }, { runUnit, jobLog: null });
+    expect(runUnit.runTask).toHaveBeenLastCalledWith("backup.cloud.fetch", { artifact }, expect.anything());
+  });
+
+  it("lets a secret left empty through to the task, which keeps the saved one", () => {
+    const setup = operations["backup.cloud.setup"].parameters;
+    expect(validateParameters(setup, { provider: "b2", account: "a", bucket: "home-backups", path: "renamed" }, "t")).toBeNull();
+  });
+});

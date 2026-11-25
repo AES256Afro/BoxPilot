@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { destinationPatterns } from "../backup-destination.mjs";
 import { serveTailnetOnly } from "./apps.mjs";
+import { stageDatabaseBackup } from "../db-restore.mjs";
 
 const appIdPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 /**
@@ -39,6 +40,14 @@ const allowComposeByAppField = {
     return null;
   },
 };
+/**
+ * Which data a snapshot restore brings back: each app's newest data archive anywhere it looks (the
+ * default), or only the one the snapshot names.
+ */
+const dataFromField = { type: "string", enum: ["newest", "snapshot"], optional: true };
+/** A database copy the browser can name: a controller backup by its id, a snapshot restore's copy by the restore's name. */
+const databaseCopyIdPatterns = { backup: /^[a-f0-9-]{36}$/, snapshot: /^\d{8}T\d{6}Z$/ };
+
 /** The apps a snapshot restore allows a compose file for, sorted, as its typed confirmation names them. */
 const allowedApps = (parameters) => Object.keys(parameters?.allowCompose && typeof parameters.allowCompose === "object" ? parameters.allowCompose : {}).sort();
 
@@ -71,7 +80,7 @@ export function hostBackupOperations() {
       // operator, like app.backup.files: reading inside a machine snapshot says what the server
       // holds, and inflating one to answer is minutes of work per call.
       id: "host.snapshot.describe", title: "Inspect a machine snapshot", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 10 * 60_000,
-      parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true } } },
+      parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true }, dataFrom: dataFromField } },
       // With the deployer, each app's data archive says what restoring it would start (sweep 4).
       run: (parameters, { machineSnapshot, apps }) => machineSnapshot.describe(parameters, { apps }),
     }),
@@ -90,10 +99,45 @@ export function hostBackupOperations() {
     defineOperation({
       // Allowing data archives' own compose files is typed out, naming each app (sweep 4).
       id: "host.snapshot.restore", title: "Restore from a machine snapshot", risk: "high", confirm: (parameters) => (allowedApps(parameters).length ? `allow ${allowedApps(parameters).join(" ")}` : "restore"), timeoutMs: 6 * 60 * 60_000,
-      description: "Reinstalls the selected apps with the settings and secrets in the snapshot, then restores each app's newest data archive (from the local store or the mirror). Network, firewall, fstab, VM definitions, and the database copy are staged for review, never applied automatically. A data archive whose compose file would be started exactly as it was backed up, giving the app more than the catalog does, is restored only when allowCompose names that file's sha256 for the app; otherwise nothing is restored.",
-      parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true }, apps: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && appIdPattern.test(id)) ? null : "must list app ids") }, restoreData: { type: "boolean", optional: true }, devicesByApp: devicesByAppField, allowCompose: allowComposeByAppField } },
+      description: "Reinstalls the selected apps with the settings and secrets in the snapshot, then restores each app's newest data archive, from this server, the backup drive or the drive the snapshot is on, whether it was taken before the snapshot or after, and falls back to the one the snapshot names when none checks out (dataFrom: snapshot restores only the one the snapshot names). One taken after the snapshot is used only when its record, written by this release, names the app and its checksum matches; a restore's own safety copies, and backups of an app a snapshot restore installed without its data, are never used. Each newer archive passed over is said, with why. Network, firewall, fstab, VM definitions, and the database copy are staged for review, never applied automatically. A data archive whose compose file would be started exactly as it was backed up, giving the app more than the catalog does, is restored only when allowCompose names that file's sha256 for the app; otherwise nothing is restored.",
+      parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true }, apps: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && appIdPattern.test(id)) ? null : "must list app ids") }, restoreData: { type: "boolean", optional: true }, dataFrom: dataFromField, devicesByApp: devicesByAppField, allowCompose: allowComposeByAppField } },
       // A tailnet-only app it brings back is published with Tailscale Serve, as app.install does.
-      run: (parameters, { machineSnapshot, apps, run, progress }) => machineSnapshot.restore({ ...parameters, apps: parameters.apps ?? "all", restoreData: parameters.restoreData ?? true }, { apps, progress, serve: run ? (deployed) => serveTailnetOnly(deployed, { run, progress }) : null }),
+      run: (parameters, { machineSnapshot, apps, run, progress }) => machineSnapshot.restore({ ...parameters, apps: parameters.apps ?? "all", restoreData: parameters.restoreData ?? true, dataFrom: parameters.dataFrom ?? "newest" }, { apps, progress, serve: run ? (deployed) => serveTailnetOnly(deployed, { run, progress }) : null }),
+    }),
+    defineOperation({
+      // operator (ADR-003): a listing of root-only folders (the controller backups, what restores staged).
+      id: "host.database.sources", title: "List the database backups that can be put back", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
+      description: "Every verified backup of BoxPilot's database on this server, and the database copy each snapshot restore staged, newest first: what Restore the database copy can put back.",
+      run: (_parameters, { machineSnapshot }) => machineSnapshot.databaseSources(),
+    }),
+    defineOperation({
+      // High and owner only, as housekeeping.database-copies.restore, whose run it is once the copy is
+      // beside the database: it replaces everything BoxPilot knows and stops BoxPilot while it does.
+      id: "host.database.restore", title: "Restore the database copy", risk: "high", minimumRole: "owner", timeoutMs: 5 * 60_000, restartsService: true, runsRootTask: true,
+      confirm: (parameters) => parameters.id,
+      description: "Puts back a verified backup of BoxPilot's database, or the copy a snapshot restore staged: checks it against its recorded checksum and SQLite's integrity check, and refuses one taken by a newer BoxPilot (the release its record names, or tables and columns this version does not have), puts it beside the database, then stops BoxPilot, saves the database as it is now as a copy of its own, puts the backup in its place and starts BoxPilot again. If BoxPilot does not answer on it, the database it had is put back. Accounts, settings, schedules and history go back to what they were when the backup was taken, and everyone is signed out.",
+      parameters: { fields: {
+        kind: { type: "string", enum: ["backup", "snapshot"] },
+        id: { type: "string", maxLength: 40, validate: (value) => (Object.values(databaseCopyIdPatterns).some((pattern) => pattern.test(value)) ? null : "must be a database backup's id or a restore's name") },
+      } },
+      run: async (parameters, { machineSnapshot, runUnit, jobLog, progress }) => {
+        const database = process.env.BOXPILOT_CONTROLLER_DATABASE ?? "/var/lib/boxpilot/boxpilot.sqlite3";
+        if (!databaseCopyIdPatterns[parameters.kind]?.test(parameters.id)) throw new Error("That is not a database copy of that kind. Nothing was changed.");
+        const source = await machineSnapshot.databaseSource({ kind: parameters.kind, id: parameters.id });
+        progress?.("Checking the backup against its checksum, SQLite's integrity check and this version's tables...", "stdout");
+        const staged = await stageDatabaseBackup({ database, source: source.file, checksumSha256: source.checksumSha256, label: parameters.kind, takenBy: source.productVersion ?? null });
+        progress?.(`Put beside the database as ${staged.name}`, "stdout");
+        try {
+          const started = await runUnit.runTask("database.copy.restore", { name: staged.name, database }, { timeoutMs: 2 * 60_000, logPath: jobLog?.path ?? null });
+          // An answer that is not "started" started nothing either: the copy goes, as for a throw.
+          if (started?.started !== true) throw new Error(`The service that puts the copy back did not start${typeof started?.error === "string" ? ` (${started.error.slice(0, 300)})` : ""}. Nothing was changed.`);
+          return { ...started, from: { kind: parameters.kind, id: parameters.id, createdAt: source.createdAt } };
+        } catch (error) {
+          // Nothing was stopped: the copy put beside the database for it goes again.
+          await rm(staged.path, { force: true }).catch(() => {});
+          throw error;
+        }
+      },
     }),
     defineOperation({
       id: "backup.remote.inspect", title: "Read the state of the SSH destination off this server", risk: "low", readOnly: true, timeoutMs: 30_000,

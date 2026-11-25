@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
+import { normalizeSmartEvidence } from "../server/storage-evidence.mjs";
+import { appendSmartSample, evaluateSmartTrends, smartEntriesFromInventory } from "../server/smart-trends.mjs";
 import { carryLastReadings, collectFilesystemErrors, createStorageScanner, diskAsleep, needsSatRetry, parseSmartctlEvidence, smartEvidenceFor, usbBridgeUnrecognized, wakeAfterMs, weeklyWakeEnabled, writeStorageEvidence } from "./boxpilot-storage-scan.mjs";
 
 const directories = [];
@@ -68,6 +70,129 @@ describe("fixed root-only storage scan", () => {
       { errorEvidence: { state: "unavailable", reason: "local-device-unavailable" } },
     ] });
     expect(run).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a SATA disk's bad sectors (ATA attributes 5, 187, 197, 198)", () => {
+  /** The SATA fixture with its four bad-sector counts set and its overall verdict, the way smartctl writes them. */
+  async function sata({ reallocated = 0, reportedUncorrectable = 0, pending = 0, offlineUncorrectable = 0, passed = true } = {}) {
+    const output = JSON.parse(await fixture("sata-internal"));
+    const counts = { 5: reallocated, 187: reportedUncorrectable, 197: pending, 198: offlineUncorrectable };
+    for (const entry of output.ata_smart_attributes.table) {
+      if (entry.id in counts) entry.raw = { value: counts[entry.id], string: String(counts[entry.id]) };
+    }
+    output.smart_status = { passed };
+    return JSON.stringify(output);
+  }
+
+  it("reads a healthy disk's counts as zero rather than unknown", async () => {
+    const result = parseSmartctlEvidence("/dev/sda", await sata());
+    expect(result).toMatchObject({ health: "healthy", passed: true, temperatureCelsius: 36, powerOnHours: 24811, mediaErrors: 0, ataErrors: { reallocated: 0, reportedUncorrectable: 0, pending: 0, offlineUncorrectable: 0 } });
+    expect(JSON.stringify(result)).not.toContain("PLACEHOLDER-SERIAL");
+  });
+
+  it("counts every bad sector in the error figure the trend and table read, and fails a disk whose unreadable sectors stay across two readings while SMART still says passed", async () => {
+    const counts = { reallocated: 360, pending: 225, offlineUncorrectable: 3, reportedUncorrectable: 7 };
+    const before = parseSmartctlEvidence("/dev/sda", await sata(counts));
+    // One reading is not enough: the next scan, six hours on, has to see them too.
+    expect(before).toMatchObject({ health: "healthy", passed: true, mediaErrors: 595, ataErrors: { reallocated: 360, reportedUncorrectable: 7, pending: 225, offlineUncorrectable: 3 } });
+    expect(parseSmartctlEvidence("/dev/sda", await sata(counts), { before })).toMatchObject({ health: "critical", mediaErrors: 595 });
+    for (const field of ["pending", "offlineUncorrectable"]) {
+      const first = parseSmartctlEvidence("/dev/sda", await sata({ [field]: 1 }));
+      expect(parseSmartctlEvidence("/dev/sda", await sata({ [field]: 1 }), { before: first }).health).toBe("critical");
+    }
+  });
+
+  it("leaves a reported-uncorrectable count (187) to the trend: an old disk carries a small fixed one for years", async () => {
+    const first = parseSmartctlEvidence("/dev/sda", await sata({ reportedUncorrectable: 1 }));
+    expect(parseSmartctlEvidence("/dev/sda", await sata({ reportedUncorrectable: 1 }), { before: first }).health).toBe("healthy");
+  });
+
+  it("does not call a disk critical on one reading of a pending sector that the next reading no longer shows, nor on a count that went from one disk to another", async () => {
+    const clean = parseSmartctlEvidence("/dev/sda", await sata());
+    expect(parseSmartctlEvidence("/dev/sda", await sata({ pending: 4 }), { before: clean }).health).toBe("healthy");
+    const flagged = parseSmartctlEvidence("/dev/sda", await sata({ pending: 4 }));
+    expect(parseSmartctlEvidence("/dev/sda", await sata(), { before: flagged }).health).toBe("healthy");
+    expect(parseSmartctlEvidence("/dev/sda", await sata({ pending: 4 }), { before: { ...flagged, device: "/dev/sdb" } }).health).toBe("healthy");
+  });
+
+  it("keeps a disk red across a sleep: the reading before it was asleep, and it was critical then", async () => {
+    const asleep = { device: "/dev/sda", health: "unavailable", reason: "asleep", ataErrors: null, lastHealth: "critical", lastReadAt: "2026-11-24T00:00:00.000Z" };
+    expect(parseSmartctlEvidence("/dev/sda", await sata({ pending: 4 }), { before: asleep }).health).toBe("critical");
+    expect(parseSmartctlEvidence("/dev/sda", await sata({ pending: 4 }), { before: { ...asleep, lastHealth: "healthy" } }).health).toBe("healthy");
+  });
+
+  it("leaves a disk with remapped sectors alone until they climb: the trend says that", async () => {
+    expect(parseSmartctlEvidence("/dev/sda", await sata({ reallocated: 8 }))).toMatchObject({ health: "healthy", mediaErrors: 8 });
+  });
+
+  it("reads the count from smartctl's printed raw value where the vendor packs other figures into the raw number", async () => {
+    const output = JSON.parse(await sata());
+    output.ata_smart_attributes.table.find((entry) => entry.id === 5).raw = { value: 0x0002_0000_0008, string: "8 (0 2)" };
+    expect(parseSmartctlEvidence("/dev/sda", JSON.stringify(output)).ataErrors.reallocated).toBe(8);
+  });
+
+  it("has no bad-sector figures for a drive that reports pass/fail only, nor for an NVMe drive", async () => {
+    expect(parseSmartctlEvidence("/dev/sdb", await fixture("usb-bridge-known"))).toMatchObject({ health: "healthy", passed: true, mediaErrors: null, ataErrors: null });
+    expect(parseSmartctlEvidence("/dev/nvme0n1", JSON.stringify({ smart_status: { passed: true }, nvme_smart_health_information_log: { media_errors: 0 } }))).toMatchObject({ mediaErrors: 0, ataErrors: null });
+  });
+
+  it("raises the error-trend alert over the audit's ten days of a SATA disk going bad behind passed: true", async () => {
+    const day = (index) => new Date(Date.parse("2026-11-15T06:00:00.000Z") + index * 86_400_000);
+    let history = {};
+    for (let index = 0; index < 10; index += 1) {
+      const reading = parseSmartctlEvidence("/dev/sda", await sata({ reallocated: index * 40, pending: index * 25 }));
+      const inventory = { storage: { smart: normalizeSmartEvidence({ schemaVersion: 2, generatedAt: day(index).toISOString(), available: true, reason: "fixed-root-scan", disks: [reading] }, { now: () => day(index) }) } };
+      history = appendSmartSample(history, { at: day(index).toISOString(), entries: smartEntriesFromInventory(inventory) });
+    }
+    expect(history["/dev/sda"].map((sample) => sample.mediaErrors)).toEqual([0, 65, 130, 195, 260, 325, 390, 455, 520, 585]);
+    expect(evaluateSmartTrends(history, { now: day(9) })).toEqual([expect.objectContaining({ key: "smart.errors:/dev/sda", priority: "high" })]);
+  });
+});
+
+describe("SATA attributes a vendor gives another meaning, and counts a disk has carried for years", () => {
+  it("reads a Crucial MX500's attribute 197 (Current_Pending_ECC_Cnt) as its own count, not pending sectors: it flips between 0 and 1 on a healthy drive", async () => {
+    const output = await fixture("sata-mx500-pending-ecc");
+    const first = parseSmartctlEvidence("/dev/sda", output);
+    expect(first).toMatchObject({ health: "healthy", passed: true, temperatureCelsius: 33, mediaErrors: 0, ataErrors: { reallocated: 0, reportedUncorrectable: 0, pending: 1, offlineUncorrectable: 0, notSectorCounts: ["pending"] } });
+    // Read twice in a row with the flag up, still not a failing disk.
+    expect(parseSmartctlEvidence("/dev/sda", output, { before: first }).health).toBe("healthy");
+    expect(JSON.stringify(first)).not.toContain("PLACEHOLDER-SERIAL");
+  });
+
+  it("does not raise the error trend on an MX500 whose 197 flips between 0 and 1", async () => {
+    const zero = JSON.parse(await fixture("sata-mx500-pending-ecc"));
+    zero.ata_smart_attributes.table.find((entry) => entry.id === 197).raw = { value: 0, string: "0" };
+    const day = (index) => new Date(Date.parse("2026-11-15T06:00:00.000Z") + index * 86_400_000);
+    let history = {};
+    for (let index = 0; index < 10; index += 1) {
+      const reading = parseSmartctlEvidence("/dev/sda", index % 2 ? await fixture("sata-mx500-pending-ecc") : JSON.stringify(zero));
+      history = appendSmartSample(history, { at: day(index).toISOString(), entries: [{ device: "/dev/sda", mediaErrors: reading.mediaErrors, percentageUsed: null, temperatureCelsius: 33 }] });
+    }
+    expect(history["/dev/sda"].map((sample) => sample.mediaErrors)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(evaluateSmartTrends(history, { now: day(9) })).toEqual([]);
+  });
+
+  it("keeps an old HDD with a fixed reported-uncorrectable count of 2 healthy, scan after scan, with the count in its breakdown", async () => {
+    const output = await fixture("sata-old-hdd-reported-uncorrect");
+    const first = parseSmartctlEvidence("/dev/sdb", output);
+    expect(first).toMatchObject({ health: "healthy", passed: true, powerOnHours: 61822, mediaErrors: 2, ataErrors: { reallocated: 0, reportedUncorrectable: 2, pending: 0, offlineUncorrectable: 0, notSectorCounts: [] } });
+    expect(parseSmartctlEvidence("/dev/sdb", output, { before: first }).health).toBe("healthy");
+  });
+
+  it("confirms pending sectors through the evidence the scan replaces, at the next six-hourly scan", async () => {
+    const pending = JSON.parse(await fixture("sata-internal"));
+    pending.ata_smart_attributes.table.find((entry) => entry.id === 197).raw = { value: 8, string: "8" };
+    const run = vi.fn(async (binary) => {
+      if (binary.endsWith("findmnt")) return { ok: false, stdout: "" };
+      if (binary.endsWith("lsblk")) return { ok: true, stdout: JSON.stringify({ blockdevices: [{ name: "/dev/sda", type: "disk", tran: "sata" }] }) };
+      return { ok: true, stdout: JSON.stringify(pending) };
+    });
+    const scanner = createStorageScanner({ run, loadFile: vi.fn(async () => "0"), checkAccess: vi.fn(async () => {}), now: () => new Date("2026-11-25T06:00:00.000Z") });
+    const first = await scanner.scan();
+    expect(first.disks[0]).toMatchObject({ device: "/dev/sda", health: "healthy", ataErrors: { pending: 8 } });
+    const second = await scanner.scan({ previous: first });
+    expect(second.disks[0]).toMatchObject({ device: "/dev/sda", health: "critical", ataErrors: { pending: 8 } });
   });
 });
 

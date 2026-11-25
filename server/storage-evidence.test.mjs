@@ -71,4 +71,16 @@ describe("sanitized storage evidence", () => {
     // Every disk asleep: not read, and said so, rather than "scan failed".
     expect(evidence([asleep], { available: false, reason: "disks-asleep" })).toMatchObject({ available: false, status: "unavailable", reason: "disks-asleep" });
   });
+
+  it("keeps a SATA disk's bad sectors by kind, as counts only (M91)", () => {
+    const now = () => new Date("2026-11-25T06:30:00.000Z");
+    const evidence = (disk) => normalizeSmartEvidence({ schemaVersion: 2, generatedAt: "2026-11-25T06:00:00.000Z", available: true, reason: "fixed-root-scan", disks: [disk] }, { now }).disks[0];
+    const sata = { device: "/dev/sda", health: "critical", passed: true, mediaErrors: 585, reason: "ok", ataErrors: { reallocated: 360, reportedUncorrectable: 0, pending: 225, offlineUncorrectable: 0, serial: "never-export" } };
+    expect(evidence(sata)).toMatchObject({ mediaErrors: 585, ataErrors: { reallocated: 360, reportedUncorrectable: 0, pending: 225, offlineUncorrectable: 0, notSectorCounts: [] } });
+    // Which counts the drive names as something else (an MX500's 197), as known field names only.
+    expect(evidence({ ...sata, ataErrors: { ...sata.ataErrors, notSectorCounts: ["pending", "serial", 7] } }).ataErrors.notSectorCounts).toEqual(["pending"]);
+    expect(JSON.stringify(evidence(sata))).not.toContain("never-export");
+    expect(evidence({ ...sata, ataErrors: { pending: -1, reallocated: "lots" } }).ataErrors).toEqual({ reallocated: null, reportedUncorrectable: null, pending: null, offlineUncorrectable: null, notSectorCounts: [] });
+    expect(evidence({ ...sata, ataErrors: undefined }).ataErrors).toBeNull();
+  });
 });

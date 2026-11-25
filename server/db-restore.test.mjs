@@ -4,7 +4,9 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { onWindows } from "../test/platform.mjs";
-import { readRestoreResult, restoreDatabaseCopy } from "./db-restore.mjs";
+import { createHash } from "node:crypto";
+import { readRestoreResult, restoreDatabaseCopy, stageDatabaseBackup } from "./db-restore.mjs";
+import { applySchema } from "./state/schema.mjs";
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
@@ -163,5 +165,87 @@ describe.skipIf(onWindows)("putting a database copy back", () => {
     await writeFile(resultFile, JSON.stringify({ at: "x", copy: "../../etc/shadow", outcome: "restored" }));
     expect(await readRestoreResult(resultFile)).toBeNull();
     expect(await readRestoreResult(path.join(directory, "missing.json"))).toBeNull();
+  });
+});
+
+// M91: a verified database backup, or the copy a snapshot restore staged, could only be put back at
+// the console. Staged beside the database as a copy restoreDatabaseCopy takes, once it checks out.
+describe.skipIf(onWindows)("staging a database backup to be put back", () => {
+  async function backup({ extra = "", corrupt = false, liveSchema = false } = {}) {
+    const { directory, database } = await setup();
+    // A running BoxPilot's database has every table this release makes.
+    if (liveSchema) {
+      for (const suffix of ["", "-wal", "-shm"]) await rm(`${database}${suffix}`, { force: true });
+      const live = new DatabaseSync(database);
+      try { applySchema(live); } finally { live.close(); }
+    }
+    const folder = await mkdtemp(path.join(os.tmpdir(), "boxpilot-db-backup-"));
+    directories.push(folder);
+    const file = path.join(folder, "boxpilot.sqlite3");
+    const copy = new DatabaseSync(file);
+    copy.exec(liveSchema ? "" : "CREATE TABLE owners (username TEXT); INSERT INTO owners VALUES ('backed-up-alex');");
+    if (liveSchema) applySchema(copy);
+    if (extra) copy.exec(extra);
+    copy.close();
+    const checksumSha256 = createHash("sha256").update(await readFile(file)).digest("hex");
+    if (corrupt) await writeFile(file, "not the bytes that were written");
+    return { directory, database, file, checksumSha256 };
+  }
+  const now = () => new Date("2026-11-25T10:00:00.000Z");
+
+  it("puts a backup that checks out beside the database, under a name the restore takes", async () => {
+    const { directory, database, file, checksumSha256 } = await backup();
+    const staged = await stageDatabaseBackup({ database, source: file, checksumSha256, label: "backup", now });
+    expect(staged).toEqual({ name: "boxpilot-rollback-backup-20261125T100000Z.sqlite3", path: path.join(directory, "boxpilot-rollback-backup-20261125T100000Z.sqlite3") });
+    expect(owners(staged.path)).toEqual(["backed-up-alex"]);
+    expect((await stat(staged.path)).mode & 0o777).toBe(0o600);
+    // And the existing put-back takes it from there.
+    const run = vi.fn(async (_binary, args) => ({ ok: args[0] !== "is-active", stderr: "" }));
+    await restoreDatabaseCopy({ database, copyName: staged.name, version: "1.151.0", stamp: "20261125T100100Z", run, healthy: async () => true, log: () => {} });
+    expect(owners(database)).toEqual(["backed-up-alex"]);
+  });
+
+  it("refuses a backup that does not match its checksum, and puts nothing beside the database", async () => {
+    const { directory, database, file, checksumSha256 } = await backup({ corrupt: true });
+    await expect(stageDatabaseBackup({ database, source: file, checksumSha256, label: "snapshot", now })).rejects.toThrow(/does not match the checksum.*Nothing was changed/);
+    expect((await readdir(directory)).filter((name) => name.includes("-snapshot-"))).toEqual([]);
+  });
+
+  // M91 review: this compared PRAGMA user_version, which BoxPilot never sets (a fresh database has 0),
+  // so a backup from a newer release was never refused.
+  it("never relied on user_version: BoxPilot's own database leaves it at 0", () => {
+    const fresh = new DatabaseSync(":memory:");
+    try { applySchema(fresh); expect(fresh.prepare("PRAGMA user_version").get()).toEqual({ user_version: 0 }); } finally { fresh.close(); }
+  });
+
+  it("refuses a backup holding a table or a column this BoxPilot does not have: a newer release took it", async () => {
+    const table = await backup({ liveSchema: true, extra: "CREATE TABLE from_the_future (id TEXT)" });
+    await expect(stageDatabaseBackup({ database: table.database, source: table.file, checksumSha256: table.checksumSha256, label: "backup", now })).rejects.toThrow(/holds table from_the_future, which this BoxPilot .* does not have, so it was taken by a newer release.*Nothing was changed/);
+    const column = await backup({ liveSchema: true, extra: "ALTER TABLE owners ADD COLUMN pronouns TEXT" });
+    await expect(stageDatabaseBackup({ database: column.database, source: column.file, checksumSha256: column.checksumSha256, label: "backup", now })).rejects.toThrow(/holds column owners\.pronouns/);
+    expect((await readdir(column.directory)).filter((name) => name.includes("-backup-"))).toEqual([]);
+  });
+
+  it("takes a backup from an older release, though it still holds a table this one has since dropped", async () => {
+    const { database, file, checksumSha256 } = await backup({ liveSchema: true, extra: "CREATE TABLE fleet_agents (id TEXT); ALTER TABLE owners DROP COLUMN role" });
+    await expect(stageDatabaseBackup({ database, source: file, checksumSha256, label: "backup", now })).resolves.toMatchObject({ name: "boxpilot-rollback-backup-20261125T100000Z.sqlite3" });
+  });
+
+  it("refuses a backup whose record says a newer release took it, and takes one from this release or an older one", async () => {
+    const { database, file, checksumSha256 } = await backup();
+    await expect(stageDatabaseBackup({ database, source: file, checksumSha256, label: "backup", takenBy: "1.200.0", version: "1.199.3", now })).rejects.toThrow(/taken by BoxPilot 1\.200\.0, newer than this 1\.199\.3.*Nothing was changed/);
+    await expect(stageDatabaseBackup({ database, source: file, checksumSha256, label: "backup", takenBy: "1.199.3", version: "1.199.3", now })).resolves.toMatchObject({ name: expect.any(String) });
+  });
+
+  it("never reads a backup through a link, nor writes through one at the copy's name", async () => {
+    const { directory, database, file, checksumSha256 } = await backup();
+    const linked = path.join(path.dirname(file), "linked.sqlite3");
+    await symlink(file, linked);
+    await expect(stageDatabaseBackup({ database, source: linked, checksumSha256, label: "backup", now })).rejects.toThrow(/not a plain file/);
+    const elsewhere = path.join(path.dirname(file), "elsewhere");
+    await writeFile(elsewhere, "keep me");
+    await symlink(elsewhere, path.join(directory, "boxpilot-rollback-backup-20261125T100000Z.sqlite3"));
+    await expect(stageDatabaseBackup({ database, source: file, checksumSha256, label: "backup", now })).rejects.toThrow(/could not be put beside the database/);
+    expect(await readFile(elsewhere, "utf8")).toBe("keep me");
   });
 });

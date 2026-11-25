@@ -1,9 +1,10 @@
 import { Fragment, useId, useState } from "react";
+import { inspectOperation } from "../../operations";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf, type ViewName } from "../../data";
 import { formatBytes } from "../../formatBytes";
 import type { OffBoxVerdict } from "../../offBox";
-import { Button, CodeBlock, EmptyState, Field, KeyValue, Notice, Panel, SecretInput, Select, Sheet, TextInput, Textarea, mayStart, type KnownOperation, riskOf, type Status } from "../../ui";
+import { Button, CodeBlock, EmptyState, Field, KeyValue, Notice, Panel, SecretInput, Select, Sheet, Table, TextInput, Textarea, mayStart, type KnownOperation, riskOf, type Status } from "../../ui";
 import { passwordAsked, passwordAskedWords, useOwnerPassword } from "../../ownerPassword";
 import { ago, syncedAt, when, type CloudSettings, type CloudState, type MachineSnapshotState, type RemoteDestination, type RemoteMirrorState, type RemoteSettings } from "./types";
 
@@ -48,6 +49,31 @@ const placeholders: Record<string, string> = { bucket: "home-backups", path: "bo
 /** Where the cloud sheet holds the passphrase's second typing; never a field of the provider, so never sent. */
 const passphraseAgainKey = "passphraseAgain";
 
+/**
+ * The fields a provider's secret belongs to (M91): saved again with these unchanged, an empty secret keeps the saved
+ * one (server/tasks/backup-cloud.mjs, sameAccount). The passphrase is the owner's, not the provider's, so it is kept
+ * whatever else changes, as long as the saved destination was sealed.
+ */
+const secretAccountFields: Record<string, string[]> = { b2: ["account"], s3: ["accessKeyId"], webdav: ["user", "url"] };
+
+/** What the last mirror read back from the bucket (server/backup-cloud.mjs, cloudSyncRecord). */
+interface CloudReadBack { ok: boolean | null; at: string | null; artifact: string | null; error: string | null; reason: string | null; lastVerifiedAt: string | null }
+/** A machine snapshot in the bucket (backup.cloud.snapshots). */
+interface CloudSnapshot { artifact: string; sizeBytes: number | null; modifiedAt: string | null; hasMeta: boolean; local: boolean }
+
+/** When a snapshot was taken, read from its name (machine-snapshot-YYYYMMDDTHHMMSSZ-…). */
+function takenAt(artifact: string): string | null {
+  const match = artifact.match(/^machine-snapshot-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z-/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z` : null;
+}
+
+function readBackLine(readBack: CloudReadBack | null | undefined): { value: string; status?: Status } {
+  if (!readBack) return { value: "not yet: the next mirror reads the newest snapshot back" };
+  if (readBack.ok === true) return { value: `${when(readBack.at)}${readBack.artifact ? ` · ${readBack.artifact}` : ""}`, status: "good" };
+  if (readBack.ok === false) return { value: `failed ${when(readBack.at)}${readBack.lastVerifiedAt ? ` · last good ${when(readBack.lastVerifiedAt)}` : ""}`, status: "danger" };
+  return { value: readBack.reason ?? "nothing to read back yet" };
+}
+
 /** The port a box holds, or null while it is empty or not a port. */
 function portOf(text: string): number | null {
   const trimmed = text.trim();
@@ -76,6 +102,27 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   const [cloudForm, setCloudForm] = useState<{ provider: string; values: Record<string, string> } | null>(null);
   // Why the last save of the cloud destination did not complete, said in its sheet when it comes back.
   const [cloudRefusal, setCloudRefusal] = useState<string | null>(null);
+  // The machine snapshots in the bucket (M91), read when asked: each read is a round trip to the provider.
+  const [cloudSnapshots, setCloudSnapshots] = useState<{ busy: boolean; error: string | null; snapshots: CloudSnapshot[] | null; total: number }>({ busy: false, error: null, snapshots: null, total: 0 });
+  const findCloudSnapshots = async () => {
+    setCloudSnapshots((current) => ({ ...current, busy: true, error: null }));
+    try {
+      const { result } = await inspectOperation<{ snapshots?: CloudSnapshot[]; total?: number }>("backup.cloud.snapshots");
+      const snapshots = Array.isArray(result?.snapshots) ? result.snapshots : [];
+      setCloudSnapshots({ busy: false, error: null, snapshots, total: typeof result?.total === "number" ? result.total : snapshots.length });
+    } catch (requestError) {
+      setCloudSnapshots({ busy: false, error: requestError instanceof Error ? requestError.message : "The bucket could not be listed", snapshots: null, total: 0 });
+    }
+  };
+  const fetchSnapshot = (snapshot: CloudSnapshot) => start({
+    operationId: "backup.cloud.fetch",
+    title: "Fetch a machine snapshot from the cloud",
+    parameters: { artifact: snapshot.artifact },
+    preview: snapshot.local
+      ? <span>Downloads the newest backup of each app in <code>{snapshot.artifact}</code> that is not on this server yet, decrypts it with the saved passphrase and checks it against the checksum recorded when it was taken, so the Restore tab brings the apps back with their data. Nothing on this server is replaced, and nothing is fetched unless all of it fits.</span>
+      : <span>Downloads <code>{snapshot.artifact}</code>{snapshot.sizeBytes ? ` (${formatBytes(snapshot.sizeBytes)})` : ""} and each of its apps' newest backup from the bucket, decrypts them with the saved passphrase and checks each against the checksum recorded when it was taken. They then sit in this server's snapshot and app backup stores, where the Restore tab restores the apps with their data. Nothing on this server is replaced, and nothing is fetched unless all of it fits.</span>,
+    onClosed: (job) => { if (job?.state === "completed") void findCloudSnapshots(); },
+  });
 
   const mounted = Boolean(machine?.sync.mount.mounted);
   // What the last sync to the drive left out (R5B4-7): recent, and still not every backup.
@@ -123,8 +170,18 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   const passphraseAgain = cloudForm?.values[passphraseAgainKey] ?? "";
   const passphraseShort = sealed && passphrase.length > 0 && passphrase.trim().length < 12;
   const passphraseDiffers = sealed && passphraseAgain.length > 0 && passphraseAgain !== passphrase;
+  // M91: a secret left empty keeps the saved one, when the saved one is still this account's (or, for the passphrase,
+  // when a sealed destination was saved), so changing the folder does not mean typing the passphrase twice again.
+  const savedDestination = cloudSettings?.destination ?? null;
+  const keepable = (field: string) => {
+    if (!savedDestination || !cloudForm) return false;
+    if (field === "passphrase") return cloud?.sealed === true;
+    if (savedDestination.provider !== cloudForm.provider) return false;
+    return (secretAccountFields[cloudForm.provider] ?? []).every((name) => valueOf(name) === (savedDestination[name] ?? ""));
+  };
+  const keeping = secrets.filter((field) => !valueOf(field) && keepable(field));
   const missing = [
-    ...[...required, ...secrets].filter((field) => !valueOf(field)).map((field) => fieldLabels[field] ?? field),
+    ...[...required, ...secrets].filter((field) => !valueOf(field) && !keeping.includes(field)).map((field) => fieldLabels[field] ?? field),
     ...(cloudForm?.provider === "s3" && !valueOf("endpoint") && !valueOf("region") ? ["an endpoint or a region"] : []),
     ...(passphraseShort ? ["a passphrase of at least 12 characters"] : []),
     ...(sealed && passphrase && !passphraseAgain ? ["the passphrase typed again"] : []),
@@ -140,18 +197,20 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   };
   const saveCloud = () => {
     if (!cloudForm || !complete || !cloud?.rcloneInstalled) return;
-    const kept = cloudForm;
-    const { provider, values } = kept;
+    const filled = cloudForm;
+    const { provider, values } = filled;
+    const typed = secrets.filter((field) => (values[field] ?? "").trim());
+    const kept = keeping;
     setCloudForm(null);
     setCloudRefusal(null);
     start({
       operationId: "backup.cloud.setup",
       title: `Save the ${spec?.label ?? provider} backup destination`,
       parameters: { provider, ...Object.fromEntries([...fields, ...secrets].map((field) => [field, (values[field] ?? "").trim()]).filter(([, value]) => value)) },
-      preview: <span>Saves where the copies go and how to sign in there, in a file on this server that only root can read. The {secrets.map((field) => (fieldLabels[field] ?? field).toLowerCase()).join(" and ")} {secrets.length === 1 ? "is" : "are"} held in memory until this job runs and never stored in BoxPilot's database. Test the connection afterwards.</span>,
+      preview: <span>Saves where the copies go and how to sign in there, in a file on this server that only root can read.{typed.length > 0 && <> The {typed.map((field) => (fieldLabels[field] ?? field).toLowerCase()).join(" and ")} {typed.length === 1 ? "is" : "are"} held in memory until this job runs and never stored in BoxPilot's database.</>}{kept.length > 0 && <> The saved {kept.map((field) => (fieldLabels[field] ?? field).toLowerCase()).join(" and ")} {kept.length === 1 ? "stays" : "stay"} as {kept.length === 1 ? "it is" : "they are"}.</>} Test the connection afterwards.</span>,
       // The sheet closes for the approval, and comes back as it was filled in unless the job completed;
       // a save the server refused (a changed passphrase for a folder already sealed) says why there.
-      onClosed: (job) => { if (job?.state !== "completed") { setCloudForm(kept); setCloudRefusal(job?.state === "failed" ? job.error ?? "The job failed; Activity has its log." : null); } },
+      onClosed: (job) => { if (job?.state !== "completed") { setCloudForm(filled); setCloudRefusal(job?.state === "failed" ? job.error ?? "The job failed; Activity has its log." : null); } },
     });
   };
 
@@ -161,6 +220,8 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
   const sshState = destinationState(Boolean(destination), syncedAt(remoteSettings?.lastSync));
   const cloudState = destinationState(Boolean(cloudSettings?.destination), syncedAt(cloudSettings?.lastSync));
   const savedCloud = cloudSettings?.destination ?? null;
+  const lastReadBack = (cloudSettings?.lastSync as { readBack?: CloudReadBack | null } | null | undefined)?.readBack ?? null;
+  const readBack = readBackLine(lastReadBack);
 
   return (
     <>
@@ -242,8 +303,8 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
         actions={<>
           {cloud && !cloud.rcloneInstalled && may("apt.install") && <Button risk={riskOf("apt.install")} onClick={() => start({ operationId: "apt.install", title: "Install rclone", parameters: { packages: ["rclone"] }, preview: <span>Installs rclone from Ubuntu's repositories: the program that copies backups to a cloud bucket. Nothing is copied until a destination is set.</span> })}>Install rclone</Button>}
           {cloud && may("backup.cloud.setup") && <Button risk={riskOf("backup.cloud.setup")} disabled={!cloud.rcloneInstalled} title={cloud.rcloneInstalled ? undefined : "Install rclone first"} onClick={openCloud}>{savedCloud ? "Change destination" : "Set destination"}</Button>}
-          {savedCloud && may("backup.cloud.test") && <Button risk={riskOf("backup.cloud.test")} onClick={() => start({ operationId: "backup.cloud.test", title: "Test the cloud destination", parameters: {}, preview: <span>Creates the destination folder with the saved credentials and lists it. Nothing is copied yet.</span> })}>Test connection</Button>}
-          {savedCloud && may("backup.cloud.sync") && <Button variant="primary" risk={riskOf("backup.cloud.sync")} onClick={() => start({ operationId: "backup.cloud.sync", title: "Copy backups to the cloud", parameters: {}, preview: <span>Copies the database backups, app backups and machine snapshots to the bucket, sealed with your passphrase. Files already there are not sent again; nothing there is ever deleted.</span> })}>Copy now</Button>}
+          {savedCloud && may("backup.cloud.test") && <Button risk={riskOf("backup.cloud.test")} onClick={() => start({ operationId: "backup.cloud.test", title: "Test the cloud destination", parameters: {}, preview: <span>Creates the destination folder with the saved credentials and lists it, writes a small marker through the encryption and reads it back, and opens the newest snapshot already in the bucket with the saved passphrase. No backup is copied.</span> })}>Test connection</Button>}
+          {savedCloud && may("backup.cloud.sync") && <Button variant="primary" risk={riskOf("backup.cloud.sync")} onClick={() => start({ operationId: "backup.cloud.sync", title: "Copy backups to the cloud", parameters: {}, preview: <span>Copies the database backups, app backups and machine snapshots to the bucket, sealed with your passphrase. Files already there are not sent again; nothing there is ever deleted. Afterwards the newest machine snapshot is downloaded back and checked against the one here.</span> })}>Copy now</Button>}
         </>}
       >
         {cloudError && <Notice tone="danger" live title="The cloud destination could not be read" action={<Button onClick={onChanged}>Try again</Button>}>{cloudError}</Notice>}
@@ -253,8 +314,45 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           ...(savedCloud?.bucket ? [{ id: "bucket", label: "Bucket", value: savedCloud.bucket, mono: true }] : []),
           ...(savedCloud?.path ? [{ id: "folder", label: "Folder", value: savedCloud.path, mono: true }] : []),
           { id: "last", label: "Last mirrored", value: cloudSettings?.lastSync ? `${when(cloudSettings.lastSync.completedAt)} · ${countOf(cloudSettings.lastSync.filesTransferred, "file")}${cloudSettings.lastSync.errors ? ` · ${cloudSettings.lastSync.errors} errors` : ""}` : "never", mono: true, status: cloudSettings?.lastSync?.errors ? "warning" : undefined },
+          { id: "readback", label: "Last read back", value: readBack.value, mono: true, status: readBack.status },
           { id: "rclone", label: "rclone", value: cloud ? (cloud.rcloneInstalled ? "installed" : "not installed") : "not read", mono: true, status: cloud && !cloud.rcloneInstalled ? "warning" : undefined },
         ]} />
+        {lastReadBack?.ok === false && (
+          <Notice tone="danger" className="backups-inset" title="The copy in the bucket did not read back">
+            After the last mirror, {lastReadBack.artifact ?? "the newest machine snapshot"} could not be downloaded and decrypted to match the one here: {lastReadBack.error ?? "unknown error"}. Test the connection, which opens the copies with the saved passphrase.
+          </Notice>
+        )}
+        {cloud?.sealed && role !== "viewer" && (
+          <div className="backups-inset">
+            <Table
+              caption="Snapshots in the cloud"
+              showCaption
+              columns={[
+                { id: "taken", header: "Taken", cell: (snapshot: CloudSnapshot) => { const at = takenAt(snapshot.artifact); return at ? when(at) : <code className="backups-wrap">{snapshot.artifact}</code>; } },
+                { id: "size", header: "Size", numeric: true, cell: (snapshot: CloudSnapshot) => formatBytes(snapshot.sizeBytes) },
+                { id: "here", header: "On this server", cell: (snapshot: CloudSnapshot) => (snapshot.local ? "yes" : "no") },
+                // Here already: its app backups can still be fetched, which finishes a fetch an app's download failed in.
+                { id: "fetch", header: <span className="ui-visually-hidden">Fetch</span>, label: "Fetch", cell: (snapshot: CloudSnapshot) => (snapshot.local
+                  ? may("backup.cloud.fetch") && snapshot.hasMeta
+                    ? <Button risk={riskOf("backup.cloud.fetch")} aria-label={`Fetch the app backups of ${snapshot.artifact}`} onClick={() => fetchSnapshot(snapshot)}>Fetch app backups</Button>
+                    : <span className="backups-dim">on the Restore tab</span>
+                  : may("backup.cloud.fetch")
+                    ? <Button risk={riskOf("backup.cloud.fetch")} disabled={!snapshot.hasMeta} title={snapshot.hasMeta ? undefined : "Its record is not in the bucket, so it cannot be checked"} aria-label={`Fetch ${snapshot.artifact}`} onClick={() => fetchSnapshot(snapshot)}>Fetch</Button>
+                    : null) },
+              ]}
+              rows={cloudSnapshots.snapshots ?? []}
+              rowKey={(snapshot) => snapshot.artifact}
+              empty={cloudSnapshots.busy
+                ? "Reading the bucket…"
+                : cloudSnapshots.snapshots === null
+                  ? <EmptyState title="Not read yet" action={<Button onClick={() => void findCloudSnapshots()}>Find snapshots in the cloud</Button>}>Lists the machine snapshots in the bucket, read with the saved passphrase. A rebuilt server fetches the old one's this way, with each app's newest backup, then restores it from the Restore tab.</EmptyState>
+                  : "No machine snapshot is in the bucket yet."}
+            />
+            {cloudSnapshots.snapshots !== null && <Button onClick={() => void findCloudSnapshots()} busy={cloudSnapshots.busy}>Read the bucket again</Button>}
+            {cloudSnapshots.total > (cloudSnapshots.snapshots?.length ?? 0) && <p className="backups-note">The newest {cloudSnapshots.snapshots?.length} of {cloudSnapshots.total} are listed.</p>}
+            {cloudSnapshots.error && <Notice tone="warning" live title="The bucket could not be listed" action={<Button onClick={() => void findCloudSnapshots()}>Try again</Button>}>{cloudSnapshots.error}</Notice>}
+          </div>
+        )}
       </Panel>
 
       {ssh && (
@@ -319,7 +417,7 @@ export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remo
           ))}
           {secrets.map((field) => (
             <Fragment key={field}>
-              <Field label={fieldLabels[field] ?? field} error={field === "passphrase" && passphraseShort ? "At least 12 characters." : undefined} hint={field === "token" ? "Paste what rclone authorize printed." : field === "passphrase" ? "Every copy is encrypted with it before it leaves this server: app backups hold each app's passwords and keys. At least 12 characters. Keep it somewhere other than this server; without it nobody, you included, can read the copies in the bucket." : "Kept in a file on this server that only root can read, never in BoxPilot's database."}>
+              <Field label={fieldLabels[field] ?? field} optional={keepable(field)} error={field === "passphrase" && passphraseShort ? "At least 12 characters." : undefined} hint={`${keepable(field) ? "Leave it empty to keep the saved one. " : ""}${field === "token" ? "Paste what rclone authorize printed." : field === "passphrase" ? "Every copy is encrypted with it before it leaves this server: app backups hold each app's passwords and keys. At least 12 characters. Keep it somewhere other than this server; without it nobody, you included, can read the copies in the bucket." : "Kept in a file on this server that only root can read, never in BoxPilot's database."}`}>
                 {field === "token"
                   ? <Textarea mono rows={3} placeholder='{"access_token":"...","token_type":"Bearer",...}' value={cloudForm.values[field] ?? ""} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [field]: value } })} />
                   : <SecretInput autoComplete="new-password" value={cloudForm.values[field] ?? ""} onValueChange={(value) => setCloudForm({ ...cloudForm, values: { ...cloudForm.values, [field]: value } })} />}

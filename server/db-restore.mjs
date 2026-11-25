@@ -16,6 +16,7 @@
  * Runs as root in its own unit (server/tasks/database-restore.mjs starts it), because it stops the
  * web service the job came from. Every line it logs starts with [boxpilot-db-restore].
  */
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdtemp, open, rename, rm } from "node:fs/promises";
 import os from "node:os";
@@ -23,6 +24,9 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { replaceFileWithoutFollowing } from "./durable-file.mjs";
+import { compareVersions } from "./release-updates.mjs";
+import { applySchema } from "./state/schema.mjs";
+import { productVersion } from "./version.mjs";
 
 export const restoreCopyPattern = /^boxpilot-rollback-[A-Za-z0-9._+-]{1,80}\.sqlite3$/;
 
@@ -108,6 +112,133 @@ async function replaceWith(source, target, owner) {
   }
   await rename(staged, target).catch((error) => { throw untouched(error); });
   for (const suffix of ["-wal", "-shm", "-journal"]) await rm(`${target}${suffix}`, { force: true });
+}
+
+/** The sha256 of a file, read through an open handle. */
+async function sha256Of(handle) {
+  const digest = createHash("sha256");
+  const buffer = Buffer.alloc(1 << 20);
+  for (let position = 0; ;) {
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+    if (!bytesRead) return digest.digest("hex");
+    digest.update(buffer.subarray(0, bytesRead));
+    position += bytesRead;
+  }
+}
+
+/**
+ * Each table in a database file (not SQLite's own) with its columns, or null when it cannot be read.
+ * BoxPilot never sets PRAGMA user_version (a fresh database has 0), so what a database holds is what
+ * says which release it came from.
+ * @returns {Map<string, Set<string>> | null}
+ */
+function schemaOf(file) {
+  let database = null;
+  try {
+    database = new DatabaseSync(file, { readOnly: true });
+    const tables = new Map();
+    const rows = /** @type {any[]} */ (database.prepare("SELECT m.name AS tableName, p.name AS columnName FROM sqlite_schema AS m JOIN pragma_table_info(m.name) AS p WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'").all());
+    for (const row of rows) {
+      if (!tables.has(row.tableName)) tables.set(row.tableName, new Set());
+      tables.get(row.tableName).add(row.columnName);
+    }
+    return tables;
+  } catch {
+    return null;
+  } finally {
+    database?.close();
+  }
+}
+
+/** The tables and columns `copy` has that `live` does not, as "table x" / "column x.y". */
+function beyond(copy, live) {
+  const extra = [];
+  for (const [table, columns] of copy) {
+    const known = live.get(table);
+    if (!known) { extra.push(`table ${table}`); continue; }
+    for (const column of columns) if (!known.has(column)) extra.push(`column ${table}.${column}`);
+  }
+  return extra;
+}
+
+/**
+ * Why a database copy is from a newer BoxPilot than this one, or null. Asked two ways (M91 review):
+ * the release its record says took it (`takenBy`, controller backups record it since M91), and what
+ * it holds: a table or column the live database lacks came from a release that added it. The live
+ * database has every table this release makes (its start makes them), and a copy from an older
+ * release can still hold a table this one has since dropped, so a copy that seems to hold more is
+ * first brought to this release's schema, as BoxPilot's own start would bring it, in a scratch copy.
+ */
+function newerThanThis({ chosen, database, takenBy, version, work }) {
+  if (typeof takenBy === "string" && /^\d+\.\d+\.\d+/.test(takenBy) && compareVersions(takenBy, version) > 0) {
+    return `The backup was taken by BoxPilot ${takenBy}, newer than this ${version}, so this version cannot use it. Update BoxPilot first. Nothing was changed.`;
+  }
+  const live = schemaOf(database);
+  const theirs = schemaOf(chosen);
+  if (!live || !theirs || !beyond(theirs, live).length) return null;
+  const migrated = path.join(work, "migrated.sqlite3");
+  let extra;
+  try {
+    const source = new DatabaseSync(chosen, { readOnly: true });
+    try { source.exec(`VACUUM INTO '${migrated.replaceAll("'", "''")}'`); } finally { source.close(); }
+    const upgraded = new DatabaseSync(migrated);
+    try { applySchema(upgraded); } finally { upgraded.close(); }
+    extra = beyond(schemaOf(migrated) ?? new Map([["(unreadable)", new Set()]]), live);
+  } catch (error) {
+    return `This BoxPilot could not bring the backup to its own database schema (${error.message}), so it was most likely taken by a newer release. Nothing was changed.`;
+  }
+  if (!extra.length) return null;
+  return `The backup holds ${extra.slice(0, 5).join(", ")}${extra.length > 5 ? ` and ${extra.length - 5} more` : ""}, which this BoxPilot ${version} does not have, so it was taken by a newer release. Update BoxPilot first. Nothing was changed.`;
+}
+
+/**
+ * Put a verified database backup beside the database as a copy restoreDatabaseCopy can put back
+ * (M91): a controller backup, or the copy a snapshot restore staged for review. Until then only the
+ * copies updates take could be restored from the browser, and a rebuilt server's own database copy
+ * only at the console. The backup is copied (never through a link) into a folder only root can open,
+ * checked against the checksum it was written with, SQLite's integrity check, and whether it came
+ * from a newer release than this one (newerThanThis: the release its record names, `takenBy`, and the
+ * tables and columns it holds against the live database's), and only then written as
+ * `boxpilot-rollback-<label>-<stamp>.sqlite3` beside the database, created where nothing is. Returns
+ * its name; the caller starts the restore with it, and removes it if that cannot start.
+ * @param {{ database: string, source: string, checksumSha256: string, label: "backup" | "snapshot", takenBy?: string | null, version?: string, now?: () => Date, workRoot?: string }} options
+ */
+export async function stageDatabaseBackup({ database, source, checksumSha256, label, takenBy = null, version = productVersion, now = () => new Date(), workRoot = os.tmpdir() }) {
+  if (!["backup", "snapshot"].includes(label)) throw new Error("A database backup is a controller backup or a snapshot's copy");
+  if (typeof checksumSha256 !== "string" || !/^[a-f0-9]{64}$/.test(checksumSha256)) throw new Error("The backup has no recorded checksum to check it against. Nothing was changed.");
+  const stamp = now().toISOString().replaceAll(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const name = `boxpilot-rollback-${label}-${stamp}.sqlite3`;
+  if (!restoreCopyPattern.test(name)) throw new Error("The copy's name could not be made");
+  const live = await lstat(database).catch(() => null);
+  if (!live?.isFile()) throw new Error(`${database} is not a plain file. Nothing was changed.`);
+  const work = await mkdtemp(path.join(workRoot, "boxpilot-db-stage-"));
+  try {
+    const chosen = path.join(work, "chosen.sqlite3");
+    try {
+      await copyInto(source, chosen, 0o600);
+    } catch (error) {
+      throw new Error(`The backup is not there, or is not a plain file (${error.code ?? error.message}). Nothing was changed.`);
+    }
+    const handle = await open(chosen, readNoLink);
+    let actual;
+    try { actual = await sha256Of(handle); } finally { await handle.close(); }
+    if (actual !== checksumSha256) throw new Error("The backup does not match the checksum recorded when it was taken, so it may be damaged. Nothing was changed.");
+    const verdict = integrityOf(chosen);
+    if (verdict !== "ok") throw new Error(`The backup failed SQLite's integrity check (${verdict}). Nothing was changed.`);
+    const newer = newerThanThis({ chosen, database, takenBy, version, work });
+    if (newer) throw new Error(newer);
+    const target = path.join(path.dirname(database), name);
+    try {
+      await copyInto(chosen, target, 0o600);
+    } catch (error) {
+      // Removed only when this made it: a name already taken (a link someone left there) is not ours.
+      if (error?.code !== "EEXIST") await rm(target, { force: true }).catch(() => {});
+      throw new Error(`The backup could not be put beside the database (${error.code ?? error.message}). Nothing was changed.`);
+    }
+    return { name, path: target };
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
 }
 
 /** @param {{ ok: boolean, stderr?: string }} started */

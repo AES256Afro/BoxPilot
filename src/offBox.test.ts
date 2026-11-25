@@ -80,3 +80,28 @@ describe("whether a copy exists off this server", () => {
     })).toEqual(["backup.cloud.sync", "backup.remote.sync", "backup.sync"]);
   });
 });
+
+// @ts-expect-error -- the server copy is plain JavaScript with no declarations
+import { offBoxVerdict as serverCopy } from "../server/recovery-kit.mjs";
+
+/**
+ * The rebuild checklist judges the copy off this server too (M91), and the browser must not import
+ * server code, so the rule exists twice. Two copies drift the moment nothing checks them against
+ * each other, so every case runs through both.
+ */
+describe("the browser and the rebuild checklist agree on the copy off this server", () => {
+  const cases: Array<[string, Parameters<typeof offBoxVerdict>[0], string | null]> = [
+    ["nothing set up", {}, null],
+    ["a destination never used", { cloud: { configured: true, lastSyncAt: null } }, null],
+    ["a recent copy", { drive: { configured: true, lastSyncAt: daysAgo(0.2) } }, daysAgo(0.3)],
+    ["a copy the nightly sync never followed", { ssh: { configured: true, lastSyncAt: daysAgo(2) } }, daysAgo(1)],
+    ["an old copy", { cloud: { configured: true, lastSyncAt: daysAgo(20) } }, null],
+    ["a recent copy that left files out", { drive: { configured: true, lastSyncAt: daysAgo(0.1), skipped: 2 } }, null],
+    ["the best of three destinations", { cloud: { configured: true, lastSyncAt: daysAgo(30) }, ssh: { configured: true, lastSyncAt: daysAgo(1) }, drive: { configured: false, lastSyncAt: daysAgo(0.1) } }, daysAgo(0.5)],
+  ];
+  for (const [name, inputs, newestLocalBackupAt] of cases) {
+    it(name, () => {
+      expect(serverCopy(inputs, { now, newestLocalBackupAt })).toEqual(offBoxVerdict(inputs, { now, newestLocalBackupAt }));
+    });
+  }
+});

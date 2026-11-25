@@ -135,6 +135,38 @@ describe("Storage page", () => {
       expect(within(viewerPanel).getByRole("switch").matches(":disabled")).toBe(true);
     });
 
+    it("shows each disk's health, follows the backup drive's mount to its disk, and puts a failing drive in the verdict (M91)", async () => {
+      // The USB disk is mounted by BoxPilot as its backup drive; SMART says FAILED, with room to spare.
+      const backup = {
+        ...report,
+        devices: report.devices.map((device) => (device.path === "/dev/sdb1" ? { ...device, mountpoints: ["/mnt/backup"] } : device)),
+        mounts: [report.mounts[0], { target: "/mnt/backup", source: "/dev/sdb1", fstype: "ext4", sizeBytes: 100, usedBytes: 10, availableBytes: 90 }],
+        fstab: [report.fstab[0], { device: "UUID=data-uuid", mountpoint: "/mnt/backup", fstype: "ext4", options: "defaults,nofail", managedName: "backup" }],
+      };
+      const inventory = { storage: { smart: { disks: [
+        { device: "/dev/nvme0n1", health: "healthy", reason: "ok", passed: true, mediaErrors: 0, percentageUsed: 4 },
+        { device: "/dev/sdb", health: "critical", reason: "ok", passed: false, temperatureCelsius: 41, mediaErrors: null, ataErrors: null },
+      ] } } };
+      mockFetch({ overview: backup, extra: (url) => (url === "/api/v1/inventory" ? json(inventory) : url === "/api/v1/storage/smart-history" ? json({ disks: [] }) : url === "/api/v1/settings/storage-wake" ? json({ enabled: false }) : null) });
+      render(<StoragePage csrfToken="csrf-token" />);
+      openTab(/^Drives/);
+      expect((await screen.findByText("1 drive failing")).closest(".ui-chip")?.getAttribute("data-status")).toBe("danger");
+      const mine = screen.getByRole("table", { name: "Drives BoxPilot mounted" });
+      const backupRow = within(mine).getAllByRole("row").find((row) => row.textContent?.includes("/mnt/backup")) as HTMLElement;
+      expect(within(backupRow).getByText("failing").closest(".ui-chip")?.getAttribute("data-status")).toBe("danger");
+      expect(backupRow.getAttribute("data-status")).toBe("danger");
+      const disksTable = screen.getByRole("table", { name: "Disks, partitions and volumes" });
+      const diskRow = (path: string) => within(disksTable).getAllByRole("row").find((row) => row.querySelector("code")?.textContent === path) as HTMLElement;
+      expect(within(diskRow("/dev/sdb")).getByText("failing").closest(".ui-chip")?.getAttribute("data-status")).toBe("danger");
+      expect(diskRow("/dev/sdb").getAttribute("data-status")).toBe("danger");
+      expect(within(diskRow("/dev/nvme0n1")).getByText("healthy").closest(".ui-chip")?.getAttribute("data-status")).toBe("good");
+      // A partition carries no chip of its own: its disk does.
+      expect(diskRow("/dev/sdb1").querySelector(".ui-chip")).toBeNull();
+      // The health panel names the disk by the mount the owner knows it as.
+      const history = screen.getByRole("table", { name: "Each drive's SMART readings over time" });
+      expect(within(history).getAllByRole("row").find((row) => row.textContent?.includes("sdb"))?.textContent).toContain("/mnt/backup");
+    });
+
     it("mounts a drive from a sheet and stages it with the fstab preview", async () => {
       const { staged } = mockFetch();
       render(<StoragePage csrfToken="csrf-token" />);

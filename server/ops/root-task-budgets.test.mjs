@@ -62,10 +62,12 @@ describe("an operation that runs a root task (sweep 4)", () => {
     // The walk reached the operations this is about, so the check above is not vacuous.
     expect([...seen]).toEqual(expect.arrayContaining(["agents.runtime.install", "agents.model.download", "apt.upgrade", "storage.check", "storage.dirty-mark.clear", "backup.remote.sync", "network.wake", "heartbeat.test", "system.locale.set"]));
     // Every job operation whose code starts a root task was walked to it, bar these, which reach a
-    // root task only after Cloudflare's record or Zulip's own tools have answered. Their budgets
-    // were checked by hand: each task, plus the helper's wait, is well inside them.
+    // root task only after Cloudflare's record or Zulip's own tools have answered, or (the database
+    // restore) after the helper has found and checked the backup. Their budgets were checked by hand:
+    // each task, plus the helper's wait, is well inside them (host.database.restore: a 2-minute task
+    // in a 5-minute budget).
     const unreached = jobOperations().filter((operation) => /\brunTask\(/.test(String(operation.run)) && !seen.has(operation.id)).map((operation) => operation.id);
-    expect(unreached.sort()).toEqual(["agents.zulip.connect", "cloudflare.publish", "cloudflare.unpublish"]);
+    expect(unreached.sort()).toEqual(["agents.zulip.connect", "cloudflare.publish", "cloudflare.unpublish", "host.database.restore"]);
   });
 
   it("says so in the registry when it can be given more time, so a whole-operation timeout is not retried beside it", async () => {

@@ -26,7 +26,7 @@ import { powerHardware } from "./power.mjs";
 import { watchdogDisable, watchdogEnable } from "./watchdog.mjs";
 import { wakeOnLanSet } from "./wake-on-lan.mjs";
 import { fail2banApply } from "./fail2ban.mjs";
-import { backupCloudSetup, backupCloudSync, backupCloudTest } from "./backup-cloud.mjs";
+import { backupCloudFetch, backupCloudSetup, backupCloudSnapshots, backupCloudSync, backupCloudTest } from "./backup-cloud.mjs";
 import { tailscaleSet } from "./tailscale.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
 import { systemUpdate } from "./update.mjs";
@@ -121,6 +121,9 @@ export const tasks = Object.freeze({
   "backup.cloud.setup": backupCloudSetup,
   "backup.cloud.test": backupCloudTest,
   "backup.cloud.sync": backupCloudSync,
+  // M91: the machine snapshots in the bucket, and one fetched into the local store for the restore.
+  "backup.cloud.snapshots": backupCloudSnapshots,
+  "backup.cloud.fetch": backupCloudFetch,
   "tailscale.set": tailscaleSet,
   "vm.cloud-image.ensure": ensureCloudImage,
   "system.update": systemUpdate,

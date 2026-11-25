@@ -1,7 +1,8 @@
 import { useOperation } from "../../shell/ApproveDialog";
 import { formatBytes } from "../../formatBytes";
-import { Button, CopyButton, EmptyState, Notice, Panel, StatusChip, Table, mayStart, type KnownOperation, riskOf, type TableColumn } from "../../ui";
-import { when, withData, type BackupRecord, type MachineSnapshot, type MachineSnapshotState, type ProtectionState, type RetentionStatus } from "./types";
+import { Button, CodeBlock, CopyButton, EmptyState, Notice, Panel, StatusChip, Table, mayStart, type KnownOperation, riskOf, type TableColumn } from "../../ui";
+import RestoreDatabase from "./RestoreDatabase";
+import { plainBlocker, when, withData, type BackupRecord, type MachineSnapshot, type MachineSnapshotState, type ProtectionState, type RetentionStatus } from "./types";
 
 /*
  * This server (M33.9): BoxPilot's own database, backed up with no downtime and restore-drilled
@@ -18,10 +19,12 @@ export interface ServerTabProps {
   protection: ProtectionState | null;
   retention: RetentionStatus | null;
   machine: MachineSnapshotState | null;
+  /** Why a rebuild from what this server keeps would fall short (no snapshot, an old one, no database backup); null when it would not. */
+  rebuildWarning?: string | null;
   onChanged: () => void;
 }
 
-export default function ServerTab({ csrfToken, role, loading, backups, protection, retention, machine, onChanged }: ServerTabProps) {
+export default function ServerTab({ csrfToken, role, loading, backups, protection, retention, machine, rebuildWarning = null, onChanged }: ServerTabProps) {
   const { start, dialog } = useOperation(csrfToken, () => onChanged());
   const may = (operationId: KnownOperation) => mayStart(role, operationId);
 
@@ -35,6 +38,8 @@ export default function ServerTab({ csrfToken, role, loading, backups, protectio
   const list = backups ?? [];
   const snapshots = machine?.snapshots ?? [];
   const candidates = retention?.candidates?.length ?? 0;
+  const blockers = protection?.destination?.blockers ?? [];
+  const setupCommand = protection?.destination?.setupCommand;
 
   const backupColumns: Array<TableColumn<BackupRecord>> = [
     { id: "created", header: "Created", sortValue: (backup) => backup.createdAt, cell: (backup) => when(backup.createdAt) },
@@ -81,6 +86,7 @@ export default function ServerTab({ csrfToken, role, loading, backups, protectio
   return (
     <>
       {dialog}
+      {rebuildWarning && <Notice tone="warning" title="Not enough here to rebuild this server">{rebuildWarning}</Notice>}
       <Panel
         title="BoxPilot database"
         count={backups ? list.length : undefined}
@@ -96,7 +102,12 @@ export default function ServerTab({ csrfToken, role, loading, backups, protectio
         ) : undefined}
       >
         {protection && !ready && (
-          <Notice tone="info" className="backups-inset" title="Encrypted second copies are not ready">{protection.destination?.blockers?.[0] ?? "They need restic on this server: Repair offers to install it, under Prerequisites, and sets the repository up from there."}</Notice>
+          <Notice tone="info" className="backups-inset" title="Encrypted second copies are not ready">
+            {blockers.length
+              ? <ul className="backups-note">{blockers.map((blocker) => <li key={blocker}>{plainBlocker(blocker)}</li>)}</ul>
+              : <p className="backups-note">They need restic, a backup drive and a recovery password. Repair installs restic, under Prerequisites; the command below creates the password and the encrypted store on the drive.</p>}
+            {setupCommand && <CodeBlock label="Run from the server's terminal">{setupCommand}</CodeBlock>}
+          </Notice>
         )}
         <Table
           caption="Backups of BoxPilot's database"
@@ -109,6 +120,8 @@ export default function ServerTab({ csrfToken, role, loading, backups, protectio
             : <EmptyState title="No database backups yet">Back up now creates one and restore-drills it before recording it.</EmptyState>}
         />
       </Panel>
+
+      <RestoreDatabase csrfToken={csrfToken} role={role} onChanged={onChanged} />
 
       <Panel
         title="Machine snapshots"

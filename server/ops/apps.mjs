@@ -342,11 +342,12 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.backups.counts", title: "Count application backups", risk: "low", readOnly: true, timeoutMs: 30_000,
-      description: "How many data backups each application has, from one walk of the backup root.",
+      description: "How many data backups each application has, from one walk of the backup root, and which apps that are not installed (after Delete data, say) still have backups to restore.",
       run: (_parameters, { apps }) => apps.countAppBackups(),
     }),
     defineOperation({
       id: "app.backups.inspect", title: "List application backups", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 30_000,
+      description: "An app's backups on this server, and those only on the backup drive, newest first.",
       parameters: { fields: { id: idField } },
       run: (parameters, { apps }) => apps.listAppBackups(parameters),
     }),
@@ -362,7 +363,7 @@ export function appOperations() {
       // Allowing a backup's own compose file is typed out, naming the app (sweep 4).
       confirm: (parameters) => (parameters.allowCompose ? `allow ${parameters.id}` : null),
       confirmWhen: "it starts a backup's own compose file as it was archived",
-      description: "Checksums the backup and unpacks it beside the app, checks nothing else holds its ports, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it. An app the backup has reachable for the tailnet only is then published over HTTPS on your tailnet with Tailscale Serve. A compose file edited by hand (or one whose settings no longer fit the catalog) is started exactly as it was backed up only when it gives the app nothing past the catalog, this server already runs it, or allowCompose names its sha256.",
+      description: "Copies the backup in from the backup drive when it is only there, checksums it and unpacks it beside the app, checks nothing else holds its ports, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it. An app the backup has reachable for the tailnet only is then published over HTTPS on your tailnet with Tailscale Serve. A compose file edited by hand (or one whose settings no longer fit the catalog) is started exactly as it was backed up only when it gives the app nothing past the catalog, this server already runs it, or allowCompose names its sha256.",
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: backupNamePattern }, allowCompose: composeHashField } },
       // The deployer writes the backup's compose file again for this server and says who can reach
       // the app and on which ports, as an install does: a tailnet-only app's web ports are on
@@ -471,7 +472,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.purge", title: "Uninstall application and delete its data", risk: "high", confirm: (parameters) => parameters.id, timeoutMs: minutes(10),
-      description: "Stops and removes the app and deletes its data folder. This cannot be undone. Backups already made of it are kept, and so are folders you pointed it at yourself.",
+      description: "Stops and removes the app and deletes its data folder. This cannot be undone. Backups already made of it are kept and can be restored from its Backups tab, and so are folders you pointed it at yourself.",
       parameters: { fields: { id: idField } },
       run: (parameters, { apps, progress }) => apps.uninstall({ id: parameters.id, purge: true }, { progress }),
     }),

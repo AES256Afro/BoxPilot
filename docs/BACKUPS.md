@@ -37,9 +37,45 @@ use more than one:
 - **Cloud storage**: Backblaze B2, S3-compatible storage, WebDAV, Google Drive, OneDrive or
   Dropbox, through `rclone`. A passphrase is required: every copy is encrypted with it before it
   leaves. Credentials live in `/etc/boxpilot/secrets/rclone.conf` (root, 0600) and never in
-  BoxPilot's database.
+  BoxPilot's database. **Write the passphrase down with your recovery kit**, somewhere other than
+  this server: without it nobody, you included, can read the cloud copy.
 
 All three mirrors can run on a schedule (*System → Schedules*).
+
+## Opening the cloud copy without BoxPilot
+
+The cloud copy is ordinary rclone `crypt`, so any machine with rclone can read it, given the
+provider's keys and your passphrase. Its settings are not rclone's defaults, so write them as they
+are here (the downloaded recovery kit prints them too, with your bucket and folder filled in):
+
+```ini
+[boxpilot]
+type = <provider: b2, s3, webdav, drive, onedrive or dropbox>
+<the provider's account and keys, as `rclone config` asks for them>
+
+[boxpilot-sealed]
+type = crypt
+remote = boxpilot:<bucket>/<folder>/sealed
+filename_encryption = off
+directory_name_encryption = false
+password = <the output of: rclone obscure 'your passphrase'>
+```
+
+- `remote` is the destination's folder with `/sealed` after it. Backblaze B2 and S3 put the bucket
+  first (`boxpilot:<bucket>/<folder>/sealed`); WebDAV, Google Drive, OneDrive and Dropbox have no
+  bucket (`boxpilot:<folder>/sealed`). The folder is `boxpilot` unless you named another.
+- Leave `password2` out: the copies were sealed with no salt password.
+- In the bucket each file's name ends in `.bin`; read through `boxpilot-sealed:` it has its own name again.
+
+Then `rclone lsf boxpilot-sealed:` lists `controller-backups/`, `application-backups/` and
+`machine-snapshots/`. To rebuild from the cloud, copy them back into the folders a new server
+restores from (see [Where the files are](#where-the-files-are)), then restore the machine snapshot:
+
+```sh
+sudo rclone --config ./rclone.conf copy boxpilot-sealed:machine-snapshots /var/lib/boxpilot-managed/machine-snapshots
+sudo rclone --config ./rclone.conf copy boxpilot-sealed:application-backups /var/lib/boxpilot-managed/backups/catalog
+sudo rclone --config ./rclone.conf copy boxpilot-sealed:controller-backups /var/lib/boxpilot-managed/backups/boxpilot-controller
+```
 
 ## Encrypted independent copies
 
@@ -80,8 +116,10 @@ registry (Apps → Private apps) before reinstalling or restoring those apps.
   nothing. Data folders a backup's settings name must pass what an install checks (no `..`, no
   system location, no link on the way), named pipes and sockets in a backup are left out with a
   warning, and the app's own project files are never restored as links, hard links included.
-- **The database alone**: see the [database recovery runbook](CONTROLLER-BACKUPS.md), which is
-  the procedure to follow when BoxPilot itself will not start.
+- **The database**: *Backups → This server → Restore the database copy* puts back a verified
+  database backup, or the copy a snapshot restore staged. When BoxPilot itself will not start, or
+  only the encrypted `restic` copy is left, follow the [database recovery runbook](CONTROLLER-BACKUPS.md#manual-recovery-runbook)
+  at the console. The whole rebuild, in order, is in [the recovery kit](RECOVERY.md#the-order-to-recover-in).
 
 ## What BoxPilot does not do
 

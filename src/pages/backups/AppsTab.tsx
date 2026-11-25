@@ -1,7 +1,10 @@
+import { useEffect, useState } from "react";
 import { openView } from "../../activityEvents";
 import { useOperation } from "../../shell/ApproveDialog";
 import type { ProtectionVerdict, ScheduleLike } from "../../backupProtection";
 import type { ViewName } from "../../data";
+import { inspectOperation } from "../../operations";
+import { ago } from "./types";
 import { Button, EmptyState, Notice, Panel, StatusChip, Table, mayStart, riskOf, type TableColumn } from "../../ui";
 
 /*
@@ -25,9 +28,31 @@ export interface AppsTabProps {
   onNavigate?: (view: ViewName) => void;
 }
 
+/** An app that is not installed (after Delete data, say) whose backups are kept (M91). */
+interface KeptBackups { id: string; name: string; backups: number; newestAt: string | null }
+
+/**
+ * The apps whose backups are kept though the app is not installed: the purge promises to keep them,
+ * and a restore needs no install, but the list below is of installed apps only. Read on its own, so
+ * the protection verdict above is untouched; a list that cannot be read is simply not shown.
+ */
+function useKeptBackups(onChange: unknown): KeptBackups[] {
+  const [kept, setKept] = useState<KeptBackups[]>([]);
+  useEffect(() => {
+    let gone = false;
+    inspectOperation<{ notInstalled?: KeptBackups[] }>("app.backups.counts")
+      .then(({ result }) => { if (!gone) setKept(Array.isArray(result?.notInstalled) ? result.notInstalled : []); })
+      .catch(() => { /* nothing to add */ });
+    return () => { gone = true; };
+  }, [onChange]);
+  return kept;
+}
+
 export default function AppsTab({ csrfToken, role, protection, protectionError, behind, scheduling, onSchedule, onChanged, onNavigate }: AppsTabProps) {
   const { start, dialog } = useOperation(csrfToken, () => onChanged());
   const canBackUp = mayStart(role, "app.backup");
+  const kept = useKeptBackups(protection);
+  const canRestore = role === "owner" || role === "operator";
   const verdicts = [...(protection?.verdicts ?? [])].sort((left, right) => Number(left.state === "ok") - Number(right.state === "ok") || left.name.localeCompare(right.name));
   const unscheduled = verdicts.filter((verdict) => !verdict.scheduled);
   // Every app in one job, one at a time (app.backup.many takes up to forty).
@@ -110,6 +135,26 @@ export default function AppsTab({ csrfToken, role, protection, protectionError, 
             />
           )}
       </Panel>
+
+      {kept.length > 0 && (
+        <Panel title="Kept backups of apps that are not installed" count={kept.length} meta="their data was deleted or the app removed; the backups are kept and can be restored">
+          <Table
+            caption="Backups of apps that are not installed"
+            rows={kept}
+            rowKey={(app) => app.id}
+            columns={[
+              { id: "app", header: "App", sortValue: (app) => app.name, cell: (app) => <strong className="backups-name">{app.name}</strong> },
+              { id: "last", header: "Newest backup", cell: (app) => ago(app.newestAt) ?? "—" },
+              { id: "backups", header: "Kept", numeric: true, cell: (app) => app.backups },
+              {
+                id: "actions", header: <span className="ui-visually-hidden">Restore</span>, label: "Restore", className: "backups-actions-cell", cell: (app) => (
+                  canRestore ? <Button variant="ghost" aria-label={`Restore ${app.name}: open its backups`} onClick={() => openView("catalog", { app: app.id, sheet: "backups" })}>Restore…</Button> : null
+                ),
+              },
+            ]}
+          />
+        </Panel>
+      )}
     </>
   );
 }

@@ -3,6 +3,7 @@
  * and the small rules the old page carried (names, filesystems, sizes).
  */
 import { mayServe } from "../../servedFolder";
+import type { Status } from "../../ui";
 
 export interface DeviceRow {
   path: string | null; type: string | null; sizeBytes: number | null; fstype: string | null; uuid: string | null; label: string | null; model: string | null; transport: string | null;
@@ -88,4 +89,89 @@ export function when(value: string | null | undefined): string {
   if (!value) return "—";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
+type AtaField = "reallocated" | "reportedUncorrectable" | "pending" | "offlineUncorrectable";
+const ataFields: readonly AtaField[] = ["reallocated", "reportedUncorrectable", "pending", "offlineUncorrectable"];
+/**
+ * A SATA disk's bad sectors by kind (ATA attributes 5, 187, 197, 198), as the storage scan read them;
+ * `notSectorCounts` the ones the drive names as something else (an MX500's 197 counts ECC events).
+ */
+interface AtaErrors { reallocated: number | null; reportedUncorrectable: number | null; pending: number | null; offlineUncorrectable: number | null; notSectorCounts: AtaField[] }
+/**
+ * One drive's SMART health as the storage scan last read it (`/api/v1/inventory`, storage.smart):
+ * `mediaErrors` is an NVMe drive's media errors or a SATA disk's bad sectors summed, `reason` why
+ * there is no reading, and `lastHealth` what a drive left asleep said when it was last read awake.
+ */
+export interface DriveHealth {
+  device: string; health: string; reason: string | null; passed: boolean | null;
+  temperatureCelsius: number | null; percentageUsed: number | null; mediaErrors: number | null; ataErrors: AtaErrors | null; lastHealth: string | null;
+}
+
+const count = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null);
+
+/** Each drive's health from the inventory's answer; empty when it left SMART out. */
+export function driveHealthFrom(body: unknown): DriveHealth[] {
+  const disks = (body as { storage?: { smart?: { disks?: unknown } } } | null)?.storage?.smart?.disks;
+  return (Array.isArray(disks) ? disks : []).filter((disk) => typeof disk?.device === "string").map((disk) => {
+    const ata = disk.ataErrors && typeof disk.ataErrors === "object" ? disk.ataErrors : null;
+    return {
+      device: disk.device,
+      health: typeof disk.health === "string" ? disk.health : "unavailable",
+      reason: typeof disk.reason === "string" && disk.reason ? disk.reason : null,
+      passed: typeof disk.passed === "boolean" ? disk.passed : null,
+      temperatureCelsius: count(disk.temperatureCelsius),
+      percentageUsed: count(disk.percentageUsed),
+      mediaErrors: count(disk.mediaErrors),
+      ataErrors: ata ? {
+        reallocated: count(ata.reallocated), reportedUncorrectable: count(ata.reportedUncorrectable), pending: count(ata.pending), offlineUncorrectable: count(ata.offlineUncorrectable),
+        notSectorCounts: Array.isArray(ata.notSectorCounts) ? ataFields.filter((field) => ata.notSectorCounts.includes(field)) : [],
+      } : null,
+      lastHealth: typeof disk.lastHealth === "string" ? disk.lastHealth : null,
+    };
+  });
+}
+
+/** A drive's health in a word and a status: red for a failing one, including one asleep since it last said so. */
+export function healthChip(disk: DriveHealth): { status: Status; label: string } {
+  if (disk.reason === "usb-bridge-unsupported") return { status: "unknown", label: "no SMART" };
+  const health = disk.reason === "asleep" ? disk.lastHealth : disk.health;
+  if (health === "critical") return { status: "danger", label: disk.reason === "asleep" ? "failing (asleep)" : "failing" };
+  if (health === "warning") return { status: "warning", label: disk.reason === "asleep" ? "needs a look (asleep)" : "needs a look" };
+  if (disk.reason === "asleep") return { status: "unknown", label: "asleep" };
+  if (health === "healthy") return { status: "good", label: "healthy" };
+  return { status: "unknown", label: "not read" };
+}
+
+/** A drive that answers SMART's overall pass/fail and nothing else: no error counts and no wear, ever. */
+export const reportsPassFailOnly = (disk: DriveHealth) => disk.reason === "ok" && disk.passed !== null && disk.mediaErrors === null && disk.percentageUsed === null;
+
+/**
+ * The disk a device sits on, by the block tree the overview lists (each row under the last disk
+ * above it at depth 0), or by its name (sdb1 on sdb, nvme0n1p2 on nvme0n1) when the tree has no
+ * disk above it.
+ */
+function diskOf(devices: DeviceRow[], path: string, known: string[] = []): string | null {
+  const at = devices.findIndex((device) => device.path === path);
+  for (let index = at; index >= 0; index -= 1) {
+    if (devices[index].depth === 0 && devices[index].type === "disk") return devices[index].path;
+    if (devices[index].depth === 0) break;
+  }
+  return known.find((disk) => path === disk || (path.startsWith(disk) && /^p?\d+$/.test(path.slice(disk.length)))) ?? null;
+}
+
+/** The disk a mount is on: its device row by mount point first, then by source. */
+export function diskOfMount(report: StorageReport | null, mount: MountRow, known: string[] = []): string | null {
+  const devices = report?.devices ?? [];
+  const row = devices.find((device) => device.mountpoints.includes(mount.target)) ?? devices.find((device) => device.path === mount.source);
+  return diskOf(devices, row?.path ?? mount.source, known);
+}
+
+/** Drive health for the page's verdict: failing drives first, then any that need a look; null when all read healthy. */
+export function healthVerdict(health: DriveHealth[]): { status: Status; label: string } | null {
+  const chips = health.map(healthChip);
+  const failing = chips.filter((chip) => chip.status === "danger").length;
+  if (failing) return { status: "danger", label: `${failing} drive${failing === 1 ? "" : "s"} failing` };
+  const look = chips.filter((chip) => chip.status === "warning").length;
+  return look ? { status: "warning", label: `${look} drive${look === 1 ? "" : "s"} to look at` } : null;
 }

@@ -1351,3 +1351,57 @@ describe("App catalog: configuration", () => {
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { id: "ollama", model: "hermes3:8b" } });
   });
 });
+
+// M91: an app's backups reachable after Delete data and after a rebuild.
+describe("App catalog: backups kept after Delete data, and on the backup drive", () => {
+  const purged = { ...absent("jellyfin"), state: null };
+  const counts = (count: number) => (url: string) => (url.endsWith("/operations/app.backups.counts/inspect") ? json({ result: { available: true, counts: { jellyfin: count }, notInstalled: [] } }) : undefined);
+  const drive = { artifact: "20260820T030000Z.tar.gz", location: "drive", createdAt: "2026-08-20T03:00:00.000Z", sizeBytes: 1024, downtimeMs: 500, skippedHostPaths: ["/mnt/bigdisk/media"], skippedFolders: [{ label: "Media library", path: "/mnt/bigdisk/media" }], image: null };
+  const openNotInstalled = async () => {
+    fireEvent.click(await screen.findByRole("tab", { name: /Catalog/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Jellyfin: Media, not installed/ }));
+    return screen.findByRole("dialog", { name: "Jellyfin" });
+  };
+  const local = { artifact: "20260816T030000Z.tar.gz", location: "local", createdAt: "2026-08-16T03:00:00.000Z", sizeBytes: 1024, downtimeMs: 500, skippedHostPaths: ["/mnt/bigdisk/media"], skippedFolders: [{ label: "Media library", path: "/mnt/bigdisk/media" }], image: null };
+
+  it("offers the Backups tab of an app that is not installed while it has backups, marks one only on the drive, and names the folder it chose", async () => {
+    const staged: string[] = [];
+    serve(catalogOf([{ manifest, live: purged }]), (url, init) => {
+      if (url.endsWith("/operations/app.backups.inspect/run")) return json({ result: { id: "jellyfin", directory: "/x", backups: [drive, local] } });
+      if (url.endsWith("/operations/app.backup.review/run")) return json({ result: { backup: drive.artifact, refusals: [], findings: [], needsAllow: false, sha256: null } });
+      if (url.endsWith("/operations/app.backup.restore/jobs")) { staged.push(init?.body as string); return stagedJob("app.backup.restore", "high", true); }
+      return counts(2)(url);
+    });
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openNotInstalled();
+    fireEvent.click(await within(sheet).findByRole("tab", { name: "Backups" }));
+    const rows = await within(sheet).findAllByRole("listitem");
+    const onDrive = rows.find((row) => row.textContent?.includes("on the backup drive"))!;
+    expect(onDrive).toBeTruthy();
+    expect(within(onDrive).queryByRole("button", { name: /^Rehearse / })).toBeNull();
+    expect(within(onDrive).queryByRole("button", { name: /^Delete / })).toBeNull();
+    // The folder the backups recorded leaving out is the one chosen, not the catalog's /srv/media.
+    expect(within(sheet).getByText("Jellyfin's Media library (/mnt/bigdisk/media) is not in these backups: they hold its settings and database only.")).toBeTruthy();
+    expect(within(sheet).queryByText(/operator-managed/)).toBeNull();
+    fireEvent.click(within(onDrive).getByRole("button", { name: /^Restore / }));
+    expect(await screen.findByText(/Copies this backup in from the backup drive/)).toBeTruthy();
+    expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: drive.artifact } });
+  });
+
+  it("offers no Backups tab for an app that was never installed and has none", async () => {
+    serve(catalogOf([{ manifest, live: absent("jellyfin") }]), counts(0));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openNotInstalled();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(within(sheet).queryByRole("tab", { name: "Backups" })).toBeNull();
+  });
+
+  it("says in the Delete data preview that its backups are kept and can be restored", async () => {
+    serve(catalogOf([{ manifest, live: { ...absent("jellyfin"), dataPresent: true } }]), (url) => (url.endsWith("/operations/app.purge/jobs") ? stagedJob("app.purge", "high", true) : counts(3)(url)));
+    render(<CatalogPage csrfToken="csrf-token" />);
+    const sheet = await openNotInstalled();
+    await within(sheet).findByRole("tab", { name: "Backups" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Delete data" }));
+    expect(await screen.findByText(/Its 3 backups are kept and can be restored from its Backups tab\./)).toBeTruthy();
+  });
+});

@@ -375,6 +375,17 @@ export const inspections = {
   "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }, { dnsName: host.tailnet, port: 8543, target: "http://127.0.0.1:8543" }, { dnsName: host.tailnet, port: 9001, target: "http://127.0.0.1:9001" }] },
   "app.stats.inspect": { available: true, stats },
   "host.snapshot.inspect": machineState,
+  // M91: kept backups of an app whose data was deleted, the database copies a restore can put back,
+  // and the snapshots the cloud copy holds (one already here, one only in the bucket).
+  "app.backups.counts": { available: true, counts: { vaultwarden: 4, immich: 2, jellyfin: 2, homepage: 1, paperless: 3 }, notInstalled: [{ id: "paperless", name: "Paperless-ngx", backups: 3, newestAt: ago(240) }] },
+  "host.database.sources": { copies: [
+    { kind: "backup", id: "4f1b2c3d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", createdAt: ago(3), sizeBytes: 6 * 1024 ** 2, checksumSha256: digest("f") },
+    { kind: "backup", id: "9a8b7c6d-5e4f-4a3b-9c1d-0e2f3a4b5c6d", createdAt: ago(27), sizeBytes: 6 * 1024 ** 2, checksumSha256: digest("a") },
+  ] },
+  "backup.cloud.snapshots": { snapshots: [
+    { artifact: "machine-snapshot-20260821T020000Z-a1b2c3d4.tar.gz", sizeBytes: 41 * 1024 ** 2, modifiedAt: ago(19), hasMeta: true, local: true },
+    { artifact: "machine-snapshot-20260807T020000Z-c9d8e7f6.tar.gz", sizeBytes: 38 * 1024 ** 2, modifiedAt: ago(355), hasMeta: true, local: false },
+  ], total: 2 },
   "backup.remote.inspect": { keyReady: true, publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExampleExam boxpilot-backup-mirror", fingerprint: "SHA256:ExampleFingerprintExampleFingerprintExample0", hostKeysPinned: 1, rsyncInstalled: true },
   "backup.cloud.inspect": { rcloneInstalled: true, configured: true, provider: "b2", providers: Object.fromEntries(Object.entries(cloudProviders).map(([id, entry]) => [id, { label: entry.label, fields: entry.fields, secrets: entry.secrets, help: entry.help }])) },
   "fail2ban.inspect": fail2ban,
