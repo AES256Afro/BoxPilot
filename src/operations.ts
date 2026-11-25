@@ -276,7 +276,8 @@ function openJobFeed({ onSnapshot, onJob, onStatus = () => {}, pollAfterMs = 250
   const clearTimer = () => { if (timer !== null) clearTimeout(timer); timer = null; };
   const validSnapshot = (value: unknown): Job[] => {
     if (!Array.isArray(value) || !value.every(readableJob)) throw new Error("Job history was incomplete");
-    return value.slice(0, 50);
+    // The newest fifty, and every job waiting for approval the server sends besides them (M88).
+    return value.filter((job, index) => index < 50 || job.state === "awaiting_approval");
   };
   const read = async () => {
     if (stopped || request) return;

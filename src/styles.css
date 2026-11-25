@@ -1562,6 +1562,10 @@ main:focus {
 /*  tokens and colours from the theme tokens: nothing below is a literal.    */
 /* ═════════════════════════════════════════════════════════════════════════ */
 
+/* "Checked 07:41 · health checked 07:30" beside a Check again button (M88): shown, not only announced. */
+.check-again__said { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.check-again__said:empty { display: none; }
+
 .ui-visually-hidden {
   position: absolute;
   width: 1px;
@@ -2666,6 +2670,7 @@ body {
 .lx-hello h1 { grid-column: 1; margin: 0; color: var(--lx-ink); font-size: clamp(30px, 3.2vw, 40px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; }
 .lx-verdict { display: flex; flex-wrap: wrap; grid-column: 1; align-items: center; gap: 6px 10px; margin: 6px 0 0; color: var(--lx-ink-muted); font-size: 15px; line-height: 1.4; }
 .lx-again { grid-column: 2; grid-row: 1 / span 2; }
+.lx-hello > .check-again__said { grid-column: 2; justify-self: end; }
 .lx-side { display: grid; grid-area: side; align-content: start; gap: 12px; min-width: 0; }
 .lx-main { display: grid; grid-area: main; align-content: start; gap: 22px; min-width: 0; }
 
@@ -2869,6 +2874,7 @@ body {
   .app-shell[data-view="home"][data-shell="launcher"] .topbar-slot { display: none; }
   .lx-hello { grid-template-columns: minmax(0, 1fr); }
   .lx-again { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 6px; }
+  .lx-hello > .check-again__said { grid-column: 1; justify-self: start; }
   .lx-tiles { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 14px 4px; }
   .lx .ui-tile { padding-inline: 0; }
   .lx .ui-tile__icon { width: 58px; height: 58px; border-radius: 16px; font-size: 21px; }

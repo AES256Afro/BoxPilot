@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, Checkbox, Field, KeyValue, Notice, Panel, SecretInput, Select, StatusChip, Switch, TextInput } from "../../ui";
 import HeartbeatPanel from "./HeartbeatPanel";
 import { openView } from "../../activityEvents";
-import { watchView } from "../../home/needs";
+import { alertDestination } from "../../home/alertDestination";
 import { passwordAsked, passwordAskedWords, useOwnerPassword } from "../../ownerPassword";
 
 interface NotificationState { configured: boolean; kind: "ntfy" | "gotify" | "webhook" | null; url: string | null; topic: string | null; hasToken: boolean }
@@ -401,7 +401,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
                   <span>{condition.label}{condition.active && condition.details.length > 1 ? ` (${condition.details.length})` : ""}</span>
                   <StatusChip status={condition.active ? "warning" : "good"}>{condition.active ? "needs a look" : "clear"}</StatusChip>
                   {/* The chip looked like a link and went nowhere (M49): the page the condition belongs to is a button away. */}
-                  {condition.active && <Button variant="ghost" onClick={() => openView(watchView(condition.key))} aria-label={`Open the page for ${condition.label}`}>Open</Button>}
+                  {condition.active && <Button variant="ghost" onClick={() => { const to = alertDestination(condition.key); openView(to.view, to.tab ? { tab: to.tab } : {}); }} aria-label={`Open the page for ${condition.label}`}>Open</Button>}
                 </li>
               ))}
             </ul>

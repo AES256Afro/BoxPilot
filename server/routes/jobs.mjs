@@ -53,8 +53,19 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
     result: Array.isArray(job.result?.warnings) && job.result.warnings.length ? { warnings: job.result.warnings } : null,
     steps: (job.steps ?? []).filter((step) => markerSteps.has(step?.name)).map((step) => ({ ...step, detail: "" })),
   });
+  // An approval never falls out of the window (M88): the newest N jobs, plus every job in the
+  // caller's scope still waiting for someone to approve it. Nightly per-app backups alone make 30
+  // jobs, so one staged at 20:00 dropped off Today, Home, the dock badge and the command bar by
+  // morning while it still waited. Newest first, each job once.
+  const withAwaitingApproval = (jobs, scope) => {
+    const listed = new Set(jobs.map((job) => job.id));
+    const waiting = (state.listAwaitingApproval?.() ?? []).filter((job) => !listed.has(job.id) && (!scope.createdBy || job.createdBy === scope.createdBy));
+    if (!waiting.length) return jobs;
+    return [...jobs, ...waiting].sort((left, right) => String(right.createdAt ?? "").localeCompare(String(left.createdAt ?? "")));
+  };
   router.get("/jobs", (request, response) => {
-    const jobs = state.listJobs(request.query.limit, scopeFor(request));
+    const scope = scopeFor(request);
+    const jobs = withAwaitingApproval(state.listJobs(request.query.limit, scope), scope);
     response.json({ jobs: request.query.view === "summary" ? jobs.map(summarize) : jobs });
   });
 
@@ -64,7 +75,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, autoRec
     const stream = openStream(request, response);
     if (!stream) return;
     const scope = scopeFor(request);
-    stream.send("snapshot", { jobs: state.listJobs(30, scope) });
+    stream.send("snapshot", { jobs: withAwaitingApproval(state.listJobs(30, scope), scope) });
     const unsubscribe = state.subscribeJobs((job) => { if (!scope.createdBy || job.createdBy === scope.createdBy) stream.send("job", { job }); });
     stream.onClose(unsubscribe);
     const heartbeat = setInterval(() => stream.write(": ping\n\n"), 25_000);

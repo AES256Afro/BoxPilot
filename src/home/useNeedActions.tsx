@@ -7,6 +7,7 @@ import type { ViewName } from "../data";
 import { loadRepairs, type Facts } from "./facts";
 import type { Need, NeedAction } from "./needs";
 import { rowDrawn, seenState, setSeen } from "./seen";
+import { StatusChip } from "../ui";
 
 /*
  * What a button in "What needs you" does, for Home and Ops alike (M35). A Repair finding's fix runs
@@ -76,4 +77,21 @@ export function runWords(run: FixRun): string {
   if (run.phase === "fixed") return `Fixed. ${run.changed}`;
   if (run.phase === "scheduled") return run.message;
   return `Still there. ${run.error ?? "The fix ran, but the scan still finds it."} ${run.next}`;
+}
+
+/**
+ * Fixes started from a list whose finding has left it since (M35): said once, under the list, so a
+ * row that vanished is known to have worked. Home's, and Today's since M88.
+ */
+export function justFixedOf(needs: Need[], remembered: Record<string, Finding>, runs: Record<string, FixRun>): Finding[] {
+  const listed = new Set(needs.flatMap((need) => (need.finding ? [need.finding.id] : [])));
+  return Object.values(remembered).filter((finding) => !listed.has(finding.id) && runs[finding.id] && ["fixed", "scheduled"].includes(runs[finding.id].phase));
+}
+
+/** "Fixed: … what changed", or "Scheduled: …", one line each. */
+export function JustFixed({ findings, runs, className }: { findings: Finding[]; runs: Record<string, FixRun>; className: string }) {
+  return findings.map((finding) => {
+    const run = runs[finding.id];
+    return <p key={finding.id} className={className} role="status"><StatusChip status="good">{run.phase === "scheduled" ? "Scheduled" : "Fixed"}</StatusChip><span>{finding.title}. {run.phase === "fixed" ? run.changed : run.phase === "scheduled" ? run.message : ""}</span></p>;
+  });
 }

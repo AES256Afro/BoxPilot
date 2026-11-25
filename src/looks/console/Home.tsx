@@ -51,7 +51,7 @@ export default function ConsoleHome({ csrfToken, role, onNavigate, now = Date.no
   // The app sheet's own buttons; every button in the inbox goes through useNeedActions (M35).
   const { start, dialog } = useOperation(csrfToken, () => refresh());
   const { act, runs: fixRuns, dialog: needDialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
-  const again = useCheckAgain(refresh);
+  const again = useCheckAgain(({ fresh }) => refresh(undefined, { fresh }), { csrfToken, healthCheckedAt: facts.watch.value?.checkedAt });
   const [sheetFor, setSheetFor] = useState<string | null>(null);
 
   const inventory = values.inventory;

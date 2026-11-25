@@ -9,7 +9,8 @@ import { fixesOf, type Finding, type RepairFix } from "../repair/types";
 import { mayStart, riskOf } from "../ui/operationRisk";
 import type { RiskTier, Status } from "../ui/types";
 import type { AppFact, FactValues, Facts } from "./facts";
-import { relativeTime } from "./format";
+import { alertDestination } from "./alertDestination";
+import { relativeTime, sinceWords } from "./format";
 import { outageDetail, outageTitle } from "./outage";
 import { adviseRetry, failureLine, type RetryAdvice } from "../retryAdvice";
 
@@ -75,24 +76,6 @@ export interface Need {
 /** How long a failed job stays on the list if nobody deals with it; Activity keeps it after that (M36). */
 export const failureShownForMs = 7 * 86_400_000;
 
-/** Where the owner goes about a watched condition: schedules live on System, flows on Automations. */
-export function watchView(family: string): ViewName {
-  if (family === "schedule.failed") return "system";
-  if (family === "flow.failed") return "automations";
-  if (family === "release.available") return "system";
-  if (family === "drive.reconnected") return "storage";
-  // BoxPilot's own restart that gave up or failed is made from Services (sweep 5).
-  if (family === "boxpilot.restart") return "services";
-  if (family === "signin.new" || family === "report.weekly") return "settings";
-  // A power cut: its advice is a UPS, which the System page sets up.
-  if (family === "power.lost") return "system";
-  // A full disk has no finding on Repair: the system disk is cleared from System's Housekeeping,
-  // and a full drive is looked into on Storage, which says what is filling it.
-  if (family === "storage.root.full") return "system";
-  if (family === "storage.mount.full") return "storage";
-  return "repairs";
-}
-
 /** Conditions that mean something is failing now, rather than drifting towards it. */
 const dangerFamilies = new Set(["storage.root.full", "storage.mount.full", "storage.smart", "smart.errors", "power.ups", "docker.restarting"]);
 
@@ -125,7 +108,50 @@ const openAction = (next: NonNullable<RetryAdvice["next"]>): NeedAction => ({ ki
 /** When something last happened, for comparing a failure with what came after it. */
 const timeOf = (iso: string | null | undefined): number => { const at = Date.parse(iso ?? ""); return Number.isFinite(at) ? at : Number.NaN; };
 
-export function buildNeeds(facts: FactValues, { now, role }: { now: number; role: string | null | undefined }): Need[] {
+/**
+ * Whether a health alert repeats what a live fact already says, with a button, when that fact was
+ * read: the watcher's pending restart is the updates' `rebootRequired`, its failed units are the
+ * services', and an unhealthy or restarting container is its app's own row. Unread, the alert is
+ * all there is, so it stays.
+ */
+function saidFromFacts(alert: { family: string; title: string }, facts: FactValues): boolean {
+  if (alert.family === "system.reboot") return Boolean(facts.updates);
+  if (alert.family === "system.services") return Boolean(facts.services);
+  if (alert.family === "docker.unhealthy" || alert.family === "docker.restarting") {
+    const container = /^Container (.+?) (?:is unhealthy|keeps restarting)$/.exec(alert.title)?.[1];
+    if (!container || !facts.catalog?.liveKnown) return false;
+    return facts.catalog.apps.some((app) => appRowSays(app, container));
+  }
+  return false;
+}
+
+/**
+ * Whether an installed app's own row already raises the problem a container alert names. BoxPilot
+ * names an app's container `bp-<id>` and each helper `bp-<id>-<sidecar>` (server/catalog/compose.mjs).
+ * The main container's trouble is on the row when the app is down or failing its health check; a
+ * helper's only when the row names that helper as down or restarting (a running helper failing its
+ * health check is not one the row sees). Any other container, the owner's own `immich-old` among
+ * them, has nothing else to say it, so its alert stays.
+ */
+function appRowSays(app: AppFact, container: string): boolean {
+  const main = `bp-${app.id}`;
+  if (container === main) return (!app.running && !app.paused) || app.health === "unhealthy";
+  if (!container.startsWith(`${main}-`)) return false;
+  return app.troubledSidecar?.id === container.slice(main.length + 1);
+}
+
+interface NeedsOptions {
+  now: number;
+  role: string | null | undefined;
+  /**
+   * More of the job history than the live feed holds (src/home/jobHistory.ts), merged with it:
+   * failed jobs and the newest backup of each app are read from it, so a failure is not lost
+   * behind thirty newer jobs. Approvals still come from the live feed, which always carries them.
+   */
+  history?: Job[] | null;
+}
+
+export function buildNeeds(facts: FactValues, { now, role, history = null }: NeedsOptions): Need[] {
   const needs: Need[] = [];
   const act = (operationId: string, label: string, title: string, parameters: Record<string, unknown>, preview: string): NeedAction | null =>
     (mayStart(role, operationId) ? { operationId, label, title, parameters, preview, risk: riskOf(operationId) } : null);
@@ -159,9 +185,13 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
     watch.alerts.forEach((alert, index) => {
       // A power cut is said below from its own record, in the owner's time, with "Got it".
       if (alert.family === "power.lost" && facts.outages) return;
+      // The same condition read live is said below from its own fact, with its button (M88): a
+      // pending restart, failed units and an unwell app each came twice, at two levels of severity.
+      if (saidFromFacts(alert, facts)) return;
+      const destination = alertDestination(alert.family);
       needs.push({
         id: `alert:${alert.family}:${index}`, kind: "alert", severity: dangerFamilies.has(alert.family) ? "danger" : "warning", title: alert.title,
-        detail: alert.since ? `Since ${relativeTime(alert.since, now)}` : null, view: watchView(alert.family),
+        detail: sinceWords(alert.since, now), view: destination.view,
         action: alert.family === "storage.root.full" ? openAction({ label: "Free up space", view: "system", tab: "housekeeping" })
           : alert.family === "storage.mount.full" ? openAction({ label: "Open Mounts", view: "storage", tab: "mounts" })
             : null,
@@ -271,8 +301,9 @@ export function buildNeeds(facts: FactValues, { now, role }: { now: number; role
   }
 
   // ── Jobs someone staged and nobody has approved yet. Repair holds the approval. ──
-  const jobs = facts.jobs ?? [];
-  for (const job of jobs.filter((entry) => entry.state === "awaiting_approval")) {
+  const waiting = facts.jobs ?? history ?? [];
+  const jobs = history ?? facts.jobs ?? [];
+  for (const job of waiting.filter((entry) => entry.state === "awaiting_approval")) {
     // Reviewed and approved from the list itself (M36), through the dialog, at the tier it was staged at.
     const operationId = job.type.startsWith("op:") ? job.type.slice(3) : null;
     const tier = tierOf(job.risk);

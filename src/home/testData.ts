@@ -35,6 +35,7 @@ export const answers: Record<string, unknown> = {
   "/api/v1/operations/service.list/inspect": { result: { counts: { total: 100, active: 80, failed: 0 } } },
   "/api/v1/settings/watch": { targetConfigured: true, conditions: [], notices: [] },
   "/api/v1/remediations": { findings: [], counts: { critical: 0, warning: 0, info: 0 }, unavailableChecks: [] },
+  "/api/v1/remediations?fresh=1": { findings: [], counts: { critical: 0, warning: 0, info: 0 }, unavailableChecks: [] },
   "/api/v1/schedules": { schedules: [] },
   "/api/v1/operations/app.backup.protection/inspect": { result: { available: true, apps: [
     { id: "jellyfin", name: "Jellyfin", protectable: true, backups: 3, newestAt: ago(10) },
@@ -50,6 +51,8 @@ export const answers: Record<string, unknown> = {
   "/api/v1/power/outages": { outages: [], unacknowledged: 0 },
   "/api/v1/jobs?limit=50": { jobs: [] },
   "/api/v1/jobs?limit=200&view=summary": { jobs: [] },
+  // "Check again" starts a health round first (M88).
+  "/api/v1/settings/watch/check": { checkedAt: ago(0) },
 };
 
 /** The same server, busier: what Ops has more to show about. */

@@ -30,7 +30,7 @@ export function useHomeData({ csrfToken, role, onNavigate, now = Date.now }: Hom
   const values = useMemo(() => valuesOf(facts), [facts]);
   const needs = buildNeeds(values, { now: clock, role });
   const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
-  const again = useCheckAgain(refresh);
+  const again = useCheckAgain(({ fresh }) => refresh(undefined, { fresh }), { csrfToken, healthCheckedAt: facts.watch.value?.checkedAt });
 
   const checking = verdictSources.some(([key]) => facts[key].state === "idle" || facts[key].state === "loading");
   const unread = verdictSources.filter(([key]) => facts[key].state === "failed").map(([, words]) => words);

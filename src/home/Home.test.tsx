@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TopBarSlotProvider } from "../shell/TopBarSlot";
 import { FactsProvider } from "./facts";
@@ -6,7 +6,19 @@ import Home from "./Home";
 import type { OutageFact } from "./outage";
 import { answers, ago, stubFetch } from "./testData";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); FakeEventSource.instances.length = 0; });
+
+/** The job feed's stream, which a test speaks for: a snapshot, then job events as the server sends them. */
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+  closed = false;
+  onerror: (() => void) | null = null;
+  private listeners = new Map<string, Array<(event: MessageEvent) => void>>();
+  constructor(public url: string) { FakeEventSource.instances.push(this); }
+  addEventListener(type: string, listener: (event: MessageEvent) => void) { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
+  emit(type: string, data: unknown) { for (const listener of this.listeners.get(type) ?? []) listener({ data: JSON.stringify(data) } as MessageEvent); }
+  close() { this.closed = true; }
+}
 
 function renderHome(role = "owner") {
   const onNavigate = vi.fn();
@@ -105,8 +117,24 @@ describe("Home", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     const busy = screen.getByRole("button", { name: "Checking…" });
     expect(busy.getAttribute("aria-busy")).toBe("true");
-    expect(await screen.findByText(/^Checked again at /)).toBeTruthy();
+    // Shown, with how old the health alerts are (M88): the health round the click started answered.
+    expect(await screen.findByText(/^Checked \d{1,2}[:.]\d{2}.* · health checked \d{1,2}[:.]\d{2}/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
+  });
+
+  // M88 review: a viewer may not start a health round (403), so the click reads again and says so,
+  // with the health time from the watcher's own read, and no error.
+  it("gives a viewer a Checked line from the read again when the health round is refused", async () => {
+    const base = stubFetch({ "/api/v1/settings/watch": { targetConfigured: true, conditions: [], notices: [], checkedAt: ago(0.25) } });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      (input.toString() === "/api/v1/settings/watch/check" ? new Response(JSON.stringify({ error: "Viewers cannot start a health check" }), { status: 403, headers: { "Content-Type": "application/json" } }) : base(input, init))));
+    renderHome("viewer");
+    await screen.findByText(/homebox needs you/);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(await screen.findByText(/^Checked \d{1,2}[:.]\d{2}.* · health checked \d{1,2}[:.]\d{2}/)).toBeTruthy();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/v1/settings/watch/check")).toBe(true);
+    expect(screen.queryByText(/Viewers cannot/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("opens each figure's page", async () => {
@@ -202,6 +230,26 @@ describe("Home", () => {
     await waitFor(() => expect(posted).toEqual(["/api/v1/jobs/f1/dismiss"]));
     // Not Repair's ledger: one mark for a failed job, wherever it is let go.
     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/remediations/dismissals"))).toBe(false);
+  });
+
+  // M88 review: the live feed keeps its newest fifty, so the event marking an older failure dismissed
+  // was trimmed away and the history's stale "failed" copy kept the row on screen until a reload.
+  it("drops a failure older than the feed's newest fifty when its dismissal arrives as a job event", async () => {
+    const failed = { id: "old-fail", type: "op:app.update", title: "Update Immich", state: "failed", risk: "medium", error: "pull failed", result: null, parameters: { id: "immich" }, steps: [], approvals: [], createdAt: ago(80), updatedAt: ago(79.9) };
+    const newer = Array.from({ length: 60 }, (_, index) => ({ id: `ok-${index}`, type: "op:host.update.check", title: "Check for updates", state: "completed", risk: "low", error: null, result: null, parameters: {}, steps: [], approvals: [], createdAt: ago(1 + index), updatedAt: ago(1 + index - 0.01) }));
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", stubFetch({ "/api/v1/jobs?limit=200&view=summary": { jobs: [...newer, failed] } }));
+    renderHome();
+    const needs = await screen.findByRole("region", { name: /What needs you/ });
+    const stream = FakeEventSource.instances.at(-1)!;
+    act(() => stream.emit("snapshot", { jobs: newer.slice(0, 50) }));
+    expect(await within(needs).findByRole("button", { name: "Dismiss: Failed: Update Immich" })).toBeTruthy();
+    act(() => stream.emit("job", { job: { ...failed, updatedAt: new Date().toISOString(), steps: [{ name: "dismissed", state: "completed", detail: "Dismissed by alex." }] } }));
+    await waitFor(() => expect(within(needs).queryByRole("button", { name: "Dismiss: Failed: Update Immich" })).toBeNull());
+    // A later event about another job, or the stream's next snapshot, must not bring the stale copy back.
+    act(() => stream.emit("job", { job: { ...newer[0], id: "ok-new", createdAt: new Date().toISOString() } }));
+    act(() => stream.emit("snapshot", { jobs: newer.slice(0, 50) }));
+    expect(within(needs).queryByRole("button", { name: "Dismiss: Failed: Update Immich" })).toBeNull();
   });
 
   // 2026-09-29: a power cut took the server, and Pi-hole with it, down for 3.6 hours. Said once.

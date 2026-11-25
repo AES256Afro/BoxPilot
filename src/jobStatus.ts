@@ -22,6 +22,16 @@ function stateTone(state: string): string {
 }
 
 /**
+ * The newest `limit` jobs, newest first, and every job still waiting for approval however old (M88):
+ * the server sends those with each snapshot so an approval staged at 20:00 is not gone by morning
+ * behind thirty nightly backups, and a feed trimmed to its newest fifty must not drop them again.
+ */
+export function keepNewest(jobs: Job[], limit: number): Job[] {
+  const sorted = [...jobs].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  return sorted.filter((job, index) => index < limit || job.state === "awaiting_approval");
+}
+
+/**
  * Whether a restart cut this job off and BoxPilot ran it again by itself (M30.2). The cut-off record
  * stays failed, with a "rerun" step naming the new job, which has its own entry and its own ending.
  */

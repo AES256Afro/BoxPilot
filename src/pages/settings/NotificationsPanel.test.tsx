@@ -28,7 +28,7 @@ describe("Notification settings", () => {
       // The chip looked like a link and went nowhere: an active condition has Open, a clear one does not.
       fireEvent.click(await screen.findByRole("button", { name: "Open the page for A schedule keeps failing" }));
       expect(opened).toHaveBeenCalledTimes(1);
-      expect(opened.mock.results[0].value).toEqual({ view: "system", options: {} });
+      expect(opened.mock.results[0].value).toEqual({ view: "system", options: { tab: "schedules" } });
       expect(screen.queryByRole("button", { name: "Open the page for A drive dropped and came back" })).toBeNull();
       // The panel used to vanish when its read failed.
       expect(await screen.findByText("The weekly report could not be read")).toBeTruthy();

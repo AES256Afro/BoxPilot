@@ -111,7 +111,7 @@ export default function AquaHome({ csrfToken, role, onNavigate, now = Date.now }
   const needs = buildNeeds(values, { now: clock, role });
   const { start, dialog } = useOperation(csrfToken, () => refresh());
   const { act, runs: fixRuns, remembered, dialog: needDialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
-  const again = useCheckAgain(refresh);
+  const again = useCheckAgain(({ fresh }) => refresh(undefined, { fresh }), { csrfToken, healthCheckedAt: facts.watch.value?.checkedAt });
   const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [unfolded, setUnfolded] = useState(false);
 

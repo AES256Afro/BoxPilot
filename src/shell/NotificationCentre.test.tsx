@@ -22,15 +22,16 @@ const list: NotificationList = {
 
 function mount(served: NotificationList = list) {
   const posted: string[] = [];
+  const bodies: unknown[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = input.toString();
-    if (url === "/api/v1/notifications/seen" && init?.method === "POST") { posted.push(url); return json({ seenAt: "2026-09-29T09:00:00.000Z" }); }
+    if (url === "/api/v1/notifications/seen" && init?.method === "POST") { posted.push(url); bodies.push(typeof init.body === "string" ? JSON.parse(init.body) : null); return json({ seenAt: "2026-09-29T09:00:00.000Z" }); }
     if (url === "/api/v1/notifications") return json(served);
     return json({ error: `unexpected ${url}` }, 500);
   }));
   const onNavigate = vi.fn();
   render(<NotificationCentre csrfToken="csrf" onNavigate={onNavigate} />);
-  return { posted, onNavigate };
+  return { posted, bodies, onNavigate };
 }
 
 describe("the notification centre (M36)", () => {
@@ -95,8 +96,9 @@ describe("the notification centre (M36)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open in Activity" }));
     expect(opened).toEqual(["job-7"]);
     fireEvent.click(await screen.findByRole("button", { name: "Notifications, 2 new" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open Storage" }));
-    expect(onNavigate).toHaveBeenCalledWith("storage");
+    // A full root disk opens where its message says: System, Housekeeping (M88; it used to open Storage).
+    fireEvent.click(await screen.findByRole("button", { name: "Open Housekeeping" }));
+    expect(onNavigate).toHaveBeenCalledWith("system", { tab: "housekeeping" });
     window.removeEventListener(openActivityEvent, listener);
   });
 
@@ -133,5 +135,80 @@ describe("the notification centre (M36)", () => {
     // BoxPilot's own restart that gave up or failed is made from Services (sweep 5).
     expect(destinationOf(entry({ family: "boxpilot.restart", key: "boxpilot.restart" }))).toEqual({ kind: "view", view: "services", label: "Open Services" });
     expect(deliveryOf(entry({ delivered: true }))).toEqual({ status: "good", words: "Sent" });
+  });
+
+  it("sends an alert where Home sends it, and where its message says (M88)", () => {
+    expect(destinationOf(entry({ family: "storage.mount.detached", key: "storage.mount.detached:/mnt/media" }))).toEqual({ kind: "view", view: "repairs", label: "Open Repair" });
+    expect(destinationOf(entry({ family: "schedule.overdue", key: "schedule.overdue:s1" }))).toEqual({ kind: "view", view: "automations", tab: "schedules", label: "Open Schedules" });
+    expect(destinationOf(entry({ family: "hosted.down", key: "hosted.down:news.example.com" }))).toEqual({ kind: "view", view: "hosted", label: "Open Hosted domains" });
+    expect(destinationOf(entry({ kind: "notice", family: "agent.important", key: "agent.important:a1" }))).toEqual({ kind: "view", view: "agents", label: "Open Agents" });
+  });
+
+  it("lets a failed job go from Needs a look once the server says it was dealt with (M88)", () => {
+    const failed = entry({ kind: "job", key: "job.failed:j1", family: "job.failed", live: false });
+    expect(needsALook(failed)).toBe(true);
+    expect(needsALook({ ...failed, settled: false })).toBe(true);
+    expect(needsALook({ ...failed, settled: true })).toBe(false);
+    expect(needsALook({ ...failed, family: "job.interrupted", key: "job.interrupted:j1", settled: true })).toBe(false);
+  });
+
+  it("marks what it showed as seen when closed after being read, and not after a glance (M88)", async () => {
+    let clock = Date.parse("2026-09-29T09:00:00.000Z");
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    try {
+      const { posted } = mount();
+      const bell = await screen.findByRole("button", { name: "Notifications, 2 new" });
+      // Opened and closed at once: nothing is marked.
+      fireEvent.click(bell);
+      await screen.findByText("Root disk is 91% full");
+      fireEvent.click(bell);
+      expect(posted).toEqual([]);
+      // Open for a few seconds, then closed with Escape: read, so seen.
+      fireEvent.click(bell);
+      await screen.findByText("Root disk is 91% full");
+      clock += 3_000;
+      fireEvent.keyDown(document, { key: "Escape" });
+      await waitFor(() => expect(posted).toEqual(["/api/v1/notifications/seen"]));
+      expect(await screen.findByRole("button", { name: "Notifications" })).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // M88 review: closing marked everything seen, including what arrived after the list was read.
+  it("marks seen only up to the newest entry it showed", async () => {
+    let clock = Date.parse("2026-09-29T09:00:00.000Z");
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    try {
+      // The entries out of order, so the newest is found rather than taken from the top.
+      const shown: NotificationList = { ...list, entries: [list.entries[2], entry({ id: "late", at: "2026-09-29T08:30:00.000Z" }), list.entries[0]] };
+      const { bodies } = mount(shown);
+      const bell = await screen.findByRole("button", { name: "Notifications, 2 new" });
+      fireEvent.click(bell);
+      await screen.findAllByText("Root disk is 91% full");
+      clock += 3_000;
+      fireEvent.click(bell);
+      await waitFor(() => expect(bodies).toEqual([{ upTo: "2026-09-29T08:30:00.000Z" }]));
+      // "Mark all seen" marks what the list showed too.
+      fireEvent.click(bell);
+      fireEvent.click(await screen.findByRole("button", { name: "Mark all seen" }));
+      await waitFor(() => expect(bodies).toHaveLength(2));
+      expect(bodies[1]).toEqual({ upTo: "2026-09-29T08:30:00.000Z" });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("says the last hundred, not thirty days, when the history is full (M88)", async () => {
+    const full: NotificationList = { seenAt: "2026-09-29T09:00:00.000Z", unseen: 0, targetConfigured: true,
+      entries: Array.from({ length: 100 }, (_, index) => entry({ id: `r${index}`, kind: "notice", key: `release.available:${index}`, family: "release.available", title: `Release ${index}`, live: false, at: "2026-09-29T08:00:00.000Z" })) };
+    mount(full);
+    fireEvent.click(await screen.findByRole("button", { name: "Notifications" }));
+    const panel = screen.getByRole("dialog", { name: "Notifications" });
+    await within(panel).findByText("Release 0");
+    expect(panel.textContent).toContain("The last 100");
+    expect(panel.textContent).not.toContain("thirty days");
+    fireEvent.click(within(panel).getByRole("radio", { name: /Needs a look/ }));
+    expect(panel.textContent).toContain("Among the last 100 notifications");
   });
 });

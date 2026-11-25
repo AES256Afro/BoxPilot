@@ -20,6 +20,20 @@ export function relativeTime(iso: string | null | undefined, now: number): strin
   return ahead ? `in ${amount}` : `${amount} ago`;
 }
 
+/**
+ * How long a condition has been going, for an alert's row: "For 3 hours", "For 2 days", or the time
+ * it began when that was moments ago ("Since 07:12"). "Since 3 hours ago" read wrong (M88).
+ */
+export function sinceWords(iso: string | null | undefined, now: number): string | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return null;
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return `Since ${new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const hours = Math.floor(minutes / 60);
+  return `For ${minutes < 60 ? countOf(minutes, "minute") : hours < 48 ? countOf(hours, "hour") : countOf(Math.floor(hours / 24), "day")}`;
+}
+
 /** The same, short, for a dense table: "5m", "3h", "2d". */
 export function shortAge(iso: string | null | undefined, now: number): string | null {
   if (!iso) return null;

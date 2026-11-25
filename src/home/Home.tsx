@@ -15,7 +15,9 @@ import { powerNews } from "../powerEvents";
 import { NeedRow } from "./NeedRow";
 import { AgentsGlance } from "../pages/agents/AgentsGlance";
 import { useCheckAgain } from "./useCheckAgain";
-import { useNeedActions } from "./useNeedActions";
+import { useJobHistory, useMergedJobs } from "./jobHistory";
+import type { Job } from "../operations";
+import { JustFixed, justFixedOf, useNeedActions } from "./useNeedActions";
 import { appHealth, buildNeeds, needsLabel, verdictFor, verdictSources, type Need } from "./needs";
 
 /*
@@ -46,6 +48,8 @@ function newsTime(at: string, now: number): string {
     : date.toLocaleDateString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+const noJobs: Job[] = [];
+
 /** How many of each list show before "Show all". */
 const shownUrgent = 5;
 const shownWaiting = 4;
@@ -54,11 +58,14 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   const { facts, refresh, accept } = useFacts();
   const clock = now();
   const values = useMemo(() => valuesOf(facts), [facts]);
-  const needs = buildNeeds(values, { now: clock, role });
+  // The failures it raises come from more of the history than the live feed keeps (M88).
+  const { jobs: history } = useJobHistory();
+  const jobs = useMergedJobs(history, facts.jobs.value ?? noJobs);
+  const needs = buildNeeds(values, { now: clock, role, history: jobs });
   // The app sheet's own buttons; every button in the needs goes through useNeedActions (M35).
   const { start, dialog } = useOperation(csrfToken, () => refresh());
   const { act, runs, remembered, dialog: needDialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
-  const again = useCheckAgain(refresh);
+  const again = useCheckAgain(({ fresh }) => refresh(undefined, { fresh }), { csrfToken, healthCheckedAt: facts.watch.value?.checkedAt });
   const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [allUrgent, setAllUrgent] = useState(false);
   const [allWaiting, setAllWaiting] = useState(false);
@@ -74,8 +81,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
   const open = (need: Need) => (need.jobId ? openActivity(need.jobId) : need.id === "unannounced" ? openNotifications() : onNavigate(need.view, need.appId && need.view === "catalog" ? { app: need.appId } : undefined));
   const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
   // Fixed from here and gone from the list since: said once, under it (M35).
-  const listed = new Set(needs.flatMap((need) => (need.finding ? [need.finding.id] : [])));
-  const justFixed = Object.values(remembered).filter((finding) => !listed.has(finding.id) && runs[finding.id] && ["fixed", "scheduled"].includes(runs[finding.id].phase));
+  const justFixed = justFixedOf(needs, remembered, runs);
 
   const catalog = facts.catalog.value;
   const apps = catalog?.apps ?? [];
@@ -139,10 +145,7 @@ export default function Home({ csrfToken, role, onNavigate, now = Date.now }: Ho
             {urgent.length === 0
               ? <p className="lx-quiet">{checking ? "Reading this server…" : unread.length ? "Nothing wrong in what could be read." : "Nothing needs you right now."}</p>
               : <ul className="need-list">{shownNeeds.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={act} icon={iconFor(need)} tier="inline" run={runOf(need)} />)}</ul>}
-            {justFixed.map((finding) => {
-              const run = runs[finding.id];
-              return <p key={finding.id} className="lx-fixed" role="status"><StatusChip status="good">{run.phase === "scheduled" ? "Scheduled" : "Fixed"}</StatusChip><span>{finding.title}. {run.phase === "fixed" ? run.changed : run.phase === "scheduled" ? run.message : ""}</span></p>;
-            })}
+            <JustFixed findings={justFixed} runs={runs} className="lx-fixed" />
             {urgent.length > shownUrgent && <Button variant="ghost" className="lx-more" aria-expanded={allUrgent} onClick={() => setAllUrgent((value) => !value)}>{allUrgent ? "Show fewer" : `Show all ${urgent.length}`}</Button>}
             {unread.length > 0 && <p className="lx-unread"><StatusChip status="unknown">Not read</StatusChip><span>BoxPilot could not read {sentenceList(unread)}, so this list may be missing something.</span></p>}
           </Section>

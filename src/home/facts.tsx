@@ -4,6 +4,7 @@ import type { AppProtection } from "../backupProtection";
 import type { ViewName } from "../data";
 import { readJson } from "../http";
 import { offBoxVerdict, type OffBoxInputs, type OffBoxVerdict } from "../offBox";
+import { keepNewest } from "../jobStatus";
 import { followJobs, inspectOperation, type Job } from "../operations";
 import { scanFrom, type RepairScan } from "../repair/types";
 import type { OutageFact } from "./outage";
@@ -127,7 +128,13 @@ export interface InventoryFacts {
 
 export interface UpdatesFacts { count: number; security: number; rebootRequired: boolean }
 export interface WatchAlert { family: string; title: string; since: string | null; announced: boolean }
-export interface WatchFacts { targetConfigured: boolean; alerts: WatchAlert[]; notices: WatchAlert[] }
+export interface WatchFacts {
+  targetConfigured: boolean;
+  alerts: WatchAlert[];
+  notices: WatchAlert[];
+  /** When the watcher last ran its round (M88), from a server that says. */
+  checkedAt?: string | null;
+}
 
 export type { Finding } from "../repair/types";
 /** Repair's scan (M35): the findings, and - from a server that says - the ones set aside and which failed jobs are accounted for. */
@@ -408,6 +415,7 @@ function backupsOnce(): Promise<Array<{ applicationId?: string; createdAt?: stri
 
 type RawWatch = {
   targetConfigured?: boolean;
+  checkedAt?: string | null;
   conditions?: Array<{ key: string; active: boolean; details?: Array<{ title: string; since?: string | null; announced?: boolean }> }>;
   notices?: Array<{ key: string; title: string; since?: string | null }>;
 };
@@ -418,12 +426,17 @@ export function watchFactsFrom(body: RawWatch): WatchFacts {
     alerts: body.conditions.filter((condition) => condition.active).flatMap((condition) => list<{ title: string; since?: string | null; announced?: boolean }>(condition.details)
       .map((detail) => ({ family: condition.key, title: detail.title, since: detail.since ?? null, announced: detail.announced !== false }))),
     notices: list<{ key: string; title: string; since?: string | null }>(body.notices).map((notice) => ({ family: notice.key, title: notice.title, since: notice.since ?? null, announced: false })),
+    checkedAt: typeof body.checkedAt === "string" ? body.checkedAt : null,
   };
 }
 
-/** Repair's scan, checked for shape by the same reader the Repair page uses. */
-export async function loadRepairs(): Promise<RepairScan> {
-  return scanFrom(await getJson<unknown>("/api/v1/remediations"));
+/**
+ * Repair's scan, checked for shape by the same reader the Repair page uses. `fresh` asks the helper
+ * to look again rather than hand back drive evidence up to fifteen minutes old, as Repair's own
+ * button does: "Check again" sends it (M88).
+ */
+export async function loadRepairs({ fresh = false }: { fresh?: boolean } = {}): Promise<RepairScan> {
+  return scanFrom(await getJson<unknown>(`/api/v1/remediations${fresh ? "?fresh=1" : ""}`));
 }
 
 /**
@@ -560,15 +573,39 @@ const quickKeys: LoadedKey[] = ["catalog", "inventory", "services", "watch", "vm
 /** Every five minutes: reads that cost the helper more (the problem scan, apt, the destinations). */
 const slowKeys = allKeys.filter((key) => !quickKeys.includes(key));
 
-function upsertJob(jobs: Job[], job: Job): Job[] {
+const newestFirst = (jobs: Job[]) => jobs.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+
+/**
+ * The live feed: its newest fifty, and every job a job event has told us about since the feed
+ * opened, however old (M88 review). Dismissing a failure older than the newest fifty sent an event
+ * that the trim threw away, and the views fell back to the history's stale "failed" copy, so the row
+ * stayed until a reload. `touched` holds each such job's newest copy, the most recent last.
+ */
+function liveJobs(jobs: Job[], touched: Map<string, Job>): Job[] {
+  const kept = keepNewest(jobs, 50);
+  const ids = new Set(kept.map((job) => job.id));
+  return newestFirst([...kept, ...[...touched.values()].filter((job) => !ids.has(job.id))]);
+}
+
+function upsertJob(jobs: Job[], job: Job, touched: Map<string, Job>): Job[] {
   const next = jobs.some((entry) => entry.id === job.id) ? jobs.map((entry) => (entry.id === job.id ? job : entry)) : [job, ...jobs];
-  return next.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, 50);
+  return liveJobs(next, touched);
+}
+
+/** Remember a job an event brought, keeping the two hundred most recently told. */
+function noteTouched(touched: Map<string, Job>, job: Job): void {
+  touched.delete(job.id);
+  touched.set(job.id, job);
+  for (const id of touched.keys()) { if (touched.size <= 200) break; touched.delete(id); }
 }
 
 interface FactsContextValue {
   facts: Facts;
-  /** Read these sources again now (every source when none are named); settles when every one has answered. */
-  refresh: (keys?: Array<keyof Facts>) => Promise<void>;
+  /**
+   * Read these sources again now (every source when none are named); settles when every one has
+   * answered. `fresh` is a person asking ("Check again"): reads that may be cached look again.
+   */
+  refresh: (keys?: Array<keyof Facts>, options?: { fresh?: boolean }) => Promise<void>;
   /** Take a source's answer read elsewhere, as if its loader had read it (a fix re-reading Repair's scan). */
   accept: <K extends keyof Facts>(key: K, value: NonNullable<Facts[K]["value"]>) => void;
   /** A view that shows facts calls this while it is open; the returned function says it closed. */
@@ -583,6 +620,7 @@ export function FactsProvider({ children }: { children: ReactNode }) {
   const mounted = useRef(true);
   const inFlight = useRef(new Map<keyof Facts, Promise<void>>());
   const lastFullLoad = useRef(0);
+  const touched = useRef(new Map<string, Job>());
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const set = useCallback(<K extends keyof Facts>(key: K, source: Facts[K]) => {
@@ -591,25 +629,26 @@ export function FactsProvider({ children }: { children: ReactNode }) {
     if (mounted.current) setFacts((current) => (JSON.stringify(current[key]) === JSON.stringify(source) ? current : { ...current, [key]: source }));
   }, []);
 
-  const load = useCallback((key: LoadedKey): Promise<void> => {
+  const load = useCallback((key: LoadedKey, fresh = false): Promise<void> => {
     const running = inFlight.current.get(key);
-    if (running) return running;
+    // A fresh read is not answered by one already on its way, which may be the cached answer.
+    if (running && !fresh) return running;
     // Keep the last answer on screen while it is read again; only a first read shows "loading".
     setFacts((current) => (current[key].value === null ? { ...current, [key]: { state: "loading", value: null, error: null } } : current));
-    const reading = (loaders[key] as () => Promise<unknown>)()
+    const reading = (loaders[key] as (options: { fresh: boolean }) => Promise<unknown>)({ fresh })
       .then((value) => set(key, { state: "ready", value, error: null } as Facts[typeof key]))
       .catch((error: unknown) => set(key, { state: "failed", value: null, error: error instanceof Error ? error.message : "Could not be read" } as Facts[typeof key]))
-      .finally(() => inFlight.current.delete(key));
+      .finally(() => { if (inFlight.current.get(key) === reading) inFlight.current.delete(key); });
     inFlight.current.set(key, reading);
     return reading;
   }, [set]);
 
   // Settles once every source asked for has answered, so a "Check again" can say it is checking and
   // then that it has: it used to change nothing on screen when nothing had changed on the server.
-  const refresh = useCallback(async (keys?: Array<keyof Facts>) => {
+  const refresh = useCallback(async (keys?: Array<keyof Facts>, { fresh = false }: { fresh?: boolean } = {}) => {
     const chosen = (keys ?? allKeys).filter((key): key is LoadedKey => key in loaders);
     if (!keys) lastFullLoad.current = Date.now();
-    await Promise.all(chosen.map((key) => load(key)));
+    await Promise.all(chosen.map((key) => load(key, fresh)));
   }, [load]);
 
   const demand = useCallback(() => {
@@ -629,8 +668,15 @@ export function FactsProvider({ children }: { children: ReactNode }) {
     let slow: number | null = null;
     const slowStart = window.setTimeout(() => { slow = window.setInterval(() => { if (visible()) void refresh(slowKeys); }, 300_000); }, 30_000);
     const stopJobs = followJobs({
-      onSnapshot: (jobs) => set("jobs", { state: "ready", value: [...jobs].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")), error: null }),
-      onJob: (job) => setFacts((current) => (mounted.current ? { ...current, jobs: { state: "ready", value: upsertJob(current.jobs.value ?? [], job), error: null } } : current)),
+      onSnapshot: (jobs) => {
+        // A snapshot is newer than the events before it: its copy of a job told earlier replaces that one.
+        for (const job of jobs) if (touched.current.has(job.id)) touched.current.set(job.id, job);
+        set("jobs", { state: "ready", value: liveJobs([...jobs], touched.current), error: null });
+      },
+      onJob: (job) => {
+        noteTouched(touched.current, job);
+        setFacts((current) => (mounted.current ? { ...current, jobs: { state: "ready", value: upsertJob(current.jobs.value ?? [], job, touched.current), error: null } } : current));
+      },
       onStatus: (status) => { if (status === "unavailable") setFacts((current) => (current.jobs.value ? current : { ...current, jobs: { state: "failed", value: null, error: "Job history could not be read" } })); },
     });
     // The bar's Refresh (M25) reads every source again in place rather than loading the page again.

@@ -54,12 +54,46 @@ describe("what BoxPilot said", () => {
     expect(history.list()).toEqual([]);
   });
 
+  it("never drops what is still live to make room, by count or by age; the oldest of the rest go first (M88)", () => {
+    // A server saying a lot pushed a still-live alert out of the newest hundred, and the bell then
+    // had nothing to show for a disk that was still full.
+    let clock = Date.parse("2026-09-01T00:00:00Z");
+    const store = memoryStore();
+    const history = createNotificationHistory({ store, now: () => new Date(clock) });
+    history.record({ key: "storage.root.full", kind: "alert", title: "Root disk is 92% full", delivered: true });
+    history.record({ key: "docker.unhealthy:bp-old", kind: "alert", title: "Container bp-old is unhealthy", delivered: true });
+    store.setSetting("healthAlertsState", { "storage.root.full": { since: "2026-09-01T00:00:00Z", notified: true } });
+    clock += 60_000;
+    for (let index = 0; index < 120; index += 1) { history.record({ key: `release.available:v1.${index}.0`, kind: "notice", title: `v1.${index}.0`, delivered: true }); clock += 60_000; }
+    const listed = history.list();
+    expect(listed).toHaveLength(100);
+    expect(listed.at(-1)).toMatchObject({ key: "storage.root.full" });
+    expect(listed.map((entry) => entry.key)).not.toContain("docker.unhealthy:bp-old"); // not live, so it went
+    expect(listed[0].title).toBe("v1.119.0");
+    expect(listed.at(-2).title).toBe("v1.21.0");                                      // the oldest notices went first
+    // Five weeks on, still full: still listed, and still kept by the next write.
+    clock += 35 * 24 * 60 * 60_000;
+    history.record({ key: "release.available:v2.0.0", kind: "notice", title: "v2.0.0", delivered: true });
+    expect(history.list().map((entry) => entry.key)).toEqual(["release.available:v2.0.0", "storage.root.full"]);
+    // Once it clears it ages out as everything else does.
+    history.resolve("storage.root.full");
+    expect(history.list().map((entry) => entry.key)).toEqual(["release.available:v2.0.0"]);
+  });
+
   it("keeps each account's own seen marker", () => {
     const history = createNotificationHistory({ store: memoryStore(), now: () => new Date("2026-09-29T10:00:00Z") });
     expect(history.seenAt("alex")).toBeNull();
     history.markSeen("alex");
     expect(history.seenAt("alex")).toBe("2026-09-29T10:00:00.000Z");
     expect(history.seenAt("sam")).toBeNull();
+  });
+
+  it("marks seen up to when the list was read, never past now (M88)", () => {
+    const history = createNotificationHistory({ store: memoryStore(), now: () => new Date("2026-09-29T10:00:00Z") });
+    expect(history.markSeen("alex", "2026-09-29T09:58:00.000Z")).toBe("2026-09-29T09:58:00.000Z");
+    expect(history.markSeen("sam", "2026-09-29T10:05:00.000Z")).toBe("2026-09-29T10:00:00.000Z"); // the future is now
+    expect(history.markSeen("kim", "not a time")).toBe("2026-09-29T10:00:00.000Z");
+    expect(history.markSeen("lee", null)).toBe("2026-09-29T10:00:00.000Z");
   });
 
   it("is written by the ledger as it raises, retries, tells and clears", async () => {

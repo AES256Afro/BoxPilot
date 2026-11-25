@@ -7,16 +7,35 @@ import { Router } from "express";
 import { createRateLimit, rateLimited } from "../rate-limit.mjs";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "../ops/risk.mjs";
 import { normalizeDestination } from "../backup-destination.mjs";
-import { healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
+import { healthCheckedAtKey, healthConditions, isNotice, noticeKinds } from "../health-alerts.mjs";
 import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
 import { watchEntryFor } from "./access.mjs";
-import { createNotificationHistory } from "../notification-history.mjs";
+import { createNotificationHistory, failureSettledFor } from "../notification-history.mjs";
 import { quietHoursKey, quietHoursProblem } from "../quiet-hours.mjs";
 
-export function createSettingsRouter({ state, notifications, notificationHistory = createNotificationHistory({ store: state }), weeklyReport = null, auth }) {
+/**
+ * @param {{ state: any, notifications: any, notificationHistory?: any, weeklyReport?: any, healthAlerts?: { checkNow: () => Promise<{ checkedAt: string | null, fresh: boolean }> } | null, auth: any }} options
+ */
+export function createSettingsRouter({ state, notifications, notificationHistory = createNotificationHistory({ store: state }), weeklyReport = null, healthAlerts = null, auth }) {
   const router = Router();
   // Twelve sends a minute per account (M50): each is a request to the owner's notification target.
   const sendLimit = createRateLimit({ count: 12, perMs: 60_000 });
+
+  // "Check again" (M88): one health round now, not a re-read of what the last one stored. A round
+  // reads the box through the helper, may push to the owner's phone and wakes the afterRound
+  // listeners, so operators and the owner may start one and a viewer may not (the role policy says
+  // so first; this is belt and braces). It changes no setting, so it is declared ahead of the
+  // owner-only gate below. The service starts at most one a minute for the whole box, counting from
+  // each start, and never queues one: a press inside that minute answers with the last round's time.
+  if (healthAlerts) {
+    router.post("/settings/watch/check", auth.requireRole("owner", "operator"), auth.requireCsrf, async (_request, response) => {
+      try {
+        response.json(await healthAlerts.checkNow());
+      } catch (error) {
+        response.status(502).json({ error: `The check did not finish: ${error?.message ?? error}`, code: "health_check_failed" });
+      }
+    });
+  }
   // Belt and braces with the policy middleware: only the owner changes settings, whatever the path casing.
   router.use("/settings", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireRole("owner")(request, response, next)));
 
@@ -65,7 +84,9 @@ export function createSettingsRouter({ state, notifications, notificationHistory
     const conditions = Object.entries(healthConditions).map(([key, label]) => ({ key, label, active: Boolean(byFamily[key]?.length), details: byFamily[key] ?? [] }));
     const live = Object.values(byFamily).flat();
     // What BoxPilot knew and could not tell anyone (M27.2): the Overview's one-line count.
-    response.json({ targetConfigured: notifications.describe().configured === true, activeCount: live.length, unannouncedCount: live.filter((detail) => !detail.announced).length + notices.length, conditions, notices });
+    // When the last health round finished (M88), so the page can say how fresh this is.
+    const checkedAt = state.getSetting(healthCheckedAtKey, null);
+    response.json({ targetConfigured: notifications.describe().configured === true, activeCount: live.length, unannouncedCount: live.filter((detail) => !detail.announced).length + notices.length, conditions, notices, checkedAt: typeof checkedAt === "string" ? checkedAt : null });
   });
 
   /**
@@ -75,7 +96,7 @@ export function createSettingsRouter({ state, notifications, notificationHistory
    * as the watch list cuts them (M29.4): another account's job, schedule or sign-in is its kind only.
    */
   const labelFor = (family) => healthConditions[family] ?? noticeKinds[family] ?? (family === "job.failed" ? "A job failed" : family === "approval.waiting" ? "A job waited for approval" : family);
-  function historyEntryFor(request, entry, live) {
+  function historyEntryFor(request, entry, live, settledFor) {
     const family = String(entry.key).split(":")[0];
     let visible;
     if (entry.kind === "job" || entry.kind === "approval") {
@@ -95,6 +116,10 @@ export function createSettingsRouter({ state, notifications, notificationHistory
       id: entry.id, kind: entry.kind, key: visible.key, family, title: visible.title, message: masked ? null : entry.message ?? null,
       at: entry.at, delivered: entry.delivered === true, reason: entry.reason ?? null, deliveredAt: entry.deliveredAt ?? null,
       resolvedAt: entry.resolvedAt ?? null, live: entry.kind === "alert" && !entry.resolvedAt && Object.hasOwn(live, entry.key),
+      // A failure or a cut-off job that was since dealt with (M88): dismissed, run again, cancelled, or
+      // the same work on the same subject completed later. Only those two families carry it; a yes
+      // or no about the job says nothing the masked words above do not.
+      ...(family === "job.failed" || family === "job.interrupted" ? { settled: settledFor(entry) } : {}),
     };
   }
 
@@ -102,14 +127,16 @@ export function createSettingsRouter({ state, notifications, notificationHistory
     router.get("/notifications", (request, response) => {
       const self = request.boxpilotSession.owner.id;
       const live = state.getSetting("healthAlertsState", {}) ?? {};
-      const entries = notificationHistory.list().map((entry) => historyEntryFor(request, entry, live));
+      const settledFor = failureSettledFor(state);
+      const entries = notificationHistory.list().map((entry) => historyEntryFor(request, entry, live, settledFor));
       const seenAt = notificationHistory.seenAt(self);
       response.json({ entries, seenAt, unseen: entries.filter((entry) => !seenAt || entry.at > seenAt).length, targetConfigured: notifications.describe().configured === true });
     });
 
     // The only change here, and the caller's own: everything said until now stops counting as new.
     router.post("/notifications/seen", auth.requireCsrf, (request, response) => {
-      response.json({ seenAt: notificationHistory.markSeen(request.boxpilotSession.owner.id) });
+      // `{ upTo }` (M88): when the caller read the list it is closing, so what arrived since stays unseen.
+      response.json({ seenAt: notificationHistory.markSeen(request.boxpilotSession.owner.id, request.body?.upTo ?? null) });
     });
   }
 
