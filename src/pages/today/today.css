@@ -17,6 +17,10 @@
 /* The agents' glance is drawn for Ops' twelve-column grid; here it takes the row. */
 .today-grid > .agents-glance { grid-column: 1 / -1; }
 .today-quiet { margin: 0; padding: 12px; color: var(--text-muted); font-size: 14px; }
+/* Under "Needs a look", as on Home (M88): a fix that has left the list, and what could not be read. */
+.today-fixed, .today-unread { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; padding: 8px 12px; border-top: 1px solid var(--border-subtle); font-size: 13.5px; line-height: 1.4; }
+.today-fixed { color: var(--text); }
+.today-unread { color: var(--text-muted); }
 .today-more { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 8px 8px; border-top: 1px solid var(--border-subtle); }
 
 /* An app's glance (M51): the kit's tiles, then when its digest was written. */

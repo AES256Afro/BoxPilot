@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { JobLogView } from "../JobLogView";
 import { ApproveDialog } from "./ApproveDialog";
 import { publishWaiting } from "./approvalsWaiting";
-import { activeJobStates, dismissedFailure, jobStatus, ranAgain } from "../jobStatus";
+import { activeJobStates, dismissedFailure, jobStatus, keepNewest, ranAgain } from "../jobStatus";
 import { openActivityEvent } from "../activityEvents";
 import { JobActions, dismissJob } from "../JobActions";
 import { readJson } from "../http";
@@ -36,9 +36,7 @@ function timeLabel(iso?: string): string {
 
 function upsert(jobs: Job[], job: Job): Job[] {
   const next = jobs.some((entry) => entry.id === job.id) ? jobs.map((entry) => (entry.id === job.id ? job : entry)) : [job, ...jobs];
-  return next
-    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
-    .slice(0, 50);
+  return keepNewest(next, 50);
 }
 
 /** How many jobs a page of the list is, and the most the server will list. */
@@ -86,7 +84,7 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
   const [dismissProblem, setDismissProblem] = useState<string | null>(null);
 
   useEffect(() => followJobs({
-    onSnapshot: (snapshot) => setJobs([...snapshot].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, 50)),
+    onSnapshot: (snapshot) => setJobs(keepNewest(snapshot, 50)),
     onJob: (job) => { setJobs((current) => upsert(current, job)); setOlder((current) => (current.some((entry) => entry.id === job.id) ? current.map((entry) => (entry.id === job.id ? job : entry)) : current)); },
     onStatus: setFeedStatus,
   }), [retry]);
@@ -115,7 +113,9 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
   };
   const runningCount = jobs.filter((job) => activeJobStates.has(job.state)).length;
   const waitingCount = jobs.filter((job) => job.state === "awaiting_approval").length;
-  const failedCount = jobs.filter((job) => job.state === "failed").length;
+  // Failures nobody has dealt with, as "Dismiss all" counts them; the dismissed ones are said apart (M88).
+  const failedCount = jobs.filter((job) => job.state === "failed" && !dismissedFailure(job) && !ranAgain(job)).length;
+  const dismissedCount = jobs.filter(dismissedFailure).length;
   const expanded = expandedId ? jobs.find((job) => job.id === expandedId) ?? null : null;
   const [scope, setScope] = useState<Scope>("all");
   const [query, setQuery] = useState("");
@@ -187,7 +187,7 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
                 { value: "all", label: "All", count: jobs.length },
                 { value: "running", label: "Running", count: runningCount },
                 { value: "waiting", label: "Waiting for approval", count: waitingCount },
-                { value: "failed", label: "Failed", count: failedCount },
+                { value: "failed", label: "Failed", count: dismissedCount ? `${failedCount} +${dismissedCount} dismissed` : failedCount },
               ]} />
               <SearchField label="Filter jobs" value={query} onValueChange={setQuery} />
             </div>

@@ -28,3 +28,20 @@ describe("the /api/v1 role policy's path", () => {
     expect(slowness((path) => decide("POST", path, "operator"), (n) => fill("/a//", n))).toBeNull();
   });
 });
+
+describe("Check again on the watch list (M88)", () => {
+  it("lets operators and the owner start a health round, not viewers, and still keeps the rest of /settings the owner's", () => {
+    for (const role of ["operator", "owner"]) {
+      expect(decide("POST", "/settings/watch/check", role), role).toBe("next");
+      expect(decide("POST", "/Settings/Watch/Check/", role), role).toBe("next");
+    }
+    // A round can push to the owner's phone and reads the box through the helper; a viewer gets
+    // cached answers everywhere else, so here too.
+    expect(decide("POST", "/settings/watch/check", "viewer")).toBe(403);
+    expect(decide("POST", "/Settings/Watch/Check/", "viewer")).toBe(403);
+    expect(decide("POST", "/settings/watch/check", "disabled")).toBe(403);
+    expect(decide("POST", "/settings/watch", "operator")).toBe(403);
+    expect(decide("PUT", "/settings/watch/check", "operator")).toBe(403);
+    expect(decide("POST", "/settings/watch/check/more", "operator")).toBe(403);
+  });
+});

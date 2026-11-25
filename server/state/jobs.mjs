@@ -209,6 +209,49 @@ export function createJobStore({ database, now, timestamp, recordAudit, deleteEx
     return hydrateJobs(rows);
   }
 
+  /**
+   * The first job of some operations, created after `after` and/or no later than `before`, that
+   * passes `test` (M88): what the bell asks, per failed job it lists, to tell whether the same work
+   * was done since. It runs on every bell poll, so it reads through idx_jobs_type, one row at a time,
+   * and stops at the first that passes; each row carries only what that rule reads - id, type, state,
+   * when, parameters and recovery - and the row it returns also its two marker steps (rerun,
+   * dismissed). Rows after `after` come oldest first (the next run is the likeliest answer), rows
+   * before `before` newest first. At most `limit` rows are read. `mentioning` narrows the read to rows
+   * whose parameters contain that text (as JSON writes it): a cheap superset of one subject's jobs,
+   * which `test` then judges exactly.
+   *
+   * @param {string | string[]} types
+   * @param {{ after?: string | null, before?: string | null, mentioning?: string | null, limit?: number }} options
+   * @param {(job: { id: string, type: string, state: string, createdAt: string, parameters: any, recovery: any }) => boolean} test
+   * @returns {{ id: string, type: string, state: string, createdAt: string, parameters: any, recovery: any, steps: { name: string, state: string }[] } | null}
+   */
+  const findStatements = new Map();
+  const markerSteps = () => findStatements.get("steps") ?? findStatements.set("steps", database.prepare("SELECT name, state FROM job_steps WHERE job_id = ? AND name IN ('rerun', 'dismissed')")).get("steps");
+  function findJobOfType(types, { after = null, before = null, mentioning = null, limit = 500 }, test) {
+    const wanted = [types].flat().filter((type) => typeof type === "string" && type);
+    if (!wanted.length) return null;
+    const safeLimit = Math.min(Math.max(Number.parseInt(String(limit), 10) || 500, 1), 2_000);
+    const clauses = [`type IN (${wanted.map(() => "?").join(", ")})`];
+    const values = [...wanted];
+    if (typeof after === "string" && after) { clauses.push("created_at > ?"); values.push(after); }
+    if (typeof before === "string" && before) { clauses.push("created_at <= ?"); values.push(before); }
+    if (typeof mentioning === "string" && mentioning) {
+      clauses.push("parameters_json LIKE ? ESCAPE '\\'");
+      values.push(`%${JSON.stringify(mentioning).slice(1, -1).replace(/[\\%_]/g, (character) => `\\${character}`)}%`);
+    }
+    const order = typeof after === "string" && after ? "ASC" : "DESC";
+    const sql = `SELECT id, type, state, created_at, parameters_json, recovery_json FROM jobs WHERE ${clauses.join(" AND ")} ORDER BY created_at ${order}, rowid ${order} LIMIT ?`;
+    if (!findStatements.has(sql)) findStatements.set(sql, database.prepare(sql));
+    const rows = findStatements.get(sql).iterate(...values, safeLimit);
+    for (const row of rows) {
+      const job = { id: row.id, type: row.type, state: row.state, createdAt: row.created_at, parameters: parseJson(row.parameters_json), recovery: parseJson(row.recovery_json) };
+      if (!test(job)) continue;
+      const steps = markerSteps().all(job.id).map((step) => ({ name: step.name, state: step.state }));
+      return { ...job, steps };
+    }
+    return null;
+  }
+
   function listActiveJobs() {
     return hydrateJobs(database.prepare("SELECT * FROM jobs WHERE state IN ('applying', 'verifying') ORDER BY created_at").all());
   }
@@ -265,6 +308,7 @@ export function createJobStore({ database, now, timestamp, recordAudit, deleteEx
     transitionJob,
     getJob,
     listJobs,
+    findJobOfType,
     pruneHistory,
     listActiveJobs,
     listAwaitingApproval,

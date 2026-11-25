@@ -760,6 +760,8 @@ api.get("/notifications", (_request, response) => json(response, { seenAt: ago(3
   { id: "n5", kind: "approval", key: "approval.waiting:0f8b3c1e-1111-4222-8333-444455556666", family: "approval.waiting", title: "Update an app (Immich): approve?", message: "Medium risk. Tap to review it in BoxPilot; nothing runs until you approve it there.", at: ago(120), delivered: true, reason: null, deliveredAt: ago(120), resolvedAt: null, live: false },
 ] }));
 api.post("/notifications/seen", (_request, response) => json(response, { seenAt: now().toISOString() }));
+// Check again runs a health round (M88); the demo has no host to look at, so it says it just did.
+api.post("/settings/watch/check", (_request, response) => json(response, { checkedAt: now().toISOString(), fresh: true }));
 /**
  * Push approvals (M25.2): the panel at the top of the notifications, with the owner's iPhone on and
  * the choices set. The demo never registers a service worker, so nothing can be turned on or pushed.

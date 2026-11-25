@@ -1,6 +1,10 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import express from "express";
 import { describe, expect, it } from "vitest";
 import { createStreamBudget } from "../event-stream.mjs";
+import { createStateStore } from "../state.mjs";
 import { createJobsRouter, outputTailFrom } from "./jobs.mjs";
 
 describe("a job's output stream while the job prints nothing", () => {
@@ -89,6 +93,64 @@ describe("the job list's summary view", () => {
     } finally {
       server.closeAllConnections?.();
       await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
+describe("an approval waiting behind newer work (M88)", () => {
+  it("stays in the job list and the live snapshot for whoever may see it, however many jobs came since", async () => {
+    // Nightly per-app backups alone make 30 jobs, and the snapshot is the newest 30: an approval
+    // staged at 20:00 was gone from Today, Home, the dock badge and the command bar by morning.
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-m88-approvals-"));
+    let clock = Date.parse("2026-11-24T20:00:00Z");
+    const state = createStateStore({ stateDirectory: directory, now: () => new Date((clock += 1_000)) });
+    const operator = state.createOwnerAccount({ username: "olly", passwordHash: "x", role: "operator", createdBy: null });
+    const other = state.createOwnerAccount({ username: "otto", passwordHash: "x", role: "operator", createdBy: null });
+    const waiting = state.createJob({ type: "op:app.update", title: "Update Jellyfin", risk: "medium", parameters: { id: "jellyfin" }, createdBy: operator.id });
+    for (let index = 0; index < 40; index += 1) {
+      const job = state.createJob({ type: "op:app.backup", title: "Back up application data", parameters: { id: `app-${index}` }, createdBy: operator.id });
+      state.transitionJob(job.id, "awaiting_approval", "completed");
+    }
+    let as = { id: operator.id, role: "operator" };
+    const app = express();
+    app.use((request, _response, next) => { request.boxpilotSession = { owner: as }; next(); });
+    app.use("/api/v1", createJobsRouter({ state, jobs: {}, scheduler: {}, jobLogReader: { read: async () => ({ text: "", exists: false }) }, auth: { requireCsrf: (_request, _response, next) => next() }, streamBudget: createStreamBudget({ perAccount: 8, total: 32 }) }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    const base = `http://127.0.0.1:${server.address().port}/api/v1`;
+    const snapshot = async () => {
+      const controller = new AbortController();
+      const response = await fetch(`${base}/events`, { signal: controller.signal });
+      const reader = response.body.getReader();
+      let text = "";
+      while (!/event: snapshot\ndata: [^\n]*\n\n/.test(text)) text += new TextDecoder().decode((await reader.read()).value);
+      controller.abort();
+      return JSON.parse(/event: snapshot\ndata: ([^\n]*)\n/.exec(text)[1]).jobs;
+    };
+    try {
+      for (const query of ["?limit=30", "?limit=30&view=summary", ""]) {
+        const listed = (await (await fetch(`${base}/jobs${query}`)).json()).jobs;
+        expect(listed.map((job) => job.id), query).toContain(waiting.id);
+        expect(listed.at(-1).id, query).toBe(waiting.id);                // the oldest, so last
+        expect(new Set(listed.map((job) => job.id)).size, query).toBe(listed.length);
+      }
+      const streamed = await snapshot();
+      expect(streamed).toHaveLength(31);
+      expect(streamed.at(-1)).toMatchObject({ id: waiting.id, state: "awaiting_approval" });
+      // Asked for enough to include it already, it is listed once.
+      expect((await (await fetch(`${base}/jobs?limit=200`)).json()).jobs.filter((job) => job.id === waiting.id)).toHaveLength(1);
+      // The owner sees the whole box, approvals included.
+      as = { id: "owner-1", role: "owner" };
+      expect((await (await fetch(`${base}/jobs?limit=30`)).json()).jobs.map((job) => job.id)).toContain(waiting.id);
+      // Another operator sees only their own: none of it.
+      as = { id: other.id, role: "operator" };
+      expect((await (await fetch(`${base}/jobs?limit=30`)).json()).jobs).toEqual([]);
+      expect(await snapshot()).toEqual([]);
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise((resolve) => server.close(resolve));
+      state.close();
+      await rm(directory, { recursive: true, force: true });
     }
   });
 });

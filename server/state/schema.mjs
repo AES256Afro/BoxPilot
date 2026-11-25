@@ -278,6 +278,8 @@ export function applySchema(database) {
     -- session cleanup was a full scan, and the scheduler's due check runs once a minute.
     CREATE INDEX IF NOT EXISTS idx_jobs_created_by ON jobs(created_by, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state);
+    -- The bell asks, per failed job it lists, whether the same work ran since (M88): by type, after a time.
+    CREATE INDEX IF NOT EXISTS idx_jobs_type ON jobs(type, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_sessions_owner_id ON sessions(owner_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(enabled, next_due_at);

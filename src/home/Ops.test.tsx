@@ -123,12 +123,16 @@ describe("Ops", () => {
     vi.stubGlobal("fetch", stubFetch(busier));
     const { unmount } = render(<FactsProvider><Home csrfToken="csrf" role="owner" onNavigate={vi.fn()} /></FactsProvider>);
     await screen.findByRole("region", { name: /What needs you/ });
-    // Six things need the owner on this server: two problems and three to look at down the side,
-    // and one suggestion in the strip of what can wait.
+    // Seven things need the owner on this server: three problems and three to look at down the side,
+    // and one suggestion in the strip of what can wait. The third problem is Vaultwarden's failed
+    // backup, which only the job history holds (M88): built from the live feed, both lost it.
     const homeFacts = await vi.waitFor(() => {
+      // Home shows five before "Show all".
+      const more = within(screen.getByRole("region", { name: /What needs you/ })).queryByRole("button", { name: /^Show all/ });
+      if (more) fireEvent.click(more);
       const titles = [/What needs you/, /Can wait/].flatMap((name) => within(screen.getByRole("region", { name })).getAllByRole("button"))
         .filter((button) => button.className.includes("need__title")).map((button) => button.textContent);
-      expect(titles).toHaveLength(6);
+      expect(titles).toHaveLength(7);
       return titles;
     });
     const homeApps = within(screen.getByRole("region", { name: /Apps/ })).getAllByRole("button").filter((button) => button.className.includes("home-tile") && !button.className.includes("home-tile--add")).map((button) => button.querySelector(".ui-tile__name")?.textContent);

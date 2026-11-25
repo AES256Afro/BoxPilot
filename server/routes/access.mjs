@@ -47,9 +47,14 @@ export function apiRolePolicy() {
     const ownWithAgent = (request.method === "POST" && /^\/agents\/runs\/[^/]+\/feedback$/.test(pathname)) || (request.method === "DELETE" && /^\/agents\/[^/]+\/memory\/thread$/.test(pathname));
     // Marking the notification centre seen (M36) is the caller's own, like signing out.
     const selfService = pathname === "/auth/logout" || pathname === "/auth/elevate" || pathname === "/auth/password" || pathname === "/notifications/seen";
+    // "Check again" on the watch list (M88) runs one health round now. It changes no setting, so an
+    // operator may start one; a viewer may not, since a round can push to the owner's phone, wakes
+    // the afterRound listeners and reads the box through the helper, and a viewer elsewhere only ever
+    // gets cached answers (hosted-domains, host's `fresh`). The service holds it to one a minute.
+    const checkingNow = request.method === "POST" && pathname === "/settings/watch/check";
     if (role === "disabled") return response.status(403).json({ error: "This account is disabled", code: "forbidden" });
     if (role === "viewer" && !reading && !readOnlyRun && !asking && !ownWithAgent && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
-    if (role === "operator" && !reading && (pathname.startsWith("/settings") || pathname.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
+    if (role === "operator" && !reading && !checkingNow && (pathname.startsWith("/settings") || pathname.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
     return next();
   };
 }

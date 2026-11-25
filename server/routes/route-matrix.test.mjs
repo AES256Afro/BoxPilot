@@ -32,6 +32,7 @@ import { createSchedulerService } from "../scheduler.mjs";
 import { createFlowService } from "../flows.mjs";
 import { createNotificationService } from "../notifications.mjs";
 import { createWeeklyReport } from "../weekly-report.mjs";
+import { createHealthAlerts } from "../health-alerts.mjs";
 import { createRecoveryKitService } from "../recovery-kit.mjs";
 import { createActionCenterService } from "../action-center.mjs";
 import { createSupportBundleService } from "../support-bundle.mjs";
@@ -278,6 +279,13 @@ const ownerOnlyChange = /^\/api\/v1\/(settings|people|oidc\/clients)(\/|$)/;
  * from - the model's prompt as well as the response - is checked below like a data route's body.
  */
 const questionRoutes = ["POST /api/v1/assistant/ask"];
+
+/**
+ * "Check again" on the watch list (M88): one health round now, held by the service to one start a
+ * minute for the box. It changes no setting, so operators may start one as the owner does; a viewer
+ * may not, since a round can push to the owner's phone and reads the box through the helper.
+ */
+const roundRoutes = ["POST /api/v1/settings/watch/check"];
 
 const open = { viewer: 200, operator: 200, owner: 200 };
 const operatorUp = { viewer: 403, operator: 200, owner: 200 };
@@ -626,7 +634,8 @@ beforeAll(async () => {
     libvirt, libvirtFoundation: { inspect: async () => ({ connectionReady: true }) }, vmPlanner: { getOptions: async () => ({}) }, vmMedia: { inspect: async () => ({ media: [] }) }, vmCreation: { preview: async () => ({ ok: false, errors: [] }) },
     vmExports: createVmExportService({ store: state, libvirt, helper }), vmProtection: createVmProtectionService({ store: state, helper }), vmRetention: createVmRetentionService({ store: state, helper }), vmRecoveries: createVmRecoveryService({ store: state, helper }), audit,
   });
-  routers.createSettingsRouter = createSettingsRouter({ state, notifications, weeklyReport, auth });
+  const healthAlerts = createHealthAlerts({ inventory, notifications, store: state });
+  routers.createSettingsRouter = createSettingsRouter({ state, notifications, weeklyReport, healthAlerts, auth });
   routers.createFirewallRouter = createFirewallRouter({ state, helper, catalogService, webPort: 8787, webHost: "127.0.0.1", listeners: async () => [] });
   routers.createStorageRouter = createStorageRouter({
     auth, helper, inventory, state,
@@ -813,7 +822,7 @@ describe("every route is accounted for", () => {
       .flatMap((layer) => [layer.route.path].flat().flatMap((routePath) => Object.keys(layer.route.methods)
         .map((method) => `${method === "_all" ? "ALL" : method.toUpperCase()} ${name === "createOidcRouter" ? "" : "/api/v1"}${routePath}`))));
     const routes = [...new Set([...inline, ...mounted])].sort();
-    const classified = [...publicRoutes, ...selfRoutes, ...directRoutes, ...changeRoutes, ...questionRoutes, ...agentAskRoutes, ...agentOwnRoutes, ...runnerRoutes, ...Object.keys(dataRoutes)];
+    const classified = [...publicRoutes, ...selfRoutes, ...directRoutes, ...changeRoutes, ...questionRoutes, ...roundRoutes, ...agentAskRoutes, ...agentOwnRoutes, ...runnerRoutes, ...Object.keys(dataRoutes)];
     expect(new Set(classified).size, "a route is in two tables").toBe(classified.length);
     const unclassified = routes.filter((route) => !classified.includes(route));
     expect(unclassified, "routes with no entry in route-matrix.test.mjs").toEqual([]);
@@ -856,7 +865,7 @@ describe("changes", () => {
   });
 
   it("refuses every change, question and ask without the CSRF token, to the owner as to anyone (M50)", async () => {
-    for (const route of [...changeRoutes, ...questionRoutes, ...agentAskRoutes, ...agentOwnRoutes]) {
+    for (const route of [...changeRoutes, ...questionRoutes, ...roundRoutes, ...agentAskRoutes, ...agentOwnRoutes]) {
       const [method, template] = route.split(" ");
       const variant = variantsOf(template)[0];
       expect((await call(method, variant.url, sessions.owner, { body: {}, csrf: false })).status, `${method} ${variant.url} without CSRF`).toBe(403);
@@ -868,6 +877,20 @@ describe("changes", () => {
       const [method, template] = route.split(" ");
       for (const variant of variantsOf(template)) {
         for (const role of roles) expect((await call(method, variant.url, sessions[role], { body: { question: "Is everything all right?" } })).status, `${role} ${method} ${variant.url}`).toBe(200);
+      }
+    }
+  });
+
+  it("lets operators and the owner start a health round now (M88), which answers when the last one finished, and refuses a viewer", async () => {
+    for (const route of roundRoutes) {
+      const [method, template] = route.split(" ");
+      for (const variant of variantsOf(template)) {
+        for (const role of roles) {
+          const result = await call(method, variant.url, sessions[role], { body: {} });
+          expect(result.status, `${role} ${method} ${variant.url}`).toBe(operatorUp[role]);
+          if (role === "viewer") expect(result.body, `${role} ${method} ${variant.url}`).toMatchObject({ code: "forbidden" });
+          else expect(result.body, `${role} ${method} ${variant.url}`).toMatchObject({ checkedAt: expect.any(String), fresh: expect.any(Boolean) });
+        }
       }
     }
   });
@@ -980,7 +1003,7 @@ describe("the agents runner's own door (M37)", () => {
 
   it("opens nothing else: every other route treats its key as no one", async () => {
     const withKey = (method, url) => fetch(`${base}${url}`, { method, headers: { Authorization: `Bearer ${runnerToken}`, "Content-Type": "application/json" }, body: method === "GET" ? undefined : "{}" });
-    for (const route of [...Object.keys(dataRoutes), ...changeRoutes, ...directRoutes, ...questionRoutes, ...agentAskRoutes, ...agentOwnRoutes, ...selfRoutes]) {
+    for (const route of [...Object.keys(dataRoutes), ...changeRoutes, ...directRoutes, ...questionRoutes, ...roundRoutes, ...agentAskRoutes, ...agentOwnRoutes, ...selfRoutes]) {
       const [method, template] = route.split(" ");
       const response = await withKey(method, variantsOf(template, { id: fixtures.helper.id, runId: fixtures.ownerRun })[0].url);
       expect(response.status, route).toBe(401);

@@ -83,6 +83,9 @@ export function figure(text: string): ReactNode {
 }
 
 
+/** The live feed before it has answered: one list, so the jobs merged with it keep their identity. */
+const noJobs: Job[] = [];
+
 export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollMs = 5000 }: OpsProps) {
   const { facts, refresh, accept } = useFacts();
   const clock = now();
@@ -90,15 +93,20 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   // Built again when the facts, the role or the minute changes, not on every five-second poll of
   // the metric strip: the list's ages are said to the minute at their finest.
   const minute = Math.floor(clock / 60_000);
-  const needs = useMemo(() => buildNeeds(values, { now: clock, role }), [values, role, minute]); // eslint-disable-line react-hooks/exhaustive-deps -- the clock, to the minute
+  // More of the history than the live feed keeps, for the backup matrix (shared with Today, M25.3),
+  // and for the failures the needs list raises (M88): one behind thirty newer jobs is still one.
+  const { jobs: history } = useJobHistory();
+  // One empty list, not a new one each render, so the merge and the needs are not built again every poll.
+  const liveJobs = values.jobs ?? noJobs;
+  // The live feed is newer than the one-off read, so its copy of a job wins.
+  const jobs = useMergedJobs(history, liveJobs);
+  const needs = useMemo(() => buildNeeds(values, { now: clock, role, history: jobs }), [values, role, minute, jobs]); // eslint-disable-line react-hooks/exhaustive-deps -- the clock, to the minute
   const tiers = useMemo(() => groupByTier(needs), [needs]);
   const performance = usePerformance(pollMs, now);
-  // More of the history than the live feed keeps, for the backup matrix (shared with Today, M25.3).
-  const { jobs: history } = useJobHistory();
   // Every button in the alerts and the inbox, Repair's fixes included, run as Repair runs them (M35).
   const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
   const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
-  const again = useCheckAgain(refresh);
+  const again = useCheckAgain(({ fresh }) => refresh(undefined, { fresh }), { csrfToken, healthCheckedAt: facts.watch.value?.checkedAt });
 
   const inventory = values.inventory;
   const hostname = inventory?.hostname ?? "This server";
@@ -123,9 +131,6 @@ export default function Ops({ csrfToken, role, onNavigate, now = Date.now, pollM
   // ── Containers, jobs and backups, from the same facts. ──
   const apps = values.catalog?.apps ?? [];
   const rows = workloads(apps, perf, values.vms, shortReach);
-  const liveJobs = values.jobs ?? [];
-  // The live feed is newer than the one-off read, so its copy of a job wins.
-  const jobs = useMergedJobs(history, liveJobs);
   const queue = jobs.slice(0, 8);
   const running = jobs.filter((job) => job.state === "applying" || job.state === "verifying").length;
   const waiting = jobs.filter((job) => job.state === "awaiting_approval").length;

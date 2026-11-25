@@ -577,3 +577,50 @@ describe("a condition that gets worse", () => {
     expect(settings.get("healthAlertsState")["power.ups"]).toMatchObject({ priority: "high" });
   });
 });
+
+describe("Check again (M88)", () => {
+  it("runs a round now, records when every round finished, and starts no second one inside a minute or while one runs", async () => {
+    // The button used to re-read what the last round stored; the round runs every 15 minutes and
+    // nothing else could start one.
+    const settings = new Map();
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn() };
+    let clock = Date.parse("2026-11-25T08:00:00Z");
+    let release = () => {};
+    let gate = null;
+    const inspect = vi.fn(async () => { if (gate) await gate; return healthy; });
+    const alerts = createHealthAlerts({ inventory: { inspect }, notifications: { getTarget: () => null, send: vi.fn() }, store, now: () => new Date(clock) });
+    expect(alerts.checkedAt()).toBeNull();
+
+    // The timer's round is recorded too.
+    await alerts.check();
+    expect(settings.get("healthAlertsCheckedAt")).toBe("2026-11-25T08:00:00.000Z");
+    expect(alerts.checkedAt()).toBe("2026-11-25T08:00:00.000Z");
+
+    // Thirty seconds later: nothing started, the last round's time said.
+    clock += 30_000;
+    expect(await alerts.checkNow()).toEqual({ checkedAt: "2026-11-25T08:00:00.000Z", fresh: false });
+    expect(inspect).toHaveBeenCalledTimes(1);
+
+    // A minute on, a round now.
+    clock += 31_000;
+    expect(await alerts.checkNow()).toEqual({ checkedAt: "2026-11-25T08:01:01.000Z", fresh: true });
+    expect(inspect).toHaveBeenCalledTimes(2);
+
+    // While one runs, a press starts nothing and queues nothing.
+    clock += 120_000;
+    gate = new Promise((resolve) => { release = resolve; });
+    const running = alerts.checkNow();
+    expect(await alerts.checkNow()).toEqual({ checkedAt: "2026-11-25T08:01:01.000Z", fresh: false });
+    release();
+    expect(await running).toEqual({ checkedAt: "2026-11-25T08:03:01.000Z", fresh: true });
+    expect(inspect).toHaveBeenCalledTimes(3);
+  });
+
+  it("records no time for a round that did not finish", async () => {
+    const settings = new Map();
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn() };
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => { throw new Error("helper unreachable"); } }, notifications: { getTarget: () => null, send: vi.fn() }, store, now: () => new Date("2026-11-25T08:00:00Z") });
+    await expect(alerts.checkNow()).rejects.toThrow("helper unreachable");
+    expect(alerts.checkedAt()).toBeNull();
+  });
+});

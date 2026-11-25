@@ -237,6 +237,9 @@ export function collectorAvailability(inventory) {
   };
 }
 
+/** The setting that holds when the last health round finished (M88). */
+export const healthCheckedAtKey = "healthAlertsCheckedAt";
+
 /**
  * @param {{ inventory?: any, notifications?: any, store?: any, history?: any, resolveScheduleTitle?: (operationId: string) => string, intervalMs?: number, initialDelayMs?: number, now?: () => Date, setInterval?: typeof globalThis.setInterval, setTimeout?: typeof globalThis.setTimeout, clearInterval?: typeof globalThis.clearInterval, clearTimeout?: typeof globalThis.clearTimeout }} options
  */
@@ -361,6 +364,9 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
         }
       }
       writeState(nextState);
+      // When a round last finished, whatever started it (M88): Settings and Today say how fresh what
+      // they show is, and "Check again" waits a minute after one before it starts another.
+      store.setSetting(healthCheckedAtKey, now().toISOString(), { updatedBy: null });
       return { active: active.map((alert) => alert.key), sent, target: Boolean(target) };
     });
     // Which evidence this round actually had, so a listener never reads missing evidence as "fine".
@@ -443,6 +449,35 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
     });
   }
 
+  /** When a round last finished (ISO), or null when none has since this setting began. */
+  function checkedAt() {
+    const value = store.getSetting?.(healthCheckedAtKey, null);
+    return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
+  }
+
+  // When "Check again" last STARTED a round (ms), whether or not it finished: a round that fails
+  // records no `checkedAt`, so gating on finished rounds alone let a failing one be pressed without
+  // limit, each press a full read of the box through the helper.
+  let lastAttemptAt = null;
+
+  /**
+   * "Check again" (M88): one round now, unless one is running, or one finished or was started here
+   * under `minimumGapMs` ago - then the last finished round's time, `fresh: false`, and nothing
+   * started or queued. Operators and the owner may press it (the role policy keeps viewers out), and
+   * the gap holds for the whole box, not per account.
+   *
+   * @param {{ minimumGapMs?: number }} [options]
+   */
+  async function checkNow({ minimumGapMs = 60_000 } = {}) {
+    const last = checkedAt();
+    const at = now().getTime();
+    const recent = (last !== null && at - Date.parse(last) < minimumGapMs) || (lastAttemptAt !== null && at - lastAttemptAt < minimumGapMs);
+    if (recent || check.stats().inFlight) return { checkedAt: last, fresh: false };
+    lastAttemptAt = at;
+    await check();
+    return { checkedAt: checkedAt(), fresh: true };
+  }
+
   function start() {
     const safeCheck = () => check().catch(logged("health check"));
     const first = delay(safeCheck, initialDelayMs);
@@ -452,5 +487,5 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
     return () => { cancel(first); unschedule(timer); };
   }
 
-  return { check, start, raise, clear, tell, afterRound, evaluate: () => inventory.inspect().then(evaluateHealth) };
+  return { check, checkNow, checkedAt, start, raise, clear, tell, afterRound, evaluate: () => inventory.inspect().then(evaluateHealth) };
 }

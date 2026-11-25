@@ -265,7 +265,6 @@
     "src/home/facts.tsx: emptyFacts": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "src/home/jobHistory.ts: mergeJobs": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "src/home/needs.ts: failureShownForMs": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
-    "src/jobStatus.ts: jobWork": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "src/looks/cockpit/nextRun.ts: nextOccurrence": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "src/looks/useLook.ts: DEFAULT_LOOK_CHOICE": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "src/looks/useLook.ts: LOOK_KEYS": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",

@@ -1,16 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { openActivity, openNotifications } from "../../activityEvents";
-import { countOf, type ViewName } from "../../data";
+import { countOf, sentenceList, type ViewName } from "../../data";
 import { useFacts } from "../../home/facts";
 import { useJobHistory, useMergedJobs } from "../../home/jobHistory";
 import { useCheckAgain } from "../../home/useCheckAgain";
 import { NeedRow } from "../../home/NeedRow";
 import type { Need } from "../../home/needs";
-import { useNeedActions } from "../../home/useNeedActions";
+import { JustFixed, justFixedOf, useNeedActions } from "../../home/useNeedActions";
 import { connected, useConnection } from "../../pwa/connection";
 import { readLastKnown, saveLastKnown } from "../../pwa/lastKnown";
 import { pushSupport, thisDeviceId } from "../../pwa/push";
 import { runningInstalled } from "../../pwa/register";
+import type { Job } from "../../operations";
 import { onRefresh } from "../../shell/refresh";
 import { Button, Facts, MetricStrip, MetricTile, Notice, PageHeader, Panel, RelativeTime, StatusChip } from "../../ui";
 import { AgentsGlance } from "../agents/AgentsGlance";
@@ -45,12 +46,12 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
   const { facts, refresh, accept } = useFacts();
   const connection = useConnection();
   const reachable = connected(connection);
-  const { jobs: history, reload } = useJobHistory(100);
+  const { jobs: history, state: historyState, reload } = useJobHistory();
   useEffect(() => onRefresh(reload), [reload]);
-  const jobs = useMergedJobs(history, facts.jobs.value ?? []);
+  const jobs = useMergedJobs(history, facts.jobs.value ?? noJobs);
   const clock = now();
-  const live = todayModel(facts, jobs, { now: clock, role });
-  const { act, runs, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
+  const live = todayModel(facts, jobs, { now: clock, role, history: historyState });
+  const { act, runs, remembered, dialog } = useNeedActions({ csrfToken, refresh, accept, navigate: onNavigate });
   const [allAttention, setAllAttention] = useState(false);
   // Apps the server reads for Today (M51): one card each, read with the page and again on Check again.
   const { glances, unread: glancesUnread, reload: reloadGlances } = useAppGlances();
@@ -70,9 +71,16 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
   const runOf = (need: Need) => (need.finding ? runs[need.finding.id] : undefined);
   const attention = allAttention ? model.attention : model.attention.slice(0, shownAttention);
   const approvals = model.approvals.length;
+  // A copy kept before M88 has no read states: what it kept had been read.
+  const approvalsState = model.approvalsState ?? "ready";
+  const ranState = model.ranState ?? "ready";
+  const unread = model.unread ?? [];
+  // Fixed from here and gone from the list since: said once, under it, as Home says it (M88).
+  const justFixed = stale ? [] : justFixedOf(live.attention, remembered, runs);
   // The same "Check again" as Home and Ops, with something to show for the click (M49): on a phone,
   // "Refresh" read everything again in the background and looked ignored.
-  const again = useCheckAgain(async () => { reload(); await Promise.all([refresh(), reloadGlances()]); });
+  const again = useCheckAgain(async ({ fresh }) => { reload(); await Promise.all([refresh(undefined, { fresh }), reloadGlances()]); }, { csrfToken, healthCheckedAt: facts.watch.value?.checkedAt });
+  const readJobsAgain = () => { reload(); void refresh(); };
 
   return (
     <div className="today-page cc" data-density="compact">
@@ -100,17 +108,22 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
       )}
 
       <div className="today-grid">
-        <Panel className={approvals === 0 ? "today-approvals today-approvals--none" : "today-approvals"} title="Waiting for approval" count={approvals ? { status: "warning", label: String(approvals) } : undefined}>
-          {approvals === 0
-            ? <p className="today-quiet">Nothing is waiting for your approval.</p>
-            : <ul className="need-list">{model.approvals.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={stale ? () => undefined : act} tier="lead" />)}</ul>}
+        <Panel className={approvals === 0 && approvalsState === "ready" ? "today-approvals today-approvals--none" : "today-approvals"} title="Waiting for approval" count={approvals ? { status: "warning", label: String(approvals) } : undefined}>
+          {approvals > 0
+            ? <ul className="need-list">{model.approvals.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={stale ? () => undefined : act} tier="lead" />)}</ul>
+            // Not "nothing is waiting" before the jobs are read, nor after they could not be (M88).
+            : approvalsState === "ready" ? <p className="today-quiet">Nothing is waiting for your approval.</p>
+              : approvalsState === "reading" ? <p className="today-quiet">Reading…</p>
+                : <JobsUnread title="Approvals could not be read" retry={stale ? null : readJobsAgain}>BoxPilot could not list the jobs, so one waiting for you would not show here.</JobsUnread>}
         </Panel>
 
         <Panel className="today-attention" title="Needs a look" count={model.attention.length ? { status: model.attention.some((need) => need.severity === "danger") ? "danger" : "warning", label: String(model.attention.length) } : undefined}
           meta={model.canWait ? `${model.canWait} more can wait` : undefined}>
           {model.attention.length === 0
-            ? <p className="today-quiet">{model.checking ? "Reading this server…" : "Nothing needs a look."}</p>
+            ? <p className="today-quiet">{model.checking ? "Reading this server…" : unread.length ? "Nothing wrong in what could be read." : "Nothing needs a look."}</p>
             : <ul className="need-list">{attention.map((need) => <NeedRow key={need.id} need={need} onOpen={open} onAct={stale ? () => undefined : act} run={runOf(need)} />)}</ul>}
+          <JustFixed findings={justFixed} runs={runs} className="today-fixed" />
+          {unread.length > 0 && <p className="today-unread"><StatusChip status="unknown">Not read</StatusChip><span>BoxPilot could not read {sentenceList(unread)}, so this list may be missing something.</span></p>}
           {(model.attention.length > shownAttention || model.canWait > 0) && (
             <div className="today-more">
               {model.attention.length > shownAttention && <Button variant="ghost" aria-expanded={allAttention} onClick={() => setAllAttention((value) => !value)}>{allAttention ? "Show fewer" : `Show all ${model.attention.length}`}</Button>}
@@ -129,9 +142,10 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
         {!stale && <AgentsGlance variant="ops" role={role} onOpen={() => onNavigate("agents")} now={now} />}
 
         <Panel className="today-ran" title="What ran" meta={model.window.label}>
-          {model.ran.length === 0
-            ? <p className="today-quiet">Nothing ran {model.window.label}.</p>
-            : model.ran.map((group) => <RanList key={group.kind} group={group} clock={clock} />)}
+          {model.ran.length > 0 ? model.ran.map((group) => <RanList key={group.kind} group={group} clock={clock} />)
+            : ranState === "ready" ? <p className="today-quiet">Nothing ran {model.window.label}.</p>
+              : ranState === "reading" ? <p className="today-quiet">Reading…</p>
+                : <JobsUnread title="What ran could not be read" retry={stale ? null : readJobsAgain}>BoxPilot could not list the jobs, so this panel cannot say what ran.</JobsUnread>}
         </Panel>
 
         <Panel className="today-backups" title="Backups" padded>
@@ -146,13 +160,21 @@ export default function TodayPage({ csrfToken, role, accountId, onNavigate, now 
   );
 }
 
+const noJobs: Job[] = [];
+
+/** A panel whose jobs could not be read: said, with a way to read them again. */
+function JobsUnread({ title, retry, children }: { title: string; retry: (() => void) | null; children: ReactNode }) {
+  return <Notice tone="warning" title={title} action={retry ? <Button onClick={retry}>Try again</Button> : undefined}>{children}</Notice>;
+}
+
 function RanList({ group, clock }: { group: RanGroup; clock: number }) {
+  const total = group.completed + group.failed + (group.dismissed ?? 0) + group.running;
   return (
     <section className="today-group" aria-label={group.label}>
       <h3 className="today-group__title">
         {group.label}
         <Facts as="span">
-          <b>{group.completed}</b> done{group.failed ? <> · <b>{group.failed}</b> failed</> : null}{group.running ? <> · <b>{group.running}</b> running</> : null}
+          <b>{group.completed}</b> done{group.failed ? <> · <b>{group.failed}</b> failed</> : null}{group.dismissed ? <> · <b>{group.dismissed}</b> dismissed</> : null}{group.running ? <> · <b>{group.running}</b> running</> : null}
         </Facts>
       </h3>
       <ul className="today-runs">
@@ -172,8 +194,8 @@ function RanList({ group, clock }: { group: RanGroup; clock: number }) {
           </li>
         ))}
       </ul>
-      {group.jobs.length < group.completed + group.failed + group.running && (
-        <p className="today-group__rest">{countOf(group.completed + group.failed + group.running - group.jobs.length, "more job")} in Activity. <Button variant="ghost" onClick={() => openActivity()}>Open Activity</Button></p>
+      {group.jobs.length < total && (
+        <p className="today-group__rest">{countOf(total - group.jobs.length, "more job")} in Activity. <Button variant="ghost" onClick={() => openActivity()}>Open Activity</Button></p>
       )}
     </section>
   );

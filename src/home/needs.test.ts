@@ -56,7 +56,7 @@ describe("what needs you", () => {
     expect(repair.action).toMatchObject({ operationId: "storage.remount", label: "Reconnect the drive", risk: "medium", parameters: { name: "media" } });
     expect(repair.view).toBe("repairs");
     expect(needs.find((need) => need.id === "approval:s1")).toMatchObject({ risk: "medium", view: "repairs", action: { operationId: "storage.remount", label: "Review", risk: "medium", existingJobId: "s1", parameters: {} } });
-    expect(needs.find((need) => need.id === "alert:flow.failed:0")).toMatchObject({ view: "automations", detail: "Since 30 hours ago" });
+    expect(needs.find((need) => need.id === "alert:flow.failed:0")).toMatchObject({ view: "automations", detail: "For 30 hours" });
     // BoxPilot's own restart that gave up or failed is made from Services (sweep 5).
     const [restart] = buildNeeds(facts({ watch: { targetConfigured: true, alerts: [{ family: "boxpilot.restart", title: "BoxPilot needs a restart", since: hoursAgo(2), announced: true }], notices: [] } }), { now, role: "owner" });
     expect(restart).toMatchObject({ id: "alert:boxpilot.restart:0", view: "services" });
@@ -597,5 +597,78 @@ describe("database copies from before the secret scrub (M36)", () => {
     // The newest copy predates the scrub: removal never takes it, so Home would never clear.
     expect(need({ heldSecrets: 1, removable: 0, total: 1 })).toBeUndefined();
     expect(need({ heldSecrets: 2, removable: 2, total: 2 }, "operator")).toBeUndefined();
+  });
+});
+
+describe("one row for one problem (M88)", () => {
+  // The audit's probe: a restart pending, one failed unit, Vaultwarden unhealthy. Six rows came back.
+  const probe = (overrides: Partial<FactValues> = {}) => facts({
+    catalog: { apps: [app({ id: "vaultwarden", name: "Vaultwarden", health: "unhealthy" })], total: 160, liveKnown: true },
+    updates: { count: 0, security: 0, rebootRequired: true },
+    services: { failed: 1 },
+    watch: { targetConfigured: true, notices: [], alerts: [
+      { family: "system.reboot", title: "A restart is required", since: hoursAgo(3), announced: true },
+      { family: "system.services", title: "1 system service failed", since: hoursAgo(3), announced: true },
+      // BoxPilot names an app's container bp-<id> (server/catalog/compose.mjs), as the watcher's alerts do.
+      { family: "docker.unhealthy", title: "Container bp-vaultwarden is unhealthy", since: hoursAgo(3), announced: true },
+    ] },
+    ...overrides,
+  });
+
+  it("says each condition once, from the live fact with its button, when that fact was read", () => {
+    const needs = buildNeeds(probe(), { now, role: "owner" });
+    expect(needs.map((need) => [need.id, need.severity])).toEqual([["services", "danger"], ["app-unwell:vaultwarden", "warning"], ["reboot", "warning"]]);
+  });
+
+  it("keeps the alert when the fact behind it could not be read, or is about a container BoxPilot did not install", () => {
+    const unread = buildNeeds(probe({ updates: null, services: null, catalog: null }), { now, role: "owner" });
+    expect(ids(unread)).toEqual(["alert:system.reboot:0", "alert:system.services:1", "alert:docker.unhealthy:2"]);
+    const stranger = buildNeeds(probe({ watch: { targetConfigured: true, notices: [], alerts: [{ family: "docker.restarting", title: "Container watchtower keeps restarting", since: hoursAgo(1), announced: true }] } }), { now, role: "owner" });
+    expect(ids(stranger)).toContain("alert:docker.restarting:0");
+  });
+
+  // M88 review: the rule matched `vaultwarden` and `vaultwarden-…`, which BoxPilot never names a
+  // container, so it never fired in production, and it hid an owner's own `immich-old`.
+  it("matches BoxPilot's bp- names, and only when the app's own row raises the same problem", () => {
+    const alert = (title: string, family = "docker.unhealthy") => ({ watch: { targetConfigured: true, notices: [], alerts: [{ family, title, since: hoursAgo(1), announced: true }] } });
+    const withApp = (overrides: Partial<AppFact>, title: string, family?: string) =>
+      ids(buildNeeds(facts({ catalog: { apps: [app({ id: "immich", name: "Immich", ...overrides })], total: 160, liveKnown: true }, ...alert(title, family) }), { now, role: "owner" }));
+
+    // The owner's own container that merely starts with an app's id keeps its alert.
+    expect(withApp({ health: "unhealthy" }, "Container immich-old is unhealthy")).toEqual(["alert:docker.unhealthy:0", "app-unwell:immich"]);
+    // The app's container, failing its check: the row says it.
+    expect(withApp({ health: "unhealthy" }, "Container bp-immich is unhealthy")).toEqual(["app-unwell:immich"]);
+    // The app's container restarting while the app is down: the row says it is not running.
+    expect(withApp({ running: false, status: "restarting" }, "Container bp-immich keeps restarting", "docker.restarting")).toEqual(["app-down:immich"]);
+    // Healthy by the catalog's read, so the row says nothing and the alert is all there is.
+    expect(withApp({}, "Container bp-immich is unhealthy")).toEqual(["alert:docker.unhealthy:0"]);
+    // A helper the row names as restarting is the row's.
+    expect(withApp({ troubledSidecar: { id: "redis", status: "restarting" } }, "Container bp-immich-redis keeps restarting", "docker.restarting")).toEqual(["app-unwell:immich"]);
+    // A running helper failing its own health check is not one the row sees: the alert stays.
+    expect(withApp({}, "Container bp-immich-db is unhealthy")).toEqual(["alert:docker.unhealthy:0"]);
+    // Nor does a row about another helper cover it.
+    expect(withApp({ troubledSidecar: { id: "redis", status: "down" } }, "Container bp-immich-db is unhealthy")).toEqual(["alert:docker.unhealthy:0", "app-unwell:immich"]);
+  });
+
+  it("says how long a condition has gone on, not 'since … ago'", () => {
+    const at = (since: string) => buildNeeds(facts({ watch: { targetConfigured: true, notices: [], alerts: [{ family: "flow.failed", title: "Automation stopped", since, announced: true }] } }), { now, role: "owner" })[0].detail;
+    expect(at(hoursAgo(3))).toBe("For 3 hours");
+    expect(at(hoursAgo(0.5))).toBe("For 30 minutes");
+    expect(at(hoursAgo(24 * 3))).toBe("For 3 days");
+    expect(at(new Date(now - 10_000).toISOString())).toMatch(/^Since \d{1,2}[:.]\d{2}/);
+  });
+
+  it("finds a failure in the merged history the live feed has lost behind newer jobs", () => {
+    const newer = Array.from({ length: 30 }, (_, index) => job({ id: `n${index}`, type: "op:app.backup", state: "completed", parameters: { id: `app${index}` }, createdAt: hoursAgo(index / 10) }));
+    const lost = job({ id: "old", type: "op:apt.upgrade", title: "Install package updates", state: "failed", error: "dpkg lock", createdAt: hoursAgo(5) });
+    const staged = job({ id: "s", type: "op:storage.remount", title: "Reconnect a drive", state: "awaiting_approval" });
+    // Before: built from the live feed alone, the failure was not there.
+    expect(buildNeeds(facts({ jobs: [staged, ...newer] }), { now, role: "owner" }).filter((need) => need.kind === "job")).toEqual([]);
+    const needs = buildNeeds(facts({ jobs: [staged, ...newer] }), { now, role: "owner", history: [staged, ...newer, lost] });
+    expect(needs.filter((need) => need.kind === "job").map((need) => need.id)).toEqual(["job:old"]);
+    // Approvals still come from the live feed, once.
+    expect(needs.filter((need) => need.kind === "approval").map((need) => need.id)).toEqual(["approval:s"]);
+    // With no live feed read, the history's approvals stand in.
+    expect(buildNeeds(facts({ jobs: null }), { now, role: "owner", history: [staged] }).map((need) => need.id)).toEqual(["approval:s"]);
   });
 });

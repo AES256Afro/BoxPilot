@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { openActivity, openNotificationsEvent } from "../activityEvents";
-import { viewLabel, type ViewName } from "../data";
+import type { ViewName } from "../data";
+import { alertDestination } from "../home/alertDestination";
 import { relativeTime } from "../home/format";
 import { readJson } from "../http";
 import { Button, EmptyState, Facts, Notice, Segmented, Sheet, StatusChip, Tag, type Status } from "../ui";
@@ -37,6 +38,8 @@ export interface NotificationEntry {
   deliveredAt: string | null;
   resolvedAt: string | null;
   live: boolean;
+  /** A failed or cut-off job's entry: true once the job was dismissed or ran again (M88). */
+  settled?: boolean;
 }
 
 export interface NotificationList { entries: NotificationEntry[]; seenAt: string | null; unseen: number; targetConfigured: boolean }
@@ -48,21 +51,8 @@ export function destinationOf(entry: NotificationEntry): { kind: "activity"; job
   // An approval pushed to a phone (M25.2): the job, where it can be reviewed; several at once, Today.
   if (entry.family === "approval.waiting") return subject && entry.key !== entry.family ? { kind: "activity", jobId: subject, label: "Open in Activity" } : { kind: "view", view: "today", label: "Open Today" };
   if (entry.family === "job.interrupted" || entry.family === "record.failed" || entry.family === "joblog.unreadable") return { kind: "activity", jobId: null, label: "Open Activity" };
-  if (entry.family.startsWith("storage.") || entry.family.startsWith("smart.")) return { kind: "view", view: "storage", label: "Open Storage" };
-  if (entry.family.startsWith("docker.")) return { kind: "view", view: "catalog", label: "Open Apps" };
-  if (entry.family === "system.services" || entry.family === "boxpilot.restart") return { kind: "view", view: "services", label: "Open Services" };
-  if (entry.family === "system.reboot") return { kind: "view", view: "updates", label: "Open Updates" };
-  // The tab the entry is about, not System's overview (M50).
-  if (entry.family === "power.ups") return { kind: "view", view: "system", label: "Open the Power tab", tab: "power" };
-  if (entry.family === "schedule.overdue") return { kind: "view", view: "backups", label: "Open Backups" };
-  // As Home's list sends them (src/home/needs.ts watchView), without loading Home to know it.
-  const view: ViewName = entry.family === "schedule.failed" || entry.family === "release.available" ? "system"
-    : entry.family === "flow.failed" ? "automations"
-      : entry.family === "drive.reconnected" ? "storage"
-        : entry.family === "signin.new" || entry.family === "report.weekly" ? "settings" : "repairs";
-  // Settings opens at the tab the entry is about (M33.13).
-  const tab = entry.family === "report.weekly" ? "notifications" : entry.family === "signin.new" ? "account" : entry.family === "release.available" ? "updates" : entry.family === "schedule.failed" ? "schedules" : undefined;
-  const label = entry.family === "release.available" ? "Open the BoxPilot update" : entry.family === "schedule.failed" ? "Open Schedules" : `Open ${viewLabel(view)}`;
+  // Every condition and piece of news goes where Home's row for it goes, and where its message says (M88).
+  const { view, tab, label } = alertDestination(entry.family);
   return { kind: "view", view, label, ...(tab ? { tab } : {}) };
 }
 
@@ -74,11 +64,16 @@ export function deliveryOf(entry: NotificationEntry): { status: Status; words: s
   return { status: "warning", words: "Sending failed" };
 }
 
-/** Whether an entry wants a person: a condition still going, a notification that failed to send, a job that failed. */
+/**
+ * Whether an entry wants a person: a condition still going, a notification that failed to send, a
+ * job that failed and has not been dealt with since. The server marks a failed job's entry
+ * `settled` once the job was dismissed or ran again (M88); without that mark, "Needs a look" held
+ * every failure for thirty days and never reached zero.
+ */
 export function needsALook(entry: NotificationEntry): boolean {
   if (entry.kind === "alert" && entry.live && !entry.resolvedAt) return true;
   if (!entry.delivered && entry.reason !== "no-target" && entry.reason !== "held") return true;
-  return entry.family === "job.failed" || entry.family === "job.interrupted";
+  return (entry.family === "job.failed" || entry.family === "job.interrupted") && entry.settled !== true;
 }
 
 /** Entries in the order given, those next to each other with the same family and title as one run. */
@@ -95,6 +90,10 @@ export function foldEntries(entries: NotificationEntry[]): NotificationEntry[][]
 type Scope = "needs" | "all";
 
 const pollMs = 60_000;
+/** The most the server keeps (server/notification-history.mjs): a full list is the last hundred, not thirty days. */
+const keptEntries = 100;
+/** Open this long, the sheet has been read: closing it marks what it showed as seen (M88). */
+const readForMs = 2_000;
 
 export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { csrfToken: string; role?: string; onNavigate: (view: ViewName, options?: { tab?: string }) => void }) {
   const [list, setList] = useState<NotificationList | null>(null);
@@ -104,6 +103,8 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
   const [scope, setScope] = useState<Scope | null>(null);
   // The folded runs a person opened, by their newest entry.
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
+  // When the sheet opened, to tell a read from a click that opened and closed it.
+  const openedAt = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -125,29 +126,45 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
   }, [load]);
   useEffect(() => { if (open) void load(); else { setScope(null); setUnfolded(new Set()); } }, [open, load]);
   useEffect(() => {
-    const onOpen = () => setOpen(true);
+    const onOpen = () => { openedAt.current ??= Date.now(); setOpen(true); };
     window.addEventListener(openNotificationsEvent, onOpen);
     return () => window.removeEventListener(openNotificationsEvent, onOpen);
   }, []);
-  const markSeen = async () => {
+  // Seen up to the newest entry the list showed (M88 review): one that arrived after the list was read
+  // was never on screen, so closing the sheet must not mark it seen with the rest.
+  const markSeen = useCallback(async (upTo: string | null) => {
     try {
-      const body = await readJson<{ seenAt: string }>(await fetch("/api/v1/notifications/seen", { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } }));
+      const request: RequestInit = upTo
+        ? { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ upTo }) }
+        : { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } };
+      const body = await readJson<{ seenAt: string }>(await fetch("/api/v1/notifications/seen", request));
       setList((current) => (current ? { ...current, seenAt: body.seenAt, unseen: 0 } : current));
     } catch (error) {
       setProblem(error instanceof Error ? error.message : "Could not mark them seen");
     }
+  }, [csrfToken]);
+  const unseen = list?.unseen ?? 0;
+  const newestShown = (list?.entries ?? []).reduce<string | null>((newest, entry) => (newest === null || entry.at > newest ? entry.at : newest), null);
+  const show = () => { openedAt.current = Date.now(); setOpen(true); };
+  // Reading the list is seeing it: closed after a moment open, what it showed is marked seen, so the
+  // badge does not ask again each morning. "Mark all seen" stays for a list never opened for long.
+  const close = () => {
+    const since = openedAt.current;
+    openedAt.current = null;
+    setOpen(false);
+    if (since !== null && unseen > 0 && Date.now() - since >= readForMs) void markSeen(newestShown);
   };
 
   const go = (entry: NotificationEntry) => {
     const destination = destinationOf(entry);
-    setOpen(false);
+    close();
     if (destination.kind === "activity") openActivity(destination.jobId ?? undefined);
     else if (destination.tab) onNavigate(destination.view, { tab: destination.tab });
     else onNavigate(destination.view);
   };
 
-  const unseen = list?.unseen ?? 0;
   const now = Date.now();
+  const capped = (list?.entries.length ?? 0) >= keptEntries;
   const isNew = (entry: NotificationEntry) => !list?.seenAt || entry.at > list.seenAt;
   const needing = (list?.entries ?? []).filter(needsALook);
   const shownScope: Scope = scope ?? (needing.length ? "needs" : "all");
@@ -179,21 +196,21 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
 
   return (
     <>
-      <button className="bar-button bar-bell" data-live={unseen > 0 || undefined} type="button" aria-expanded={open} aria-haspopup="dialog" aria-label={unseen ? `Notifications, ${unseen} new` : "Notifications"} onClick={() => setOpen((value) => !value)}>
+      <button className="bar-button bar-bell" data-live={unseen > 0 || undefined} type="button" aria-expanded={open} aria-haspopup="dialog" aria-label={unseen ? `Notifications, ${unseen} new` : "Notifications"} onClick={() => (open ? close() : show())}>
         <BellIcon aria-hidden="true" />
         {unseen > 0 && <span className="bar-badge" aria-hidden="true">{unseen > 99 ? "99+" : unseen}</span>}
       </button>
       {open && (
-        <Sheet title="Notifications" kicker={unseen ? `${unseen} new` : "The last thirty days"} side="right" className="look-console notifications-sheet" focusFirstField={false} onClose={() => setOpen(false)}>
+        <Sheet title="Notifications" kicker={unseen ? `${unseen} new` : capped ? `The last ${keptEntries}` : "The last thirty days"} side="right" className="look-console notifications-sheet" focusFirstField={false} onClose={close}>
           {(list || unseen > 0) && (
             <div className="notifications-head">
-              {list && <Facts><b>{list.entries.length}</b> {list.entries.length === 1 ? "entry" : "entries"} · <b>{unseen}</b> new · target <b>{list.targetConfigured ? "set" : "not set"}</b></Facts>}
-              {unseen > 0 && <Button variant="ghost" onClick={() => void markSeen()}>Mark all seen</Button>}
+              {list && <Facts><b>{list.entries.length}</b> {list.entries.length === 1 ? "entry" : "entries"}{capped ? " (the most kept)" : ""} · <b>{unseen}</b> new · target <b>{list.targetConfigured ? "set" : "not set"}</b></Facts>}
+              {unseen > 0 && <Button variant="ghost" onClick={() => void markSeen(newestShown)}>Mark all seen</Button>}
             </div>
           )}
           {problem && <Notice tone="danger" live title="The notifications could not be read">{problem}</Notice>}
           {list && !list.targetConfigured && (
-            <Notice tone="warning" action={<Button onClick={() => { setOpen(false); onNavigate("settings", { tab: "notifications" }); }}>Set one in Settings</Button>}>
+            <Notice tone="warning" action={<Button onClick={() => { close(); onNavigate("settings", { tab: "notifications" }); }}>Set one in Settings</Button>}>
               No notification target is set, so none of this reached your phone.
             </Notice>
           )}
@@ -205,7 +222,7 @@ export function NotificationCentre({ csrfToken, role = "owner", onNavigate }: { 
           )}
           {list && list.entries.length > 0 && runs.length === 0 && (
             <EmptyState title="Nothing needs a look" action={<Button onClick={() => setScope("all")}>Show everything</Button>}>
-              No condition is still going, every notification was sent, and no job failed.
+              {capped ? `Among the last ${keptEntries} notifications, no condition is still going, every one was sent` : "No condition is still going, every notification was sent"}, and no failed job is waiting on you.
             </EmptyState>
           )}
           {list && runs.length > 0 && (

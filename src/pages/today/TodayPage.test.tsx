@@ -10,7 +10,7 @@ import TodayPage from "./TodayPage";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); resetConnection(); window.localStorage.clear(); });
 
 const ran = {
-  "/api/v1/jobs?limit=100&view=summary": { jobs: [
+  "/api/v1/jobs?limit=200&view=summary": { jobs: [
     { id: "nightly", type: "op:app.backup", title: "Back up application data", state: "completed", risk: "medium", error: null, result: null, steps: [], approvals: [], parameters: { id: "jellyfin" }, createdAt: ago(0.5), updatedAt: ago(0.4) },
     { id: "update", type: "op:app.update", title: "Update an app", state: "failed", risk: "medium", error: "pull failed", result: null, steps: [], approvals: [], parameters: { id: "immich" }, createdAt: ago(0.3), updatedAt: ago(0.2) },
   ] },
@@ -57,7 +57,7 @@ describe("Today (M25.3)", () => {
   it("opens the page a need's fix is on, as Home and Ops do", async () => {
     // Today never handed the needs a way to navigate: Free up space, Open Repair and the rest did nothing.
     const full = { id: "full", type: "op:app.update", title: "Update an app", state: "failed", risk: "medium", error: "pull failed: no space left on device", result: null, steps: [], approvals: [], parameters: { id: "immich" }, createdAt: ago(0.3), updatedAt: ago(0.2) };
-    vi.stubGlobal("fetch", stubFetch({ "/api/v1/jobs?limit=50": { jobs: [full] }, "/api/v1/jobs?limit=100&view=summary": { jobs: [full] } }));
+    vi.stubGlobal("fetch", stubFetch({ "/api/v1/jobs?limit=50": { jobs: [full] }, "/api/v1/jobs?limit=200&view=summary": { jobs: [full] } }));
     const onNavigate = renderToday();
     const attention = await screen.findByRole("region", { name: /Needs a look/ });
     fireEvent.click(await within(attention).findByRole("button", { name: /^Free up space:/ }));
@@ -179,11 +179,66 @@ describe("Today (M25.3)", () => {
     vi.stubGlobal("fetch", fetch);
     renderToday();
     await screen.findByRole("region", { name: /What ran/ });
-    const before = fetch.mock.calls.filter(([url]) => String(url) === "/api/v1/jobs?limit=100&view=summary").length;
+    const before = fetch.mock.calls.filter(([url]) => String(url) === "/api/v1/jobs?limit=200&view=summary").length;
     const reload = vi.fn();
     expect(requestRefresh({ reload })).toBe("refreshed");
     expect(reload).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url) === "/api/v1/jobs?limit=100&view=summary").length).toBeGreaterThan(before));
+    await vi.waitFor(() => expect(fetch.mock.calls.filter(([url]) => String(url) === "/api/v1/jobs?limit=200&view=summary").length).toBeGreaterThan(before));
+  });
+
+  it("says Reading… while the jobs are read, and that they could not be read, with Try again, rather than that nothing waits (M88)", async () => {
+    // The jobs never answer: neither panel claims an all-clear.
+    const rest = stubFetch({ ...busier });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => (input.toString().startsWith("/api/v1/jobs") ? new Promise<Response>(() => undefined) : rest(input, init))));
+    renderToday();
+    const approvals = await screen.findByRole("region", { name: /Waiting for approval/ });
+    const what = screen.getByRole("region", { name: /What ran/ });
+    expect(within(approvals).getByText("Reading…")).toBeTruthy();
+    expect(within(what).getByText("Reading…")).toBeTruthy();
+    expect(screen.queryByText("Nothing is waiting for your approval.")).toBeNull();
+    expect(screen.queryByText(/^Nothing ran/)).toBeNull();
+    cleanup();
+
+    // They fail: said, with a way to read them again, which brings the approval in.
+    let jobsAnswer = (url: string): Response => new Response(JSON.stringify({ error: `BoxPilot is not answering ${url}` }), { status: 503, headers: { "Content-Type": "application/json" } });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => (input.toString().startsWith("/api/v1/jobs") && !init?.method ? jobsAnswer(input.toString()) : rest(input, init))));
+    renderToday();
+    const failed = await screen.findByRole("region", { name: /Waiting for approval/ });
+    expect(await within(failed).findByText("Approvals could not be read")).toBeTruthy();
+    expect(await within(screen.getByRole("region", { name: /What ran/ })).findByText("What ran could not be read")).toBeTruthy();
+    expect(screen.queryByText("Nothing is waiting for your approval.")).toBeNull();
+    jobsAnswer = () => new Response(JSON.stringify((busier["/api/v1/jobs?limit=50"] as object)), { status: 200, headers: { "Content-Type": "application/json" } });
+    fireEvent.click(within(failed).getByRole("button", { name: "Try again" }));
+    expect(await within(failed).findByRole("button", { name: "Review: Waiting for approval: Reconnect a drive" })).toBeTruthy();
+  });
+
+  it("says under Needs a look what could not be read, even when something else is flagged (M88)", async () => {
+    vi.stubGlobal("fetch", stubFetch({ ...busier, ...ran, "/api/v1/settings/watch": { error: "no" } }));
+    renderToday();
+    const attention = await screen.findByRole("region", { name: /Needs a look/ });
+    await within(attention).findByText(/Vaultwarden is not running/);
+    expect((await within(attention).findByText(/so this list may be missing something/)).textContent).toBe("BoxPilot could not read the health alerts, so this list may be missing something.");
+  });
+
+  it("starts a health round on Check again, reads Repair afresh, and shows when it checked (M88)", async () => {
+    const fetch = stubFetch({ ...ran, "/api/v1/settings/watch/check": { checkedAt: "2026-09-29T07:30:00.000Z", fresh: false } });
+    vi.stubGlobal("fetch", fetch);
+    renderToday();
+    await screen.findByRole("region", { name: /What ran/ });
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    const said = await vi.waitFor(() => {
+      const line = document.querySelector(".check-again__said");
+      expect(line?.textContent).toMatch(/^Checked \d{1,2}[:.]\d{2}.* · health checked \d{1,2}[:.]\d{2}/);
+      return line as HTMLElement;
+    });
+    // Shown, not only announced: it used to be visually hidden.
+    expect(said.className).not.toContain("ui-visually-hidden");
+    expect(said.textContent).toContain(new Date("2026-09-29T07:30:00.000Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    const posted = fetch.mock.calls.find(([url, init]) => String(url) === "/api/v1/settings/watch/check" && (init as RequestInit | undefined)?.method === "POST");
+    expect((posted?.[1] as RequestInit).headers).toMatchObject({ "X-BoxPilot-CSRF": "csrf" });
+    expect(fetch.mock.calls.some(([url]) => String(url) === "/api/v1/remediations?fresh=1")).toBe(true);
+    // A round asked for too soon (fresh: false) is no error.
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 
