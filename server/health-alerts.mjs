@@ -13,6 +13,7 @@ import { evaluateScheduleFreshness } from "./schedule-freshness.mjs";
 import { evaluateDiskForecast } from "./disk-forecast.mjs";
 import { evaluateSmartTrends } from "./smart-trends.mjs";
 import { logged } from "./logged-loop.mjs";
+import { evaluateCloudReadBack } from "./backup-cloud.mjs";
 
 export const healthConditions = Object.freeze({
   "storage.root.full": "Root disk nearly full",
@@ -30,6 +31,8 @@ export const healthConditions = Object.freeze({
   "storage.forecast": "A filesystem is on track to fill soon",
   "smart.errors": "A disk's error count is climbing",
   "smart.wear": "An SSD is nearing its write-endurance limit",
+  // M91: the last cloud mirror could not read its newest machine snapshot back (backup-cloud.mjs).
+  "backup.cloud.unreadable": "The cloud copy could not be read back",
   ...reportedConditions(),
 });
 
@@ -129,6 +132,23 @@ export const asSentence = (text) => {
   return !trimmed || /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 };
 
+/**
+ * A disk's errors in the alert: a SATA disk's bad sectors by kind (ATA attributes 197/198/187 are
+ * sectors it could not read, 5 those it remapped), else an NVMe drive's media errors.
+ */
+function smartErrorWords(disk) {
+  const ata = disk.ataErrors;
+  if (ata && typeof ata === "object") {
+    // A count the drive names as something else (an MX500's 197, Current_Pending_ECC_Cnt) is not a bad sector.
+    const other = Array.isArray(ata.notSectorCounts) ? ata.notSectorCounts : [];
+    const count = (field) => (!other.includes(field) && Number.isFinite(ata[field]) ? ata[field] : 0);
+    const unreadable = count("pending") + count("offlineUncorrectable") + count("reportedUncorrectable");
+    const parts = [unreadable ? `${unreadable} sector${unreadable === 1 ? "" : "s"} it could not read` : null, count("reallocated") ? `${count("reallocated")} remapped` : null].filter(Boolean);
+    return parts.length ? `, ${parts.join(", ")}` : "";
+  }
+  return disk.mediaErrors ? `, ${disk.mediaErrors} media errors` : "";
+}
+
 /** Derive the current set of bad conditions from an inventory snapshot. Pure. */
 export function evaluateHealth(inventory) {
   const alerts = [];
@@ -178,7 +198,7 @@ export function evaluateHealth(inventory) {
       continue;
     }
     if (["healthy", "unavailable"].includes(disk.health)) continue;
-    alerts.push({ key: `storage.smart:${disk.device}`, priority: "high", title: `Disk ${disk.device} reports SMART problems`, message: `Health: ${disk.health}${disk.mediaErrors ? `, ${disk.mediaErrors} media errors` : ""}${disk.temperatureCelsius !== null && disk.temperatureCelsius !== undefined ? `, ${disk.temperatureCelsius} °C` : ""}. Back up what matters and plan a replacement.` });
+    alerts.push({ key: `storage.smart:${disk.device}`, priority: "high", title: `Disk ${disk.device} reports SMART problems`, message: `Health: ${disk.health}${smartErrorWords(disk)}${disk.temperatureCelsius !== null && disk.temperatureCelsius !== undefined ? `, ${disk.temperatureCelsius} °C` : ""}. Back up what matters and plan a replacement.` });
   }
   const ups = inventory?.power?.ups;
   if (ups?.available && ["on-battery", "low-battery", "forced-shutdown"].includes(ups.state)) {
@@ -304,7 +324,9 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
     const forecastAlerts = evaluateDiskForecast(store.getSetting?.("diskUsageHistory", {}) ?? {}, { now: now() });
     // A drive going bad shows in its SMART numbers before it fails outright (M23.3).
     const smartAlerts = evaluateSmartTrends(store.getSetting?.("smartHistory", {}) ?? {}, { now: now() });
-    const active = [...evaluateHealth(snapshot), ...scheduleAlerts, ...forecastAlerts, ...smartAlerts];
+    // A cloud copy that did not read back after its mirror (M91), from the record the mirror left.
+    const cloudAlerts = evaluateCloudReadBack(store.getSetting?.("cloudDestinationLastSync", null) ?? null);
+    const active = [...evaluateHealth(snapshot), ...scheduleAlerts, ...forecastAlerts, ...smartAlerts, ...cloudAlerts];
     const round = await exclusive(async () => {
       const previous = readState();
       const nextState = {};
@@ -328,7 +350,7 @@ export function createHealthAlerts({ inventory, notifications, store, history = 
         if (notified) sent.push(alert.key);
       }
       // The schedule table is always readable, so an overdue alert can clear the moment it catches up.
-      const availability = { ...collectorAvailability(snapshot), "schedule.overdue": true, "storage.forecast": true, "smart.errors": true, "smart.wear": true };
+      const availability = { ...collectorAvailability(snapshot), "schedule.overdue": true, "storage.forecast": true, "smart.errors": true, "smart.wear": true, "backup.cloud.unreadable": true };
       for (const [key, entry] of Object.entries(previous)) {
         if (nextState[key]) continue;
         // News nobody has heard yet: sent now if a target answers, then forgotten; kept otherwise,

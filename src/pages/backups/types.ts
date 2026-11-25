@@ -8,7 +8,8 @@ import type { ComposeReview } from "./ComposeReview";
 
 export interface BackupRecord { id: string; applicationId: string; destination: string; checksumSha256: string; sizeBytes: number; downtimeMs: number; restoreDrill: { passed?: boolean } | null; createdAt: string }
 export interface ControllerProtection { id: string; backupId: string; snapshotId?: string; createdAt: string; protected?: boolean; retained?: boolean }
-export interface ProtectionState { destination: { ready?: boolean; encrypted?: boolean; repositoryId?: string | null; blockers?: string[] } | null; protections: ControllerProtection[] }
+/** `setupCommand`: what the owner runs at the server's terminal to create the recovery password and the store. */
+export interface ProtectionState { destination: { ready?: boolean; encrypted?: boolean; repositoryId?: string | null; blockers?: string[]; setupCommand?: string } | null; protections: ControllerProtection[] }
 export interface RetentionStatus { policy?: { minimumCopies?: number; minimumAgeDays?: number }; candidates?: unknown[]; beforeCount?: number }
 
 export interface SnapshotApp { id: string; installed?: boolean; projectFiles?: number; backups?: number }
@@ -90,4 +91,18 @@ export function ago(value: string | null | undefined, now = Date.now()): string 
 export function syncedAt(value: unknown): string | null {
   if (typeof value === "string") return value;
   return (value as { completedAt?: string } | null)?.completedAt ?? null;
+}
+
+/**
+ * What the encrypted store still needs, in the owner's words. The helper names each blocker the way a
+ * log would ("the separate root-owned mode-0600 controller recovery password"); the page says what to
+ * do about it. One it does not recognise is shown as it came, never dropped.
+ */
+export function plainBlocker(blocker: string): string {
+  if (/^Install restic\b/.test(blocker)) return "restic, the encryption tool, is not installed: Repair offers to install it, under Prerequisites.";
+  const mount = /^Mount a writable filesystem .* at (\S+)$/.exec(blocker);
+  if (mount) return `Mount a backup drive at ${mount[1]}. It has to be a different disk from the one holding BoxPilot's database and its local backups.`;
+  if (/recovery password/.test(blocker)) return "Create the recovery password with the command below. Keep a copy of it somewhere other than this server: without it the encrypted copies cannot be opened.";
+  if (/^Initialize and verify\b/.test(blocker)) return "Set up the encrypted store on the backup drive with the command below.";
+  return blocker;
 }

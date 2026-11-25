@@ -11,7 +11,7 @@ import FileSharingTab from "./FileSharingTab";
 import MountsTab from "./MountsTab";
 import SharesTab from "./SharesTab";
 import SnapshotsTab from "./SnapshotsTab";
-import { gib, percentUsed, shareableFolders, type Forecast, type FsSnapshots, type LastMeasured, type StorageReport, type Usage } from "./types";
+import { driveHealthFrom, gib, healthVerdict, percentUsed, shareableFolders, type DriveHealth, type Forecast, type FsSnapshots, type LastMeasured, type StorageReport, type Usage } from "./types";
 import { useNfs, useSamba } from "./useSharing";
 import { StorageLead } from "../../looks/StorageLead";
 import "./storage.css";
@@ -59,6 +59,7 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
   const [lastMeasured, setLastMeasured] = useState<LastMeasured | null>(null);
   const [mapApps, setMapApps] = useState<MapApp[]>([]);
   const [fsSnapshots, setFsSnapshots] = useState<FsSnapshots | null>(null);
+  const [driveHealth, setDriveHealth] = useState<DriveHealth[]>([]);
   const [sharePrefill, setSharePrefill] = useState<{ name: string; path: string; key: number } | null>(null);
   const tailnetHosts = useTailnetHosts();
   const samba = useSamba(csrfToken);
@@ -96,6 +97,9 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
       setLastMeasured(body?.lastMeasured ?? null);
     }).catch(() => {});
     fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Parameters<typeof appFolders>[0] } | null) => setMapApps(Array.isArray(body?.applications) ? appFolders(body.applications) : [])).catch(() => {});
+    // Each drive's SMART health as the storage scan last read it: the chips on the drives, and a
+    // failing drive as the page's verdict however much room it has.
+    fetch("/api/v1/inventory").then((response) => (response.ok ? response.json() : null)).then((body: unknown) => setDriveHealth(driveHealthFrom(body))).catch(() => {});
     fetch("/api/v1/operations/storage.fs-snapshots.inspect/inspect").then((response) => (response.ok ? response.json() : null)).then((body: { result?: FsSnapshots } | null) => {
       const result = body?.result;
       setFsSnapshots(result?.supported ? {
@@ -134,17 +138,22 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
   const lvmSnapshots = report?.snapshots?.length ?? 0;
   const fsSnapshotCount = fsSnapshots?.supported ? (fsSnapshots.btrfs?.filesystems ?? []).reduce((sum, entry) => sum + entry.snapshots.length, 0) + (fsSnapshots.zfs?.datasets ?? []).reduce((sum, entry) => sum + entry.snapshots.length, 0) : 0;
 
-  // Never green about something unread (M28.5): no report, no verdict.
+  const health = healthVerdict(driveHealth);
+
+  // Never green about something unread (M28.5): no report, no verdict. A drive that is failing comes
+  // first: room to spare on a dying disk is not good news.
   const verdict: { status: Status; label: string } = error && !report ? { status: "unknown", label: "Not read" }
     : !report ? { status: "unknown", label: "Reading…" }
-      : full.length ? { status: "danger", label: `${full.length} nearly full` }
-        : soon.length ? { status: "warning", label: soon[0].daysToFull <= 0 ? "Full very soon" : `Fills in ~${soon[0].daysToFull} days` }
-          : dropped.length ? { status: "warning", label: `${dropped.length} share${dropped.length === 1 ? "" : "s"} not connected` }
-            : { status: "good", label: "Room to spare" };
+      : health?.status === "danger" ? health
+        : full.length ? { status: "danger", label: `${full.length} nearly full` }
+          : health ? health
+            : soon.length ? { status: "warning", label: soon[0].daysToFull <= 0 ? "Full very soon" : `Fills in ~${soon[0].daysToFull} days` }
+              : dropped.length ? { status: "warning", label: `${dropped.length} share${dropped.length === 1 ? "" : "s"} not connected` }
+                : { status: "good", label: "Room to spare" };
 
   const sambaStatus: Status | undefined = samba.state?.installed && samba.state.configured && samba.state.running === false ? "warning" : undefined;
   const tabs: Array<TabItem<TabId>> = [
-    { id: "drives", label: "Drives", count: report ? disks.length : undefined },
+    { id: "drives", label: "Drives", count: report ? disks.length : undefined, status: health?.status, statusLabel: health?.label },
     { id: "shares", label: "Shares", count: report ? shares.length : undefined, status: dropped.length ? "warning" : undefined, statusLabel: dropped.length ? `${dropped.length} not connected` : undefined },
     { id: "sharing", label: "File sharing", count: samba.state || nfs.state ? (samba.state?.config?.shares.length ?? 0) + (nfs.state?.config?.exports.length ?? 0) : undefined, status: sambaStatus, statusLabel: sambaStatus ? "Samba is stopped" : undefined },
     { id: "snapshots", label: "Snapshots", count: report ? lvmSnapshots + fsSnapshotCount : undefined },
@@ -183,7 +192,7 @@ export default function StoragePage({ csrfToken, role = "owner", onNavigate }: S
           if (current === "sharing") return <FileSharingTab csrfToken={csrfToken} role={role} samba={samba} nfs={nfs} folders={shareableFolders(report)} prefill={sharePrefill} onPrefillUsed={() => setSharePrefill(null)} onChanged={refreshAll} onNavigate={onNavigate} />;
           if (current === "snapshots") return <SnapshotsTab csrfToken={csrfToken} role={role} report={report} loading={loading} fsSnapshots={fsSnapshots} onChanged={refreshAll} />;
           if (current === "mounts") return <MountsTab report={report} loading={loading} forecasts={forecasts} usage={usage} lastMeasured={lastMeasured} mapApps={mapApps} mapShares={mapShares} shareHost={shareHost} />;
-          return <DrivesTab csrfToken={csrfToken} role={role} report={report} loading={loading} autoReconnect={autoReconnect} mapApps={mapApps} sambaShares={mapShares} onChanged={refreshAll} onReread={rereadQuietly} onShareFolder={shareFolder} />;
+          return <DrivesTab csrfToken={csrfToken} role={role} report={report} loading={loading} autoReconnect={autoReconnect} mapApps={mapApps} sambaShares={mapShares} onChanged={refreshAll} onReread={rereadQuietly} onShareFolder={shareFolder} driveHealth={driveHealth} />;
         }}
       </Tabs>
     </div>

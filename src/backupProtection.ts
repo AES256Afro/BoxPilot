@@ -93,3 +93,94 @@ export function protectionWarning(verdicts: ProtectionVerdict[]): string | null 
   if (stale.length) return `${naming(stale)} ${stale.length === 1 ? "has not been" : "have not been"} backed up recently`;
   return null;
 }
+
+/**
+ * Whether this server could be rebuilt from what it keeps (M91).
+ *
+ * App backups are half of a rebuild. On a new server the Restore tab starts from a machine snapshot
+ * (it reinstalls every app with its settings and secrets, then pours each app's data back in), and
+ * BoxPilot's own database, with the schedules, accounts and destinations, comes back from a database
+ * backup. A server that backed every app up nightly and never took a snapshot read "Protected" here
+ * while it had nothing a rebuild could start from.
+ *
+ * Eight days, for both: the most often anything schedules a machine snapshot is weekly (the setup
+ * profiles), so a week plus a day for a run that slipped is the age at which the schedule has
+ * clearly stopped or never existed. A day less would warn every week before the weekly run.
+ */
+export const rebuildStaleAfterDays = 8;
+
+export interface RebuildSnapshot {
+  createdAt: string | null;
+  contents: { apps?: Array<{ id: string; installed?: boolean }> } | null;
+}
+
+export interface RebuildInputs {
+  /** The machine snapshots on this server; null when they could not be read. */
+  snapshots: RebuildSnapshot[] | null;
+  /** Every installed app's id, protectable or not: a snapshot brings back each one's settings. Null when unread. */
+  installedAppIds: string[] | null;
+  /** BoxPilot's database backups' times; null when they could not be read. */
+  databaseBackupsAt: string[] | null;
+}
+
+export interface RebuildVerdict {
+  /** "unknown" — something it rests on was not read. */
+  state: "no-snapshot" | "snapshot-stale" | "snapshot-missing-apps" | "no-database-backup" | "database-stale" | "ok" | "unknown";
+  /** What the header says, short. Null when there is nothing to say. */
+  label: string | null;
+  /** One sentence saying why, for the This server tab. */
+  warning: string | null;
+  snapshotAgeDays: number | null;
+  /** Installed apps the newest snapshot would not bring back. */
+  missingApps: string[];
+  databaseAgeDays: number | null;
+}
+
+const newestOf = (values: Array<string | null | undefined>): number | null => {
+  let newest: number | null = null;
+  for (const value of values) {
+    const parsed = value ? Date.parse(value) : Number.NaN;
+    if (Number.isFinite(parsed) && (newest === null || parsed > newest)) newest = parsed;
+  }
+  return newest;
+};
+
+export function rebuildVerdict(
+  { snapshots, installedAppIds, databaseBackupsAt }: RebuildInputs,
+  { now = Date.now(), staleAfterDays = rebuildStaleAfterDays }: { now?: number; staleAfterDays?: number } = {},
+): RebuildVerdict {
+  const empty = { snapshotAgeDays: null, missingApps: [], databaseAgeDays: null };
+  if (snapshots === null || databaseBackupsAt === null) return { state: "unknown", label: null, warning: null, ...empty };
+  const days = (at: number | null) => (at === null ? null : Math.floor((now - at) / 86_400_000));
+  const databaseAt = newestOf(databaseBackupsAt);
+  const databaseAgeDays = days(databaseAt);
+  if (snapshots.length === 0) {
+    return { state: "no-snapshot", label: "No machine snapshot", warning: "There is no machine snapshot, so a new server would have nothing to rebuild from: take one on the This server tab.", ...empty, databaseAgeDays };
+  }
+  const newest = snapshots.reduce<RebuildSnapshot | null>((best, snapshot) => {
+    const at = snapshot.createdAt ? Date.parse(snapshot.createdAt) : Number.NaN;
+    if (!Number.isFinite(at)) return best;
+    return best === null || at > Date.parse(best.createdAt ?? "") ? snapshot : best;
+  }, null);
+  const snapshotAgeDays = days(newest?.createdAt ? Date.parse(newest.createdAt) : null);
+  // An app installed after the newest snapshot is not in it: a rebuild would leave it out entirely.
+  const listed = newest?.contents?.apps;
+  const inSnapshot = new Set((Array.isArray(listed) ? listed : []).filter((app) => app?.installed !== false).map((app) => app?.id));
+  // A snapshot that recorded no app list (an older one) is not said to be missing every app.
+  const missingApps = Array.isArray(listed) && installedAppIds ? installedAppIds.filter((id) => !inSnapshot.has(id)) : [];
+  const base = { snapshotAgeDays, missingApps, databaseAgeDays };
+  if (snapshotAgeDays === null || snapshotAgeDays > staleAfterDays) {
+    return { state: "snapshot-stale", label: "Machine snapshot out of date", warning: snapshotAgeDays === null ? "The newest machine snapshot records no date, so how old a rebuild would be is unknown: take a new one." : `The newest machine snapshot is ${snapshotAgeDays} days old; a rebuild from it would bring back the server as it was then.`, ...base };
+  }
+  if (missingApps.length) {
+    const named = missingApps.length <= 2 ? missingApps.join(" and ") : `${missingApps.slice(0, 2).join(", ")} and ${missingApps.length - 2} more`;
+    return { state: "snapshot-missing-apps", label: "Machine snapshot out of date", warning: `The newest machine snapshot was taken before ${named} ${missingApps.length === 1 ? "was" : "were"} installed, so a rebuild would leave ${missingApps.length === 1 ? "it" : "them"} out: take a new one.`, ...base };
+  }
+  if (databaseAt === null) {
+    return { state: "no-database-backup", label: "No database backup", warning: "BoxPilot's database has never been backed up, so a rebuild would lose its accounts, schedules and destinations: Back up now on the This server tab.", ...base };
+  }
+  if ((databaseAgeDays ?? 0) > staleAfterDays) {
+    return { state: "database-stale", label: "Database backup out of date", warning: `BoxPilot's newest database backup is ${databaseAgeDays} days old; a rebuild would lose every change since.`, ...base };
+  }
+  return { state: "ok", label: null, warning: null, ...base };
+}

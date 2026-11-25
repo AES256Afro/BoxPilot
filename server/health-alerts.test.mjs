@@ -100,6 +100,19 @@ describe("health alerts", () => {
     expect(evaluateHealth({})).toEqual([]);
   });
 
+  it("names a SATA disk's bad sectors by kind rather than as media errors (M91)", () => {
+    const disk = { device: "/dev/sda", health: "critical", passed: true, temperatureCelsius: 36, mediaErrors: 585, ataErrors: { reallocated: 360, reportedUncorrectable: 0, pending: 225, offlineUncorrectable: 0 } };
+    const [alert] = evaluateHealth({ storage: { smart: { disks: [disk] } } });
+    expect(alert).toMatchObject({ key: "storage.smart:/dev/sda", priority: "high" });
+    expect(alert.message).toBe("Health: critical, 225 sectors it could not read, 360 remapped, 36 °C. Back up what matters and plan a replacement.");
+  });
+
+  it("does not call an MX500's attribute 197 (Current_Pending_ECC_Cnt) a sector it could not read", () => {
+    const disk = { device: "/dev/sda", health: "warning", passed: true, temperatureCelsius: 71, mediaErrors: 0, ataErrors: { reallocated: 0, reportedUncorrectable: 0, pending: 1, offlineUncorrectable: 0, notSectorCounts: ["pending"] } };
+    const [alert] = evaluateHealth({ storage: { smart: { disks: [disk] } } });
+    expect(alert.message).toBe("Health: warning, 71 °C. Back up what matters and plan a replacement.");
+  });
+
   it("says BoxPilot needs a restart when its own restart gave up or failed, and where to make it (sweep 5)", () => {
     // It used to be only a journal line, which named the System page; the restart button is on Services.
     const owed = (restart) => ({ boxpilot: { available: true, restart } });

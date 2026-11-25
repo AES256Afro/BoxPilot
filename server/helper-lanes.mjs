@@ -36,10 +36,11 @@ export const cloudflareLane = "cloudflare:tunnel";
  * their app's lane, so a mirror ran beside them, copied the half-written archive and kept it
  * forever, or died when it was renamed or grew (rsync exit 24, rclone errors). Reclaiming disk space
  * deletes the archives behind each app's newest few, and removing a machine snapshot that cannot be
- * read deletes from the snapshot folder the mirrors copy too, so both hold it.
+ * read deletes from the snapshot folder the mirrors copy too, so both hold it. Fetching from the cloud
+ * (M91) writes snapshots and app archives into those same folders, so it holds it as well.
  */
 export const backupTreeLane = "backup-tree";
-const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.restore-path", "app.backup.delete", "app.backup.verify", "app.update", "app.update.many", "app.update.available", "app.rollback", "app.reconfigure", "app.compose.edit", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "housekeeping.reclaim", "housekeeping.unreadable-snapshot.remove"]);
+const backupTreeOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.restore-path", "app.backup.delete", "app.backup.verify", "app.update", "app.update.many", "app.update.available", "app.rollback", "app.reconfigure", "app.compose.edit", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "backup.cloud.fetch", "housekeeping.reclaim", "housekeeping.unreadable-snapshot.remove"]);
 /** Those that held the host lane before the tree had a lane of its own still hold it as well. */
 const hostBackupOperations = new Set(["app.backup", "app.backup.many", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync", "housekeeping.reclaim", "housekeeping.unreadable-snapshot.remove"]);
 

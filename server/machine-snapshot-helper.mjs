@@ -81,9 +81,10 @@ async function recordedChecksum(directory, name) {
  * none), and only then given its own name, with the record beside it. Copied straight to its own
  * name, a restart mid-copy left half an archive there that the next restore preferred (tar:
  * unexpected EOF) and the next sync copied over the mirror's whole one. A copy that does not check
- * out is removed, and the restore told why.
+ * out is removed, and the restore told why. An app's own restore uses it too, for a backup that is
+ * only on the backup drive (app-backups.mjs).
  */
-async function copyArchiveIn(fromDirectory, storeRoot, id, name) {
+export async function copyArchiveIn(fromDirectory, storeRoot, id, name) {
   const source = path.join(fromDirectory, name);
   const record = await recordText(fromDirectory, name);
   const checksum = await recordedChecksum(fromDirectory, name);
@@ -562,6 +563,17 @@ export function createMachineSnapshotHelper({
   }
 
   // ---- Restore ------------------------------------------------------------------------------------
+  /**
+   * How many of a snapshot's apps had a data backup when it was taken, from its description, or null
+   * when the description does not say (an older snapshot did not count them). "12 apps" read as twelve
+   * apps protected where it could mean twelve that come back empty.
+   */
+  const appsWithData = (meta) => {
+    const apps = meta?.contents?.apps;
+    if (!Array.isArray(apps) || apps.length === 0 || apps.some((app) => typeof app?.backups !== "number")) return null;
+    return apps.filter((app) => app.backups > 0).length;
+  };
+
   const sourceRoots = () => ({ local: resolvedSnapshotRoot, mirror: path.join(mirrorRoot, "machine-snapshots") });
 
   /** Snapshots available to restore from: local root and the off-box mirror (when mounted). */
@@ -576,7 +588,7 @@ export function createMachineSnapshotHelper({
       for (const name of entries) {
         const meta = await readFile(path.join(root, `${name}.meta.json`), "utf8").then(JSON.parse).catch(() => null);
         const info = await stat(path.join(root, name)).catch(() => null);
-        snapshots.push({ artifact: name, sizeBytes: meta?.sizeBytes ?? info?.size ?? null, createdAt: meta?.createdAt ?? info?.mtime?.toISOString() ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps: meta?.contents?.apps?.length ?? null });
+        snapshots.push({ artifact: name, sizeBytes: meta?.sizeBytes ?? info?.size ?? null, createdAt: meta?.createdAt ?? info?.mtime?.toISOString() ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps: meta?.contents?.apps?.length ?? null, withData: appsWithData(meta) });
       }
       result.sources.push({ source, root, available: true, snapshots });
     }
@@ -688,6 +700,7 @@ export function createMachineSnapshotHelper({
         createdAt: meta?.createdAt ?? info?.mtime?.toISOString() ?? null,
         checksumSha256: meta?.checksumSha256 ?? null,
         apps: meta?.contents?.apps?.length ?? null,
+        withData: appsWithData(meta),
       });
     }
     return { snapshots, unreadable };
@@ -780,6 +793,108 @@ export function createMachineSnapshotHelper({
   }
 
   /**
+   * Every data archive of an app anywhere a restore looks (archiveDirectories): this server's store,
+   * the backup drive's mirror, the drive a found snapshot is on. Newest first; where one name is in
+   * several places, only the first place it is tried (this server's own). Only a regular file counts.
+   * @returns {Promise<Array<{ location: string, directory: string, name: string }>>}
+   */
+  async function archivesAnywhere(id, place = null) {
+    const found = [];
+    const seen = new Set();
+    for (const candidate of archiveDirectories(id, place)) {
+      for (const name of (await readdir(candidate.directory).catch(() => [])).sort().reverse()) {
+        if (!appBackupNamePattern.test(name) || seen.has(name)) continue;
+        if (!(await lstat(path.join(candidate.directory, name)).catch(() => null))?.isFile()) continue;
+        seen.add(name);
+        found.push({ ...candidate, name });
+      }
+    }
+    return found.sort((left, right) => right.name.localeCompare(left.name));
+  }
+
+  /** `2026-08-25T01:00:00.000Z` as an archive name's stamp (`20260825T010000Z`), or null. */
+  const stampOf = (iso) => {
+    const date = typeof iso === "string" ? new Date(iso) : null;
+    return date && !Number.isNaN(date.getTime()) ? date.toISOString().replaceAll(/[-:]/g, "").replace(/\.\d+Z$/, "Z") : null;
+  };
+
+  /**
+   * When a snapshot restore installed this app without its data, as an archive name's stamp; null
+   * when it did not (the app's own state: `restoredFrom` and `restoredInstalledAt` stamped by restore
+   * below, `installedAt` by the install for a restore before those, and no `restoredDataFrom`). Every
+   * backup of the app since is of the app empty.
+   */
+  const installedEmptyAt = (live) => (live && typeof live.restoredFrom === "string" && !live.restoredDataFrom ? stampOf(live.restoredInstalledAt ?? live.installedAt) : null);
+
+  /**
+   * Why a candidate for an app's newest data is not its data, or null when it is. What a candidate
+   * dated after the snapshot must show (M91 review, finding 1): a record this release wrote
+   * (`recordVersion` 2 or later, app-backups.mjs, on every backup), naming this app, with a checksum
+   * the archive matches (when `verify`; describe leaves the hashing to the restore). An earlier
+   * release's record cannot say whether it is a restore's safety copy of the app installed empty, which
+   * the newest archive there is was after a failed attempt. Never a restore's safety copy (`safetyCopy`),
+   * nor a backup of the app a snapshot restore installed without its data (`snapshotRestore` with no
+   * `dataFrom` in the record, or, on this server, dated at or after the install the app's state
+   * records): the nightly of the empty app was newer than everything, the drive kept it for good, and
+   * every later restore took it. One dated before the snapshot is checked only as far as its record goes.
+   * `safety` marks a reason not worth saying: a safety copy is never anyone's data.
+   */
+  async function unusableBecause(entry, id, { after, emptySince, verify, verified }) {
+    const text = await recordText(entry.directory, entry.name);
+    let record = null;
+    try { record = text === null ? null : JSON.parse(text); } catch { record = null; }
+    if (record && typeof record !== "object") record = null;
+    if (record?.safetyCopy) return { safety: true, reason: `${entry.name} is a copy a restore took of the app as it found it` };
+    if (record && record.id !== id) return { reason: `${entry.name}'s record names another app (${JSON.stringify(String(record.id ?? "none")).slice(0, 80)}), so it was not used.` };
+    if (emptySince && entry.name.slice(0, 16) >= emptySince) return { reason: `${entry.name} was taken after a snapshot restore installed the app on this server without its data, so it holds the app empty; it was not used.` };
+    if (record?.snapshotRestore && typeof record.snapshotRestore === "object" && !record.snapshotRestore.dataFrom) return { reason: `${entry.name} was taken of the app as a snapshot restore (${String(record.snapshotRestore.snapshot ?? "").slice(0, 80)}) had installed it, without its data, so it holds the app empty; it was not used.` };
+    const checksum = typeof record?.checksumSha256 === "string" && /^[a-f0-9]{64}$/.test(record.checksumSha256) ? record.checksumSha256 : null;
+    if (after) {
+      if (!record) return { reason: `${entry.name}, taken after the snapshot, has no record beside it to say it is a regular backup of the app, so it was not used.` };
+      if (!(Number(record.recordVersion) >= 2)) return { reason: `${entry.name}, taken after the snapshot, was written by an earlier BoxPilot whose record cannot say whether it is a restore's copy of the app installed empty, so it was not used.` };
+      if (!checksum) return { reason: `${entry.name}, taken after the snapshot, has no checksum in its record to check it against, so it was not used.` };
+    }
+    if (verify && checksum) {
+      const file = path.join(entry.directory, entry.name);
+      if (!verified.has(file)) verified.set(file, (await sha256File(file).catch(() => null)) === checksum);
+      if (!verified.get(file)) return { reason: `${entry.name} does not match the checksum recorded when it was written, so it may be damaged; it was not used.` };
+    }
+    return null;
+  }
+
+  /**
+   * The data archive a restore uses for one app, with what was passed over and why (`skipped`, to
+   * say). `newest` (the default): the newest archive anywhere a restore looks that is the app's data
+   * (unusableBecause), marked `newer` when it was taken after the snapshot; else the snapshot's own
+   * (dataArchiveFor), so the default is never worse than restoring what the snapshot names. A weekly
+   * snapshot names the archive that was newest a week ago, while every nightly since sits on the backup
+   * drive. `snapshot`: only the snapshot's own, as it was taken.
+   * `live` is the app's state on this server; `verify` checks each candidate's checksum, remembered in
+   * `verified` (path → whether it matched) so a restore hashes each one once.
+   * @param {string} id
+   * @param {string[]} listed
+   * @param {{ takenAt?: string | null } & Record<string, any> | null} place
+   * @param {"newest" | "snapshot"} dataFrom
+   * @param {{ live?: any, verify?: boolean, verified?: Map<string, boolean> }} [options]
+   * @returns {Promise<{ archive: { location: string, directory: string, name: string, fallback?: boolean, newer?: boolean } | null, skipped: string[] }>}
+   */
+  async function chooseArchive(id, listed, place, dataFrom = "newest", { live = null, verify = false, verified = new Map() } = {}) {
+    const own = listed.length ? await dataArchiveFor(id, listed, place) : null;
+    if (dataFrom === "snapshot") return { archive: own, skipped: [] };
+    const skipped = [];
+    const emptySince = installedEmptyAt(live);
+    for (const entry of await archivesAnywhere(id, place)) {
+      if (own && entry.name <= own.name) break;
+      // A snapshot whose name gives no date: every candidate is held to what one taken after it must show.
+      const after = !place?.takenAt || entry.name.slice(0, 16) > place.takenAt;
+      const unusable = await unusableBecause(entry, id, { after, emptySince, verify, verified });
+      if (!unusable) return { archive: { ...entry, newer: Boolean(place?.takenAt) && after }, skipped };
+      if (!unusable.safety) skipped.push(unusable.reason);
+    }
+    return { archive: own, skipped };
+  }
+
+  /**
    * A tailnet-only app has no way in until Tailscale Serve publishes its web ports: the deployer
    * binds them to 127.0.0.1 for Serve to front. The app.install operation publishes them; a restore
    * called the deployer directly, and said "installed" about an app nothing could open (Zulip).
@@ -805,8 +920,14 @@ export function createMachineSnapshotHelper({
 
   /** What a restore says when the snapshot's own archive was gone and another it lists was used. */
   const fallbackWords = (named, used) => `The data archive this snapshot names, ${named}, is no longer there, so its data came from ${used}, an older backup the snapshot also lists.`;
-  /** And when none it lists is left. */
-  const noArchiveWords = (named) => `The data archive this snapshot names, ${named}, is no longer there, nor is any older one it lists, so the app was installed without its data. A backup taken after the snapshot is not used in its place.`;
+  /** And when none it lists is left: with `dataFrom` "newest", nor any other backup of the app anywhere a restore looks. */
+  const noArchiveWords = (named, dataFrom) => (dataFrom === "snapshot"
+    ? `The data archive this snapshot names, ${named}, is no longer there, nor is any older one it lists, so the app was installed without its data. A backup taken after the snapshot is not used in its place.`
+    : `The data archive this snapshot names, ${named}, is no longer there, nor is any other backup of it on this server, on the backup drive or beside the snapshot, so the app was installed without its data.`);
+  /** When the archive used was taken after the snapshot. */
+  const newerWords = (used, artifact) => `Its data came from ${used}, its newest backup, taken after the snapshot ${artifact}.`;
+  /** When newer archives were passed over (chooseArchive): which, why, and what was used instead. */
+  const skippedWords = (skipped, used) => `${skipped.join(" ")} ${used ? `Its data came from ${used} instead.` : "No other backup of it was found."} To use one that was passed over, restore it from the app's Backups tab.`;
 
   /** Manifest summary plus, per app, whether its newest data archive is reachable. */
   /** Local store, configured mirror, or a drive discovery just found. */
@@ -835,7 +956,14 @@ export function createMachineSnapshotHelper({
     }
   }
 
-  async function describe({ source, artifact, root = null }, { apps: appHelper = null } = {}) {
+  /**
+   * What a snapshot holds and, per app, which data archive a restore would use (`dataFrom`, as
+   * restore takes it): `dataArchive`, with `dataNewer` when it was taken after the snapshot, and
+   * `snapshotArchive`, the one the snapshot's own listing would give.
+   * @param {{ source: string, artifact: string, root?: string | null, dataFrom?: "newest" | "snapshot" }} request
+   * @param {{ apps?: any }} [deps]
+   */
+  async function describe({ source, artifact, root = null, dataFrom = "newest" }, { apps: appHelper = null } = {}) {
     const { artifactPath, metaPath, root: snapshotDirectory, mount = null } = await locate(source, artifact, root);
     const place = { source, root: snapshotDirectory, mount, takenAt: takenAt(artifact) };
     await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
@@ -849,25 +977,31 @@ export function createMachineSnapshotHelper({
       let listed = [];
       if (listing.ok) { try { listed = listedArchives(JSON.parse(listing.stdout)); } catch { listed = []; } }
       const newest = listed[0] ?? null;
-      const located = listed.length ? await dataArchiveFor(app.id, listed, place) : null;
-      // `dataArchive` is the one a restore would use: the snapshot's own, or an older one it lists.
-      // `compose` is what restoring it would start, when its compose file is started as archived.
+      const own = listed.length ? await dataArchiveFor(app.id, listed, place) : null;
+      const live = typeof appHelper?.internals?.readState === "function" ? await Promise.resolve().then(() => appHelper.internals.readState(app.id)).catch(() => null) : null;
+      // Not hashed here (a description is read while the owner waits): the restore checks each
+      // candidate's checksum, and says so where it passes over one that does not match.
+      const { archive: located, skipped } = await chooseArchive(app.id, listed, place, dataFrom, { live });
+      // `dataArchive` is the one a restore would use: the newest there is, or the snapshot's own (or
+      // an older one it lists). `dataSkipped` is each newer one passed over, and why. `compose` is
+      // what restoring it would start, when its compose file is started as archived.
       const compose = await composeReviewFor(appHelper, app.id, located);
-      apps.push({ id: app.id, installed: app.installed, projectFiles: app.projectFiles, newestBackup: newest, dataAvailable: Boolean(located), dataLocation: located?.location ?? null, dataArchive: located?.name ?? null, ...(compose ? { compose } : {}) });
+      apps.push({ id: app.id, installed: app.installed, projectFiles: app.projectFiles, newestBackup: newest, dataAvailable: Boolean(located), dataLocation: located?.location ?? null, dataArchive: located?.name ?? null, dataNewer: Boolean(located?.newer), snapshotArchive: own?.name ?? null, dataSkipped: skipped, ...(compose ? { compose } : {}) });
     }
     // A snapshot carries VM definitions, never their disks: those live in the encrypted VM
     // repository, so say whether it is reachable rather than implying the VMs are inside.
     const archivedVms = manifest.contents?.vms ?? null;
     const diskRepository = path.join(resolvedMountRoot, "restic-vm");
     const vms = archivedVms && { ...archivedVms, disksIncluded: false, diskRepository, diskRepositoryReachable: await stat(diskRepository).then((info) => info.isDirectory()).catch(() => false) };
-    return { source, artifact, createdAt: manifest.createdAt ?? meta?.createdAt ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps, system: manifest.contents?.system ?? null, vms: vms ?? null, containsSecrets: true };
+    return { source, artifact, dataFrom, createdAt: manifest.createdAt ?? meta?.createdAt ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps, system: manifest.contents?.system ?? null, vms: vms ?? null, containsSecrets: true };
   }
 
 
   /**
    * Rehydrate from a snapshot. Apps: project files are restored, the app is (re)installed through the
-   * generic deployer using the archived settings and secrets, then (optionally) its newest data
-   * archive is restored. System files are staged for review, never applied. VM definitions are listed.
+   * generic deployer using the archived settings and secrets, then (optionally) its data is restored:
+   * from its newest data archive anywhere a restore looks (`dataFrom` "newest", the default), or from
+   * the one the snapshot names (`dataFrom` "snapshot"; chooseArchive). System files are staged for review, never applied. VM definitions are listed.
    * `devicesByApp` is the devices the web process found for each app that wants one (this process
    * may have no real /dev); without it an app that needs a device is refused, as at any install.
    * `serve(deployed)` publishes a tailnet-only app's web ports with Tailscale Serve, as the
@@ -875,11 +1009,11 @@ export function createMachineSnapshotHelper({
    * with a warning that nothing can open it yet.
    * `allowCompose` is, per app id, the sha256 of a data archive's compose file the owner allowed to
    * be started exactly as archived although it gives the app more than the catalog does (sweep 4).
-   * @param {{ source: string, artifact: string, root?: string | null, apps?: string | string[], restoreData?: boolean, devicesByApp?: object | null, allowCompose?: object | null }} request
+   * @param {{ source: string, artifact: string, root?: string | null, apps?: string | string[], restoreData?: boolean, dataFrom?: "newest" | "snapshot", devicesByApp?: object | null, allowCompose?: object | null }} request
    * @param {{ apps?: any, progress?: ((line: string, stream: string) => void) | null, serve?: ((deployed: object) => Promise<unknown>) | null }} [deps]
    */
 
-  async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, devicesByApp = null, allowCompose = null }, { apps: appHelper, progress = null, serve = null } = {}) {
+  async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true, dataFrom = "newest", devicesByApp = null, allowCompose = null }, { apps: appHelper, progress = null, serve = null } = {}) {
     if (!appHelper) throw new Error("Application deployer is unavailable");
     const { artifactPath, metaPath, root: snapshotDirectory, mount = null } = await locate(source, artifact, root);
     const place = { source, root: snapshotDirectory, mount, takenAt: takenAt(artifact) };
@@ -927,6 +1061,8 @@ export function createMachineSnapshotHelper({
       // as archived, giving the app more than the catalog does, needs the owner to have allowed that
       // very file. The data restore checks again what it actually unpacks.
       const blocked = [];
+      // Each candidate archive is hashed once, though the review below and the restore both choose.
+      const verified = new Map();
       for (const app of wanted) {
         const live = await Promise.resolve().then(() => appHelper.internals.readState(app.id)).catch(() => null);
         if (live?.installed && live.restoredFrom !== artifact) continue;   // refused on its own below, untouched
@@ -939,14 +1075,14 @@ export function createMachineSnapshotHelper({
         if (!restoreData || live?.restoredDataFrom) continue;
         const listing = await readFileWithoutFollowing(path.join(staging, "apps", app.id, "backups.json")).then(JSON.parse).catch(() => null);
         const listed = listedArchives(listing);
-        const review = await composeReviewFor(appHelper, app.id, listed.length ? await dataArchiveFor(app.id, listed, place) : null);
+        const review = await composeReviewFor(appHelper, app.id, (await chooseArchive(app.id, listed, place, dataFrom, { live, verify: true, verified })).archive);
         if (!review || review.error) continue;
         if (review.refusals?.length) blocked.push(`${app.id}: ${review.refusals.join("; ")}`);
         else if (review.needsAllow && allowCompose?.[app.id] !== review.sha256) blocked.push(`${app.id}: its data archive's compose file would be started exactly as it was backed up, and gives it more than the catalog does: ${findingsText(review.findings)} (compose sha256 ${review.sha256}). Allow these settings in the restore dialog, which lists them, or leave ${app.id} out`);
       }
       if (blocked.length) throw new Error(`The snapshot was not restored; nothing was changed. ${blocked.join(". ")}.`);
       for (const app of wanted) {
-        const entry = { id: app.id, installed: false, dataRestored: false, alreadyRestored: false, error: null, warnings: [] };
+        const entry = { id: app.id, installed: false, dataRestored: false, dataNewer: false, alreadyRestored: false, error: null, warnings: [] };
         summary.apps.push(entry);
         // What the deployer last said it wrote (who can reach the app, on which ports): from the
         // install, or from the data restore, which writes the compose file again for this server.
@@ -974,7 +1110,9 @@ export function createMachineSnapshotHelper({
             // the catalog has since dropped, and never holds a secret, which comes from the .env above.
             const devices = devicesByApp && Object.hasOwn(devicesByApp, app.id) && Array.isArray(devicesByApp[app.id]) ? devicesByApp[app.id] : null;
             deployed = await appHelper.install({ id: app.id, values: archivedState?.values ?? {}, ...(devices ? { devices } : {}) }, { progress, storedValues: true });
-            await stamp(target, { restoredFrom: artifact });
+            // When, as well as from what: until its data is restored (restoredDataFrom), every backup of
+            // the app from now on is of it empty, and a later restore's "newest" must pass them over.
+            await stamp(target, { restoredFrom: artifact, restoredInstalledAt: now().toISOString() });
             entry.installed = true;
           }
           if (live?.restoredDataFrom && alreadyInstalled) {
@@ -988,9 +1126,14 @@ export function createMachineSnapshotHelper({
             // archive names are followed.
             const listed = listedArchives(listing);
             const newest = listed[0] ?? null;
-            const located = listed.length ? await dataArchiveFor(app.id, listed, place) : null;
+            const { archive: located, skipped } = await chooseArchive(app.id, listed, place, dataFrom, { live, verify: true, verified });
+            if (skipped.length) {
+              const warning = skippedWords(skipped, located?.name ?? null);
+              entry.warnings.push(warning);
+              progress?.(`[${app.id}] ${warning}`, "stderr");
+            }
             if (!located && newest) {
-              const warning = noArchiveWords(newest);
+              const warning = noArchiveWords(newest, dataFrom);
               entry.warnings.push(warning);
               progress?.(`[${app.id}] ${warning}`, "stderr");
             } else if (!located) { progress?.(`[${app.id}] no data archive available; installed fresh`, "stderr"); }
@@ -999,6 +1142,11 @@ export function createMachineSnapshotHelper({
                 const warning = fallbackWords(newest, located.name);
                 entry.warnings.push(warning);
                 progress?.(`[${app.id}] ${warning}`, "stderr");
+              }
+              // Said on the app's line, not as a warning: the newest data is what a restore is for.
+              if (located.newer) {
+                entry.dataNewer = true;
+                progress?.(`[${app.id}] ${newerWords(located.name, artifact)}`, "stdout");
               }
               if (located.location !== "local") {
                 progress?.(`[${app.id}] copying ${located.name} from ${located.location === "mirror" ? "the mirror" : "the drive the snapshot is on"}`, "stdout");
@@ -1102,5 +1250,68 @@ export function createMachineSnapshotHelper({
     return { discarded: true, name };
   }
 
-  return { inspect, create, sync, sources, discover, describe, restore, listRestores, discardRestore, sweepInterrupted, internals: { locateAppArchive, resolveArtifact, resolveDiscovered, snapshotsIn } };
+  // ---- BoxPilot's own database --------------------------------------------------------------------
+  const controllerBackupIdPattern = /^[a-f0-9-]{36}$/;
+
+  /**
+   * One database backup a restore can put back: `<folder>/boxpilot.sqlite3` with the manifest the
+   * controller backup wrote beside it, only when both are plain files (never read through a link),
+   * the manifest names the checksum it was written with, and its restore drill passed. Null otherwise.
+   */
+  async function databaseBackupIn(folder) {
+    const info = await lstat(folder).catch(() => null);
+    if (!info?.isDirectory()) return null;
+    const file = path.join(folder, "boxpilot.sqlite3");
+    const artifact = await lstat(file).catch(() => null);
+    if (!artifact?.isFile()) return null;
+    let manifest = null;
+    try { manifest = JSON.parse(await readFileWithoutFollowing(path.join(folder, "manifest.json"))); } catch { manifest = null; }
+    const checksumSha256 = typeof manifest?.checksumSha256 === "string" && /^[a-f0-9]{64}$/.test(manifest.checksumSha256) ? manifest.checksumSha256 : null;
+    if (!checksumSha256 || manifest?.restoreDrill?.passed !== true) return null;
+    // The release that took it, recorded since M91: a restore refuses one newer than this release.
+    const productVersion = typeof manifest.productVersion === "string" && /^\d+\.\d+\.\d+[A-Za-z0-9.+-]{0,40}$/.test(manifest.productVersion) ? manifest.productVersion : null;
+    return { file, checksumSha256, sizeBytes: artifact.size, createdAt: typeof manifest.createdAt === "string" ? manifest.createdAt : null, productVersion };
+  }
+
+  /**
+   * The copies of BoxPilot's database that can be put back from the browser (M91): every verified
+   * controller backup on this server (`backup`, by its id), and the database copy each snapshot
+   * restore staged for review (`snapshot`, by the restore's name). A rebuilt server came back without
+   * its schedules, destinations, accounts and notification target unless the owner restored that copy
+   * at the console. Newest first.
+   */
+  async function databaseSources() {
+    const copies = [];
+    const backups = path.resolve(controllerBackupRoot);
+    for (const name of await readdir(backups).catch(() => [])) {
+      if (!controllerBackupIdPattern.test(name)) continue;
+      const found = await databaseBackupIn(path.join(backups, name));
+      if (found) copies.push({ kind: "backup", id: name, createdAt: found.createdAt, sizeBytes: found.sizeBytes, checksumSha256: found.checksumSha256, productVersion: found.productVersion });
+    }
+    const reviews = path.join(resolvedSnapshotRoot, "restored");
+    for (const name of await readdir(reviews).catch(() => [])) {
+      if (!reviewNamePattern.test(name)) continue;
+      const found = await databaseBackupIn(path.join(reviews, name, "controller"));
+      if (found) copies.push({ kind: "snapshot", id: name, createdAt: found.createdAt, sizeBytes: found.sizeBytes, checksumSha256: found.checksumSha256, productVersion: found.productVersion });
+    }
+    copies.sort((left, right) => String(right.createdAt ?? "").localeCompare(String(left.createdAt ?? "")));
+    return { copies };
+  }
+
+  /**
+   * Where one of databaseSources' copies is, found again here: the browser names a kind and an id,
+   * never a path. Throws when it is not there, or no longer verified.
+   * @param {{ kind?: string, id?: string }} [request]
+   */
+  async function databaseSource({ kind, id } = {}) {
+    let folder = null;
+    if (kind === "backup" && typeof id === "string" && controllerBackupIdPattern.test(id)) folder = path.join(path.resolve(controllerBackupRoot), id);
+    else if (kind === "snapshot" && typeof id === "string" && reviewNamePattern.test(id)) folder = path.join(resolvedSnapshotRoot, "restored", id, "controller");
+    if (!folder) throw new Error("Name a database backup or a snapshot restore's database copy");
+    const found = await databaseBackupIn(folder);
+    if (!found) throw new Error(`That database ${kind === "backup" ? "backup" : "copy"} is not on this server any more, or has no verified record beside it. Nothing was changed.`);
+    return { kind, id, ...found };
+  }
+
+  return { inspect, create, sync, sources, discover, describe, restore, listRestores, discardRestore, databaseSources, databaseSource, sweepInterrupted, internals: { locateAppArchive, resolveArtifact, resolveDiscovered, snapshotsIn } };
 }

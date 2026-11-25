@@ -155,6 +155,7 @@ export function parseBlockInventory(output) {
  * `usb-bridge-unsupported`: the USB enclosure passes no SMART through, even with -d sat.
  * `asleep`: the disk was in standby, and the scan left it asleep rather than wake it (M36).
  */
+const ataFields = Object.freeze(["reallocated", "reportedUncorrectable", "pending", "offlineUncorrectable"]);
 const smartReasons = Object.freeze(["ok", "smartctl-read-failed", "unsupported-device", "usb-bridge-unsupported", "asleep"]);
 const isoOrNull = (value) => (typeof value === "string" && Number.isFinite(Date.parse(value)) ? new Date(Date.parse(value)).toISOString() : null);
 
@@ -170,6 +171,15 @@ function normalizedSmartDisk(item) {
     percentageUsed: percentOrNull(item.percentageUsed),
     criticalWarning: numberOrNull(item.criticalWarning),
     mediaErrors: numberOrNull(item.mediaErrors),
+    // A SATA disk's bad sectors by kind (ATA attributes 5, 187, 197, 198), which `mediaErrors` sums.
+    ataErrors: item.ataErrors && typeof item.ataErrors === "object" ? {
+      reallocated: numberOrNull(item.ataErrors.reallocated),
+      reportedUncorrectable: numberOrNull(item.ataErrors.reportedUncorrectable),
+      pending: numberOrNull(item.ataErrors.pending),
+      offlineUncorrectable: numberOrNull(item.ataErrors.offlineUncorrectable),
+      // The ones this drive names as something else (an MX500's 197): shown, not read as bad sectors.
+      notSectorCounts: Array.isArray(item.ataErrors.notSectorCounts) ? ataFields.filter((field) => item.ataErrors.notSectorCounts.includes(field)) : [],
+    } : null,
     unsafeShutdowns: numberOrNull(item.unsafeShutdowns),
     reason: smartReasons.includes(item.reason) ? item.reason : "smartctl-read-failed",
     // How the disk is attached, and whether it answered only when asked through its USB bridge

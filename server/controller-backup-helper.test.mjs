@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { onWindows } from "../test/platform.mjs";
 import { createControllerBackupHelper, controllerBackupHelperInternals } from "./controller-backup-helper.mjs";
 import { createStateStore } from "./state.mjs";
+import { productVersion } from "./version.mjs";
 
 const directories = [];
 const backupId = "11111111-1111-4111-8111-111111111111";
@@ -82,6 +83,8 @@ describe("controller database backup helper", () => {
     await expect(stat(path.join(restoreDrillRoot, backupId))).rejects.toMatchObject({ code: "ENOENT" });
     const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
     expect(manifest).toMatchObject({ backupId, checksumSha256: result.checksumSha256, method: "sqlite-vacuum-into", restoreDrill: { passed: true, workspaceRemoved: true } });
+    // The release that took it (M91 review): a restore refuses a copy from a newer one.
+    expect(manifest.productVersion).toBe(productVersion);
 
     const restored = new DatabaseSync(result.artifactPath, { readOnly: true });
     expect(Number(restored.prepare("SELECT COUNT(*) AS count FROM owners").get().count)).toBe(1);

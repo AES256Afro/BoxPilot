@@ -2,7 +2,7 @@
  * Catch a drive that is going bad before it fails outright (M23.3).
  *
  * The health check already alerts when SMART says a disk is failing. But a disk usually degrades
- * first: its media-error count climbs, or an SSD approaches the write-endurance it is rated for,
+ * first: its media-error count (or a SATA disk's bad-sector count) climbs, or an SSD approaches the write-endurance it is rated for,
  * while smartctl still reports "healthy". This keeps a small daily history of the numbers that move
  * and alerts on the movement — errors that are climbing, or wear on track to reach the limit — so
  * there is time to copy data off and order a replacement. Pure and clock-injected; a sampler feeds it.
@@ -86,7 +86,7 @@ export function evaluateSmartTrends(history, { now } = {}) {
         key: `smart.errors:${device}`,
         priority: "high",
         title: `${device} is developing errors`,
-        message: `Its media-error count has climbed to ${errorTrend.latest} (was ${errorTrend.first} a few weeks ago). A drive whose errors are rising is starting to fail — copy anything important off it and plan a replacement.`,
+        message: `Its count of bad sectors and media errors has climbed to ${errorTrend.latest} (was ${errorTrend.first} a few weeks ago). A drive whose errors are rising is starting to fail — copy anything important off it and plan a replacement.`,
       });
     }
     // SSD wear approaching the rated endurance, either already high or projected there soon.

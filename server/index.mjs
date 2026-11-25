@@ -104,6 +104,7 @@ import { appStopClearingOperations, foldAppStop, seedAppStops } from "./app-stop
 import { jsonGzip, precompressedAssets } from "./compress.mjs";
 import { rootFileHeaders, securityHeaders } from "./security-headers.mjs";
 import { serveSocketPath, startServeSocketListener } from "./serve-socket.mjs";
+import { cloudSyncRecord } from "./backup-cloud.mjs";
 
 const app = express();
 // As every reader of the env file takes them (server/env-file.mjs): the port with parseInt, since
@@ -245,7 +246,8 @@ const jobs = createJobService(state, helper, {
     "firewall.rule.add": (job) => markProfileEdited(job),
     "firewall.rule.delete": (job) => markProfileEdited(job),
     "backup.cloud.setup": (job, result) => state.setSetting("cloudDestination", result.destination, { updatedBy: job.createdBy }),
-    "backup.cloud.sync": (job, result) => state.setSetting("cloudDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination, errors: result.errors ?? 0 }, { updatedBy: job.createdBy }),
+    // M91: with what the mirror read back afterwards; the last time one was read back survives a failure.
+    "backup.cloud.sync": (job, result) => state.updateSetting("cloudDestinationLastSync", null, (previous) => ({ value: cloudSyncRecord(result, previous) }), job.createdBy),
     "backup.remote.sync": (job, result) => state.setSetting("backupDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination }, { updatedBy: job.createdBy }),
     // The VPN section reads this non-secret description; the profile's secrets stay in the root file.
     "vpn.profile.set": (job, result) => state.setSetting("vpnProfile", result, { updatedBy: job.createdBy }),

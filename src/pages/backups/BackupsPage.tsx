@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { onPageRefresh } from "../../shell/refresh";
-import { behindBackupSchedules, judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "../../backupProtection";
+import { behindBackupSchedules, judgeProtection, rebuildVerdict, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "../../backupProtection";
 import type { ViewName } from "../../data";
 import { readJson } from "../../http";
 import { mirrorOperations, offBoxVerdict, offBoxWarning, type OffBoxInputs } from "../../offBox";
@@ -59,7 +59,7 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
   const [cloud, setCloud] = useState<CloudState | null>(null);
   const [cloudSettings, setCloudSettings] = useState<CloudSettings | null>(null);
   const [cloudError, setCloudError] = useState<string | null>(null);
-  const [appProtection, setAppProtection] = useState<{ available: boolean; verdicts: ProtectionVerdict[] } | null>(null);
+  const [appProtection, setAppProtection] = useState<{ available: boolean; verdicts: ProtectionVerdict[]; installed: string[] } | null>(null);
   const [appProtectionError, setAppProtectionError] = useState<string | null>(null);
   const [schedules, setSchedules] = useState<ScheduleLike[]>([]);
   const [restores, setRestores] = useState<RestoreReview[] | null>(null);
@@ -105,7 +105,7 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
       setRemoteSettings(remoteConfig);
       if (cloudState.ok) { setCloud(cloudState.cloud); setCloudError(null); } else { setCloudError(cloudState.error); }
       setCloudSettings(cloudConfig);
-      if (apps.ok) { setAppProtection({ available: apps.available, verdicts: judgeProtection(apps.apps, scheduleList) }); setAppProtectionError(null); } else { setAppProtection(null); setAppProtectionError(apps.error); }
+      if (apps.ok) { setAppProtection({ available: apps.available, verdicts: judgeProtection(apps.apps, scheduleList), installed: apps.apps.map((app) => app.id) }); setAppProtectionError(null); } else { setAppProtection(null); setAppProtectionError(apps.error); }
       setSchedules(scheduleList);
       setRestores(reviews);
     } finally {
@@ -175,20 +175,28 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
   const verdicts = appProtection?.verdicts ?? [];
   const never = verdicts.filter((verdict) => verdict.state === "never");
   const stale = verdicts.filter((verdict) => verdict.state === "stale");
+  // What a rebuild starts from: a machine snapshot that holds every installed app, and a database backup.
+  const rebuild = rebuildVerdict({
+    snapshots: machine?.snapshots ?? null,
+    installedAppIds: appProtection?.available ? appProtection.installed : null,
+    databaseBackupsAt: backups ? backups.map((entry) => entry.createdAt) : null,
+  });
 
   // Never green about something unread (M28.5): unknown protection is said as unknown.
   const verdict: { status: Status; label: string } = !loaded ? { status: "unknown", label: "Reading…" }
     : behind.length ? { status: "danger", label: `${behind.length} backup${behind.length === 1 ? "" : "s"} stopped running` }
       : never.length ? { status: "warning", label: `${never.length} ${never.length === 1 ? "app" : "apps"} never backed up` }
+        : rebuild.state === "no-snapshot" ? { status: "warning", label: rebuild.label ?? "No machine snapshot" }
         : summary?.warning ? { status: "warning", label: offVerdict.state === "none" ? "Only on this server" : offVerdict.state === "never" ? "Never copied off" : offVerdict.state === "ok" && offVerdict.skipped ? "Copy off this server incomplete" : "Copy off this server behind" }
+          : rebuild.label ? { status: "warning", label: rebuild.label }
           : stale.length ? { status: "warning", label: `${stale.length} not backed up recently` }
-            : !appProtection?.available ? { status: "unknown", label: "Not read" }
+            : !appProtection?.available || rebuild.state === "unknown" ? { status: "unknown", label: "Not read" }
               : { status: "good", label: "Protected" };
 
   const offAge = offVerdict.lastSyncAt ? ago(offVerdict.lastSyncAt) : null;
   const tabs: Array<TabItem<TabId>> = [
     { id: "apps", label: "Apps", count: appProtection?.available ? verdicts.length : undefined, status: behind.length ? "danger" : never.length || stale.length ? "warning" : undefined, statusLabel: behind.length ? "a backup stopped running" : never.length || stale.length ? `${never.length + stale.length} need a backup` : undefined },
-    { id: "server", label: "This server", count: backups ? backups.length + (machine?.snapshots.length ?? 0) : undefined },
+    { id: "server", label: "This server", count: backups ? backups.length + (machine?.snapshots.length ?? 0) : undefined, status: rebuild.warning ? "warning" : undefined, statusLabel: rebuild.warning ? rebuild.label ?? undefined : undefined },
     { id: "offbox", label: "Off this server", status: summary?.warning ? "warning" : offBoxUnknown ? "unknown" : undefined, statusLabel: summary?.warning ?? (offBoxUnknown ? "not read" : undefined) },
     { id: "restore", label: "Restore", count: restores?.length ? restores.length : undefined, status: restores?.length ? "neutral" : undefined, statusLabel: restores?.length ? `${restores.length} left to review` : undefined },
   ];
@@ -214,7 +222,7 @@ export default function BackupsPage({ csrfToken, role = "owner", onNavigate }: B
 
       <Tabs<TabId> label="Backups" tabs={tabs} value={tab} onChange={setTab}>
         {(current) => {
-          if (current === "server") return <ServerTab csrfToken={csrfToken} role={role} loading={loading} backups={backups} protection={protection} retention={retention} machine={machine} onChanged={() => void refresh()} />;
+          if (current === "server") return <ServerTab csrfToken={csrfToken} role={role} loading={loading} rebuildWarning={rebuild.warning} backups={backups} protection={protection} retention={retention} machine={machine} onChanged={() => void refresh()} />;
           if (current === "offbox") return <OffBoxTab csrfToken={csrfToken} role={role} tailnetHosts={tailnetHosts} machine={machine} remote={remote} remoteSettings={remoteSettings} cloud={cloud} cloudSettings={cloudSettings} cloudError={cloudError} summary={summary} summaryUnknown={offBoxUnknown} scheduling={scheduling} onMirrorNightly={mirrorNightly} onChanged={() => void refresh()} onNavigate={onNavigate} />;
           if (current === "restore") return <RestoreTab csrfToken={csrfToken} role={role} restores={restores} onChanged={() => void refresh()} onOpenApps={() => setTab("apps")} />;
           return <AppsTab csrfToken={csrfToken} role={role} protection={appProtection} protectionError={appProtectionError} behind={behind} scheduling={scheduling} onSchedule={protectNightly} onChanged={() => void refresh()} onNavigate={onNavigate} />;

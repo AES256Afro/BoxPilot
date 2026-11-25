@@ -191,6 +191,8 @@ describe("the backup tree", () => {
       expect(laneFor(id, { id: "jellyfin" })).toContain(backupTreeLane);
     }
     for (const id of ["backup.sync", "backup.remote.sync", "backup.cloud.sync"]) expect(laneFor(id, {})).toEqual([backupTreeLane, "host"]);
+    // M91: a fetch from the cloud writes into the folders the mirrors copy.
+    expect(laneFor("backup.cloud.fetch", {})).toContain(backupTreeLane);
     // Reclaiming space deletes app archives behind the newest few of each app, so it holds the tree
     // too, and keeps the host lane it had for everything else it clears.
     expect(laneFor("housekeeping.reclaim", { categories: ["app-backups"] })).toEqual([backupTreeLane, "host"]);

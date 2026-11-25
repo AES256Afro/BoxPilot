@@ -145,22 +145,97 @@ export function diskAsleep(output) {
   return smartctlMessages(output).some((line) => /Device is in [A-Z_ ]*(?:STANDBY|SLEEP)[A-Z_ ]* mode/i.test(line));
 }
 
-export function parseSmartctlEvidence(device, output) {
+/**
+ * What each of the four attributes is called when it means what we read it as. smartctl names an
+ * attribute from its drive database, so a vendor that reuses an id for something else shows under
+ * another name: a Crucial MX500's 197 is `Current_Pending_ECC_Cnt`, which its firmware flips between
+ * 0 and 1 on a healthy drive, not a count of sectors waiting to be remapped.
+ */
+const ataAttributes = Object.freeze({
+  reallocated: { id: 5, name: /Realloc/i },
+  reportedUncorrectable: { id: 187, name: /Uncorrect/i },
+  pending: { id: 197, name: /Pending_Sector/i },
+  offlineUncorrectable: { id: 198, name: /Uncorrect/i },
+});
+
+/**
+ * The bad-sector counts of a SATA disk (or one behind a USB-SATA bridge), from smartctl's
+ * `ata_smart_attributes` table: 5 Reallocated_Sector_Ct, 187 Reported_Uncorrect, 197
+ * Current_Pending_Sector and 198 Offline_Uncorrectable, each as its raw count. Null when the disk
+ * reports none of the four (an NVMe drive, or a bridge that passes only pass/fail through).
+ *
+ * The raw count is the leading number of `raw.string`: a few vendors pack other figures into the
+ * high bytes of `raw.value`, and smartctl's printed form already separates them ("8 (0 2)").
+ * `notSectorCounts` names the ones the drive calls something else: kept, so the breakdown shows
+ * what the drive said, but neither summed into its error count nor read as failing sectors.
+ */
+function ataErrorCounts(parsed) {
+  const table = Array.isArray(parsed?.ata_smart_attributes?.table) ? parsed.ata_smart_attributes.table.slice(0, 256) : [];
+  const counts = {};
+  const notSectorCounts = [];
+  for (const [field, { id, name }] of Object.entries(ataAttributes)) {
+    const entry = table.find((item) => item?.id === id);
+    if (!entry) { counts[field] = null; continue; }
+    const printed = /^\s*(\d{1,12})\b/.exec(String(entry.raw?.string ?? ""));
+    counts[field] = printed ? safeNumber(printed[1]) : safeNumber(entry.raw?.value);
+    if (typeof entry.name === "string" && entry.name && !name.test(entry.name)) notSectorCounts.push(field);
+  }
+  return Object.values(counts).some((value) => value !== null) ? { ...counts, notSectorCounts } : null;
+}
+
+/** A count of the breakdown that means bad sectors on this drive, or 0 where it means something else or is unknown. */
+const sectorCount = (ata, field) => (ata && !(Array.isArray(ata.notSectorCounts) && ata.notSectorCounts.includes(field)) && Number.isFinite(ata[field]) ? ata[field] : 0);
+
+/** Sectors the disk could not read and has not remapped: pending (197) and offline uncorrectable (198). */
+function unreadableSectors(ata) {
+  return sectorCount(ata, "pending") + sectorCount(ata, "offlineUncorrectable");
+}
+
+/**
+ * Whether the reading this one replaces saw unreadable sectors too. One reading is not enough to
+ * call a disk failing on them: a firmware that flips a count for one scan would otherwise raise the
+ * high-priority alert at every flip. A disk asleep at that reading counts when it was critical when
+ * last read awake, so a failing disk does not go green for a scan each time it sleeps.
+ */
+function unreadableBefore(before, device) {
+  if (!before || typeof before !== "object" || before.device !== device) return false;
+  if (before.reason === "asleep") return before.lastHealth === "critical";
+  return unreadableSectors(before.ataErrors) > 0;
+}
+
+/**
+ * @param {string} device
+ * @param {string} output smartctl's JSON
+ * @param {{ before?: any }} [options] this disk's entry in the evidence the scan replaces
+ */
+export function parseSmartctlEvidence(device, output, { before = null } = {}) {
   let parsed;
   try { parsed = JSON.parse(output); } catch {
-    return { device, health: "unavailable", passed: null, temperatureCelsius: null, powerOnHours: null, percentageUsed: null, criticalWarning: null, mediaErrors: null, unsafeShutdowns: null, reason: "smartctl-read-failed" };
+    return { device, health: "unavailable", passed: null, temperatureCelsius: null, powerOnHours: null, percentageUsed: null, criticalWarning: null, mediaErrors: null, ataErrors: null, unsafeShutdowns: null, reason: "smartctl-read-failed" };
   }
   if (diskAsleep(output)) {
-    return { device, health: "unavailable", passed: null, temperatureCelsius: null, powerOnHours: null, percentageUsed: null, criticalWarning: null, mediaErrors: null, unsafeShutdowns: null, reason: "asleep" };
+    return { device, health: "unavailable", passed: null, temperatureCelsius: null, powerOnHours: null, percentageUsed: null, criticalWarning: null, mediaErrors: null, ataErrors: null, unsafeShutdowns: null, reason: "asleep" };
   }
   const passed = typeof parsed.smart_status?.passed === "boolean" ? parsed.smart_status.passed : null;
   const temperatureCelsius = safeNumber(parsed.temperature?.current ?? parsed.nvme_smart_health_information_log?.temperature);
   const powerOnHours = safeNumber(parsed.power_on_time?.hours);
   const percentageUsed = safeNumber(parsed.nvme_smart_health_information_log?.percentage_used);
   const criticalWarning = safeNumber(parsed.nvme_smart_health_information_log?.critical_warning);
-  const mediaErrors = safeNumber(parsed.nvme_smart_health_information_log?.media_errors);
+  const nvmeMediaErrors = safeNumber(parsed.nvme_smart_health_information_log?.media_errors);
+  const ataErrors = ataErrorCounts(parsed);
+  // One error count a drive of either kind is trended and charted by (server/smart-trends.mjs): an
+  // NVMe drive's media errors, or a SATA disk's bad sectors, remapped, pending and unreadable.
+  // A count the drive gives another meaning (notSectorCounts) stays out: an MX500's flipping 197 would
+  // otherwise read as errors that climb.
+  const mediaErrors = nvmeMediaErrors ?? (ataErrors ? Object.keys(ataAttributes).reduce((sum, field) => sum + sectorCount(ataErrors, field), 0) : null);
   const unsafeShutdowns = safeNumber(parsed.nvme_smart_health_information_log?.unsafe_shutdowns);
-  const critical = passed === false || (criticalWarning !== null && criticalWarning > 0) || (mediaErrors !== null && mediaErrors > 0);
+  // Sectors the disk could not read and has not remapped (pending, offline uncorrectable) are data
+  // already lost or about to be; the overall pass/fail flips much later. They fail the disk once two
+  // readings in a row show them. Remapped sectors (5) and reported-uncorrectable errors (187) are not
+  // on their own a failure, since plenty of old disks carry a few for years: those count when they
+  // climb, through the trend (server/smart-trends.mjs).
+  const unreadable = unreadableSectors(ataErrors) > 0 && unreadableBefore(before, device);
+  const critical = passed === false || (criticalWarning !== null && criticalWarning > 0) || (nvmeMediaErrors !== null && nvmeMediaErrors > 0) || unreadable;
   const warning = (temperatureCelsius !== null && temperatureCelsius >= 70) || (percentageUsed !== null && percentageUsed >= 90);
   const readable = passed !== null || [temperatureCelsius, powerOnHours, percentageUsed, criticalWarning, mediaErrors, unsafeShutdowns].some((item) => item !== null);
   return {
@@ -172,6 +247,7 @@ export function parseSmartctlEvidence(device, output) {
     percentageUsed,
     criticalWarning,
     mediaErrors,
+    ataErrors,
     unsafeShutdowns,
     reason: readable ? "ok" : "unsupported-device",
   };
@@ -218,11 +294,11 @@ export function needsSatRetry(transport, directOutput) {
  * written on the drive. A USB disk that answers neither way sits behind a bridge that does not pass
  * SMART through, and is recorded as exactly that: a limit of the enclosure, not a failed reading.
  */
-export function smartEvidenceFor(device, { transport = null, direct = "", sat = null } = {}) {
+export function smartEvidenceFor(device, { transport = null, direct = "", sat = null, before = null } = {}) {
   const onUsb = transport === "usb" || usbBridgeUnrecognized(direct);
-  const first = { ...parseSmartctlEvidence(device, direct), transport: onUsb ? "usb" : transport, deviceType: "auto" };
+  const first = { ...parseSmartctlEvidence(device, direct, { before }), transport: onUsb ? "usb" : transport, deviceType: "auto" };
   if (first.health !== "unavailable" || !onUsb || sat === null) return first;
-  const second = parseSmartctlEvidence(device, sat);
+  const second = parseSmartctlEvidence(device, sat, { before });
   if (second.health !== "unavailable" || second.reason === "asleep") return { ...second, transport: "usb", deviceType: "sat" };
   return { ...first, deviceType: "sat", reason: deviceOpenFailed(direct) || deviceOpenFailed(sat) ? "smartctl-read-failed" : "usb-bridge-unsupported" };
 }
@@ -257,7 +333,8 @@ export function createStorageScanner({
     for (const { device, transport } of devices) {
       const direct = await run(smartctlBinary, [...smartReadArgs, device], { timeout: 30000 });
       const sat = needsSatRetry(transport, direct.stdout) ? await run(smartctlBinary, [...smartReadArgs, "-d", "sat", device], { timeout: 30000 }) : null;
-      let reading = smartEvidenceFor(device, { transport, direct: direct.stdout, sat: sat ? sat.stdout : null });
+      const before = (Array.isArray(previous?.disks) ? previous.disks : []).find((entry) => entry?.device === device) ?? null;
+      let reading = smartEvidenceFor(device, { transport, direct: direct.stdout, sat: sat ? sat.stdout : null, before });
       // Asleep at every check for a week, and the owner allows it: read once more, letting it spin up.
       // A wake that did not get a reading (the drive took too long, or answered nothing usable) counts
       // too, so a drive that never answers is tried once a week, not at every scan.
@@ -266,8 +343,8 @@ export function createStorageScanner({
         const viaSat = reading.deviceType === "sat";
         const woken = await run(smartctlBinary, [...wakingReadArgs, ...(viaSat ? ["-d", "sat"] : []), device], { timeout: 60000 });
         const awake = viaSat
-          ? { ...parseSmartctlEvidence(device, woken.stdout), transport: "usb", deviceType: "sat" }
-          : smartEvidenceFor(device, { transport, direct: woken.stdout, sat: null });
+          ? { ...parseSmartctlEvidence(device, woken.stdout, { before }), transport: "usb", deviceType: "sat" }
+          : smartEvidenceFor(device, { transport, direct: woken.stdout, sat: null, before });
         reading = awake.health !== "unavailable" ? { ...awake, wokenForWeeklyRead: true } : reading;
         reading = { ...reading, wakeTriedAt: now().toISOString() };
       }

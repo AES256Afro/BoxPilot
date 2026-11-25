@@ -1,6 +1,7 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DriveHealthPanel, errorWords, wearWords, type SmartTrend } from "./DriveHealthPanel";
+import type { DriveHealth } from "./types";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -39,5 +40,36 @@ describe("drive health over time (M31.2)", () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ error: "down" }, 503)));
     render(<DriveHealthPanel />);
     expect(await screen.findByText("The drive history could not be read.")).toBeTruthy();
+  });
+
+  it("shows each drive's health, red for a SATA disk SMART calls FAILED, and its bad sectors by kind (M91)", async () => {
+    const reading = (device: string, extra: Partial<DriveHealth>): DriveHealth => ({ device, health: "healthy", reason: "ok", passed: true, temperatureCelsius: 36, percentageUsed: null, mediaErrors: null, ataErrors: null, lastHealth: null, ...extra });
+    const dying = reading("/dev/sdb", { health: "critical", mediaErrors: 585, ataErrors: { reallocated: 360, reportedUncorrectable: 0, pending: 225, offlineUncorrectable: 0, notSectorCounts: [] } });
+    const failed = reading("/dev/sdc", { health: "critical", passed: false });
+    const passFail = reading("/dev/sdd", { temperatureCelsius: null });
+    vi.stubGlobal("fetch", vi.fn(async () => json({ disks: [failing] })));
+    render(<DriveHealthPanel health={[dying, failed, passFail]} mountsOf={(device) => (device === "/dev/sdb" ? ["/mnt/backup"] : [])} />);
+    const table = await screen.findByRole("table", { name: "Each drive's SMART readings over time" });
+    await waitFor(() => expect(within(table).getAllByRole("row").slice(1)).toHaveLength(3));
+    const row = (name: string) => within(table).getAllByRole("row").find((entry) => entry.textContent?.includes(name)) as HTMLElement;
+    // The backup drive is found by its mount, and its bad sectors are named.
+    expect(row("sdb").textContent).toContain("/mnt/backup");
+    expect(row("sdb").textContent).toContain("225 unreadable · 360 remapped");
+    expect(within(row("sdb")).getByText("failing").closest(".ui-chip")?.getAttribute("data-status")).toBe("danger");
+    // SMART said FAILED with no figures moving: still red, never a neutral dash.
+    expect(within(row("sdc")).getByText("failing").closest(".ui-chip")?.getAttribute("data-status")).toBe("danger");
+    expect(row("sdc").getAttribute("data-status")).toBe("danger");
+    // A drive that answers only pass or fail says so, rather than waiting for figures that never come.
+    expect(row("sdd").textContent).toContain("reports pass/fail only");
+    expect(row("sdd").textContent).toContain("not yet");
+  });
+
+  it("does not count an MX500's attribute 197 (Current_Pending_ECC_Cnt) as an unreadable sector", async () => {
+    const mx500: DriveHealth = { device: "/dev/sda", health: "healthy", reason: "ok", passed: true, temperatureCelsius: 33, percentageUsed: null, mediaErrors: 0, lastHealth: null, ataErrors: { reallocated: 0, reportedUncorrectable: 0, pending: 1, offlineUncorrectable: 0, notSectorCounts: ["pending"] } };
+    vi.stubGlobal("fetch", vi.fn(async () => json({ disks: [] })));
+    render(<DriveHealthPanel health={[mx500]} mountsOf={() => []} />);
+    const table = await screen.findByRole("table", { name: "Each drive's SMART readings over time" });
+    await waitFor(() => expect(within(table).getAllByRole("row").slice(1)).toHaveLength(1));
+    expect(within(table).getAllByRole("row")[1].textContent).toContain("0 unreadable · 0 remapped");
   });
 });

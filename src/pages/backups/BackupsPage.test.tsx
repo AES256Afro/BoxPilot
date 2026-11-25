@@ -17,7 +17,7 @@ const backup = {
   restoreDrill: { passed: true }, createdAt: daysAgo(0.2),
 };
 const machineState = {
-  snapshots: [{ artifact: "machine-snapshot-20260821T020000Z-11111111.tar.gz", sizeBytes: 5 * 1024 * 1024, checksumSha256: "b".repeat(64), createdAt: daysAgo(1), contents: { apps: [{ id: "uptime-kuma", backups: 1 }, { id: "immich", backups: 0 }], vms: { domains: ["snapshot-lab"] } } }],
+  snapshots: [{ artifact: "machine-snapshot-20260821T020000Z-11111111.tar.gz", sizeBytes: 5 * 1024 * 1024, checksumSha256: "b".repeat(64), createdAt: daysAgo(1), contents: { apps: [{ id: "vaultwarden", backups: 1 }, { id: "immich", backups: 0 }], vms: { domains: ["snapshot-lab"] } } }],
   keep: 3,
   sync: { destination: "/mnt/boxpilot/backup/boxpilot-local-mirror", mount: { mounted: true, freeBytes: 9 * 1024 ** 3 }, lastSync: { completedAt: daysAgo(0.1), copiedCount: 4 } },
 };
@@ -100,6 +100,55 @@ describe("Backups page", () => {
     expect(screen.getAllByRole("tab").map((tab) => /^[A-Za-z -]+/.exec(tab.textContent ?? "")?.[0].trim())).toEqual(["Apps", "This server", "Off this server", "Restore"]);
     fireEvent.click(screen.getByRole("button", { name: "About Backups" }));
     expect(screen.getByText(/an app with no backup comes back installed and empty/).closest("[hidden]")).toBeNull();
+  });
+
+  // M91: a rebuild starts from a machine snapshot and a database backup. A server that backed every
+  // app up nightly and mirrored them, with no snapshot, read "Protected" with nothing to rebuild from.
+  describe("what a rebuild needs", () => {
+    it("is not protected with no machine snapshot, and says why on This server", async () => {
+      mockFetch({ machine: { ...machineState, snapshots: [] } });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      expect(await screen.findByText("No machine snapshot")).toBeTruthy();
+      expect(screen.queryByText("Protected")).toBeNull();
+      expect(screen.getByText("No machine snapshot").closest(".ui-chip")?.getAttribute("data-status")).toBe("warning");
+      openTab(/^This server/);
+      expect(screen.getByText(/nothing to rebuild from/)).toBeTruthy();
+    });
+
+    it("is not protected when the newest snapshot is more than eight days old", async () => {
+      mockFetch({ machine: { ...machineState, snapshots: [{ ...machineState.snapshots[0], createdAt: daysAgo(9) }, { ...machineState.snapshots[0], artifact: "older.tar.gz", createdAt: daysAgo(16) }] } });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      expect(await screen.findByText("Machine snapshot out of date")).toBeTruthy();
+      openTab(/^This server/);
+      expect(screen.getByText(/newest machine snapshot is 9 days old/)).toBeTruthy();
+    });
+
+    it("is not protected when an app was installed after the newest snapshot", async () => {
+      mockFetch({ apps: [{ id: "vaultwarden", name: "Vaultwarden", protectable: true, backups: 3, newestAt: daysAgo(0.5) }, { id: "jellyfin", name: "Jellyfin", protectable: false, backups: 0, newestAt: null }] });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      expect(await screen.findByText("Machine snapshot out of date")).toBeTruthy();
+      openTab(/^This server/);
+      expect(screen.getByText(/taken before jellyfin was installed/)).toBeTruthy();
+    });
+
+    it("is not protected with no recent database backup", async () => {
+      mockFetch({ backups: [{ ...backup, createdAt: daysAgo(20) }] });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      expect(await screen.findByText("Database backup out of date")).toBeTruthy();
+    });
+
+    it("is not protected with no database backup at all", async () => {
+      mockFetch({ backups: [] });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      expect(await screen.findByText("No database backup")).toBeTruthy();
+    });
+
+    it("says not read, never protected, when the snapshots could not be read", async () => {
+      mockFetch({ extra: (url) => (url.endsWith("/operations/host.snapshot.inspect/inspect") ? json({ error: "The helper did not answer" }, 503) : null) });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      expect(await screen.findByText("Not read")).toBeTruthy();
+      expect(screen.queryByText("Protected")).toBeNull();
+    });
   });
 
   it("never says protected about an app list it could not read", async () => {
@@ -238,6 +287,29 @@ describe("Backups page", () => {
       fireEvent.click(screen.getByRole("button", { name: "Create machine snapshot" }));
       expect(await screen.findByText(/contains secrets/)).toBeTruthy();
       expect(staged).toEqual(["host.snapshot.create"]);
+    });
+
+    // M91: only the first blocker was shown, the command to run was dropped, and the fallback said
+    // Repair sets the repository up, which it does not (it installs restic and nothing else).
+    it("lists every blocker of the encrypted store in plain words, with the command to run", async () => {
+      mockFetch({ extra: (url) => (url.endsWith("/controller-backup-protection") ? json({
+        destination: { ready: false, encrypted: false, repositoryId: null, setupCommand: "sudo /opt/boxpilot/scripts/boxpilot-controller-restic-setup.sh", blockers: [
+          "Install restic before configuring controller disaster protection",
+          "Mount a writable filesystem independent from both BoxPilot state locations at /mnt/boxpilot/backup",
+          "Create the separate root-owned mode-0600 controller recovery password from the server terminal",
+        ] },
+        protections: [],
+      }) : null) });
+      render(<BackupsPage csrfToken="csrf-token" />);
+      await screen.findByRole("tab", { name: /^This server/ });
+      openTab(/^This server/);
+      const notice = (await screen.findByText("Encrypted second copies are not ready")).closest(".ui-notice") as HTMLElement;
+      expect(within(notice).getAllByRole("listitem")).toHaveLength(3);
+      expect(within(notice).getByText(/Repair offers to install it/)).toBeTruthy();
+      expect(within(notice).getByText(/Mount a backup drive at \/mnt\/boxpilot\/backup/)).toBeTruthy();
+      expect(within(notice).getByText(/Create the recovery password/)).toBeTruthy();
+      expect(within(notice).getByText("sudo /opt/boxpilot/scripts/boxpilot-controller-restic-setup.sh")).toBeTruthy();
+      expect(notice.textContent).not.toMatch(/sets the repository up/);
     });
 
     it("shows an empty database history as a fact with its one action", async () => {

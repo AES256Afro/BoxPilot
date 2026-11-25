@@ -5,10 +5,10 @@ import { autoReconnectRule, type AutoReconnectControl } from "../../AutoReconnec
 import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mountpoints";
 import { mayServe } from "../../servedFolder";
 import type { MapApp, MapSambaShare } from "../../storageMap";
-import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Sheet, Table, Tag, TextInput, mayStart, type KnownOperation, riskOf, type TableColumn } from "../../ui";
+import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Sheet, StatusChip, Table, Tag, TextInput, mayStart, type KnownOperation, riskOf, type Status, type TableColumn } from "../../ui";
 import { DriveHealthPanel } from "./DriveHealthPanel";
 import { ReconnectSwitch, UsageMeter } from "./parts";
-import { checkableFs, gib, managedMounts, nameValid, percentUsed, permissionlessFs, slug, type DeviceRow, type MountRow, type StorageReport } from "./types";
+import { checkableFs, diskOfMount, gib, healthChip, managedMounts, nameValid, percentUsed, permissionlessFs, slug, type DeviceRow, type DriveHealth, type MountRow, type StorageReport } from "./types";
 import { WeeklyWakePanel } from "./WeeklyWakePanel";
 
 /*
@@ -33,6 +33,8 @@ export interface DrivesTabProps {
   onReread?: () => void;
   /** "Share on network": open File sharing's Add a share with this folder filled in. */
   onShareFolder: (prefill: { name: string; path: string }) => void;
+  /** Each drive's SMART health as the storage scan last read it, by device (/dev/sda). */
+  driveHealth?: DriveHealth[];
 }
 
 interface MountForm { device: DeviceRow; name: string; readOnly: boolean; appWritable: boolean }
@@ -72,7 +74,20 @@ function filesystemOf(device: DeviceRow) {
 /** How often the drives are read again while this tab shows and nothing is open over it. */
 const rereadEveryMs = 15_000;
 
-export default function DrivesTab({ csrfToken, role, report, loading, autoReconnect, mapApps, sambaShares, onChanged, onReread, onShareFolder }: DrivesTabProps) {
+/** A drive's health chip, or a dash for a disk the storage scan has no reading of. */
+function HealthCell({ disk }: { disk: DriveHealth | undefined }) {
+  if (!disk) return <span className="storage-dim">—</span>;
+  const chip = healthChip(disk);
+  return <StatusChip status={chip.status}>{chip.label}</StatusChip>;
+}
+
+/** A row red for a failing drive, amber for one to look at. */
+const healthRowStatus = (disk: DriveHealth | undefined): Status | undefined => {
+  const status = disk ? healthChip(disk).status : undefined;
+  return status === "danger" || status === "warning" ? status : undefined;
+};
+
+export default function DrivesTab({ csrfToken, role, report, loading, autoReconnect, mapApps, sambaShares, onChanged, onReread, onShareFolder, driveHealth = [] }: DrivesTabProps) {
   const { start, dialog, active } = useOperation(csrfToken, () => onChanged());
   const [form, setForm] = useState<MountForm | null>(null);
   // The device just formatted, whose mount form opens once the drives are read again: its new
@@ -90,6 +105,12 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
   const drives = (report?.mounts ?? []).flatMap((mount) => { const name = managed.get(mount.target); return name ? [{ name, mount }] : []; });
   const growable = (report?.volumeGroups ?? []).flatMap((group) => group.logicalVolumes.filter((volume) => volume.growable).map((volume) => ({ group, volume }))).filter(({ group }) => group.freeBytes - snapshotReserveBytes >= 256 * 1024 ** 2);
   const devices = report?.devices ?? [];
+  // Health is keyed by disk (/dev/sdb); a drive BoxPilot mounted is named by its mount (backup), so
+  // each mount is followed down the block tree to the disk it is on.
+  const healthBy = new Map(driveHealth.map((disk) => [disk.device, disk]));
+  const knownDisks = driveHealth.map((disk) => disk.device);
+  const healthOfMount = (mount: MountRow) => { const disk = diskOfMount(report, mount, knownDisks); return disk ? healthBy.get(disk) : undefined; };
+  const healthOfDevice = (device: DeviceRow) => (device.type === "disk" && device.path ? healthBy.get(device.path) : undefined);
 
   const may = (operationId: KnownOperation) => mayStart(role, operationId);
 
@@ -178,6 +199,7 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
       ),
     },
     { id: "used", header: "Used", sortValue: ({ mount }) => percentUsed(mount.usedBytes, mount.sizeBytes), cell: ({ mount }) => <UsageMeter used={mount.usedBytes} size={mount.sizeBytes} label={mount.target} /> },
+    { id: "health", header: "Health", cell: ({ mount }) => <HealthCell disk={healthOfMount(mount)} /> },
     {
       id: "reconnect", header: "If it drops", label: "If it drops", cell: ({ name, mount }) => (mount.target === mountpointFor(name)
         ? <ReconnectSwitch drive={name} control={autoReconnect} canChange={may("storage.remount")} />
@@ -209,6 +231,7 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
       ),
     },
     { id: "size", header: "Size", numeric: true, cell: (device) => gib(device.sizeBytes) },
+    { id: "health", header: "Health", cell: (device) => (device.type === "disk" ? <HealthCell disk={healthOfDevice(device)} /> : null) },
     { id: "filesystem", header: "Filesystem", cell: (device) => <span className="storage-wrap">{filesystemOf(device)}</span> },
     {
       id: "mounted", header: "Mounted at", cell: (device) => (device.mountpoints.length
@@ -263,7 +286,7 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
           columns={driveColumns}
           rows={drives}
           rowKey={({ mount }) => mount.target}
-          rowStatus={({ mount }) => ((percentUsed(mount.usedBytes, mount.sizeBytes) ?? 0) >= 90 ? "danger" : undefined)}
+          rowStatus={({ mount }) => ((percentUsed(mount.usedBytes, mount.sizeBytes) ?? 0) >= 90 ? "danger" : healthRowStatus(healthOfMount(mount)))}
           empty={!report
             ? (loading ? "Reading the drives…" : "The drives could not be read.")
             : <EmptyState title="No drive mounted by BoxPilot">Mount one from the disks below: it is checked first and mounts again at every boot, and a missing drive never stops the server starting.</EmptyState>}
@@ -282,11 +305,12 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
           columns={deviceColumns}
           rows={devices}
           rowKey={(device) => device.path ?? `${device.type}-${device.uuid}`}
+          rowStatus={(device) => healthRowStatus(healthOfDevice(device))}
           empty={!report ? (loading ? "Reading block devices…" : "The block devices could not be read.") : "No block devices were listed."}
         />
       </Panel>
 
-      <DriveHealthPanel />
+      <DriveHealthPanel health={driveHealth} mountsOf={(device) => drives.filter(({ mount }) => diskOfMount(report, mount, knownDisks) === device).map(({ mount }) => mount.target)} />
 
       {form && (
         <Sheet

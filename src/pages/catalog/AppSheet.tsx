@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { inspectOperation } from "../../operations";
 import { AppIcon, Button, KeyValue, Notice, Panel, Sheet, StatusChip, Tabs, mayStart, type KnownOperation, riskOf, type KeyValueItem, type TabItem } from "../../ui";
 import { inline } from "../agents/Prose";
 import { AccessTab } from "./AccessTab";
@@ -43,6 +44,23 @@ function stateWords(entry: Entry): string {
   return live.container.health === "healthy" ? "Running and healthy" : "Running";
 }
 
+/**
+ * How many backups an app has, counted per folder whether it is installed or not (M91): after Delete
+ * data the sheet lost its Backups tab, so the backups the purge keeps could not be reached. Null until
+ * the count is read, or when it cannot be.
+ */
+function useBackupCount(id: string): number | null {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    let gone = false;
+    inspectOperation<{ counts?: Record<string, number> }>("app.backups.counts")
+      .then(({ result }) => { if (!gone) setCount(typeof result?.counts?.[id] === "number" ? result.counts[id] : 0); })
+      .catch(() => { /* the tab follows the app's own state */ });
+    return () => { gone = true; };
+  }, [id]);
+  return count;
+}
+
 export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClose }: AppSheetProps) {
   const { manifest, live } = entry;
   const { role } = ctx;
@@ -50,12 +68,13 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   const canRead = role === "owner" || role === "operator";
   const owner = role === "owner";
   const status = appStatus(live);
+  const backupCount = useBackupCount(manifest.id);
   const tabs: Array<TabItem<SheetTab>> = [
     { id: "overview", label: "Overview" },
     // M42: publishing apps to the internet lives with the app that runs the tunnel, installed or not.
     ...(manifest.id === "cloudflared" && owner ? [{ id: "tunnel" as const, label: "Tunnel" }] : []),
     ...(installed ? [{ id: "reach" as const, label: "Reach" }] : []),
-    ...((installed || live?.dataPresent) && canRead ? [{ id: "backups" as const, label: "Backups", status: live?.backupVerification && !live.backupVerification.verified ? "danger" as const : undefined, statusLabel: live?.backupVerification && !live.backupVerification.verified ? "last rehearsal failed" : undefined }] : []),
+    ...((installed || live?.dataPresent || (backupCount ?? 0) > 0) && canRead ? [{ id: "backups" as const, label: "Backups", status: live?.backupVerification && !live.backupVerification.verified ? "danger" as const : undefined, statusLabel: live?.backupVerification && !live.backupVerification.verified ? "last rehearsal failed" : undefined }] : []),
     ...(installed && manifest.networkVia ? [{ id: "vpn" as const, label: "VPN", status: live?.killSwitchDrill?.leaked ? "danger" as const : undefined, statusLabel: live?.killSwitchDrill?.leaked ? "leaked" : undefined }] : []),
     ...(installed && canRead ? [{ id: "logs" as const, label: "Logs" }] : []),
     ...(installed ? [{ id: "config" as const, label: "Compose" }] : []),
@@ -65,6 +84,10 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   ];
   const [tab, setOpenTab] = useState<SheetTab>(tabs.some((item) => item.id === firstTab) ? firstTab : "overview");
   const setTab = (next: SheetTab) => { setOpenTab(next); onTab?.(next); };
+  // A link to the Backups tab of an app that is not installed (the Backups page's Restore…) waits for
+  // the count, which is what offers the tab.
+  const backupsOffered = tabs.some((item) => item.id === "backups");
+  useEffect(() => { if (firstTab === "backups" && backupsOffered) setOpenTab((current) => (current === "overview" ? "backups" : current)); }, [firstTab, backupsOffered]);
 
   const content = (current: SheetTab): ReactNode => {
     if (current === "tunnel") return <TunnelTab entry={entry} ctx={ctx} />;
@@ -76,7 +99,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
     if (current === "models") return <ModelsTab entry={entry} ctx={ctx} />;
     if (current === "signin") return <AccessTab entry={entry} ctx={ctx} mode="signin" />;
     if (current === "secrets") return <AccessTab entry={entry} ctx={ctx} mode="secrets" />;
-    return <Overview entry={entry} ctx={ctx} onTab={setTab} />;
+    return <Overview entry={entry} ctx={ctx} onTab={setTab} backupCount={backupCount} />;
   };
 
   return (
@@ -96,7 +119,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
   );
 }
 
-function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; onTab: (tab: SheetTab) => void }) {
+function Overview({ entry, ctx, onTab, backupCount }: { entry: Entry; ctx: CatalogContext; onTab: (tab: SheetTab) => void; backupCount: number | null }) {
   const { manifest, live } = entry;
   const { role, act, stats, tunnels, rehearsal, killswitch } = ctx;
   const may = (operationId: KnownOperation) => mayStart(role, operationId);
@@ -246,7 +269,7 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
             <Button risk={riskOf("app.uninstall")} onClick={() => act({ operationId: "app.uninstall", title: `Uninstall ${name}`, parameters: { id: manifest.id }, preview: <span>Stops and removes the container. Data under the app directory is kept so you can reinstall later.</span> })}>Uninstall</Button>
           )}
           {live?.dataPresent && may("app.purge") && (
-            <Button risk={riskOf("app.purge")} onClick={() => act({ operationId: "app.purge", title: `Delete ${name} and its data`, parameters: { id: manifest.id }, preview: <span>Removes the container <strong>and deletes everything</strong> under the app's data directory. This cannot be undone.</span> })}>Delete data</Button>
+            <Button risk={riskOf("app.purge")} onClick={() => act({ operationId: "app.purge", title: `Delete ${name} and its data`, parameters: { id: manifest.id }, preview: <span>Removes the container <strong>and deletes everything</strong> under the app's data directory. This cannot be undone.{backupCount ? ` Its ${backupCount === 1 ? "backup is" : `${backupCount} backups are`} kept and can be restored from its Backups tab.` : ""}</span> })}>Delete data</Button>
           )}
         </div>
       )}

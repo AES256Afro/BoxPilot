@@ -28,6 +28,15 @@ const guidance = {
       "Mirror the backups off this server from the Backups page.",
     ],
   },
+  "offbox.copy": {
+    category: "If this server died",
+    view: "backups",
+    steps: [
+      "Open Backups, Off this server: it says where the copies go and when the last one was made.",
+      "Set up a backup drive, another machine over SSH or a cloud bucket, and run a sync.",
+      "Schedule the nightly copy there, so the newest backups follow on their own.",
+    ],
+  },
   "virtualization.backup": {
     category: "VMs with no backup",
     view: "backups",

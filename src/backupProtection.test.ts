@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { behindBackupSchedules, judgeProtection, scheduledAppIds, protectionWarning, type AppProtection } from "./backupProtection";
+import { behindBackupSchedules, judgeProtection, rebuildStaleAfterDays, rebuildVerdict, scheduledAppIds, protectionWarning, type AppProtection, type RebuildSnapshot } from "./backupProtection";
 
 const now = Date.parse("2026-08-25T12:00:00.000Z");
 const daysAgo = (days: number) => new Date(now - days * 86_400_000).toISOString();
@@ -91,5 +91,45 @@ describe("behindBackupSchedules", () => {
       { operationId: "apt.upgrade", enabled: true, overdue: true, title: "Not a backup" },     // unrelated op
     ];
     expect(behindBackupSchedules(schedules).map((s: { title?: string }) => s.title)).toEqual(["Back up application data", "Mirror to cloud"]);
+  });
+});
+
+describe("whether this server could be rebuilt from what it keeps (M91)", () => {
+  const snapshot = (days: number, apps = ["vaultwarden"]): RebuildSnapshot => ({ createdAt: daysAgo(days), contents: { apps: apps.map((id) => ({ id, installed: true })) } });
+  const judge = (over: Partial<Parameters<typeof rebuildVerdict>[0]> = {}) =>
+    rebuildVerdict({ snapshots: [snapshot(1)], installedAppIds: ["vaultwarden"], databaseBackupsAt: [daysAgo(0.5)], ...over }, { now });
+
+  it("is fine with a recent snapshot that holds every app and a recent database backup", () => {
+    expect(judge()).toMatchObject({ state: "ok", label: null, warning: null, snapshotAgeDays: 1, missingApps: [] });
+  });
+
+  it("warns with no machine snapshot, however well the apps are backed up", () => {
+    expect(judge({ snapshots: [] })).toMatchObject({ state: "no-snapshot", label: "No machine snapshot" });
+  });
+
+  it("goes by the newest snapshot, wherever it is in the list, and warns past eight days", () => {
+    expect(rebuildStaleAfterDays).toBe(8);
+    expect(judge({ snapshots: [snapshot(20), snapshot(8)] }).state).toBe("ok");
+    expect(judge({ snapshots: [snapshot(20), snapshot(9)] })).toMatchObject({ state: "snapshot-stale", snapshotAgeDays: 9 });
+  });
+
+  it("warns when an app was installed after the newest snapshot, or is in it only as uninstalled", () => {
+    expect(judge({ installedAppIds: ["vaultwarden", "immich"] })).toMatchObject({ state: "snapshot-missing-apps", missingApps: ["immich"] });
+    const uninstalled: RebuildSnapshot = { createdAt: daysAgo(1), contents: { apps: [{ id: "vaultwarden", installed: false }] } };
+    expect(judge({ snapshots: [uninstalled] }).missingApps).toEqual(["vaultwarden"]);
+  });
+
+  it("warns with no database backup, and with only an old one", () => {
+    expect(judge({ databaseBackupsAt: [] }).state).toBe("no-database-backup");
+    expect(judge({ databaseBackupsAt: [daysAgo(30), daysAgo(12)] })).toMatchObject({ state: "database-stale", databaseAgeDays: 12 });
+  });
+
+  it("is unknown, never fine, when the snapshots or the database backups were not read", () => {
+    expect(judge({ snapshots: null }).state).toBe("unknown");
+    expect(judge({ databaseBackupsAt: null }).state).toBe("unknown");
+  });
+
+  it("does not guess about apps when the app list was not read", () => {
+    expect(judge({ installedAppIds: null }).state).toBe("ok");
   });
 });

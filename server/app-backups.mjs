@@ -14,7 +14,8 @@ import { readFileWithoutFollowing, replaceFileWithoutFollowing, writeFileDurably
 import { deployedImages } from "./catalog/compose.mjs";
 import { isDeniedHostPath, keepsBackupData, longestStopBudgetMs, resolveValues, sanitizeStoredValues, stopBudgetMs } from "./catalog/schema.mjs";
 import { keepTimeout } from "./timeouts.mjs";
-import { snapshotBackupReferences } from "./machine-snapshot-helper.mjs";
+import { copyArchiveIn, snapshotBackupReferences } from "./machine-snapshot-helper.mjs";
+import { backupMountpoint } from "./backup-mount.mjs";
 import { appFolderMounts, composeFindingsText, composeSha256, imageRepository, powerfulComposeSettings, sameCompose } from "./catalog/compose-review.mjs";
 import { readArchiveMembers } from "./archive-members.mjs";
 import { homepageSyncFile } from "./app-homepage.mjs";
@@ -32,6 +33,8 @@ export const checkpointCeilingMs = Math.max(backupLimitsMs.stop, longestStopBudg
 export const backupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
 /** Pre-change checkpoints kept per app, counted separately from the owner's own backups. */
 const checkpointKeep = 5;
+/** The version of an app backup's record (`<stamp>.json`) this release writes: 2 since M91 (backup()). */
+const appBackupRecordVersion = 2;
 /** What a backup in progress leaves in the app's folder, saying what it stopped (see backup). */
 const backupMarkerFile = ".boxpilot-backup-in-progress.json";
 /**
@@ -123,6 +126,12 @@ export function catalogImagePin(candidate, catalogReference, formerRepositories 
 
 export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBinary, runCommand, catalog, wait, clock, realpathOf, freeBytesOf, restoreReserveBytes, idPattern, dirFor, presentIds, readState, ensureManifest, containerStatus, compose, waitHealthy, assertPortsFree, renderProject, readProjectFiles, withSavedSecrets, redact, parseEnvFile, resolveExisting }) {
   const backupDirFor = (id) => path.join(path.resolve(backupRoot), id);
+  /**
+   * Where the backup drive's mirror keeps an app's archives (machine-snapshot-helper sync): what the
+   * Backups tab lists beside this server's own, and where an app's restore copies one in from.
+   */
+  const mirrorBackupRoot = path.join(path.resolve(process.env.BOXPILOT_BACKUP_SYNC_MOUNT ?? process.env.BOXPILOT_CONTROLLER_BACKUP_MOUNT ?? backupMountpoint), "boxpilot-local-mirror", "application-backups");
+  const mirrorDirFor = (id) => path.join(mirrorBackupRoot, id);
 
   /** Where a backup in progress says what it stopped and what it is writing (see backup). */
   const interruptedBackupMarker = (id) => path.join(dirFor(id), backupMarkerFile);
@@ -253,8 +262,14 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
    * backup-flagged managed volume, restart, then prune to `keep` copies. hostPath volumes
    * (locations the operator manages) are listed as skipped, never silently included.
    */
-  /** `checkpointReason` and `preserve` are for checkpoint() only; the registry operation passes neither. */
-  async function backup({ id, keep = 5, checkpointReason = null, preserve = null }, { progress = null } = {}) {
+  /**
+   * `checkpointReason` and `preserve` are for checkpoint() only; the registry operation passes neither.
+   * `safetyCopy` is for a restore's copy of the app as it found it, recorded as such so that a restore
+   * looking for an app's newest data never takes it (machine-snapshot-helper newestArchiveFor).
+   * @param {{ id: string, keep?: number | null, checkpointReason?: string | null, preserve?: string | null, safetyCopy?: { restoring: string } | null }} request
+   * @param {{ progress?: ((line: string, stream: string) => void) | null }} [deps]
+   */
+  async function backup({ id, keep = 5, checkpointReason = null, preserve = null, safetyCopy = null }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state) throw new Error(`${manifest.name} has no data to back up`);
@@ -274,13 +289,20 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     // Uninstalled apps have no compose.yaml.
     for (const name of ["compose.yaml", ".env"]) await add(name, "file");
     const skippedHostPaths = [];
+    const skippedFolders = [];
     const skippedVolumes = [];
+    // The folders the owner chose (M91): the catalog's default was recorded, so a photo library moved
+    // to /mnt/bigdisk/photos was said to be /srv/immich, and the folder really left out never named.
+    const chosen = sanitizeStoredValues(manifest, state && typeof state === "object" ? state.values ?? {} : {}).volumes;
     for (const volume of manifest.volumes) {
       // Anything not going into the archive is recorded, so the owner is told what a backup leaves out
       // — whether it is a folder they chose or a volume the manifest does not archive.
       if (!volume.backup || !volume.path) {
-        if (volume.hostPath) skippedHostPaths.push(volume.hostPath);
-        else if (volume.path) skippedVolumes.push(volume.label ?? volume.id);
+        if (volume.hostPath) {
+          const folder = volume.configurable && typeof chosen[volume.id] === "string" && chosen[volume.id].startsWith("/") ? chosen[volume.id] : volume.hostPath;
+          skippedHostPaths.push(folder);
+          skippedFolders.push({ label: volume.label ?? volume.id, path: folder });
+        } else if (volume.path) skippedVolumes.push(volume.label ?? volume.id);
         continue;
       }
       await add(volume.path, "folder");   // absent: not created yet
@@ -348,7 +370,14 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
       }
       await syncFile(partial);
       const [checksumSha256, artifactStat] = await Promise.all([sha256File(partial), stat(partial)]);
-      meta = { id, createdAt: clock().toISOString(), artifact: path.basename(artifact), checksumSha256, sizeBytes: artifactStat.size, downtimeMs, contents, skippedVolumes, skippedHostPaths, image: state.image?.reference ?? null, ...(checkpointReason ? { checkpoint: { reason: checkpointReason } } : {}) };
+      // `recordVersion` 2 (M91): a record that says whether it is a restore's safety copy, and whether
+      // the app was one a snapshot restore installed without its data (`snapshotRestore` with no
+      // `dataFrom`), so a restore taking each app's newest data can tell either from the app's data.
+      // An earlier release's record says neither (machine-snapshot-helper unusableBecause).
+      const snapshotRestore = typeof state.restoredFrom === "string"
+        ? { snapshotRestore: { snapshot: state.restoredFrom, installedAt: state.restoredInstalledAt ?? state.installedAt ?? null, dataFrom: typeof state.restoredDataFrom === "string" ? state.restoredDataFrom : null } }
+        : {};
+      meta = { recordVersion: appBackupRecordVersion, id, createdAt: clock().toISOString(), artifact: path.basename(artifact), checksumSha256, sizeBytes: artifactStat.size, downtimeMs, contents, skippedVolumes, skippedHostPaths, skippedFolders, image: state.image?.reference ?? null, ...(checkpointReason ? { checkpoint: { reason: checkpointReason } } : {}), ...(safetyCopy ? { safetyCopy } : {}), ...snapshotRestore };
       await writeFileDurably(path.join(backupDirectory, `${stamp}.json`), JSON.stringify(meta, null, 2), { mode: 0o600 });
       await rename(partial, artifact);
       if (restartError) throw new Error(`The backup succeeded (${path.basename(artifact)}), but ${manifest.name} did not start again: ${restartError}`);
@@ -561,12 +590,24 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
       entries = [];
     }
     const counts = {};
+    // Apps whose backups are kept although the app is not installed (M91): after "Delete data" the
+    // sheet lost its Backups tab and the Backups page listed installed apps only, so the backups the
+    // purge promised to keep could not be reached, though a restore needs no install.
+    const notInstalled = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const names = await readdir(path.join(backupRootPath, entry.name)).catch(() => []);
-      counts[entry.name] = names.filter((name) => backupNamePattern.test(name)).length;
+      const names = (await readdir(path.join(backupRootPath, entry.name)).catch(() => [])).filter((name) => backupNamePattern.test(name));
+      counts[entry.name] = names.length;
+      if (!names.length || !idPattern.test(entry.name)) continue;
+      const state = await Promise.resolve().then(() => readState(entry.name)).catch(() => null);
+      if (state?.installed) continue;
+      const manifest = await Promise.resolve().then(() => ensureManifest(entry.name)).catch(() => null);
+      if (!manifest) continue;
+      const newest = names.sort().at(-1);
+      const meta = await readFileWithoutFollowing(path.join(backupRootPath, entry.name, newest.replace(/\.tar\.gz$/, ".json"))).then(JSON.parse).catch(() => null);
+      notInstalled.push({ id: entry.name, name: manifest.name, backups: names.length, newestAt: typeof meta?.createdAt === "string" ? meta.createdAt : null });
     }
-    return { available: true, counts };
+    return { available: true, counts, notInstalled };
   }
 
   /**
@@ -605,19 +646,63 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     return { available: readable, apps, generatedAt: clock().toISOString() };
   }
 
+  /**
+   * The archives in one folder, newest first, each with its record. Neither is read through a link:
+   * the backup drive is only as trustworthy as whoever last held it.
+   */
+  async function archivesIn(directory, location) {
+    const names = (await readdir(directory).catch(() => [])).filter((name) => backupNamePattern.test(name)).sort().reverse();
+    const backups = [];
+    for (const name of names) {
+      const artifactStat = await lstat(path.join(directory, name)).catch(() => null);
+      if (!artifactStat?.isFile()) continue;
+      let meta = null;
+      try { meta = JSON.parse(await readFileWithoutFollowing(path.join(directory, name.replace(/\.tar\.gz$/, ".json")))); } catch { meta = null; }
+      const skippedFolders = Array.isArray(meta?.skippedFolders) ? meta.skippedFolders.filter((folder) => typeof folder?.label === "string" && typeof folder?.path === "string") : [];
+      backups.push({ artifact: name, location, createdAt: meta?.createdAt ?? artifactStat.mtime?.toISOString() ?? null, sizeBytes: meta?.sizeBytes ?? artifactStat.size ?? null, checksumSha256: meta?.checksumSha256 ?? null, downtimeMs: meta?.downtimeMs ?? null, skippedHostPaths: meta?.skippedHostPaths ?? [], skippedFolders, skippedVolumes: meta?.skippedVolumes ?? [], image: meta?.image ?? null, safetyCopy: Boolean(meta?.safetyCopy) });
+    }
+    return backups;
+  }
+
+  /**
+   * The backup drive's archives of an app, or null when the drive did not answer in time: a network
+   * share behind an automount that is off is waited out at every read, and this list is waited on.
+   */
+  async function mirrorArchives(id, waitMs = 5_000) {
+    let timer;
+    const late = new Promise((resolve) => { timer = setTimeout(() => resolve(null), waitMs); });
+    try {
+      return await Promise.race([archivesIn(mirrorDirFor(id), "drive"), late]);
+    } finally { clearTimeout(timer); }
+  }
+
+  /**
+   * An app's backups, newest first: this server's own, then those only on the backup drive (M91),
+   * marked `location: "drive"`. After a rebuild the server holds just the archive a snapshot restore
+   * copied in, while every nightly since sits on the drive. One on both is listed once, as this
+   * server's. `drive` says whether the drive answered.
+   */
   async function listAppBackups({ id }) {
     await ensureManifest(id);
     const backupDirectory = backupDirFor(id);
-    let names = [];
-    try { names = (await readdir(backupDirectory)).filter((name) => backupNamePattern.test(name)).sort().reverse(); } catch { names = []; }
-    const backups = [];
-    for (const name of names) {
-      let meta = null;
-      try { meta = JSON.parse(await readFile(path.join(backupDirectory, name.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { meta = null; }
-      const artifactStat = await stat(path.join(backupDirectory, name)).catch(() => null);
-      backups.push({ artifact: name, createdAt: meta?.createdAt ?? artifactStat?.mtime?.toISOString() ?? null, sizeBytes: meta?.sizeBytes ?? artifactStat?.size ?? null, checksumSha256: meta?.checksumSha256 ?? null, downtimeMs: meta?.downtimeMs ?? null, skippedHostPaths: meta?.skippedHostPaths ?? [], skippedVolumes: meta?.skippedVolumes ?? [], image: meta?.image ?? null });
-    }
-    return { id, directory: backupDirectory, backups };
+    const local = await archivesIn(backupDirectory, "local");
+    const here = new Set(local.map((backup) => backup.artifact));
+    const mirrored = await mirrorArchives(id);
+    const onlyOnDrive = (mirrored ?? []).filter((backup) => !here.has(backup.artifact));
+    const backups = [...local, ...onlyOnDrive].sort((left, right) => right.artifact.localeCompare(left.artifact));
+    return { id, directory: backupDirectory, backups, drive: { answered: mirrored !== null, onlyThere: onlyOnDrive.length } };
+  }
+
+  /**
+   * Where an archive of an app is: this server's store, else the backup drive's mirror. Only a regular
+   * file at either counts; null when neither has it.
+   */
+  async function archiveLocation(id, backupName) {
+    const { artifact } = backupArtifactFor(id, backupName);
+    if ((await lstat(artifact).catch(() => null))?.isFile()) return { location: "local", artifact };
+    const onDrive = path.join(mirrorDirFor(id), backupName);
+    if ((await lstat(onDrive).catch(() => null))?.isFile()) return { location: "drive", artifact: onDrive };
+    return null;
   }
 
   /**
@@ -906,9 +991,9 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
   /** app.backup.review: what restoring this backup would start, before it is restored. */
   async function reviewAppBackup({ id, backup: backupName }) {
     await ensureManifest(id);
-    const { artifact } = backupArtifactFor(id, backupName);
-    await stat(artifact).catch(() => { throw new Error(`Backup ${backupName} does not exist`); });
-    return { backup: backupName, ...await reviewArchive({ id, archive: artifact }) };
+    const found = await archiveLocation(id, backupName);
+    if (!found) throw new Error(`Backup ${backupName} does not exist`);
+    return { backup: backupName, ...await reviewArchive({ id, archive: found.artifact }) };
   }
 
   /**
@@ -982,6 +1067,12 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     }
     const backupDirectory = backupDirFor(id);
     const artifact = path.join(backupDirectory, backupName);
+    // One only on the backup drive (M91) is copied into this server's store first, checked against
+    // its record, as a machine snapshot restore copies one in.
+    if ((await archiveLocation(id, backupName))?.location === "drive") {
+      progress?.(`Copying ${backupName} from the backup drive...`, "stdout");
+      await copyArchiveIn(mirrorDirFor(id), path.resolve(backupRoot), id, backupName);
+    }
     await stat(artifact).catch(() => { throw new Error(`Backup ${backupName} does not exist`); });
     let meta = null;
     try { meta = JSON.parse(await readFile(path.join(backupDirectory, backupName.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { meta = null; }
@@ -1070,7 +1161,7 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     let safetyArtifact = null;
     try {
       progress?.("Taking a safety backup of the current state first...", "stdout");
-      const safety = await backup({ id, keep: null }, { progress });
+      const safety = await backup({ id, keep: null, safetyCopy: { restoring: backupName } }, { progress });
       safetyBackupSaved = true;
       safetyArtifact = safety.artifact;
       progress?.(`Current state saved as ${safety.artifact}`, "stdout");
@@ -1206,8 +1297,10 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
    */
   async function listAppBackupFiles({ id, backup: backupName, limit = 5000, filter = null, path: exactPath = null }) {
     await ensureManifest(id);
-    const { artifact } = backupArtifactFor(id, backupName);
-    await stat(artifact).catch(() => { throw new Error(`Backup ${backupName} does not exist`); });
+    backupArtifactFor(id, backupName);   // the name is checked first
+    const found = await archiveLocation(id, backupName);
+    if (!found) throw new Error(`Backup ${backupName} does not exist`);
+    const { artifact } = found;
     const needle = typeof filter === "string" && filter.trim() ? filter.trim().toLowerCase() : null;
     const files = [];
     let matched = 0;
@@ -1266,6 +1359,11 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     const listing = await listAppBackupFiles({ id, backup: backupName, path: relativePath, limit: 1 });
     const member = listing.files.find((entry) => entry.path === relativePath);
     if (!member) throw new Error(`${relativePath} is not in ${backupName}`);
+    // One only on the backup drive is copied into this server's store first, as a whole restore does.
+    if ((await archiveLocation(id, backupName))?.location === "drive") {
+      progress?.(`Copying ${backupName} from the backup drive...`, "stdout");
+      await copyArchiveIn(mirrorDirFor(id), path.resolve(backupRoot), id, backupName);
+    }
     let meta = null;
     try { meta = JSON.parse(await readFile(path.join(backupDirectory, backupName.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { meta = null; }
     if (meta?.checksumSha256) {

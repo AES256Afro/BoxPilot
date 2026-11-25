@@ -5,6 +5,7 @@ import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createTreeScanBudget, listTreeEntries } from "./tree-scan.mjs";
+import { productVersion } from "./version.mjs";
 
 const uuidPattern = /^[a-f0-9-]{36}$/;
 const requiredTables = Object.freeze([
@@ -229,6 +230,8 @@ export function createControllerBackupHelper({
         schemaVersion: 1,
         backupId: input.backupId,
         applicationId: "boxpilot-controller",
+        // The release that took it (M91): putting it back on an older one is refused (db-restore.mjs).
+        productVersion,
         artifact: "boxpilot.sqlite3",
         checksumSha256,
         sizeBytes: artifact.size,

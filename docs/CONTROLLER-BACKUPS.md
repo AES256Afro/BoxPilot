@@ -26,17 +26,17 @@ Directories are root-only mode `0700`; the database and manifest are mode `0600`
 
 ## Create a verified local backup
 
-1. Sign in to BoxPilot over the private LAN or Tailscale address.
-2. Open **Backups**.
-3. Find **BoxPilot controller** and select **Plan verified backup for BoxPilot controller**.
-4. Review the immutable workflow, sensitive-data warning, local-only destination warning, and recovery boundary.
-5. Select **Stage for approval**. BoxPilot opens Repair Center.
-6. Re-enter the owner password and approve **Back up and restore-test BoxPilot controller**.
-7. Wait for all durable job steps to complete.
-8. Return to **Backups** and confirm the artifact shows **Passed, isolated copy-open**.
-9. Treat the row as **locally verified**, not protected, until the independent workflow below passes.
+1. Open **Backups → This server**.
+2. In the **BoxPilot database** panel, select **Back up now**. It is a low-risk action: the dialog
+   says what it does and one click starts it. BoxPilot keeps running while the copy is made.
+3. When the job finishes, the new row's **Drill** column says **passed**: the copy was opened in
+   isolation and checked before it was recorded. A row that says **unverified** is not a backup to
+   rely on.
+4. The copy is still on this server. Protect it (below) to keep an encrypted copy on separate
+   storage.
 
-Do not paste the owner password into chat, a terminal command, issue tracker, or log. BoxPilot accepts it only in the approval form and does not include it in the helper request.
+A machine snapshot (*Create machine snapshot*, in the panel below) takes a fresh verified database
+backup of its own and puts a copy inside the snapshot.
 
 ## Set up the fixed independent destination
 
@@ -44,27 +44,30 @@ BoxPilot does not partition, format, mount, or select storage. Attach and mount 
 
 The destination used to be `/mnt/boxpilot-backup`. It moved one level down because the root helper's sandbox is given the folder above it, `/mnt/boxpilot`, never the mount point itself: resolving a NAS share's automount point while the NAS was off stopped the helper from starting at all. The upgrade moves an existing destination's fstab entry (keeping a copy as `/etc/fstab.boxpilot-<stamp>`); if it could not, Repair offers the same move as **Move the backup destination** (`storage.backup.relocate`). Repositories on the share keep their paths inside it and need nothing.
 
-After the mount is stable:
+Until the destination is ready, the **BoxPilot database** panel shows **Encrypted second copies are
+not ready**, with each thing still missing and the command to run. Repair installs restic (under
+*Prerequisites*); the password and the repository come from the setup script, at the server's
+terminal, once the mount is stable:
 
 ```sh
-sudo apt install -y restic
 sudo /opt/boxpilot/scripts/boxpilot-controller-restic-setup.sh
 sudo systemctl restart boxpilot-helper.service boxpilot.service
 ```
 
 The interactive script accepts no arguments. It asks for a new controller recovery password without echo, writes only `/etc/boxpilot/secrets/controller-backup-restic-password` as `root:root` mode `0600`, and initializes only `/mnt/boxpilot/backup/restic-controller`. It refuses a symbolic-link password file, a non-exact mount, a same-filesystem destination, a short password, or a repository it cannot read. The VM repository uses a different path and password. Keep an additional recovery copy of the controller password outside the server and outside the mounted backup storage.
 
-The server does not currently have this independent mount configured. Until it does, Backups displays every blocker and disables staging. Inspection is read-only and does not create a repository or secret.
+Reading whether the destination is ready changes nothing: it does not create a repository or a secret.
 
 ## Protect and restore-test one local snapshot
 
-1. Open **Backups** after the fixed destination reports ready.
-2. In the verified controller artifact row, select **Plan encrypted copy**.
-3. Review the immutable source hashes, destination identity, complete repository-read requirement, exact restore workflow, password-loss warning, and no-retention boundary.
-4. Select **Stage independent protection**. BoxPilot opens Repair Center.
-5. Re-enter the owner password and approve **Encrypt, independently copy, and restore-test BoxPilot controller state**.
-6. Wait for backup, full repository read, exact snapshot readback, restore, hash checks, and SQLite checks to complete.
-7. Return to **Backups** and confirm the exact row says **Protected and restored**. Expand it to retain the repository and snapshot ids.
+1. Open **Backups → This server** once the destination is ready (the notice above the table is gone).
+2. In the row of a verified backup, select **Protect**. It is a medium-risk action: the dialog
+   previews what it does, and one confirmation starts it.
+3. Wait for the copy, the full repository read, the exact snapshot read-back, the restore, and the
+   hash and SQLite checks to complete.
+4. The row's **Encrypted copy** column then says **protected**, and the panel's header counts it
+   among the encrypted copies. A row that says **copy removed** was protected once and retention has
+   since let that copy go; it cannot be protected again.
 
 The helper snapshots the complete generated UUID directory, including both `boxpilot.sqlite3` and `manifest.json`. It restores the exact new snapshot with restic verification into a generated root-only workspace. It requires the restored artifact and manifest SHA-256 values, size, backup identity, SQLite integrity, foreign keys, required schema, schema fingerprint, and owner-state presence to match before removing the successful workspace and recording protection.
 
@@ -167,7 +170,7 @@ It accepts no database path, destination path, filename, password, browser-suppl
 
 ## Manual recovery runbook
 
-Recovery is intentionally not an in-product mutation in `0.40.0`. Perform it from a physical or SSH console only after selecting an exact retained protected record and retrieving its separately stored recovery password.
+A verified local backup, or the copy a machine snapshot restore staged, is put back from the browser: **Backups → This server → Restore the database copy** (owner only, high risk). Restoring from the encrypted repository is not in the product: do it from a physical or SSH console, only after selecting an exact retained protected record and retrieving its separately stored recovery password.
 
 1. Keep a separate copy of the current live database family before replacement.
 2. Stop the web service before changing controller state. The helper may remain stopped during the recovery.

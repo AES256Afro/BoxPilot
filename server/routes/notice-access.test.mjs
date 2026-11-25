@@ -203,7 +203,7 @@ describe("news nobody but the owner decided about (R3S1-2)", () => {
     targetSet = true;
     // Every kind BoxPilot says, and what a viewer reads of it with nobody's account behind it.
     const everyone = ["storage.root.full", "storage.mount.full", "storage.smart", "storage.mount.detached", "storage.mount.readonly", "power.ups", "power.lost", "system.services", "system.reboot", "docker.unhealthy", "docker.restarting", "storage.forecast", "smart.errors", "smart.wear", "joblog.unreadable", "release.available", "drive.reconnected", "boxpilot.restart", "hosted.down", "hosted.cert"];
-    const ownersOrTheirs = ["schedule.overdue", "schedule.failed", "flow.failed", "record.failed", "job.interrupted", "signin.new", "report.weekly", "approval.lapsed", "agent.important"];
+    const ownersOrTheirs = ["backup.cloud.unreadable", "schedule.overdue", "schedule.failed", "flow.failed", "record.failed", "job.interrupted", "signin.new", "report.weekly", "approval.lapsed", "agent.important"];
     expect([...everyone, ...ownersOrTheirs].sort()).toEqual([...Object.keys(healthConditions), ...Object.keys(noticeKinds)].sort());
     for (const family of [...everyone, ...ownersOrTheirs]) {
       history.record({ key: `${family}:subject`, kind: Object.hasOwn(noticeKinds, family) ? "notice" : "alert", title: `The words of ${family}`, message: `More about ${family}`, delivered: true });

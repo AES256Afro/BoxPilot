@@ -111,3 +111,41 @@ export function parseRcloneStats(output) {
   const errors = text.match(/Errors:\s+(\d+)/);
   return { filesTransferred: files ? Number(files[1]) : 0, filesTotal: files ? Number(files[2]) : 0, bytesTransferred: bytes ? bytes[1].replace(/\s+/g, " ") : null, errors: errors ? Number(errors[1]) : 0 };
 }
+
+/** Where the machine snapshots go inside the sealed remote: the sync copies the local folder under this name. */
+export const sealedSnapshotFolder = "machine-snapshots";
+
+/**
+ * What the settings keep of a mirror (`cloudDestinationLastSync`), from the sync's result and the
+ * record before it. `readBack` is this run's attempt to read the newest machine snapshot back through
+ * the sealed remote; `lastVerifiedAt` stays the newest time one succeeded, so a failure tonight does
+ * not erase that last week's copy was readable, and a success says so at once.
+ */
+export function cloudSyncRecord(result, previous = null) {
+  const readBack = result?.readBack && typeof result.readBack === "object" ? result.readBack : null;
+  const before = previous && typeof previous === "object" ? previous : null;
+  const lastVerifiedAt = readBack?.ok === true ? readBack.verifiedAt ?? null : before?.readBack?.lastVerifiedAt ?? null;
+  return {
+    completedAt: result.completedAt,
+    filesTransferred: result.filesTransferred,
+    bytesTransferred: result.bytesTransferred,
+    destination: result.destination,
+    errors: result.errors ?? 0,
+    readBack: readBack
+      ? { ok: readBack.ok ?? null, at: readBack.verifiedAt ?? readBack.checkedAt ?? result.completedAt ?? null, artifact: readBack.artifact ?? null, error: readBack.error ?? null, reason: readBack.reason ?? null, lastVerifiedAt }
+      : (before?.readBack ? { ...before.readBack } : null),
+  };
+}
+
+/**
+ * Health condition (health-alerts.mjs): the last mirror could not read its newest machine snapshot
+ * back through the sealed remote. A wrong passphrase, broken crypt settings or a damaged upload all
+ * look like a successful copy until the day the copy is needed; this says so the night it happens,
+ * and clears when a later mirror reads one back.
+ */
+export function evaluateCloudReadBack(lastSync) {
+  const readBack = lastSync && typeof lastSync === "object" ? lastSync.readBack : null;
+  if (!readBack || readBack.ok !== false) return [];
+  const since = readBack.lastVerifiedAt ? ` The last copy read back was checked ${String(readBack.lastVerifiedAt).slice(0, 10)}.` : " No copy in the bucket has been read back yet.";
+  return [{ key: "backup.cloud.unreadable", priority: "high", title: "The cloud copy could not be read back", message: `After the last mirror, ${readBack.artifact ?? "the newest machine snapshot"} could not be read back from the bucket: ${String(readBack.error ?? "unknown error").slice(0, 200)}.${since} Test the cloud destination on the Backups page.` }];
+}
