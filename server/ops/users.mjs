@@ -1,14 +1,13 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile, readdir } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
-import { githubUserPattern, usernamePattern, validKeyLines } from "../tasks/users.mjs";
+import { accessFacts, githubUserPattern, keyAdmins, keyOnlyRefusal, parseEffectiveSshd, usernamePattern } from "../tasks/users.mjs";
 
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
 const minutes = (value) => value * 60_000;
 
 /**
  * Human accounts: root plus uid >= 1000 with a login shell.
- * @returns {Array<{ name: string, uid: number, home: string, shell: string, sudo: boolean, keyCount?: number }>} keyCount is filled in by users.inspect
+ * @returns {Array<{ name: string, uid: number, home: string, shell: string, sudo: boolean, keyCount?: number, locked?: boolean, rootEquivalent?: boolean }>} keyCount, locked and rootEquivalent are filled in by users.inspect
  */
 export function parseUsers(passwdContent, groupContent) {
   const sudoLine = String(groupContent ?? "").split("\n").find((line) => line.startsWith("sudo:"));
@@ -43,24 +42,34 @@ export function userOperations() {
     defineOperation({
       // operator (ADR-003): reads every user's ~/.ssh/authorized_keys and sshd -T as root - files a viewer cannot open.
       id: "users.inspect", title: "List users and SSH access", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
-      description: "Human accounts, their sudo membership and key counts, and the effective sshd settings.",
-      run: async (_parameters, { run }) => {
-        const [passwd, group] = await Promise.all([
-          readFile("/etc/passwd", "utf8").catch(() => ""),
-          readFile("/etc/group", "utf8").catch(() => ""),
-        ]);
-        const users = parseUsers(passwd, group);
-        for (const user of users) {
-          const keys = await readFile(path.join(user.home, ".ssh", "authorized_keys"), "utf8").catch(() => "");
-          user.keyCount = validKeyLines(keys).length;
-          delete user.home;
-        }
+      description: "Human accounts, their sudo membership, key counts and whether they are locked, and the effective sshd settings.",
+      run: async (_parameters, { run, read = (file) => readFile(file, "utf8"), list = (dir) => readdir(dir), now = Date.now() }) => {
+        const [passwd, group] = await Promise.all(["/etc/passwd", "/etc/group"].map((file) => read(file).catch(() => "")));
         const effective = await run("/usr/sbin/sshd", ["-T"], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
         const service = await run(systemctl, ["show", "ssh.service", "--property=ActiveState"], { timeout: 15_000 });
+        const sshd = effective.ok ? parseSshdConfig(effective.stdout) : null;
+        const effectiveSshd = effective.ok ? parseEffectiveSshd(effective.stdout) : null;
+        // The same facts ssh.password-auth.set and the lock/remove guards read (tasks/users.mjs).
+        const facts = await accessFacts({ read, list, today: Math.floor(now / 86_400_000), sshd: effectiveSshd });
+        const byName = new Map(facts.accounts.map((account) => [account.name, account]));
+        const users = parseUsers(passwd, group);
+        for (const user of users) {
+          const account = byName.get(user.name);
+          user.keyCount = account?.keyCount ?? 0;
+          user.locked = account?.locked ?? false;
+          // In a group that is root in all but name (docker, lxd, libvirt, wheel, admin, sudo) or named
+          // in sudoers: locking or opening it is the owner's, as the escalation hook raises it.
+          user.rootEquivalent = account?.rootEquivalent ?? true;
+          delete user.home;
+        }
         return {
           users,
-          sshd: effective.ok ? parseSshdConfig(effective.stdout) : null,
+          sshd,
           sshActive: /ActiveState=active/.test(service.stdout ?? ""),
+          // Who could still sign in with a key and use sudo, were passwords off (the guard ssh.password-auth.set applies).
+          keyAdmins: effectiveSshd ? keyAdmins({ accounts: facts.accounts, sshd: effectiveSshd }) : [],
+          // Why turning passwords off would be refused, in the owner's words; null when it would go ahead.
+          keyOnlyProblem: effectiveSshd ? keyOnlyRefusal({ ...facts, sshd: effectiveSshd }) : "The effective SSH configuration could not be read.",
         };
       },
     }),
@@ -84,9 +93,28 @@ export function userOperations() {
     }),
     defineOperation({
       id: "ssh.password-auth.set", title: "Change SSH password login", risk: "high", timeoutMs: minutes(3),
-      description: "Turns signing in over SSH with a password on or off. Turning it off needs at least one user with an SSH key, so nobody is locked out. Tailscale SSH is not affected.",
+      description: "Turns signing in over SSH with a password on or off; off also turns off keyboard-interactive login, which asks for the same password. Turning it off needs an administrator who can sign in with a key sshd accepts and then use sudo, and is refused while AuthenticationMethods asks for more than a key, so nobody is locked out. Tailscale SSH is not affected.",
       parameters: { fields: { enabled: { type: "boolean" } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("ssh.password-auth", { enabled: parameters.enabled }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "users.lock", title: "Lock a user", risk: "medium", timeoutMs: minutes(3),
+      description: "Locks the account's password and expires it, so it cannot sign in with a password or a key. Its files and keys are kept. Refused for root, system accounts, BoxPilot's own accounts and the last administrator.",
+      parameters: { fields: { username: usernameField } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("users.lock", { username: parameters.username }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "users.unlock", title: "Unlock a user", risk: "medium", timeoutMs: minutes(3),
+      description: "Clears the account's expiry and unlocks its password if it has one, so it can sign in again.",
+      parameters: { fields: { username: usernameField } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("users.unlock", { username: parameters.username }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "users.remove", title: "Remove a user", risk: "high", timeoutMs: minutes(3),
+      confirm: (parameters) => parameters.username,
+      description: "Deletes the account with userdel. Its home folder is kept unless you choose to remove it too. Refused for root, system accounts, BoxPilot's own accounts and the last administrator.",
+      parameters: { fields: { username: usernameField, removeHome: { type: "boolean", optional: true } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("users.remove", { username: parameters.username, removeHome: parameters.removeHome ?? false }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
   ];
 }

@@ -5,13 +5,14 @@
  * medium operation, what a high one guards. The jobs service, flows, the scheduler and the agents' plans
  * all take the tier from these (server/index.mjs registers them), and a hook can only raise a tier.
  */
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import os from "node:os";
 import { backupMountName, isBackupDestinationPath } from "../backup-mount.mjs";
 import { dataRoots } from "../catalog/schema.mjs";
 import { loginHomesFrom, servesHome } from "../tasks/served-folder.mjs";
 export { loginHomesFrom };
 import { packageBase, protectedPackages } from "../tasks/apt.mjs";
+import { groupsOf, readSudoers, rootEquivalentGroups, sudoRuleNames } from "../tasks/users.mjs";
 import { tunnelAppId } from "../cloudflare-tunnel.mjs";
 import { defaultKeepBackupsPerApp } from "../housekeeping.mjs";
 
@@ -58,6 +59,36 @@ const ownAddresses = () => Object.values(os.networkInterfaces()).flat().filter((
 export const historyFloor = Object.freeze({ days: 7, journalBytes: 256 * 1024 ** 2 });
 const below = (value, floor) => value !== undefined && value !== null && Number(value) < floor;
 
+/**
+ * Locking or unlocking an administrator changes who administers this server, which is what
+ * users.sudo.set (high) guards: an operator could shut the owner's own account, or open one the
+ * owner shut. An administrator is anyone root in all but name: a member of sudo, admin or wheel, or
+ * of docker, lxd or libvirt (whose daemons run what a member asks as root), or anyone a sudoers rule
+ * names. Anything that cannot be read or understood counts as an administrator: /etc/passwd,
+ * /etc/group, or a sudoers file that is there but garbled or holds an include this does not follow.
+ *
+ * One exception (M90): this runs in the web service, which is not root, and /etc/sudoers is 0440
+ * root on Ubuntu. Counting "permission denied" as "an administrator" raised every lock and unlock
+ * to high on a real server. There the groups decide: they are how BoxPilot itself grants
+ * administration (users.sudo.set). An account named only by a sudoers rule is the one this cannot
+ * see, and the root task's own last-administrator guard (tasks/users.mjs) still reads sudoers in full.
+ * @param {{ read?: (file: string) => Promise<string>, list?: (dir: string) => Promise<string[]> }} [sources]
+ */
+export function adminAccountRisk({ read = (file) => readFile(file, "utf8"), list = (dir) => readdir(dir) } = {}) {
+  return async (parameters) => {
+    const username = String(parameters?.username ?? "");
+    const [passwd, group] = await Promise.all(["/etc/passwd", "/etc/group"].map((file) => Promise.resolve().then(() => read(file)).catch(() => null)));
+    if (passwd === null || group === null) return "high";
+    const groups = groupsOf(username, passwd, group);
+    if (groups.some((name) => rootEquivalentGroups.includes(name))) return "high";
+    const denied = await Promise.resolve().then(() => read("/etc/sudoers")).then(() => false, (error) => error?.code === "EACCES" || error?.code === "EPERM");
+    if (denied) return null;
+    const sudoers = await readSudoers({ read, list }).catch(() => null);
+    if (!sudoers?.readable || !sudoers.complete) return "high";
+    return high(sudoers.rules.some((rule) => sudoRuleNames(rule, { name: username, groups })));
+  };
+}
+
 /** The higher of several hooks' tiers, for an operation two concerns raise (a manifest's tier, a folder). */
 export function higherOf(...hooks) {
   const order = ["low", "medium", "high"];
@@ -73,6 +104,8 @@ export const escalationRiskHooks = Object.freeze({
   "nfs.apply": async (parameters) => high(await servesLoginHome((parameters?.exports ?? []).map((entry) => entry?.path))),
   // Importing keys is users.keys.import, which is high; creating the account with them is the same.
   "users.add": (parameters) => high(Boolean(parameters?.githubUser)),
+  "users.lock": adminAccountRisk(),
+  "users.unlock": adminAccountRisk(),
   "apt.remove": (parameters) => high((parameters?.packages ?? []).some((name) => protectedPackages.includes(packageBase(name)))),
   "service.action": (parameters) => high(packetFilterUnit.test(String(parameters?.unit ?? ""))),
   // Whatever is mounted at the backup destination is where backup.sync copies every app's secrets

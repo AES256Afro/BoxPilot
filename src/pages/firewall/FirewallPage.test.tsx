@@ -80,29 +80,107 @@ describe("Firewall page", () => {
     expect(within(ssh as HTMLElement).queryByRole("button", { name: /Delete/ })).toBeNull();
     expect(ssh?.textContent).toContain("kept open");
     expect(rows.find((row) => row.textContent?.includes("41641"))?.textContent).not.toContain("Delete");
-    const remove = within(table).getByRole("button", { name: "Delete allow 8096/tcp" });
+    const remove = within(table).getByRole("button", { name: "Delete allow 8096/tcp from anywhere" });
     expect(remove.getAttribute("data-risk")).toBe("medium");
     fireEvent.click(remove);
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     await waitFor(() => expect(staged["firewall.rule.delete"]).toEqual({ parameters: { action: "allow", port: 8096, protocol: "tcp" } }));
   });
 
-  // Delete sends only action, port and protocol, which ufw reads as an incoming rule from anywhere:
-  // offered on an outgoing or source-restricted rule, it deleted another rule or failed.
-  it("offers Delete only on an incoming rule from anywhere, the rule it would delete", async () => {
+  // Delete names a rule by action, port, protocol and (M90) source, which ufw reads as an incoming
+  // rule from that source: offered on an outgoing rule, it deleted another rule or failed. A rule
+  // limited to one range had no Delete and nothing saying why, and looked like a rule from anywhere.
+  it("shows where each rule lets traffic in from, deletes a LAN-only rule by its source, and says why a rule has no Delete", async () => {
+    const staged: Record<string, unknown> = {};
     window.history.replaceState(null, "", "/?view=firewall&tab=rules");
-    mockFetch(overview({ report: { ...report, rules: [
+    mockFetch(overview({ sources: { lan: "192.168.1.0/24", tailnet: ["100.64.0.0/10", "fd7a:115c:a1e0::/48"] }, report: { ...report, rules: [
       ...report.rules,
       { action: "deny", protocol: "tcp", port: 25, app: null, direction: "out", interface: null, comment: "No outgoing mail", family: "both" },
       { action: "allow", protocol: "tcp", port: 9000, app: null, direction: "in", interface: null, source: "192.168.1.0/24", comment: "LAN only", family: "v4" },
-    ] } }));
+      { action: "allow", protocol: "tcp", port: 3306, app: null, direction: "in", interface: null, destination: "192.168.1.5", comment: "One address", family: "v4" },
+    ] } }), staged);
     render(<FirewallPage csrfToken="csrf" now={now} />);
     const table = await screen.findByRole("table", { name: "Firewall rules from ufw" });
     await within(table).findByText("No outgoing mail");
     const rows = within(table).getAllByRole("row");
-    expect(within(rows.find((row) => row.textContent?.includes("No outgoing mail")) as HTMLElement).queryByRole("button", { name: /Delete/ })).toBeNull();
-    expect(within(rows.find((row) => row.textContent?.includes("LAN only")) as HTMLElement).queryByRole("button", { name: /Delete/ })).toBeNull();
-    expect(within(table).getByRole("button", { name: "Delete allow 8096/tcp" })).toBeTruthy();
+    const row = (text: string) => rows.find((entry) => entry.textContent?.includes(text)) as HTMLElement;
+    expect(within(table).getByRole("columnheader", { name: "From" })).toBeTruthy();
+    expect(row("Jellyfin").textContent).toContain("anywhere");
+    expect(row("LAN only").textContent).toContain("192.168.1.0/24 (this LAN)");
+    expect(row("One address").textContent).toContain("to 192.168.1.5");
+    expect(within(row("No outgoing mail")).queryByRole("button", { name: /Delete/ })).toBeNull();
+    expect(within(row("No outgoing mail")).getByTitle(/BoxPilot deletes incoming rules only/).textContent).toBe("outgoing");
+    expect(within(row("One address")).queryByRole("button", { name: /Delete/ })).toBeNull();
+    expect(within(row("One address")).getByText("one address")).toBeTruthy();
+    expect(within(table).getByRole("button", { name: "Delete allow 8096/tcp from anywhere" })).toBeTruthy();
+    fireEvent.click(within(row("LAN only")).getByRole("button", { name: "Delete allow 9000/tcp from this LAN (192.168.1.0/24)" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(screen.getByText(/ufw delete allow from 192\.168\.1\.0\/24 to any port 9000 proto tcp/)).toBeTruthy();
+    await waitFor(() => expect(staged["firewall.rule.delete"]).toEqual({ parameters: { action: "allow", port: 9000, protocol: "tcp", source: "192.168.1.0/24" } }));
+  });
+
+  // M90: `ufw allow 8096/tcp` let in anyone, the server's global IPv6 address included, while the
+  // preview said "to devices on your network".
+  it("adds a rule from this LAN by default, and from the tailnet or anywhere when chosen", async () => {
+    const staged: Record<string, unknown> = {};
+    window.history.replaceState(null, "", "/?view=firewall&tab=rules");
+    mockFetch(overview({ sources: { lan: "192.168.1.0/24", tailnet: ["100.64.0.0/10", "fd7a:115c:a1e0::/48"] } }), staged);
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add a rule…" }));
+    let sheet = await screen.findByRole("dialog", { name: "Add a rule" });
+    expect((within(sheet).getByLabelText("From") as HTMLSelectElement).value).toBe("lan");
+    fireEvent.change(within(sheet).getByLabelText("Port"), { target: { value: "8096" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Add rule" }));
+    expect(await screen.findByText(/Opens port 8096\/tcp to devices on this LAN \(192\.168\.1\.0\/24\)/)).toBeTruthy();
+    await waitFor(() => expect(staged["firewall.rule.add"]).toEqual({ parameters: { action: "allow", port: 8096, protocol: "tcp", source: "192.168.1.0/24" } }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    delete staged["firewall.rule.add"];
+    fireEvent.click(await screen.findByRole("button", { name: "Add a rule…" }));
+    sheet = await screen.findByRole("dialog", { name: "Add a rule" });
+    fireEvent.change(within(sheet).getByLabelText("From"), { target: { value: "tailnet" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Add rule" }));
+    await waitFor(() => expect(staged["firewall.rule.add"]).toEqual({ parameters: { action: "allow", port: 8096, protocol: "tcp", source: "100.64.0.0/10" } }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    delete staged["firewall.rule.add"];
+    fireEvent.click(await screen.findByRole("button", { name: "Add a rule…" }));
+    sheet = await screen.findByRole("dialog", { name: "Add a rule" });
+    fireEvent.change(within(sheet).getByLabelText("From"), { target: { value: "anywhere" } });
+    expect(within(sheet).getByText(/including over its public IPv6 address/)).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Add rule" }));
+    await waitFor(() => expect(staged["firewall.rule.add"]).toEqual({ parameters: { action: "allow", port: 8096, protocol: "tcp" } }));
+  });
+
+  // M90: the profile apply used to only add, so the owner could not tell that switching closed nothing.
+  it("says in the sheet and in the approval which rules applying the profile closes", async () => {
+    const staged: Record<string, unknown> = {};
+    const fetchMock = mockFetch(overview(), staged);
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (!url.startsWith("/api/v1/firewall/plan?")) return answer(input, init);
+      const tailnet = new URL(url, "http://localhost").searchParams.get("profile") === "tailscale-only";
+      return json({ profile: { id: "x", name: "x" }, services: [], steps: [
+        { args: ["allow", "22/tcp", "comment", "BoxPilot keeps SSH reachable"], label: "Keep SSH reachable (22/tcp)" },
+        ...(tailnet ? [
+          { args: ["--force", "delete", "allow", "80/tcp"], label: "Close 80/tcp (Web (HTTP/HTTPS)): Tailscale only opens nothing on the LAN", removes: { action: "allow", port: 80, protocol: "tcp", source: null, comment: "BoxPilot service: Web (HTTP/HTTPS)" } },
+          { args: ["--force", "delete", "allow", "8096/tcp"], label: "Close 8096/tcp (Jellyfin): Tailscale only opens nothing on the LAN", removes: { action: "allow", port: 8096, protocol: "tcp", source: null, comment: "Jellyfin" } },
+        ] : []),
+        { args: ["--force", "enable"], label: "Turn the firewall on" },
+      ] });
+    });
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Choose a profile…" }));
+    const sheet = await screen.findByRole("dialog", { name: "Choose a firewall profile" });
+    expect(await within(sheet).findByText(/Nothing open now is closed/)).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("radio", { name: "Tailscale only" }));
+    const closes = await within(sheet).findByRole("region", { name: "Closed by this choice" });
+    expect(await within(closes).findByText("allow 80/tcp")).toBeTruthy();
+    expect(within(closes).getByText("allow 8096/tcp")).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Review and apply" }));
+    expect(await screen.findByText("Closes 2 rules")).toBeTruthy();
+    await waitFor(() => expect(staged["firewall.profile.apply"]).toBeTruthy());
   });
 
   it("adds a rule from a sheet, and refuses a deny on a port that stays open", async () => {
@@ -146,7 +224,7 @@ describe("Firewall page", () => {
     fireEvent.click(review);
     expect(await screen.findByText("High risk")).toBeTruthy();
     expect(screen.getByText("Keep SSH reachable (22/tcp)", { exact: false })).toBeTruthy();
-    await waitFor(() => expect(staged["firewall.profile.apply"]).toEqual({ parameters: { profile: "home-server", services: ["dns"], replace: false, sshRateLimit: true } }));
+    await waitFor(() => expect(staged["firewall.profile.apply"]).toEqual({ parameters: { profile: "home-server", services: ["dns"], replace: false, sshRateLimit: true, closes: [] } }));
   });
 
   it("offers a profile where an empty, switched-off firewall's rules would be", async () => {
@@ -190,14 +268,60 @@ describe("Firewall page", () => {
     expect(within(sheet).getByRole("radio", { name: "Tailscale only" }).getAttribute("aria-checked")).toBe("true");
     expect((within(sheet).getByLabelText("Web (HTTP/HTTPS)") as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(within(sheet).getByRole("button", { name: "Review and apply" }));
-    await waitFor(() => expect(staged["firewall.profile.apply"]).toEqual({ parameters: { profile: "tailscale-only", services: [], replace: false, sshRateLimit: false } }));
+    await waitFor(() => expect(staged["firewall.profile.apply"]).toEqual({ parameters: { profile: "tailscale-only", services: [], replace: false, sshRateLimit: false, closes: [] } }));
+  });
+
+  // M90 review: the form took "rate-limit SSH" from the last profile apply, so after the one-click
+  // `limit 22/tcp` the next re-apply ran `allow 22/tcp` and quietly undid it. It reads the rules now.
+  it("ticks rate-limited SSH from the rules in place, not from the last profile apply", async () => {
+    const staged: Record<string, unknown> = {};
+    const limited = { ...report, rules: [{ action: "limit", protocol: "tcp", port: 22, app: null, direction: "in", interface: null, source: null, comment: "BoxPilot keeps SSH reachable rate-limited", family: "both" }, ...report.rules.slice(1)] };
+    mockFetch(overview({ report: limited, current: { id: "home-server", services: [], sshRateLimit: false, appliedAt: "2026-08-21T15:00:00.000Z" } }), staged);
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Choose a profile…" }));
+    const sheet = await screen.findByRole("dialog", { name: "Choose a firewall profile" });
+    expect((within(sheet).getByLabelText("Rate-limit SSH logins") as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(within(sheet).getByRole("button", { name: "Review and apply" }));
+    await waitFor(() => expect(staged["firewall.profile.apply"]).toMatchObject({ parameters: { sshRateLimit: true } }));
+  });
+
+  it("reads rate-limited SSH on the port sshd uses, and not from a LAN-only limit", async () => {
+    const onPort = (rules: unknown[]) => ({ report: { ...report, rules }, protected: [{ port: 22, protocol: "tcp", label: "SSH", kind: "ssh", reason: "x", allow: true }, { port: 2222, protocol: "tcp", label: "SSH", kind: "ssh", reason: "x", allow: true }, ...protectedRules.slice(1)], current: { id: "home-server", services: [], sshRateLimit: true, appliedAt: null } });
+    const limit = (extra: Record<string, unknown>) => ({ action: "limit", protocol: "tcp", port: 2222, app: null, direction: "in", interface: null, source: null, comment: null, family: "both", ...extra });
+    mockFetch(overview(onPort([limit({})])));
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Choose a profile…" }));
+    expect((within(await screen.findByRole("dialog", { name: "Choose a firewall profile" })).getByLabelText("Rate-limit SSH logins") as HTMLInputElement).checked).toBe(true);
+    cleanup();
+    // Applied with rate-limiting before, but the rule in place is a LAN-only limit: not what the box ticks.
+    mockFetch(overview(onPort([limit({ source: "192.168.1.0/24" })])));
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Choose a profile…" }));
+    expect((within(await screen.findByRole("dialog", { name: "Choose a firewall profile" })).getByLabelText("Rate-limit SSH logins") as HTMLInputElement).checked).toBe(false);
+  });
+
+  // M90 review: the removals the approval shows go with the job, so the task can refuse a different set.
+  it("sends the removals the preview showed with the apply", async () => {
+    const staged: Record<string, unknown> = {};
+    const fetchMock = mockFetch(overview(), staged);
+    const answer = fetchMock.getMockImplementation()!;
+    const removes = { action: "allow", port: 32400, protocol: "tcp", source: null, comment: "BoxPilot service: Plex" };
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => (input.toString().startsWith("/api/v1/firewall/plan?")
+      ? json({ profile: { id: "home-server", name: "Home server" }, services: [], notes: ["The SSH port could not be read, so 22 is kept."], steps: [{ args: ["--force", "delete", "allow", "32400/tcp"], label: "Close 32400/tcp (Plex): Plex is no longer chosen", removes }, { args: ["--force", "enable"], label: "Turn the firewall on" }] })
+      : answer(input, init)));
+    render(<FirewallPage csrfToken="csrf" now={now} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Choose a profile…" }));
+    const sheet = await screen.findByRole("dialog", { name: "Choose a firewall profile" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Review and apply" }));
+    expect(await screen.findByText("The SSH port could not be read, so 22 is kept.")).toBeTruthy();
+    await waitFor(() => expect(staged["firewall.profile.apply"]).toMatchObject({ parameters: { closes: [{ action: "allow", port: 32400, protocol: "tcp", source: null }] } }));
   });
 
   it("turns suggestions into one-click operations with their tier", async () => {
     const staged: Record<string, unknown> = {};
     mockFetch(overview({ advice: [
       { id: "app-jellyfin-8096-tcp", level: "info", title: "Jellyfin is blocked for other devices", detail: "No rule allows 8096/tcp.", operationId: "firewall.rule.add", parameters: { action: "allow", port: 8096, protocol: "tcp", comment: "Jellyfin" }, actionLabel: "Allow Jellyfin" },
-      { id: "ssh-limit", level: "action", title: "Rate-limit SSH logins", detail: "Apply a profile.", focus: "profiles" },
+      { id: "enable-profile", level: "action", title: "Turn the firewall on", detail: "Apply a profile.", focus: "profiles" },
       { id: "fail2ban", level: "warn", title: "Turn on brute-force protection", detail: "SSH is open.", focus: "fail2ban" },
       { id: "orphan-53-udp", level: "info", title: "Nothing is listening on port 53", detail: "A rule allows 53/udp.", operationId: "firewall.rule.delete", parameters: { action: "allow", port: 53, protocol: "udp" } },
     ] }), staged);
@@ -287,5 +411,36 @@ describe("Firewall page", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("The helper is not answering");
     expect(screen.getByText("Not read").closest(".ui-chip")?.getAttribute("data-status")).toBe("unknown");
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+});
+
+describe("suggestions that change one rule (M90)", () => {
+  it("rate-limits SSH in one medium rule change, opens Network for plain HTTP, and lets an app's From be chosen", async () => {
+    const staged: Record<string, unknown> = {};
+    const opened: string[] = [];
+    const listener = (event: Event) => opened.push((event as CustomEvent<{ view: string }>).detail.view);
+    window.addEventListener("boxpilot:open-view", listener);
+    try {
+      mockFetch(overview({ sources: { lan: "192.168.1.0/24", tailnet: ["100.64.0.0/10", "fd7a:115c:a1e0::/48"] }, advice: [
+        { id: "ssh-limit", level: "info", title: "Rate-limit SSH logins", detail: "6 per 30 seconds.", operationId: "firewall.rule.add", parameters: { action: "limit", port: 22, protocol: "tcp", comment: "BoxPilot keeps SSH reachable rate-limited" }, actionLabel: "Rate-limit 22/tcp" },
+        { id: "lan-http", level: "info", title: "BoxPilot is served over plain HTTP on the LAN", detail: "Turn off LAN access, or set up HTTPS, on Network.", focus: "network", actionLabel: "Open Network" },
+        { id: "app-jellyfin-8096-tcp", level: "info", title: "Jellyfin is blocked for other devices", detail: "No rule allows 8096/tcp.", operationId: "firewall.rule.add", parameters: { action: "allow", port: 8096, protocol: "tcp", comment: "Jellyfin", source: "192.168.1.0/24" }, actionLabel: "Allow Jellyfin" },
+      ] }), staged);
+      render(<FirewallPage csrfToken="csrf" now={now} />);
+      const suggestions = await screen.findByRole("region", { name: "Suggestions" });
+      const limit = await within(suggestions).findByRole("button", { name: "Rate-limit 22/tcp" });
+      expect(limit.getAttribute("data-risk")).toBe("medium");
+      fireEvent.click(within(suggestions).getByRole("button", { name: "Open Network" }));
+      expect(opened).toEqual(["network"]);
+      fireEvent.click(within(suggestions).getByRole("button", { name: "Choose where 8096/tcp is open from" }));
+      const sheet = await screen.findByRole("dialog", { name: "Add a rule" });
+      expect((within(sheet).getByLabelText("Port") as HTMLInputElement).value).toBe("8096");
+      expect((within(sheet).getByLabelText(/Comment/) as HTMLInputElement).value).toBe("Jellyfin");
+      fireEvent.change(within(sheet).getByLabelText("From"), { target: { value: "tailnet" } });
+      fireEvent.click(within(sheet).getByRole("button", { name: "Add rule" }));
+      await waitFor(() => expect(staged["firewall.rule.add"]).toEqual({ parameters: { action: "allow", port: 8096, protocol: "tcp", comment: "Jellyfin", source: "100.64.0.0/10" } }));
+    } finally {
+      window.removeEventListener("boxpilot:open-view", listener);
+    }
   });
 });

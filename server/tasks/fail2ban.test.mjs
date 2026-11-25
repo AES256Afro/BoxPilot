@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { fail2banApply, parseJail, renderJail, validateFail2banConfig } from "./fail2ban.mjs";
 
-function fakeRun({ testFails = false } = {}) {
+function fakeRun({ testFails = false, failing = null } = {}) {
   return vi.fn(async (binary, args) => {
+    if (failing && `${binary.split("/").at(-1)} ${args.join(" ")}` === failing) return { ok: false, stdout: "", stderr: "Job for fail2ban.service failed" };
     if (binary.endsWith("fail2ban-client") && args[0] === "-t") return testFails ? { ok: false, stdout: "", stderr: "ERROR  Failed during configuration: bad value" } : { ok: true, stdout: "OK: configuration test is successful", stderr: "" };
     if (binary.endsWith("fail2ban-client")) return { ok: true, stdout: "Status for the jail: sshd\n|- Filter\n|  |- Currently failed: 0\n`- Actions\n   |- Currently banned: 2\n", stderr: "" };
     if (binary.endsWith("/ip")) return { ok: true, stdout: JSON.stringify([{ dst: "default", dev: "eno1" }, { dst: "192.168.1.0/24", dev: "eno1", scope: "link" }, { dst: "172.17.0.0/16", dev: "docker0", scope: "link" }]), stderr: "" };
@@ -52,7 +53,7 @@ describe("fail2ban tasks", () => {
 
   it("restores the previous jail when the config test fails, and disables cleanly", async () => {
     const files = fakeFiles({ existing: "# Managed by BoxPilot\n[DEFAULT]\nmaxretry = 5\n" });
-    await expect(fail2banApply({ maxRetry: 2 }, { run: fakeRun({ testFails: true }), files })).rejects.toThrow("restored the previous one");
+    await expect(fail2banApply({ maxRetry: 2 }, { run: fakeRun({ testFails: true }), files })).rejects.toThrow("(put the previous jail file back)");
     expect(files.state.jail).toContain("maxretry = 5");
     const run = fakeRun();
     await expect(fail2banApply({ enabled: false }, { run, files })).resolves.toEqual({ enabled: false });
@@ -61,5 +62,24 @@ describe("fail2ban tasks", () => {
     const missing = fakeFiles();
     missing.access = vi.fn(async () => { throw new Error("ENOENT"); });
     await expect(fail2banApply({}, { run: fakeRun(), files: missing })).rejects.toThrow("not installed");
+  });
+
+  // M90: the put-back message said "restored the previous one" when there was none.
+  it("says what the put-back did on a first apply the config test rejects", async () => {
+    const files = fakeFiles();
+    await expect(fail2banApply({}, { run: fakeRun({ testFails: true }), files })).rejects.toThrow("(there was no jail file before, so the rejected one was removed)");
+    expect(files.state.jail).toBeNull();
+    const stuck = fakeFiles();
+    stuck.unlink = vi.fn(async () => { throw Object.assign(new Error("EROFS"), { code: "EROFS" }); });
+    await expect(fail2banApply({}, { run: fakeRun({ testFails: true }), files: stuck })).rejects.toThrow("could not be removed (EROFS); it is still at /etc/fail2ban/jail.d/boxpilot.local");
+    const full = fakeFiles({ existing: "# Managed by BoxPilot\n" });
+    let writes = 0;
+    full.writeFile = vi.fn(async (path, content) => { writes += 1; if (writes > 1) throw new Error("ENOSPC"); full.state.jail = content; });
+    await expect(fail2banApply({}, { run: fakeRun({ testFails: true }), files: full })).rejects.toThrow("could not put the previous jail file back (ENOSPC); the rejected one is still at");
+  });
+
+  it("does not say fail2ban stopped, or the new jail is in force, when systemctl failed", async () => {
+    await expect(fail2banApply({ enabled: false }, { run: fakeRun({ failing: "systemctl disable --now fail2ban" }), files: fakeFiles({ existing: "x" }) })).rejects.toThrow("Could not stop fail2ban, so its bans are still in force");
+    await expect(fail2banApply({}, { run: fakeRun({ failing: "systemctl reload-or-restart fail2ban" }), files: fakeFiles() })).rejects.toThrow("did not reload the new jail file");
   });
 });

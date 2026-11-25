@@ -1,15 +1,17 @@
 import { useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
-import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, TextInput, mayStart, riskOf, type Status } from "../../ui";
+import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Table, TextInput, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
 import type { Fail2banState } from "./types";
 
 /*
  * Brute-force protection for SSH (fail2ban), the Firewall page's third tab (M33.10). Facts first:
- * whether it is on, how many addresses are banned now and since it started, the thresholds and
- * what is never banned. Those facts are every account's to see (ADR-003 addendum, 2026-09-28);
- * only changing them needs a role that may.
+ * whether it is on, how many addresses are banned now and since it started, which ones, the
+ * thresholds and what is never banned. Those facts are every account's to see (ADR-003 addendum,
+ * 2026-09-28); only changing them, or lifting a ban, needs a role that may.
  */
+
+interface BannedRow { address: string }
 
 export function fail2banVerdict(state: Fail2banState | null): { status: Status; label: string } {
   if (!state) return { status: "unknown", label: "not read" };
@@ -79,6 +81,24 @@ export function FirewallBruteForce({ state, error, role, start, onRetry }: Firew
   const ban = whole(banTime, 1, 43200);
   const ready = retries !== null && find !== null && ban !== null;
   const canApply = mayStart(role, "fail2ban.apply");
+  const canUnban = mayStart(role, "fail2ban.unban");
+  const banned: BannedRow[] = (state.bannedAddresses ?? []).map((address) => ({ address }));
+  const unlisted = state.currentlyBanned !== null && state.bannedAddresses ? Math.max(0, state.currentlyBanned - state.bannedAddresses.length) : 0;
+
+  const unban = (address: string) => start({
+    operationId: "fail2ban.unban",
+    title: `Lift the ban on ${address}`,
+    parameters: { address },
+    preview: <span>Runs <code>fail2ban-client set sshd unbanip {address}</code>: that address can try SSH again now. It is banned again if it keeps failing.</span>,
+  });
+  const bannedColumns: Array<TableColumn<BannedRow>> = [
+    { id: "address", header: "Address", sortValue: (row) => row.address, cell: (row) => <code>{row.address}</code> },
+    ...(canUnban ? [{
+      id: "actions", header: <span className="ui-visually-hidden">Actions</span>, label: "Actions", cell: (row: BannedRow) => (
+        <Button risk={riskOf("fail2ban.unban")} onClick={() => unban(row.address)} aria-label={`Lift the ban on ${row.address}`}>Unban</Button>
+      ),
+    }] : []),
+  ];
 
   const apply = (enabled: boolean) => start({
     operationId: "fail2ban.apply",
@@ -113,6 +133,12 @@ export function FirewallBruteForce({ state, error, role, start, onRetry }: Firew
           ]}
         />
       </Panel>
+
+      {banned.length > 0 && (
+        <Panel className="firewall-banned" title="Banned addresses" count={banned.length} meta={unlisted ? `and ${unlisted} more not listed` : "until their ban runs out"}>
+          <Table caption="Addresses banned from SSH now" columns={bannedColumns} rows={banned} rowKey={(row) => row.address} defaultSort={{ column: "address", direction: "ascending" }} empty="Nothing is banned." />
+        </Panel>
+      )}
 
       {canApply && (
         <Panel padded className="firewall-thresholds" title="Thresholds" meta={active ? "in force" : "not in force"}>

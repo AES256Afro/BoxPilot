@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRegistry } from "./registry.mjs";
 import { operationModules, registry } from "./index.mjs";
-import { escalationRiskHooks, higherOf, homepageHostRisk, loginHomesFrom, packetFilterUnit, reachesBackupDestination, serveWithdrawRisk } from "./escalation.mjs";
+import { adminAccountRisk, escalationRiskHooks, higherOf, homepageHostRisk, loginHomesFrom, packetFilterUnit, reachesBackupDestination, serveWithdrawRisk } from "./escalation.mjs";
 import { loadCatalog } from "../catalog/index.mjs";
 import { onLinux } from "../../test/platform.mjs";
 import { servesHome } from "../tasks/served-folder.mjs";
@@ -30,6 +30,44 @@ describe("a medium operation is high for what it acts on", () => {
     expect(await tier("users.add", { username: "sam", githubUser: null })).toBe("medium");
     expect(await tier("users.add", { username: "sam" })).toBe("medium");
     expect(registry.get("users.keys.import").risk).toBe("high");
+  });
+
+  // M90: locking or unlocking an administrator is changing who administers, as users.sudo.set (high) is.
+  it("raises locking or unlocking an administrator, and leaves other people's accounts one approval", async () => {
+    const etc = {
+      "/etc/passwd": "alex:x:1000:1000::/home/alex:/bin/bash\nsam:x:1001:1001::/home/sam:/bin/bash\npat:x:1002:1002::/home/pat:/bin/bash\nal:x:1003:1003::/home/al:/bin/bash\n",
+      "/etc/group": "adm:x:4:syslog\nsudo:x:27:alex,sam\nusers:x:100:pat\n",
+      "/etc/sudoers": "root ALL=(ALL:ALL) ALL\n%sudo ALL=(ALL:ALL) ALL\n@includedir /etc/sudoers.d\n",
+    };
+    const sources = (files, folder = []) => ({ read: async (file) => (file in files ? files[file] : Promise.reject(new Error("EACCES"))), list: async () => folder });
+    const hook = adminAccountRisk(sources(etc));
+    expect(await hook({ username: "alex" })).toBe("high");
+    expect(await hook({ username: "sam" })).toBe("high");
+    expect(await hook({ username: "pat" })).toBeNull();
+    expect(await hook({ username: "al" })).toBeNull();
+    // M90 review: docker, lxd, libvirt, wheel and admin are root in all but name, and so is a sudoers grant.
+    for (const name of ["docker", "lxd", "libvirt", "wheel", "admin"]) {
+      expect(await adminAccountRisk(sources({ ...etc, "/etc/group": `${etc["/etc/group"]}${name}:x:900:pat\n` }))({ username: "pat" }), name).toBe("high");
+    }
+    expect(await adminAccountRisk(sources({ ...etc, "/etc/group": `${etc["/etc/group"]}pat:x:1002:\n` }))({ username: "pat" })).toBeNull();
+    expect(await adminAccountRisk(sources({ ...etc, "/etc/group": "docker:x:1002:\n" }))({ username: "pat" })).toBe("high");
+    expect(await adminAccountRisk(sources({ ...etc, "/etc/sudoers.d/pat": "pat ALL=(ALL) /usr/bin/systemctl\n" }, ["pat"]))({ username: "pat" })).toBe("high");
+    expect(await adminAccountRisk(sources({ ...etc, "/etc/sudoers.d/ops": "%users ALL=(ALL) NOPASSWD: ALL\n" }, ["ops"]))({ username: "pat" })).toBe("high");
+    expect(await adminAccountRisk(sources({ ...etc, "/etc/sudoers.d/sam": "sam ALL=(ALL) ALL\n" }, ["sam"]))({ username: "pat" })).toBeNull();
+    // What cannot be read or understood counts as an administrator.
+    for (const missing of ["/etc/group", "/etc/passwd", "/etc/sudoers"]) {
+      expect(await adminAccountRisk(sources(Object.fromEntries(Object.entries(etc).filter(([file]) => file !== missing))))({ username: "pat" }), missing).toBe("high");
+    }
+    expect(await adminAccountRisk({ read: sources(etc).read, list: async () => { throw new Error("EACCES"); } })({ username: "pat" })).toBe("high");
+    expect(await adminAccountRisk(sources(etc, ["unread"]))({ username: "pat" })).toBe("high");
+    expect(await adminAccountRisk(sources({ ...etc, "/etc/sudoers": `User_Alias OPS = pat\n${etc["/etc/sudoers"]}` }))({ username: "pat" })).toBe("high");
+    // As the web service sees it on Ubuntu: sudoers is root's alone. The groups decide then (M90).
+    const denied = (files) => ({ read: async (file) => (file === "/etc/sudoers" ? Promise.reject(Object.assign(new Error("EACCES"), { code: "EACCES" })) : files[file]), list: async () => [] });
+    expect(await adminAccountRisk(denied(etc))({ username: "pat" })).toBeNull();
+    expect(await adminAccountRisk(denied(etc))({ username: "alex" })).toBe("high");
+    expect(await adminAccountRisk(denied({ ...etc, "/etc/group": `${etc["/etc/group"]}docker:x:900:pat\n` }))({ username: "pat" })).toBe("high");
+    for (const id of ["users.lock", "users.unlock"]) expect(id in escalationRiskHooks, id).toBe(true);
+    expect(registry.get("users.remove").risk).toBe("high");
   });
 
   it("raises removing what keeps SSH, Tailscale and the firewall up, however apt is told", async () => {

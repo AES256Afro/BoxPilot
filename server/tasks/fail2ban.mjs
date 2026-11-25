@@ -91,10 +91,11 @@ export async function fail2banApply({ enabled = true, maxRetry = 5, findTimeMinu
   const installed = await files.access(binaries.client).then(() => true, () => false);
   if (!installed) throw new Error("fail2ban is not installed; install it from the Firewall page first");
   if (!enabled) {
-    await files.unlink(jailPath).catch(() => {});
-    await run(binaries.systemctl, ["disable", "--now", "fail2ban"], { timeout: 60_000 });
-    log?.("fail2ban stopped and disabled; the managed jail file was removed", "stdout");
-    return { enabled: false };
+    const removed = await Promise.resolve().then(() => files.unlink(jailPath)).then(() => true, (error) => error?.code === "ENOENT");
+    const stopped = await run(binaries.systemctl, ["disable", "--now", "fail2ban"], { timeout: 60_000 });
+    if (!stopped.ok) throw new Error(`Could not stop fail2ban, so its bans are still in force${removed ? " (the managed jail file was removed)" : ""}: ${tail(stopped.stderr) || "no reason given"}`);
+    log?.(`fail2ban stopped and disabled; ${removed ? "the managed jail file was removed" : `the managed jail file could not be removed and is still at ${jailPath}`}`, "stdout");
+    return removed ? { enabled: false } : { enabled: false, warnings: [`The managed jail file could not be removed and is still at ${jailPath}; fail2ban is stopped, so it is not in force.`] };
   }
   const lanSubnets = ignoreLan ? await lanSubnetsFrom(run) : [];
   // Without a subnet to exempt, "never ban the LAN" is a promise the jail does not keep — and the
@@ -106,12 +107,25 @@ export async function fail2banApply({ enabled = true, maxRetry = 5, findTimeMinu
   await files.writeFile(jailPath, renderJail({ maxRetry, findTimeMinutes, banTimeMinutes, ignoreLan, lanSubnets, ufwPresent }), { mode: 0o644 });
   const test = await run(binaries.client, ["-t"], { timeout: 60_000 });
   if (!test.ok) {
-    if (previous !== null) await files.writeFile(jailPath, previous, { mode: 0o644 }); else await files.unlink(jailPath).catch(() => {});
-    throw new Error(`fail2ban rejected the configuration (restored the previous one): ${tail(test.stderr) || tail(test.stdout)}`);
+    // M90 (as M73 did for Samba and NFS): the message says what the put-back did. With no jail file
+    // before, there is nothing to restore: the rejected one is removed, and if that fails, it says so.
+    let putBack;
+    if (previous !== null) {
+      putBack = await Promise.resolve().then(() => files.writeFile(jailPath, previous, { mode: 0o644 })).then(
+        () => "put the previous jail file back",
+        (error) => `could not put the previous jail file back (${error.message}); the rejected one is still at ${jailPath}`);
+    } else {
+      putBack = await Promise.resolve().then(() => files.unlink(jailPath)).then(
+        () => "there was no jail file before, so the rejected one was removed",
+        (error) => `there was no jail file before, and the rejected one could not be removed (${error.message}); it is still at ${jailPath}`);
+    }
+    throw new Error(`fail2ban rejected the configuration (${putBack}): ${tail(test.stderr) || tail(test.stdout)}`);
   }
   const enable = await run(binaries.systemctl, ["enable", "--now", "fail2ban"], { timeout: 60_000 });
   if (!enable.ok) throw new Error(`Could not start fail2ban: ${tail(enable.stderr)}`);
-  await run(binaries.systemctl, ["reload-or-restart", "fail2ban"], { timeout: 60_000 });
+  // A fail2ban already running only takes the new jail on a reload; without one, the thresholds below would be the old ones.
+  const reload = await run(binaries.systemctl, ["reload-or-restart", "fail2ban"], { timeout: 60_000 });
+  if (!reload.ok) throw new Error(`fail2ban is running, but did not reload the new jail file, so the previous thresholds may still be in force: ${tail(reload.stderr) || "no reason given"}`);
   let status = null;
   for (let attempt = 0; attempt < 5 && !status; attempt += 1) {
     const probe = await run(binaries.client, ["status", "sshd"], { timeout: 15_000 });

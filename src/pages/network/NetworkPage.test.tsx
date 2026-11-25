@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import NetworkPage from "./NetworkPage";
-import { json, mockFetch, now, topology } from "./testData";
+import { capabilities, json, mockFetch, now, topology } from "./testData";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
 
@@ -54,7 +54,9 @@ describe("Network page", () => {
     await within(reach).findByText("https://homebox.lan:8443");
     expect(within(reach).getByText("install certificate")).toBeTruthy();
     expect(within(reach).getByRole("button", { name: "Copy https://homebox.lan:8443" })).toBeTruthy();
-    expect(reach.textContent).toContain("tailscale serve --bg http://127.0.0.1:8787");
+    // M90: the command is the one ADR-017 settled, to BoxPilot's socket and with sudo, not the
+    // loopback port the same panel then calls unsafe.
+    expect(reach.textContent).toContain("sudo tailscale serve --bg unix:/run/boxpilot-web/serve.sock");
     expect(within(reach).getByRole("button", { name: "Copy the tailscale serve command" })).toBeTruthy();
     fireEvent.click(within(reach).getByRole("button", { name: "Trust the certificate…" }));
     const sheet = await screen.findByRole("dialog", { name: "Trust BoxPilot's certificate" });
@@ -63,12 +65,16 @@ describe("Network page", () => {
   });
 
   it("offers LAN access and HTTPS to the owner, each with its tier, staging the owner-only operation", async () => {
+    mockFetch({ "/api/v1/capabilities": { ...capabilities, network: { ...capabilities.network, bind: "0.0.0.0", lan: true } } });
+    render(<NetworkPage csrfToken="csrf" now={now} />);
+    expect((await screen.findByRole("button", { name: "Set up HTTPS on the LAN" })).getAttribute("data-risk")).toBe("medium");
+    cleanup();
+
     const staged: Record<string, unknown> = {};
     mockFetch({}, staged);
     render(<NetworkPage csrfToken="csrf" now={now} />);
     const toggle = await screen.findByRole("button", { name: "Turn on LAN access" });
     expect(toggle.getAttribute("data-risk")).toBe("medium");
-    expect(screen.getByRole("button", { name: "Set up HTTPS on the LAN" }).getAttribute("data-risk")).toBe("medium");
     fireEvent.click(toggle);
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     await waitFor(() => expect(staged["system.web.lan.set"]).toEqual({ parameters: { enabled: true } }));
@@ -80,6 +86,27 @@ describe("Network page", () => {
     await screen.findByRole("region", { name: "LAN access" });
     expect(screen.queryByRole("button", { name: "Turn on LAN access" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Set up HTTPS on the LAN" })).toBeNull();
+  });
+
+  // M90: HTTPS listens where HTTP does, so with LAN access off it answered on loopback only while
+  // the panel offered to set it up, and said "on" once it was.
+  it("offers HTTPS on the LAN only while LAN access is on, and says it needs it otherwise", async () => {
+    const staged: Record<string, unknown> = {};
+    mockFetch({}, staged);
+    render(<NetworkPage csrfToken="csrf" now={now} />);
+    const tls = await screen.findByRole("region", { name: "HTTPS on the LAN" });
+    expect(within(tls).getByText("needs LAN access")).toBeTruthy();
+    expect(within(tls).queryByRole("button", { name: "Set up HTTPS on the LAN" })).toBeNull();
+    fireEvent.click(within(tls).getByRole("button", { name: "Turn on LAN access for HTTPS" }));
+    await waitFor(() => expect(staged["system.web.lan.set"]).toEqual({ parameters: { enabled: true } }));
+    cleanup();
+
+    mockFetch({ "/api/v1/capabilities": { ...capabilities, tls: { provisioned: true, port: 8443, canProvision: true, names: ["homebox.lan"], ipAddresses: [] } } });
+    render(<NetworkPage csrfToken="csrf" now={now} />);
+    const issued = await screen.findByRole("region", { name: "HTTPS on the LAN" });
+    expect(within(issued).queryByText("on")).toBeNull();
+    expect(within(issued).getByText("off")).toBeTruthy();
+    expect(within(issued).queryByRole("button", { name: "Reissue" })).toBeNull();
   });
 
   it("wakes a device on the LAN with a low-risk operation", async () => {

@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { Button, Checkbox, Notice, Sheet, Tag, riskOf } from "../../ui";
 import { handleRadioKeys } from "../../ui/radio";
-import { spec, type CurrentProfile, type Profile, type ProtectedRule, type Service } from "./types";
+import { spec, type CurrentProfile, type PlanStep, type Profile, type ProtectedRule, type Service } from "./types";
 
 /*
  * Choosing a firewall profile (M33.10): a long form, so it is a sheet. A starting point, the
@@ -23,10 +23,15 @@ export interface FirewallProfileSheetProps {
   planning: boolean;
   /** Why the plan could not be built, said here: the page under the sheet is covered by it. */
   error?: string | null;
+  /**
+   * The rules applying this choice deletes (M90), from the plan built against the rules in place;
+   * null while it is being worked out. Applying used to only add, and said nothing about what stayed open.
+   */
+  closing?: PlanStep[] | null;
   onClose: () => void;
 }
 
-export function FirewallProfileSheet({ profiles, services, protectedRules, current, choice, onChange, onReview, planning, error = null, onClose }: FirewallProfileSheetProps) {
+export function FirewallProfileSheet({ profiles, services, protectedRules, current, choice, onChange, onReview, planning, error = null, closing = null, onClose }: FirewallProfileSheetProps) {
   const baseId = useId();
   const selected = profiles.find((profile) => profile.id === choice.profileId) ?? null;
   const locked = Boolean(selected?.lockServices);
@@ -103,6 +108,15 @@ export function FirewallProfileSheet({ profiles, services, protectedRules, curre
             <Checkbox label="Start from scratch" description={<>Removes every existing rule first (<code>ufw reset</code>), then applies the profile.</>} checked={choice.replace} onChange={(checked) => set({ replace: checked })} />
           </div>
         </section>
+
+        {!choice.replace && closing && (
+          <section className="firewall-sheet__part" aria-labelledby={`${baseId}-closes`}>
+            <h3 id={`${baseId}-closes`} className="firewall-sheet__heading">Closed by this choice</h3>
+            {closing.length === 0
+              ? <p className="firewall-sheet__note">Nothing open now is closed: every rule in place stays.</p>
+              : <ul className="firewall-sheet__closes">{closing.map((step) => <li key={step.args.join(" ")}><code>{step.removes ? `${step.removes.action} ${spec(step.removes.port, step.removes.protocol)}${step.removes.source ? ` from ${step.removes.source}` : ""}` : step.args.join(" ")}</code> {step.label.replace(/^Close [^:]*: /, "")}{step.removes?.comment ? ` (${step.removes.comment})` : ""}</li>)}</ul>}
+          </section>
+        )}
 
         <p className="firewall-sheet__note">
           Always kept open, whatever you choose: {protectedRules.map((entry, index) => <span key={`${entry.port}/${entry.protocol}`}><code>{spec(entry.port, entry.protocol)}</code> {entry.label}{index < protectedRules.length - 1 ? ", " : "."}</span>)} You see every command before anything runs.

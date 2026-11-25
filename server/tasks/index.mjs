@@ -5,7 +5,7 @@
  */
 import { aptAutoremove, aptInstall, aptRemove, aptRepair, aptUnattendedSet, aptUpdate, aptUpgrade } from "./apt.mjs";
 import { dockerLoggingDefaults, setHostname, setLocale, setSwappiness, setTimezone, systemReboot } from "./system.mjs";
-import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./users.mjs";
+import { sshPasswordAuthSet, userAdd, userKeysImport, userLock, userRemove, userSudoSet, userUnlock } from "./users.mjs";
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
 import { storageCheck, storageClearMark, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageRemount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { storageDockerOrder, storageVolumeState } from "./drive-shutdown.mjs";
@@ -62,6 +62,9 @@ export const tasks = Object.freeze({
   "users.add": userAdd,
   "users.keys-import": userKeysImport,
   "users.sudo": userSudoSet,
+  "users.lock": userLock,
+  "users.unlock": userUnlock,
+  "users.remove": userRemove,
   "ssh.password-auth": sshPasswordAuthSet,
   "firewall.set": firewallSet,
   "firewall.rule-add": firewallRuleAdd,

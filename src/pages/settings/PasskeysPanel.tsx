@@ -83,14 +83,6 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
   const keys = status?.passkeys ?? [];
   const remaining = status?.recoveryCodesRemaining;
 
-  if (!supported) {
-    return (
-      <Panel title="Passkeys" padded className="settings-panel">
-        <Notice tone="info" title="This browser cannot use passkeys here" action={<Button onClick={() => openView("network")}>Open Network</Button>}>Passkeys need a secure connection: open BoxPilot over Tailscale, or set up HTTPS on your local network, then come back.</Notice>
-      </Panel>
-    );
-  }
-
   return (
     <Panel title="Passkeys" count={status ? keys.length : undefined} meta={<>for <b>{host}</b></>} className="settings-panel settings-panel--wide"
       footer={remaining === undefined ? undefined : <><b>{remaining}</b> unused recovery code{remaining === 1 ? "" : "s"} left</>}>
@@ -134,12 +126,18 @@ export default function PasskeysPanel({ csrfToken }: { csrfToken: string }) {
           : <p className="settings-quiet">Reading…</p>}
 
       <div className="settings-body">
-        <form className="settings-form settings-form--row" onSubmit={(event) => { event.preventDefault(); void addPasskey(); }}>
-          <Field label="Name for a new passkey" hint={<>It will work when you reach BoxPilot at <code>{host}</code>. Register another for a different address, such as your Tailscale name.</>}>
-            <TextInput placeholder="e.g. My phone, YubiKey" maxLength={48} value={label} onValueChange={setLabel} />
-          </Field>
-          <Button variant="primary" type="submit" disabled={busy}>Add a passkey</Button>
-        </form>
+        {/* M90: only adding a passkey needs a secure connection. Recovery codes, and the passkeys
+            already made, are the server's, so plain-HTTP LAN owners keep a way back in. */}
+        {supported ? (
+          <form className="settings-form settings-form--row" onSubmit={(event) => { event.preventDefault(); void addPasskey(); }}>
+            <Field label="Name for a new passkey" hint={<>It will work when you reach BoxPilot at <code>{host}</code>. Register another for a different address, such as your Tailscale name.</>}>
+              <TextInput placeholder="e.g. My phone, YubiKey" maxLength={48} value={label} onValueChange={setLabel} />
+            </Field>
+            <Button variant="primary" type="submit" disabled={busy}>Add a passkey</Button>
+          </form>
+        ) : (
+          <Notice tone="info" title="This browser cannot use passkeys here" action={<Button onClick={() => openView("network")}>Open Network</Button>}>Passkeys need HTTPS. On the Network page, turn on LAN access and choose <b>Set up HTTPS on the LAN</b>, or open BoxPilot over Tailscale, then add one. Recovery codes, below, work without it.</Notice>
+        )}
 
         <section className="settings-sub" aria-labelledby="settings-recovery-title">
           <h3 id="settings-recovery-title" className="settings-sub__title">Recovery codes</h3>
