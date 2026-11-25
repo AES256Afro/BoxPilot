@@ -162,6 +162,37 @@ describe("root storage tasks", () => {
     expect(files.state.fstab).toContain(`UUID=0023-7927 /mnt/dump exfat ro,nofail,nosuid,nodev,${ORDER} 0 0`);
   });
 
+  // M73 (SEC-4): every app's .env, database copy and snapshot lands on the backup drive; on a
+  // filesystem that keeps no owners, `defaults` made all of it world-readable.
+  it.each(["exfat", "vfat", "ntfs", "ntfs3"])("mounts a %s backup drive readable by root only, whatever \"let apps write\" says", async (fstype) => {
+    const files = fakeFiles();
+    const run = fakeRun();
+    const result = await storageMount({ uuid: "0023-7927", name: "boxpilot-backup", fstype, appWritable: true }, { run, files });
+    expect(files.state.fstab).toContain(`UUID=0023-7927 /mnt/boxpilot/backup ${fstype} rw,nofail,nosuid,nodev,uid=0,gid=0,fmask=0177,dmask=0077,${ORDER} 0 0`);
+    expect(files.state.fstab).not.toContain("uid=1000");
+    expect(result).toMatchObject({ owner: "0:0", notes: [expect.stringContaining("readable by root only; \"let apps write\" does not apply")] });
+    const readOnly = fakeFiles();
+    await storageMount({ uuid: "0023-7927", name: "boxpilot-backup", fstype, readOnly: true }, { run: fakeRun(), files: readOnly });
+    expect(readOnly.state.fstab).toContain(`/mnt/boxpilot/backup ${fstype} ro,nofail,nosuid,nodev,uid=0,gid=0,fmask=0177,dmask=0077,`);
+  });
+
+  it("leaves a Linux backup drive and other exFAT drives as they were", async () => {
+    const ext4 = fakeFiles();
+    await storageMount({ uuid: "abcd-1234", name: "boxpilot-backup", fstype: "ext4" }, { run: fakeRun(), files: ext4 });
+    expect(ext4.state.fstab).toContain(`/mnt/boxpilot/backup ext4 defaults,nofail,nosuid,nodev,${ORDER} 0 2`);
+    const other = fakeFiles();
+    await storageMount({ uuid: "0023-7927", name: "dump", fstype: "exfat", appWritable: true }, { run: fakeRun(), files: other });
+    expect(other.state.fstab).toContain("uid=1000,gid=1000");
+  });
+
+  it("says when systemd could not reload after a failed mount took the entry out again (M73)", async () => {
+    const files = fakeFiles();
+    const base = fakeRun({ mountFails: true });
+    const run = vi.fn(async (binary, args, options) => (args[0] === "daemon-reload" && files.state.fstab === BASE_FSTAB ? { ok: false, stdout: "", stderr: "Failed to reload daemon" } : base(binary, args, options)));
+    await expect(storageMount({ uuid: "abcd-1234", name: "media" }, { run, files })).rejects.toThrow("the fstab entry was removed again (systemd could not reload, so it may still know the old entry until the next boot)");
+    expect(files.state.fstab).toBe(BASE_FSTAB);
+  });
+
   it("unmounts only BoxPilot-managed entries", async () => {
     const files = fakeFiles(`${BASE_FSTAB}# boxpilot:media\nUUID=x /mnt/media ext4 defaults,nofail 0 2\n`);
     const run = fakeRun({ mountedAt: { "/mnt/media": "/dev/sdb1" } });
@@ -334,6 +365,17 @@ describe("root storage tasks", () => {
     expect(files.state.fstab).toBe(BASE_FSTAB);
     swaponWorks = true;
     await expect(swapFileSet({ sizeGiB: 4 }, { run, files })).resolves.toMatchObject({ created: true });
+  });
+
+  it("refuses a swap file it cannot make root's alone, and says when the half-made one could not be deleted (M73)", async () => {
+    const files = fakeFiles();
+    const base = fakeRun();
+    const run = vi.fn(async (binary, args, options) => (binary.endsWith("chmod") ? { ok: false, stdout: "", stderr: "chmod: Operation not permitted" } : base(binary, args, options)));
+    await expect(swapFileSet({ sizeGiB: 4 }, { run, files })).rejects.toThrow("Could not make the swap file readable by root only: chmod: Operation not permitted");
+    expect(run.mock.calls.some(([binary]) => binary.endsWith("mkswap"))).toBe(false);
+    const stuck = vi.fn(async (binary, args, options) => (binary.endsWith("swapon") ? { ok: false, stdout: "", stderr: "swapon failed: Invalid argument" } : binary.endsWith("/rm") ? { ok: false, stdout: "", stderr: "rm: cannot remove: Read-only file system" } : base(binary, args, options)));
+    await expect(swapFileSet({ sizeGiB: 4 }, { run: stuck, files })).rejects.toThrow("swapon failed: swapon failed: Invalid argument. The swap file was not set up, and /swap.boxpilot could not be deleted (rm: cannot remove: Read-only file system); remove it before trying again.");
+    expect(files.state.fstab).toBe(BASE_FSTAB);
   });
 
   it("creates and removes the managed swap file", async () => {

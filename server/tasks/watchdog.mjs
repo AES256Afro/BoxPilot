@@ -240,10 +240,16 @@ export async function watchdogEnable({ runtimeSeconds = runtimeLimits.default } 
   const written = [];
   let loadedDriver = null;
   const undo = async () => {
-    for (const file of written.reverse()) await files.remove(file, { force: true }).catch(() => {});
-    await run(binaries.systemctl, ["daemon-reload"], { timeout: 60_000 });
+    for (const file of written.reverse()) await files.remove(file, { force: true }).catch((error) => log?.(`Could not remove ${file}: ${error.message}`, "stderr"));
+    const reloaded = await run(binaries.systemctl, ["daemon-reload"], { timeout: 60_000 });
+    if (!reloaded.ok) log?.(`systemctl daemon-reload failed: ${tail(reloaded.stderr)}`, "stderr");
     // A driver this run loaded goes too (M48.4), so an undone attempt leaves the machine as it found it.
-    if (loadedDriver) await run(binaries.modprobe, ["-r", loadedDriver], { timeout: 30_000 }).catch(() => {});
+    // M73: best effort. A loaded driver arms nothing until something opens the device, so a failed
+    // unload is logged rather than turned into a second error over the first.
+    if (loadedDriver) {
+      const unloaded = await run(binaries.modprobe, ["-r", loadedDriver], { timeout: 30_000 });
+      if (!unloaded.ok) log?.(`Could not unload ${loadedDriver} again (${tail(unloaded.stderr) || "modprobe failed"}); it stays loaded until the next boot and does nothing on its own`, "stderr");
+    }
   };
 
   let hardware = found.devices.filter((device) => !device.software);

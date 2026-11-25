@@ -8,6 +8,10 @@ export const fixedEnvironment = Object.freeze({ PATH: "/usr/sbin:/usr/bin:/sbin:
 /**
  * Run a binary with a fixed environment and argument array (never a shell).
  * Resolves to `{ ok, code, stdout, stderr }`; never throws for a non-zero exit.
+ *
+ * Contract: never throws; check `.ok`. A failed command, one that never started (ENOENT) and one
+ * that timed out all resolve with `ok: false`, so `await fixedRun(...).catch(() => {})` catches
+ * nothing and silently drops the failure (M73): read `.ok` and fail, warn or log on purpose.
  * Pass `onLine(line, stream)` to receive output as it is produced (then the process is spawned
  * with streaming pipes; stdout/stderr in the result are capped to the last `tailBytes`).
  *

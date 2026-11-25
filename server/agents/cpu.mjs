@@ -31,9 +31,9 @@ export const quotaFor = (processors) => `CPUQuota=${processors * 100}%`;
  * `bounds` is { min, max } (the machine's, unless a test gives its own).
  *
  * @param {{ processors: number, background: number, resetAfterSeconds?: number }} request
- * @param {{ run?: (binary: string, args: string[], options?: { timeout?: number, maxBuffer?: number }) => Promise<{ ok: boolean, stdout?: string, stderr?: string }>, bounds?: { min: number, max: number }, systemctl?: string, systemdRun?: string }} options
+ * @param {{ run?: (binary: string, args: string[], options?: { timeout?: number, maxBuffer?: number }) => Promise<{ ok: boolean, stdout?: string, stderr?: string }>, bounds?: { min: number, max: number }, systemctl?: string, systemdRun?: string, log?: ((line: string, stream: string) => void) | null }} options
  */
-export async function setRunnerProcessors({ processors, background, resetAfterSeconds = 1_200 }, { run, bounds = { min: coreLimits.min, max: coreCeiling(os.cpus().length) }, systemctl = systemctlBinary, systemdRun = systemdRunBinary } = {}) {
+export async function setRunnerProcessors({ processors, background, resetAfterSeconds = 1_200 }, { run, bounds = { min: coreLimits.min, max: coreCeiling(os.cpus().length) }, systemctl = systemctlBinary, systemdRun = systemdRunBinary, log = null } = {}) {
   const whole = (value, what, min, max) => {
     if (!Number.isInteger(value) || value < min || value > max) throw new CpuError(`${what} must be ${min} to ${max} on this machine`);
     return value;
@@ -47,7 +47,11 @@ export async function setRunnerProcessors({ processors, background, resetAfterSe
     if (!result.ok) throw new CpuError(`systemctl could not set ${runnerUnit}'s processors: ${String(result.stderr ?? "").trim().split("\n").slice(-1)[0] || "no reason given"}`);
   };
   // The timer of an earlier raise goes first: a new raise re-arms it for its own run, a lowering needs none.
-  await run(systemctl, ["stop", `${cpuResetUnit}.timer`], { timeout: 15_000 }).catch(() => null);
+  // M73: usually there is no timer, and stopping one that is not there fails; that is logged, not
+  // fatal. One that really is still running makes the new raise's systemd-run refuse below, which
+  // is refused with its reason; a lowering left with an old timer only gets the same value put back.
+  const stopped = await run(systemctl, ["stop", `${cpuResetUnit}.timer`], { timeout: 15_000 });
+  if (!stopped.ok && !/not loaded/i.test(String(stopped.stderr ?? ""))) log?.(`Could not stop ${cpuResetUnit}.timer: ${String(stopped.stderr ?? "").trim() || "systemctl failed"}`, "stderr");
   await set(processors);
   let resetAt = null;
   if (processors > background) {
@@ -58,8 +62,12 @@ export async function setRunnerProcessors({ processors, background, resetAfterSe
     ], { timeout: 15_000 });
     if (!armed.ok) {
       // Never raised without the way back: take it back now, and say why.
-      await set(background).catch(() => null);
-      throw new CpuError(`The timer that takes the extra processors back could not be set (${String(armed.stderr ?? "").trim().split("\n").slice(-1)[0] || "systemd-run failed"}), so the runner stays at ${background}`);
+      const takenBack = await set(background).then(() => true, () => false);
+      const why = String(armed.stderr ?? "").trim().split("\n").slice(-1)[0] || "systemd-run failed";
+      // M73: said from what happened; it used to say "stays at" even when taking it back failed.
+      throw new CpuError(takenBack
+        ? `The timer that takes the extra processors back could not be set (${why}), so the runner stays at ${background}`
+        : `The timer that takes the extra processors back could not be set (${why}), and putting the runner back to ${background} failed too, so it keeps ${processors} until the next boot or the next change`);
     }
     resetAt = new Date(Date.now() + resetAfterSeconds * 1000).toISOString();
   }

@@ -620,7 +620,11 @@ for name in $REPLACED_UNITS; do rm -f "/etc/systemd/system/${name}.pre-${STAMP}"
 # Both kinds, because only pruning .prev.* is how this server accumulated sixty-nine leftover
 # trees: every upgrade that failed its health check left a .failed.<stamp> copy behind and nothing
 # ever came back for it. The most recent failure is kept as the evidence for why it did not start.
-ls -d "${INSTALL_DIR}".prev.* 2>/dev/null | sort | head -n -"$KEEP_PREVIOUS" | while read -r old; do rm -rf "$old"; log "removed ${old}"; done
+#
+# The newest $KEEP_PREVIOUS by name, and never the copy this run just made (M73): STAMP comes from
+# the wall clock, so with the clock behind the copies already here (a dead clock battery before the
+# time is set) it sorted oldest and was removed, and the line below pointed at a tree that was gone.
+ls -d "${INSTALL_DIR}".prev.* 2>/dev/null | sort -r | awk -v keep="$KEEP_PREVIOUS" -v just="$PREVIOUS" 'NR > keep && $0 != just' | while read -r old; do rm -rf "$old"; log "removed ${old}"; done
 ls -d "${INSTALL_DIR}".failed.* 2>/dev/null | sort | head -n -1 | while read -r old; do rm -rf "$old"; log "removed ${old}"; done
 
 # Kept, never pruned here: which old copies to let go of is the owner's call (System, Housekeeping).

@@ -217,16 +217,6 @@ export function createJobService(store, helper, {
     if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot approve jobs");
     if (policy.tier === "high" && role !== "owner") throw new Error("Only the owner can approve high-risk jobs");
     if (policy.minimumRole === "owner" && role !== "owner") throw new Error("Only the owner can approve this job");
-    // Only once the approver is allowed to approve this job: the password used to unlock the elevated
-    // window before the role was looked at, so an operator demoted to viewer who still had a job of
-    // their own staged got a session marked unlocked out of an approval that was then refused. The
-    // /elevate route has always refused a viewer; this is the same rule at the other door.
-    let elevatedUntil = session?.elevatedUntil ?? null;
-    if (passwordProvided && session?.tokenHash && typeof store.elevateSession === "function") {
-      elevatedUntil = store.elevateSession(session.tokenHash, new Date(now() + elevationTtlMs)) ?? elevatedUntil;
-    }
-    if (policy.confirmText && confirmText !== policy.confirmText) throw new Error(`Type ${policy.confirmText} to confirm this ${policy.tier}-risk job`);
-    const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     if (!registeredOperation) throw new Error("Job type is not supported by this executor");
     // BoxPilot's own plumbing is refused at staging (sweep 3); one staged before then is withdrawn here.
@@ -248,6 +238,27 @@ export function createJobService(store, helper, {
     if (operationApprovalHooks[registeredOperation.id]) parameters = await operationApprovalHooks[registeredOperation.id](parameters);
     const parameterError = registry.validate(registeredOperation.id, parameters);
     if (parameterError) throw new Error(`Job parameters are no longer valid: ${parameterError}`);
+    // The tier is asked again here, of the parameters that will run (M72). It was fixed at staging,
+    // and a job waits up to a week: what a risk hook reads (the addresses BoxPilot serves on, the
+    // network interfaces, the accounts in /etc/passwd, an app manifest's risk) can change meanwhile,
+    // and an approval hook can rewrite what runs. An operator's medium job whose target became high
+    // was approved by the operator alone, with no password. It can only go up, never down.
+    const tier = higherTier(policy.tier, await effectiveRisk(registeredOperation.id, parameters));
+    const raised = tier !== policy.tier;
+    const requirement = raised ? approvalRequirement({ jobType: job.type, atLeast: tier, mode: policy.mode, elevatedUntil: session?.elevatedUntil ?? null, now: () => new Date(now()) }) : policy;
+    if (raised && tier === "high" && role !== "owner") throw new Error(`Only the owner can approve this: ${registeredOperation.title} is high risk now`);
+    if (raised && requirement.passwordRequired && !passwordProvided) throw Object.assign(new Error(`Enter the owner password: ${registeredOperation.title} is ${tier} risk now`), { code: "password_required" });
+    // Only once the approver is allowed to approve this job, at the tier it has now: the password used
+    // to unlock the elevated window before the role was looked at, so an operator demoted to viewer
+    // who still had a job of their own staged got a session marked unlocked out of an approval that
+    // was then refused. The /elevate route has always refused a viewer; this is the same rule at the
+    // other door.
+    let elevatedUntil = session?.elevatedUntil ?? null;
+    if (passwordProvided && session?.tokenHash && typeof store.elevateSession === "function") {
+      elevatedUntil = store.elevateSession(session.tokenHash, new Date(now() + elevationTtlMs)) ?? elevatedUntil;
+    }
+    if (policy.confirmText && confirmText !== policy.confirmText) throw new Error(`Type ${policy.confirmText} to confirm this ${tier}-risk job`);
+    const approvalMethod = passwordProvided ? "password" : requirement.elevated && tier === "high" ? "elevated" : "confirm";
     // An operation that restarts (or reboots) BoxPilot must not start while another job is mid-run:
     // the restart would cut that job off and leave it marked interrupted, its work half-done. The
     // update job is still awaiting_approval here, so it is not yet in the active list itself. This is
@@ -281,11 +292,13 @@ export function createJobService(store, helper, {
     };
     // The transition is the atomic guard against a double approval; record evidence only once it succeeded.
     store.transitionJob(jobId, "awaiting_approval", "applying");
-    store.addApproval(jobId, ownerId, { method: approvalMethod, tier: policy.tier });
-    store.recordAudit("job.approved", { actorId: ownerId, subjectId: jobId, details: { type: job.type, tier: policy.tier, method: approvalMethod } });
-    store.addJobStep(jobId, "approval", "completed", `Approved by ${owner.username} (${policy.tier} risk, ${approvalMethod})`);
+    // The record says the tier it was approved at, and that it was not the one it was staged at.
+    if (raised) store.addJobStep(jobId, "checkpoint", "completed", `${tier[0].toUpperCase()}${tier.slice(1)} risk now: staged at ${policy.tier}, raised when it was approved because what it acts on changed.`);
+    store.addApproval(jobId, ownerId, { method: approvalMethod, tier });
+    store.recordAudit("job.approved", { actorId: ownerId, subjectId: jobId, details: { type: job.type, tier, method: approvalMethod, ...(raised ? { stagedAt: policy.tier } : {}) } });
+    store.addJobStep(jobId, "approval", "completed", `Approved by ${owner.username} (${tier} risk, ${approvalMethod})`);
     store.addJobStep(jobId, "apply", "running", execution.applying);
-    return { job, owner, execution, approval: { tier: policy.tier, method: approvalMethod, elevatedUntil } };
+    return { job, owner, execution, approval: { tier, method: approvalMethod, elevatedUntil } };
   }
 
   /**

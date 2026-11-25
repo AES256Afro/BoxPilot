@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { startTlsListener } from "./tls-listener.mjs";
 import { productVersion } from "./version.mjs";
 import { webHostOf, webPortOf } from "./env-file.mjs";
-import { createCatalogService, installRiskLookup, secretEnvNamesLookup } from "./catalog/index.mjs";
+import { createCatalogService, installRiskLookup, privateDeployRiskLookup, secretEnvNamesLookup } from "./catalog/index.mjs";
 import { archivedComposeRisk } from "./ops/apps.mjs";
 import { escalationRiskHooks, higherOf, homepageHostRisk, serveWithdrawRisk } from "./ops/escalation.mjs";
 import { createJobLogReader } from "./job-log.mjs";
@@ -182,7 +182,7 @@ const secretEnvNamesFor = secretEnvNamesLookup(catalogService);
 // A restore that allows a backup's own compose file to start as archived is high, owner only, typed
 // out (sweep 4): both already are, and stay so whatever their own tier becomes.
 // identity is made further down; the hook reads it only when a job is staged.
-const operationRiskHooks = { ...escalationRiskHooks, "app.serve.withdraw": serveWithdrawRisk(() => identity.servedOrigins()), "homepage.sync": homepageHostRisk(() => identity.servedOrigins()), "app.install": higherOf(escalationRiskHooks["app.install"], installRiskLookup(catalogService)), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk };
+const operationRiskHooks = { ...escalationRiskHooks, "app.serve.withdraw": serveWithdrawRisk(() => identity.servedOrigins()), "homepage.sync": homepageHostRisk(() => identity.servedOrigins()), "app.install": higherOf(escalationRiskHooks["app.install"], installRiskLookup(catalogService)), "app.update": privateDeployRiskLookup(catalogService), "app.update.many": privateDeployRiskLookup(catalogService), "app.reinstall": privateDeployRiskLookup(catalogService), "app.backup.restore": archivedComposeRisk, "host.snapshot.restore": archivedComposeRisk };
 registry.useRiskHooks(operationRiskHooks);
 // Where alerts go, and the one ledger of what was announced and what could not be (M27.2). A failed
 // scheduled run, an automation's step, or a result that could not be saved is announced through the

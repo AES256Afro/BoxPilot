@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import { imageRepository } from "./compose-review.mjs";
-import { validateManifest } from "./schema.mjs";
+import { hostReachOf, validateManifest } from "./schema.mjs";
 
 function builtInCatalogDirectory() {
   // Under Node, import.meta.url is file:///…/server/catalog/index.mjs. Test environments (jsdom) replace
@@ -43,9 +43,18 @@ function imageNamespace(reference) {
  * pinned by digest, as is any sidecar's image from the same registry and owner. Update offers a new
  * image when the manifest's reference differs from the installed one, so a new digest is a new
  * version; a tag alone would let what runs change without a manifest saying so.
+ *
+ * And one that reaches the server itself (hostReachOf) says risk: high (M72). Without a risk a
+ * manifest is medium, which an operator installs alone: a private app with Docker's socket or a
+ * writable /root was root on the server for anyone who could approve a medium job. Saving refuses
+ * it; the loader passes `{ reach: false }` and raises the manifest to high instead (loadPrivateCatalog).
+ * @param {any} manifest
+ * @param {{ reach?: boolean }} [options]
  */
-export function privateManifestProblems(manifest) {
+export function privateManifestProblems(manifest, { reach: checkReach = true } = {}) {
   const problems = [];
+  const reach = checkReach ? hostReachOf(manifest) : [];
+  if (reach.length && manifest?.risk !== "high") problems.push(`this manifest reaches the server itself (${reach.join("; ")}); add risk: high to install it`);
   if (!String(manifest?.id ?? "").startsWith(privateIdPrefix)) problems.push(`its id must start with ${privateIdPrefix}`);
   const reference = String(manifest?.image?.reference ?? "");
   if (!reference.includes("@sha256:")) problems.push("image.reference must be pinned by digest (name:tag@sha256:...)");
@@ -110,9 +119,13 @@ async function loadPrivateCatalog(directory, builtInIds) {
   }
   const manifests = []; const problems = [...read.problems];
   for (const manifest of read.manifests) {
-    const errors = privateManifestProblems(manifest);
+    const errors = privateManifestProblems(manifest, { reach: false });
     if (builtInIds.has(manifest.id)) errors.push(`a built-in app is called ${manifest.id}, and the built-in app is the one listed`);
-    if (errors.length) problems.push({ file: manifest.file, errors }); else manifests.push(manifest);
+    if (errors.length) { problems.push({ file: manifest.file, errors }); continue; }
+    // A manifest saved before M72 may reach the server without saying risk: high. Dropping it would
+    // leave an installed app with no manifest to update, back up or uninstall by, so it is listed
+    // at high instead: installing, updating or changing it then takes the owner's password.
+    manifests.push(hostReachOf(manifest).length && manifest.risk !== "high" ? { ...manifest, risk: "high" } : manifest);
   }
   return { manifests, problems };
 }
@@ -198,6 +211,26 @@ export function installRiskLookup(catalog) {
   return async (parameters) => {
     const manifest = typeof parameters?.id === "string" ? await catalog.get(parameters.id).catch(() => null) : null;
     return manifest?.risk ?? null;
+  };
+}
+
+/**
+ * The tier deploying a private app's manifest again asks for: its own `risk` (M72). Built-in
+ * manifests are reviewed here and their updates stay at the operation's tier; a private one is
+ * whatever the owner saved, and an update or rebuild puts what it now reaches on the server, so it
+ * asks what installing it would. Takes `{ id }` or `{ ids }` (the highest of them). Null otherwise.
+ * @param {{ get: (id: string) => Promise<any> }} catalog
+ */
+export function privateDeployRiskLookup(catalog) {
+  const order = ["low", "medium", "high"];
+  return async (parameters) => {
+    const ids = typeof parameters?.id === "string" ? [parameters.id] : Array.isArray(parameters?.ids) ? parameters.ids.filter((id) => typeof id === "string") : [];
+    let tier = null;
+    for (const id of ids) {
+      const manifest = await catalog.get(id).catch(() => null);
+      if (manifest?.source === "private" && order.indexOf(manifest.risk) > order.indexOf(tier)) tier = manifest.risk;
+    }
+    return tier;
   };
 }
 

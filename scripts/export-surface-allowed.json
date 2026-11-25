@@ -145,7 +145,6 @@
     "server/ops/apt.mjs: clearNeedrestartCache": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/ops/cloudflare.mjs: ensureTunnelApp": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/ops/cloudflare.mjs: publishTarget": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
-    "server/ops/escalation.mjs: dataRoots": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/ops/escalation.mjs: foldersOutsideDataRoots": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/ops/escalation.mjs: historyFloor": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/ops/internal-reads.mjs: vmRecoveryFields": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",

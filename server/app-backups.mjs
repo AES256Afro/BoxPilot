@@ -1110,9 +1110,18 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     // Prometheus's config file belongs. Moved, not copied (models can be most of a disk), and moved
     // back if the restored app does not come up, so .replaced is always the whole original.
     const carried = [];
+    // Each move back is recorded (M73): one that failed was ignored, and the error still told the
+    // owner .replaced held the whole original while part of it sat in the restored folder.
+    /** @returns {Promise<string[]>} what could not be moved back, still in the restored folder */
     const putBack = async () => {
-      for (const relative of [...carried].reverse()) await rename(path.join(live, relative), path.join(displaced, relative)).catch(() => {});
+      const stranded = [];
+      for (const relative of [...carried].reverse()) await rename(path.join(live, relative), path.join(displaced, relative)).catch(() => { stranded.push(relative); });
+      return stranded;
     };
+    /** @param {string[]} stranded */
+    const strandedNote = (stranded) => stranded.length
+      ? ` ${stranded.join(", ")} could not be moved back into ${path.basename(displaced)} and ${stranded.length === 1 ? "is" : "are"} still in ${live}; preserve ${stranded.length === 1 ? "it" : "them"} too.`
+      : "";
     if (await lstat(displaced).then(() => true, () => false)) {
       const linked = [];
       const refusedLinks = [];
@@ -1137,8 +1146,8 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
           await placeWithoutFollowing(path.join(displaced, relative), live, relative, path.join(displaced, ".boxpilot-aside"));
           carried.push(relative);
         } catch (error) {
-          await putBack();
-          throw new Error(`Restored the files, but could not keep ${relative} from the app folder (${error.message}), so ${manifest.name} was not started. The original directory remains in ${path.basename(displaced)}; preserve it.`);
+          const stranded = await putBack();
+          throw new Error(`Restored the files, but could not keep ${relative} from the app folder (${error.message}), so ${manifest.name} was not started. The original directory remains in ${path.basename(displaced)}; preserve it.${strandedNote(stranded)}`);
         }
       }
       if (carried.length) progress?.(`Kept from the app folder, as backups leave them out: ${carried.join(", ")}${carriedLinks.length ? ` (${carriedLinks.join(", ")} as the link${carriedLinks.length === 1 ? "" : "s"} you made)` : ""}`, "stdout");
@@ -1158,14 +1167,14 @@ export function createAppBackups({ root, backupRoot, machineSnapshotRoot, tarBin
     if (missing.length) progress?.(`${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} in neither the backup nor the app folder; ${manifest.name} may not start without ${missing.length === 1 ? "it" : "them"}`, "stderr");
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     if (!up.ok) {
-      await putBack();
-      throw new Error(`The files were restored, but ${manifest.name} would not start: ${redact(up.stderr).split("\n").filter(Boolean).slice(-4).join(" ")}. Its folder as it was before the restore is kept beside it as ${path.basename(displaced)}.`);
+      const stranded = await putBack();
+      throw new Error(`The files were restored, but ${manifest.name} would not start: ${redact(up.stderr).split("\n").filter(Boolean).slice(-4).join(" ")}. Its folder as it was before the restore is kept beside it as ${path.basename(displaced)}.${strandedNote(stranded)}`);
     }
     let healthy;
     try { healthy = await waitHealthy(manifest, progress); }
     catch (error) {
-      await putBack();
-      throw new Error(`${error.message}. Preserve ${path.basename(displaced)}; it holds the original directory when one existed.`);
+      const stranded = await putBack();
+      throw new Error(`${error.message}. Preserve ${path.basename(displaced)}; it holds the original directory when one existed.${strandedNote(stranded)}`);
     }
     if (safetyBackupSaved) await rm(displaced, { recursive: true, force: true });
     const retainedOriginal = !safetyBackupSaved && await lstat(displaced).then(() => true, () => false);

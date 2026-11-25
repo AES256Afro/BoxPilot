@@ -4,7 +4,7 @@
  * background number (four). The root helper sets the running unit's quota, and a raise always
  * comes with a timer that takes it back. tests/ubuntu/agents-caps.sh proves the same on systemd.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentsHarness } from "../../test/agents-harness.mjs";
 import { coreCeiling, effectiveCores, threadsFor } from "./caps.mjs";
 import { cpuResetUnit, setRunnerProcessors } from "./cpu.mjs";
@@ -49,6 +49,22 @@ describe("the root helper's side", () => {
     const { calls, run } = recorder({ fail: { "systemd-run": "Failed to connect to bus" } });
     await expect(setRunnerProcessors({ processors: 8, background: 4 }, { run, bounds: { min: 2, max: 8 } })).rejects.toThrow(/could not be set \(Failed to connect to bus\), so the runner stays at 4/);
     expect(calls.at(-1)).toBe("systemctl set-property --runtime boxpilot-agents.service CPUQuota=400%");
+  });
+
+  it("says the raise was kept when taking it back failed too, rather than that it stays at the background (M73)", async () => {
+    const { run } = recorder({ fail: { "systemd-run": "Failed to connect to bus", "systemctl set-property --runtime boxpilot-agents.service CPUQuota=400%": "Access denied" } });
+    await expect(setRunnerProcessors({ processors: 8, background: 4 }, { run, bounds: { min: 2, max: 8 } })).rejects.toThrow("putting the runner back to 4 failed too, so it keeps 8");
+  });
+
+  it("logs a reset timer it could not stop, and is quiet when there was none (M73)", async () => {
+    const log = vi.fn();
+    const stuck = recorder({ fail: { "systemctl stop": "Access denied" } });
+    await setRunnerProcessors({ processors: 4, background: 4 }, { run: stuck.run, bounds: { min: 2, max: 8 }, log });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`Could not stop ${cpuResetUnit}.timer: Access denied`), "stderr");
+    const none = recorder({ fail: { "systemctl stop": `Failed to stop ${cpuResetUnit}.timer: Unit ${cpuResetUnit}.timer not loaded.` } });
+    log.mockClear();
+    await setRunnerProcessors({ processors: 4, background: 4 }, { run: none.run, bounds: { min: 2, max: 8 }, log });
+    expect(log).not.toHaveBeenCalled();
   });
 
   it("holds every number to the machine's ceiling, whatever it is asked", async () => {

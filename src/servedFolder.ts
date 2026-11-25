@@ -4,14 +4,15 @@
  * This has to agree with `cleanServedPath` and the deny lists in server/tasks/samba.mjs and
  * server/tasks/nfs.mjs. The Storage page suggested /mnt, which holds /mnt/boxpilot (the backup
  * destination), and offered Share on a drive mounted under it: both servers refuse those, so the
- * owner was handed a folder only to be told no. `servedFolder.test.ts` holds the lists and the
+ * owner was handed a folder only to be told no. The backup destination's older place,
+ * /mnt/boxpilot-backup, is refused too (M72). `servedFolder.test.ts` holds the lists and the
  * answers to the server's.
  */
 
 /** What Samba refuses to share (server/tasks/samba.mjs). */
-export const sharePathDenyPrefixes: readonly string[] = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/samba", "/mnt/boxpilot"]);
+export const sharePathDenyPrefixes: readonly string[] = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/samba", "/mnt/boxpilot", "/mnt/boxpilot-backup"]);
 /** What the NFS server refuses to export (server/tasks/nfs.mjs). */
-export const exportPathDenyPrefixes: readonly string[] = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/nfs", "/mnt/boxpilot"]);
+export const exportPathDenyPrefixes: readonly string[] = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/nfs", "/mnt/boxpilot", "/mnt/boxpilot-backup"]);
 
 /** The server's rule: one spelling only, nothing inside a protected folder, and nothing that holds one. */
 function served(path: string, denyPrefixes: readonly string[], forbidden: RegExp): boolean {

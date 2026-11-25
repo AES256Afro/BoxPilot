@@ -7,7 +7,8 @@
  */
 import { readFile } from "node:fs/promises";
 import os from "node:os";
-import { backupMountName, backupMountParent, legacyBackupMountpoint } from "../backup-mount.mjs";
+import { backupMountName, isBackupDestinationPath } from "../backup-mount.mjs";
+import { dataRoots } from "../catalog/schema.mjs";
 import { loginHomesFrom, servesHome } from "../tasks/served-folder.mjs";
 export { loginHomesFrom };
 import { packageBase, protectedPackages } from "../tasks/apt.mjs";
@@ -30,13 +31,12 @@ async function servesLoginHome(paths, readPasswd = () => readFile("/etc/passwd",
 }
 
 /**
- * Where an app's data folders are expected to live. A configurable volume is mounted read-write
- * into a container that often runs as root inside: pointed at /var/spool/cron or an admin's home
- * it writes a crontab or ~/.ssh, which is root on this server. Outside these, choosing the folder
- * is the owner's, with a password; the deny list in schema.mjs still refuses system locations
- * for everyone.
+ * The folders chosen for an app that are outside the data roots (schema.mjs, dataRoots). A
+ * configurable volume is mounted read-write into a container that often runs as root inside:
+ * pointed at /var/spool/cron or an admin's home it writes a crontab or ~/.ssh, which is root on
+ * this server. Outside these, choosing the folder is the owner's, with a password; the deny list in
+ * schema.mjs still refuses system locations for everyone.
  */
-export const dataRoots = Object.freeze(["/mnt", "/media", "/srv"]);
 export function foldersOutsideDataRoots(values) {
   const chosen = Object.values(values?.volumes && typeof values.volumes === "object" ? values.volumes : {});
   return chosen.filter((folder) => typeof folder !== "string" || !dataRoots.some((root) => folder.replace(/\/+$/, "").startsWith(`${root}/`)));
@@ -46,12 +46,10 @@ export function foldersOutsideDataRoots(values) {
  * Does this folder hold, or sit inside, where the backups are kept? Every app's secrets and the
  * database are in there, and backup.remote.sync and backup.cloud.* keep sending them anywhere for
  * the owner: an app handed the folder (or /mnt above it) reads them, ships them or deletes them.
+ * M72: backup-mount.mjs answers it, for these hooks, the Samba and NFS deny lists and private
+ * manifests alike, so the old /mnt/boxpilot-backup cannot be left out of one of them again.
  */
-export function reachesBackupDestination(folder) {
-  if (typeof folder !== "string") return false;
-  const normalized = folder.replace(/\/+$/, "") || "/";
-  return [backupMountParent, legacyBackupMountpoint].some((kept) => normalized === kept || normalized.startsWith(`${kept}/`) || kept.startsWith(normalized === "/" ? "/" : `${normalized}/`));
-}
+export const reachesBackupDestination = isBackupDestinationPath;
 const chosenFolders = (values) => Object.values(values?.volumes && typeof values.volumes === "object" ? values.volumes : {});
 
 /** This server's own IPv4 addresses, the ones local names may point at. */
@@ -84,8 +82,9 @@ export const escalationRiskHooks = Object.freeze({
   "storage.mount": (parameters) => high(parameters?.name === backupMountName),
   // The tunnel runs on the host's network with whatever token it is given: a token for someone's
   // own Cloudflare account can route the internet to any port on 127.0.0.1, BoxPilot's included.
-  // Installing it is high in its manifest; handing it a new token is the same.
-  "app.reconfigure": (parameters) => high((parameters?.id === tunnelAppId && Object.hasOwn(parameters?.values?.env ?? {}, "TUNNEL_TOKEN")) || foldersOutsideDataRoots(parameters?.values).length > 0 || chosenFolders(parameters?.values).some(reachesBackupDestination)),
+  // Installing it is high in its manifest; handing it a new token is the same. Switching an app
+  // onto the host's network after install is what systemReach counts at install (M72 review).
+  "app.reconfigure": (parameters) => high(parameters?.values?.networkMode === "host" || (parameters?.id === tunnelAppId && Object.hasOwn(parameters?.values?.env ?? {}, "TUNNEL_TOKEN")) || foldersOutsideDataRoots(parameters?.values).length > 0 || chosenFolders(parameters?.values).some(reachesBackupDestination)),
   // Every app's name pointed at another machine is every app's sign-in page served from there.
   "dns.names.apply": (parameters) => high(!ownAddresses().includes(String(parameters?.address ?? ""))),
   // Offering an exit node or routes opens the LAN (or Docker's and libvirt's networks) to the tailnet,

@@ -171,6 +171,15 @@ describe("turning it on", () => {
     expect(host.files[moduleLoadDropIn]).toBeUndefined();
   });
 
+  it("logs, without a second error over the first, a driver it could not unload while undoing (M73)", async () => {
+    const host = machine({ load: { watchdog0: { ...sp5100 } }, reloadTakes: false });
+    const base = host.run.getMockImplementation();
+    host.run.mockImplementation(async (binary, args, options) => (binary.endsWith("modprobe") && args[0] === "-r" ? { ok: false, stdout: "", stderr: "modprobe: FATAL: Module sp5100_tco is in use." } : base(binary, args, options)));
+    const log = vi.fn();
+    await expect(watchdogEnable({ runtimeSeconds: 60 }, { run: host.run, log, inspect: host.inspect, files: host.fileSystem, wait, devices: host.devices })).rejects.toThrow("the change was undone");
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("Could not unload sp5100_tco again (modprobe: FATAL: Module sp5100_tco is in use.)"), "stderr");
+  });
+
   it("refuses a virtual machine, the software watchdog, a timer switched off in the firmware, and one that can never be stopped", async () => {
     const vm = machine({ virt: "kvm" });
     await expect(watchdogEnable({}, { run: vm.run, inspect: vm.inspect, files: vm.fileSystem, wait, devices: vm.devices })).rejects.toThrow("virtual machine (kvm)");

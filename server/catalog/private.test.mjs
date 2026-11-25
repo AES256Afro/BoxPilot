@@ -3,7 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { onWindows } from "../../test/platform.mjs";
-import { createCatalogService, defaultCatalogDirectory, defaultPrivateCatalogDirectory, loadCatalog, privateIdPrefix } from "./index.mjs";
+import { createCatalogService, defaultCatalogDirectory, defaultPrivateCatalogDirectory, loadCatalog, privateDeployRiskLookup, privateIdPrefix, privateManifestProblems } from "./index.mjs";
+import YAML from "yaml";
+import { validateManifest } from "./schema.mjs";
 
 /*
  * The private catalog (M71, ADR-019): the owner's own manifests, merged into the catalog service and
@@ -69,6 +71,49 @@ describe("the private catalog, merged by the catalog service", () => {
     expect(byFile["private/private-sidecar.yaml"]).toContain("sidecars[0].image");
     expect(byFile["private/private-other.yaml"]).toContain("must match the file name");
     expect(byFile["private/private-claims.yaml"]).toContain("source");
+  });
+
+  // M72: one saved before this rule, or put there by hand, is listed at high rather than dropped, so
+  // an installed app keeps the manifest it is updated, backed up and uninstalled by.
+  it("lists a private manifest that reaches the server itself at high when it does not say so", async () => {
+    const { builtIn, privateDirectory } = await folders();
+    const socket = "volumes:\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock";
+    await saveInto(privateDirectory, "private-quiet.yaml", `${manifestText({ id: "private-quiet" })}${socket}\n`);
+    await saveInto(privateDirectory, "private-sidecar-caps.yaml", `${manifestText({ id: "private-sidecar-caps" })}risk: medium\nsidecars:\n  - id: vpn\n    image: qmcgaw/gluetun:v3\n    capabilities: [CAP_NET_ADMIN]\n`);
+    await saveInto(privateDirectory, "private-offers-host.yaml", `${manifestText({ id: "private-offers-host" })}networkModes: [bridge, host]\n`);
+    await saveInto(privateDirectory, "private-said.yaml", `${manifestText({ id: "private-said" })}risk: high\n${socket}\n`);
+    const { manifests, problems } = await createCatalogService({ directory: builtIn, privateDirectory, ttlMs: 0 }).all();
+    expect(manifests.map((manifest) => [manifest.id, manifest.risk])).toEqual([["demo", "medium"], ["private-offers-host", "high"], ["private-quiet", "high"], ["private-said", "high"], ["private-sidecar-caps", "high"]]);
+    expect(problems).toEqual([]);
+  });
+
+  // M72 review: reading the server's own files is reaching it, and so is a device.
+  it("counts read-only mounts of protected folders, homes and the backups, and devices, as reaching the server", () => {
+    const problemsOf = (extra) => {
+      const { manifest, errors } = validateManifest(YAML.parse(`${manifestText({ id: "private-reader" })}${extra}`));
+      expect(errors).toEqual([]);
+      return privateManifestProblems(manifest).join("; ");
+    };
+    const mount = (hostPath) => `volumes:\n  - id: v\n    container: /data\n    hostPath: ${hostPath}\n    readOnly: true\n`;
+    expect(problemsOf(mount("/etc"))).toContain("reads /etc");
+    expect(problemsOf(mount("/root"))).toContain("reads /root");
+    expect(problemsOf(mount("/home/admin"))).toContain("reads /home/admin");
+    expect(problemsOf(mount("/mnt/boxpilot/backup"))).toContain("reads /mnt/boxpilot/backup");
+    expect(problemsOf("devices: [/dev/sda]\n")).toContain("devices /dev/sda");
+    expect(problemsOf("optionalDevices: [/dev/dri/renderD128]\n")).toContain("devices /dev/dri/renderD128");
+    // A read-only data folder or log stays the app's own business.
+    expect(problemsOf(mount("/srv/photos"))).toBe("");
+    expect(problemsOf(mount("/var/log"))).toBe("");
+  });
+
+  it("asks a private app's own tier to update or rebuild it, and nothing more of a built-in one", async () => {
+    const manifests = { "private-socket": { id: "private-socket", source: "private", risk: "high" }, "private-plain": { id: "private-plain", source: "private", risk: "medium" }, jellyfin: { id: "jellyfin", source: "built-in", risk: "high" } };
+    const lookup = privateDeployRiskLookup({ get: async (id) => manifests[id] ?? null });
+    expect(await lookup({ id: "private-socket" })).toBe("high");
+    expect(await lookup({ id: "private-plain" })).toBe("medium");
+    expect(await lookup({ id: "jellyfin" })).toBeNull();
+    expect(await lookup({ ids: ["jellyfin", "private-plain", "private-socket"] })).toBe("high");
+    expect(await lookup({ ids: ["missing"] })).toBeNull();
   });
 
   it("keeps the built-in app when a private manifest takes its id", async () => {

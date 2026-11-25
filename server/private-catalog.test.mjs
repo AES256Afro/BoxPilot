@@ -64,6 +64,37 @@ describe("saving a private app's manifest", () => {
     await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  // M72: without a risk a manifest is medium, which an operator installs alone.
+  it("refuses a manifest that reaches the server itself unless it says risk: high, and writes nothing", async () => {
+    const { directory, store } = await setup();
+    const reaching = {
+      "Docker's socket": "volumes:\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\n",
+      "the host's network": "network: host\n",
+      CAP_SYS_ADMIN: "capabilities:\n  - CAP_SYS_ADMIN\n",
+      "writes /root": "volumes:\n  - id: home\n    container: /data\n    hostPath: /root\n",
+      "writes /home/someone": "volumes:\n  - id: home\n    container: /data\n    hostPath: /home/someone\n",
+      "writes /mnt/boxpilot-backup": "volumes:\n  - id: kept\n    container: /data\n    hostPath: /mnt/boxpilot-backup\n",
+    };
+    for (const [reach, extra] of Object.entries(reaching)) {
+      for (const risk of ["", "risk: medium\n", "risk: low\n"]) {
+        const text = `${manifestText()}${risk}${extra}`;
+        if (risk === "risk: low\n" && !reach.startsWith("writes")) continue; // the schema already refuses those as low
+        await expect(store.save({ id: "private-tool", text }), `${reach} ${risk}`).rejects.toThrow(`this manifest reaches the server itself (${reach}`);
+        await expect(store.save({ id: "private-tool", text }), `${reach} ${risk}`).rejects.toThrow("add risk: high to install it");
+      }
+    }
+    await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" });
+    // Said, it saves.
+    for (const extra of Object.values(reaching)) expect(await store.save({ id: "private-tool", text: `${manifestText()}risk: high\n${extra}` })).toMatchObject({ id: "private-tool" });
+  });
+
+  it("saves at any tier what stays in its own box: a data folder under /srv, a host folder it only reads", async () => {
+    const { store } = await setup();
+    const inside = "volumes:\n  - id: data\n    container: /data\n    hostPath: /srv/tool\n  - id: logs\n    container: /host-logs\n    hostPath: /var/log\n    readOnly: true\n";
+    expect(await store.save({ id: "private-tool", text: `${manifestText()}${inside}` })).toMatchObject({ id: "private-tool" });
+    expect(await store.save({ id: "private-tool", text: `${manifestText()}risk: low\n${inside}` })).toMatchObject({ id: "private-tool" });
+  });
+
   // A symbolic link, which needs a privilege on Windows.
   it.skipIf(onWindows)("never makes its folder through a link", async () => {
     const { root, directory, store } = await setup();

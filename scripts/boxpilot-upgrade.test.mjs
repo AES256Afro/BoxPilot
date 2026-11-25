@@ -4,12 +4,12 @@
  * make the copy, against real SQLite files, and the order the script does things in.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { onLinux } from "../test/platform.mjs";
+import { onLinux, onWindows } from "../test/platform.mjs";
 
 const script = (await readFile("scripts/boxpilot-upgrade.sh", "utf8")).replaceAll("\r\n", "\n");
 const copyProgram = /\nDB_COPY_JS='\n([\s\S]*?)\n'\n/.exec(script)?.[1];
@@ -239,6 +239,40 @@ describe("where the copy sits in the upgrade", () => {
     expect(body(doctor, "boxpilot_env_file_value")).toBe(body(script, "env_file_value"));
     expect(body(install, "port_of")).toBe(body(script, "port_of"));
     expect(body(doctor, "boxpilot_port_of")).toBe(body(script, "port_of"));
+  });
+});
+
+// M73: the previous trees were pruned by name order, and the name's stamp is the wall clock's, so
+// with the clock behind the trees already there the one this run had just made was removed.
+describe("pruning the previous versions' trees", () => {
+  const pruneLine = /^ls -d "\$\{INSTALL_DIR\}"\.prev\.\*.*$/m.exec(script)?.[0];
+
+  /** Run the script's prune line, as the script does, over `names` made under a scratch /opt. */
+  async function prune(names, previous, keep = 2) {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-upgrade-prune-"));
+    directories.push(directory);
+    const installDir = path.join(directory, "boxpilot");
+    for (const name of names) await mkdir(`${installDir}.prev.${name}`);
+    const program = `log() { printf '%s\\n' "$*"; }\n${pruneLine}\n`;
+    const result = spawnSync("sh", ["-eu", "-c", program], { encoding: "utf8", env: { ...process.env, INSTALL_DIR: installDir, PREVIOUS: `${installDir}.prev.${previous}`, KEEP_PREVIOUS: String(keep) } });
+    expect(result.status, result.stderr).toBe(0);
+    const left = (await readdir(directory)).map((entry) => entry.replace(/^boxpilot\.prev\./, "")).sort();
+    return { left, said: result.stdout };
+  }
+
+  it("is in the script", () => expect(pruneLine).toContain("$PREVIOUS"));
+
+  // Needs a POSIX sh, ls, sort and awk.
+  it.skipIf(onWindows)("keeps the newest by name", async () => {
+    const { left, said } = await prune(["20261101T000000Z", "20261110T000000Z", "20261120T000000Z", "20261125T020000Z"], "20261125T020000Z");
+    expect(left).toEqual(["20261120T000000Z", "20261125T020000Z"]);
+    expect(said).toMatch(/removed .*boxpilot\.prev\.20261101T000000Z/);
+  });
+
+  // Needs a POSIX sh, ls, sort and awk.
+  it.skipIf(onWindows)("never removes the tree this run just made, when the clock is behind the others", async () => {
+    const { left } = await prune(["20270101T000000Z", "20270102T000000Z", "20270103T000000Z", "20261125T020000Z"], "20261125T020000Z");
+    expect(left).toEqual(["20261125T020000Z", "20270102T000000Z", "20270103T000000Z"]);
   });
 });
 

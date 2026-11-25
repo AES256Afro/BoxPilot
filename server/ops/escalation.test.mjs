@@ -73,6 +73,12 @@ describe("BoxPilot's root tasks are not service.action's to control", () => {
     expect(await tier("app.reconfigure", { id: "jellyfin", values: { env: { TUNNEL_TOKEN: "x" } } })).toBe("medium");
   });
 
+  // M72 review: the host's network after install is what installing on it is (Pi-hole: high).
+  it("raises moving an app onto the host's network", async () => {
+    expect(await tier("app.reconfigure", { id: "pi-hole", values: { networkMode: "host" } })).toBe("high");
+    expect(await tier("app.reconfigure", { id: "pi-hole", values: { networkMode: "bridge" } })).toBe("medium");
+  });
+
   it("raises a backup that would prune below what housekeeping always keeps", async () => {
     expect(await tier("app.backup", { id: "vaultwarden", keep: 1 })).toBe("high");
     expect(await tier("app.backup", { id: "vaultwarden", keep: 2 })).toBe("high");

@@ -16,6 +16,33 @@ const serviceLabel = (kind: string | null) => services.find((service) => service
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : null);
 
 /**
+ * A topic nobody can guess, in the shape server/ops/notifications.mjs's newTopic() makes: boxpilot-
+ * and twelve random bytes, base64url. M72: the field used to start as "boxpilot", and on public
+ * ntfy.sh anyone subscribed to that name read every alert, sign-in pushes included.
+ */
+function newTopic() {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return `boxpilot-${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+}
+
+/** Shorter than this, a topic on a public ntfy is a name someone can guess (newTopic's is 25). */
+const guessableTopic = 16;
+
+/**
+ * Whether an ntfy URL is one only this house reaches: loopback, a private or link-local address, a
+ * tailnet name or address, or a name with no public domain (.local, .lan, .home.arpa, one label).
+ * Anything else, ntfy.sh among them, is taken to be public. A URL that does not parse is not judged.
+ */
+function privateServer(url: string) {
+  let host: string;
+  try { host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, ""); } catch { return true; }
+  if (!host.includes(".") && !host.includes(":")) return true;
+  if (/\.(local|lan|home\.arpa|internal|ts\.net)$/.test(host)) return true;
+  if (/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(host)) return true;
+  return host === "::1" || /^(fc|fd|fe80)/.test(host);
+}
+
+/**
  * The weekly self-report (M30.4): on or off, when it goes, a preview of what it would say now, and
  * a way to send it at once. Sending now goes straight to the target, so a failure shows here.
  */
@@ -164,7 +191,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
   const [editing, setEditing] = useState(false);
   const [kind, setKind] = useState<"ntfy" | "gotify" | "webhook">("ntfy");
   const [url, setUrl] = useState("");
-  const [topic, setTopic] = useState("boxpilot");
+  const [topic, setTopic] = useState(newTopic);
   const [token, setToken] = useState("");
   const [password, setPassword] = useState("");
   // Inside the window a password already opened, none is asked for (ownerPassword.tsx).
@@ -221,7 +248,8 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
     setEditing(true);
     setKind(localServer.kind);
     setUrl(localServer.sendUrl);
-    if (localServer.kind === "ntfy") setTopic("boxpilot");
+    // The topic already in the field stays (a saved one, or the random one it started with).
+    if (localServer.kind === "ntfy" && !topic) setTopic(newTopic());
     setMessage(null); setError(null);
   };
 
@@ -290,7 +318,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
               ]} />
               <div className="settings-actions">
                 <Button disabled={busy} onClick={() => void test()}>Send a test</Button>
-                <Button variant="ghost" onClick={() => { setEditing(true); setKind(current.kind ?? "ntfy"); setUrl(current.url ?? ""); setTopic(current.topic ?? "boxpilot"); }}>Change</Button>
+                <Button variant="ghost" onClick={() => { setEditing(true); setKind(current.kind ?? "ntfy"); setUrl(current.url ?? ""); setTopic(current.topic || newTopic()); }}>Change</Button>
               </div>
             </>
           )}
@@ -302,7 +330,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
             </Notice>
           )}
           {localServer && url === localServer.sendUrl && (
-            <p className="settings-quiet">Alerts will be sent to the {localServer.name} on this server. To get them on your phone, open the {localServer.name} app and subscribe to {kind === "ntfy" ? <>topic <code>{topic || "boxpilot"}</code></> : "this server"}{localServer.reachAddress ? <> at <code>{localServer.reachAddress}</code></> : ""}. If the app is only reachable from this server, publish it on your tailnet first. <Button variant="ghost" onClick={() => openView("catalog", { app: localServer.kind })}>Open {localServer.name} in Apps</Button></p>
+            <p className="settings-quiet">Alerts will be sent to the {localServer.name} on this server. To get them on your phone, open the {localServer.name} app and subscribe to {kind === "ntfy" ? <>topic <code>{topic}</code></> : "this server"}{localServer.reachAddress ? <> at <code>{localServer.reachAddress}</code></> : ""}. If the app is only reachable from this server, publish it on your tailnet first. <Button variant="ghost" onClick={() => openView("catalog", { app: localServer.kind })}>Open {localServer.name} in Apps</Button></p>
           )}
           {form && current && !configured && noServer && (
             <Notice tone="info" title="No notification server yet" action={<Button onClick={() => openView("catalog", { app: "ntfy" })}>Open ntfy in Apps</Button>}>
@@ -319,7 +347,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
                   <TextInput mono placeholder={kind === "webhook" ? "https://example.net/hook" : "http://127.0.0.1:8093"} value={url} onValueChange={(value) => setUrl(value.trim())} autoComplete="off" spellCheck={false} />
                 </Field>
                 {kind === "ntfy" && (
-                  <Field label="Topic">
+                  <Field label="Topic" hint={url && !privateServer(url) && topic.length < guessableTopic ? "Anyone who knows this topic can read it on a public server" : undefined}>
                     <TextInput mono placeholder="topic" value={topic} onValueChange={(value) => setTopic(value.trim())} autoComplete="off" spellCheck={false} />
                   </Field>
                 )}

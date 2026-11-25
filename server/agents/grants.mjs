@@ -17,8 +17,21 @@ export const grantLevels = Object.freeze(["propose", "ask", "run"]);
 /** At most 3 operations a run and 20 a day per agent; an approval not given within an hour drops the job. */
 export const actLimits = Object.freeze({ perRun: 3, perDay: 20, approvalWaitMs: 60 * 60_000, perAgentGrants: 20 });
 
-const rank = { propose: 0, ask: 1, run: 2 };
-const lower = (a, b) => (rank[a] <= rank[b] ? a : b);
+const rank = (level) => grantLevels.indexOf(level);
+const lower = (a, b) => (rank(a) <= rank(b) ? a : b);
+
+/**
+ * Whether going from grant `before` to `after` gives the agent more leave: what only the owner may do
+ * (agent-admin.mjs). No grant is Propose. A level this file does not know counts as a raise, so a
+ * level added here and forgotten there fails closed (M72): agent-admin used to keep its own copy of
+ * the ranking, where an unknown level ranked as nothing and passed.
+ * @param {string | null | undefined} before
+ * @param {string | null | undefined} after
+ */
+export function grantRaised(before, after) {
+  const to = rank(after ?? "propose");
+  return to < 0 || to > Math.max(rank(before ?? "propose"), 0);
+}
 
 /** The fields of an operation that hold a secret or a value used once: an agent never holds either. */
 const holdsSecret = (operation) => Object.values(operation?.parameters?.fields ?? {}).some((field) => field?.secret === true) || (operation?.oneTimeFields?.length ?? 0) > 0;

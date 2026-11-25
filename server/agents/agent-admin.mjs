@@ -6,7 +6,7 @@
  */
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { nextScheduledRun } from "./budget.mjs";
-import { grantProblem, grantsOf } from "./grants.mjs";
+import { grantProblem, grantRaised, grantsOf } from "./grants.mjs";
 import { nameKey, reservedNameProblem } from "./orchestrator.mjs";
 import { exportDefinition, readDefinition } from "./portable.mjs";
 import { SpecError, diffSpecs, normalizeSpec, specText } from "./spec.mjs";
@@ -45,6 +45,7 @@ export function createAgentAdmin({ store, registry, cloud, limits, now, audit, r
     const routed = !spec?.model?.route && cloud?.settings().connected ? { ...given, model: { ...(given.model ?? {}), route: "auto" } } : given;
     const normalized = wrapSpecError(() => normalizeSpec(routed));
     checkGrants(person, normalized, null);
+    checkModel(person, normalized, null);
     refuseReservedName(normalized.name);
     const agent = store.createAgent({ spec: normalized, template: base?.id ?? null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
     if (base && templateQuestions[base.id]?.length) store.setQuestions(agent.id, templateQuestions[base.id], { updatedBy: person.id });
@@ -64,6 +65,7 @@ export function createAgentAdmin({ store, registry, cloud, limits, now, audit, r
     const normalized = wrapSpecError(() => normalizeSpec(spec));
     if (specText(normalized) === specText(agent.spec)) return { ...presentAgent(person, agent, { detail: true }), unchanged: true };
     checkGrants(person, normalized, agent.spec);
+    checkModel(person, normalized, agent.spec);
     refuseReservedName(normalized.name, agent.spec.name);
     const version = store.addVersion(agent.id, { spec: normalized, note: typeof note === "string" ? clip(note.replace(/[\u0000-\u001f\u007f]/g, " ").trim(), 200) || null : null, createdBy: person.id, nextRunAt: nextRunFor(normalized) });
     audit("agents.updated", { actorId: person.id, subjectId: agent.id, details: { version, fields: diffSpecs(agent.spec, normalized).map((change) => change.field) } });
@@ -83,9 +85,35 @@ export function createAgentAdmin({ store, registry, cloud, limits, now, audit, r
       if (problem) refuse(400, `${operationId}: ${problem}`, "invalid_agent");
     }
     const before = grantsOf(previous);
-    const rank = { propose: 0, ask: 1, run: 2 };
-    const raised = Object.entries(grants).some(([operationId, level]) => rank[level] > rank[before[operationId] ?? "propose"]);
+    const raised = Object.entries(grants).some(([operationId, level]) => grantRaised(before[operationId], level));
     if (raised && person.role !== "owner") refuse(403, "Only the owner gives an agent leave to carry out operations", "forbidden");
+  }
+
+  /**
+   * Where an agent's data goes (M72) is held like a grant: only the owner sends more of it to Claude.
+   * An operator could otherwise point an agent of their own at Claude, as-is, with the owner's
+   * documents, and every operator-gated read its tools make would leave the box unredacted. Raising
+   * means the route moving towards Claude (local, then auto, then claude), the data policy to as-is,
+   * or Claude reading documents or answering viewers turned on. Anyone who may edit the agent may
+   * lower any of them, and a value left as it was stands, so an edit that leaves them alone is never
+   * refused.
+   * A new or imported agent is measured against what BoxPilot would give it unasked: auto once
+   * Claude is connected (M45.4), local otherwise; redacted; both switches off.
+   */
+  function checkModel(person, next, previous) {
+    if (person.role === "owner") return;
+    const was = previous?.model ?? { route: cloud?.settings().connected ? "auto" : "local", dataPolicy: "redacted", claudeForViewers: false, claudeReadsDocuments: false };
+    const model = next?.model ?? {};
+    // An unknown value counts as a raise: a route added to spec.mjs and not here fails closed.
+    const towards = (order, before, after) => {
+      const to = order.indexOf(after ?? order[0]);
+      return to < 0 || to > Math.max(order.indexOf(before ?? order[0]), 0);
+    };
+    const raised = towards(["local", "auto", "claude"], was.route, model.route)
+      || towards(["redacted", "as-is"], was.dataPolicy, model.dataPolicy)
+      || (model.claudeReadsDocuments === true && was.claudeReadsDocuments !== true)
+      || (model.claudeForViewers === true && was.claudeForViewers !== true);
+    if (raised) refuse(403, "Only the owner chooses where an agent's data goes: whether it reaches Claude, unredacted, or with the owner's documents", "forbidden");
   }
 
   /** Sharing turned off (M44): what it shared is forgotten, so nobody reads it after the owner said no. */
@@ -105,6 +133,7 @@ export function createAgentAdmin({ store, registry, cloud, limits, now, audit, r
     if (!target) refuse(404, "That version does not exist", "version_not_found");
     if (target.version === agent.version) refuse(409, "That is already the current version", "version_current");
     checkGrants(person, target.spec, agent.spec);
+    checkModel(person, target.spec, agent.spec);
     refuseReservedName(target.spec.name, agent.spec.name);
     const next = store.addVersion(agent.id, { spec: target.spec, note: `Rolled back to version ${target.version}`, createdBy: person.id, nextRunAt: nextRunFor(target.spec) });
     audit("agents.rolled-back", { actorId: person.id, subjectId: agent.id, details: { to: target.version, version: next } });
@@ -203,6 +232,7 @@ export function createAgentAdmin({ store, registry, cloud, limits, now, audit, r
     let read;
     try { read = readDefinition(definition); } catch (error) { refuse(error.status ?? 400, error.message, error.code ?? "invalid_definition"); }
     if (store.listAgents().length >= 30) refuse(409, "Thirty agents is the most BoxPilot keeps. Delete one first.", "agent_limit");
+    checkModel(person, read.spec, null);
     refuseReservedName(read.spec.name);
     const agent = store.createAgent({ spec: read.spec, template: read.template, createdBy: person.id, nextRunAt: nextRunFor(read.spec) });
     let questions = [];

@@ -375,10 +375,16 @@ export function createMachineSnapshotHelper({
     return { domains, available: true };
   }
 
-  async function applyRetention() {
+  /**
+   * Remove the snapshots past the newest `keep`, by the stamp in their names, but never `justCreated`
+   * (M73): with the clock behind the stamps already on disk (a dead clock battery before the time is
+   * set), the snapshot just written sorted oldest and was removed while the job still said created.
+   * @param {string} justCreated the artifact name create() just wrote
+   */
+  async function applyRetention(justCreated) {
     const names = (await readdir(resolvedSnapshotRoot).catch(() => [])).filter((entry) => snapshotNamePattern.test(entry)).sort().reverse();
     const removed = [];
-    for (const name of names.slice(keep)) {
+    for (const name of names.slice(keep).filter((entry) => entry !== justCreated)) {
       await rm(path.join(resolvedSnapshotRoot, name), { force: true });
       await rm(path.join(resolvedSnapshotRoot, `${name}.meta.json`), { force: true });
       removed.push(name);
@@ -434,7 +440,7 @@ export function createMachineSnapshotHelper({
       await writeFile(metaPath, `${JSON.stringify({ schemaVersion: 1, snapshotId, artifact: artifactName, createdAt: startedAt.toISOString(), sizeBytes: artifactInfo.size, checksumSha256, containsSecrets: true, contents: manifest.contents }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
       metaWritten = true;
       await rename(partial, artifactPath);
-      const removedByRetention = await applyRetention();
+      const removedByRetention = await applyRetention(artifactName);
 
       return {
         created: true,

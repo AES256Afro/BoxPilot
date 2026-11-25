@@ -292,7 +292,16 @@ export async function upsSetup(parameters = {}, {
     await files.writeFile(target, content, { mode: modeFor(file) });
     // writeFile's mode applies only to a new file; an existing one keeps the mode it had.
     await files.chmod(target, modeFor(file));
-    await run(binaries.chown, ["root:nut", target], { timeout: 10_000 }).catch(() => {});
+    // M73: the files are 0640 and NUT reads them as the nut group; one it cannot read stops upsd or
+    // upsmon after the restart. The monitor was stopped above, so it is started again before failing.
+    const handed = await run(binaries.chown, ["root:nut", target], { timeout: 10_000 });
+    if (!handed.ok) {
+      // The enumerator's path unit was stopped above too; the files before this one are already
+      // rewritten with the new monitor password, so the config is half-written either way.
+      if (manager === "enumerator") await run(binaries.systemctl, ["start", "nut-driver-enumerator.path"], { timeout: 30_000 });
+      const monitor = await run(binaries.systemctl, ["start", "nut-monitor.service"], { timeout: 60_000 });
+      throw new Error(`Wrote ${target} but could not give it to the nut group (${tail(handed.stderr) || "chown failed"}), so NUT could not read it, and the UPS files are half-written. ${monitor.ok ? "The UPS monitor was started again." : "The UPS monitor is stopped, so nothing would shut the server down on a low battery; set the UPS up again once this is fixed."}`);
+    }
   }
   await files.mkdir(eventsDirectory, { recursive: true, mode: 0o755 });
   const eventsPath = host.eventsPath;

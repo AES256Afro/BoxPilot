@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { registry } from "../ops/index.mjs";
-import { grantNow, grantProblem, readPlanSteps } from "./grants.mjs";
+import { grantNow, grantProblem, grantRaised, readPlanSteps } from "./grants.mjs";
 import { exportDefinition, readDefinition } from "./portable.mjs";
 import { normalizeSpec } from "./spec.mjs";
 
@@ -119,5 +119,23 @@ describe("a plan's steps (M45.6)", () => {
 
   it("never holds what no grant covers, whatever it was given leave for", () => {
     expect(readPlanSteps([{ operationId: "agents.runtime.disable" }], context({ "agents.runtime.disable": "run" })).problem).toMatch(/changes how agents run/);
+  });
+});
+
+describe("whether a grant was raised", () => {
+  // The one ranking (M72): agent-admin kept its own copy, where a level it did not know ranked as
+  // nothing, so it never counted as a raise. An unknown level is a raise here: it fails closed.
+  it("counts more leave as a raise, less or the same as none, and anything unknown as a raise", () => {
+    expect(grantRaised(undefined, "ask")).toBe(true);
+    expect(grantRaised("ask", "run")).toBe(true);
+    expect(grantRaised("propose", "ask")).toBe(true);
+    expect(grantRaised("run", "ask")).toBe(false);
+    expect(grantRaised("ask", "ask")).toBe(false);
+    expect(grantRaised("ask", undefined)).toBe(false);
+    expect(grantRaised(undefined, "propose")).toBe(false);
+    expect(grantRaised("ask", "delegate")).toBe(true);
+    expect(grantRaised(undefined, "")).toBe(true);
+    expect(grantRaised("something-old", "propose")).toBe(false);
+    expect(grantRaised("something-old", "ask")).toBe(true);
   });
 });

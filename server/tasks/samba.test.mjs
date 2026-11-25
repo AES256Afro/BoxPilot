@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { onLinux } from "../../test/platform.mjs";
-import { discoveryState, parseSmbConf, renderSmbConf, sambaApply, sambaDiagnose, sambaDiscoverySet, sambaRecycleEmpty, sambaShareWritable, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
+import { discoveryState, parseSmbConf, renderSmbConf, sambaApply, sambaDiagnose, sambaDiscoverySet, sambaRecycleEmpty, sambaShareWritable, sambaUserRemove, sambaUserSet, sharePathDenyPrefixes, validateSambaConfig } from "./samba.mjs";
+import { cleanServedPath } from "./served-folder.mjs";
 
 function fakeRun({ testparmFails = false, lanDevice = "eno1", users = {} } = {}) {
   return vi.fn(async (binary, args) => {
@@ -173,7 +174,7 @@ describe("samba tasks", () => {
 
   it("restores the previous smb.conf when testparm rejects the new one, and refuses without Samba", async () => {
     const files = fakeFiles({ existing: "# Managed by BoxPilot\n[global]\n" });
-    await expect(sambaApply({ shares: [{ name: "X", path: "/srv/x" }] }, { run: fakeRun({ testparmFails: true }), files })).rejects.toThrow("restored the previous one");
+    await expect(sambaApply({ shares: [{ name: "X", path: "/srv/x" }] }, { run: fakeRun({ testparmFails: true }), files })).rejects.toThrow("put the previous smb.conf back");
     expect(files.state.conf).toBe("# Managed by BoxPilot\n[global]\n");
     expect(files.state.backups).toEqual([]); // already managed: no backup copy
     const missing = fakeFiles();
@@ -397,5 +398,82 @@ describe("letting people write to a share nobody can write to (M35)", () => {
     const nobody = rig({ users: {} });
     await expect(sambaShareWritable({ share: "Documents" }, { run: nobody.run, files: nobody.files, chown: nobody.chown })).rejects.toThrow("There is no user 1000");
     expect(chown).not.toHaveBeenCalled();
+  });
+});
+
+describe("results that tell the truth (M73)", () => {
+  const conf = "# Managed by BoxPilot\n[global]\n";
+  const failing = (match, stderr = "it failed") => {
+    const base = fakeRun({ users: { homebox: "homebox:x:1000:1000::/home/homebox:/bin/bash" } });
+    return vi.fn(async (binary, args, options) => (match(binary, args) ? { ok: false, stdout: "", stderr } : base(binary, args, options)));
+  };
+
+  it("refuses to share the old backup mount, /mnt/boxpilot-backup, and anything inside it (M72)", () => {
+    for (const path of ["/mnt/boxpilot-backup", "/mnt/boxpilot-backup/", "/mnt/boxpilot-backup/apps"]) {
+      expect(cleanServedPath(path, sharePathDenyPrefixes)).toBeNull();
+      expect(validateSambaConfig({ shares: [{ name: "X", path }] })).toContain("system locations");
+    }
+    // A name that only starts the same is someone else's folder.
+    expect(cleanServedPath("/mnt/boxpilot-backups", sharePathDenyPrefixes)).toBe("/mnt/boxpilot-backups");
+  });
+
+  it("fails when the account cannot be enabled, rather than saying the password was set", async () => {
+    const run = failing((binary, args) => binary.endsWith("smbpasswd") && args[0] === "-e", "Failed to modify password entry");
+    const log = vi.fn();
+    await expect(sambaUserSet({ username: "sam", password: "correct horse battery" }, { run, log })).rejects.toThrow(/could not be enabled, so it cannot sign in yet: Failed to modify password entry/);
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining("Samba password set"), "stdout");
+  });
+
+  it("warns, and still sets the password, when an existing account cannot join sambashare", async () => {
+    const run = failing((binary) => binary.endsWith("usermod"), "usermod: group 'sambashare' does not exist");
+    const result = await sambaUserSet({ username: "homebox", password: "another long one" }, { run });
+    expect(result).toMatchObject({ created: false, updated: true });
+    expect(result.warnings).toEqual([expect.stringContaining("could not be added to the sambashare group")]);
+    // Nothing to warn about when it worked.
+    expect(await sambaUserSet({ username: "homebox", password: "another long one" }, { run: fakeRun({ users: { homebox: "homebox:x:1000:1000::/home/homebox:/bin/bash" } }) })).not.toHaveProperty("warnings");
+  });
+
+  it("on a first apply Samba rejects, removes the new smb.conf and says so, rather than claiming a restore", async () => {
+    const files = { ...fakeFiles(), unlink: vi.fn(async () => {}) };
+    await expect(sambaApply({ shares: [{ name: "X", path: "/srv/x" }] }, { run: fakeRun({ testparmFails: true }), files })).rejects.toThrow("there was no smb.conf before, so the rejected one was removed");
+    expect(files.unlink).toHaveBeenCalledWith("/etc/samba/smb.conf");
+    const stuck = { ...fakeFiles(), unlink: vi.fn(async () => { throw new Error("EROFS"); }) };
+    await expect(sambaApply({ shares: [] }, { run: fakeRun({ testparmFails: true }), files: stuck })).rejects.toThrow("could not be removed (EROFS); it is still at /etc/samba/smb.conf");
+  });
+
+  it("says the previous smb.conf could not be put back when writing it fails", async () => {
+    const files = fakeFiles({ existing: conf });
+    const write = files.writeFile;
+    files.writeFile = vi.fn(async (path, content, options) => { if (path === "/etc/samba/smb.conf") throw new Error("ENOSPC"); return write(path, content, options); });
+    await expect(sambaApply({ shares: [] }, { run: fakeRun({ testparmFails: true }), files })).rejects.toThrow("could not put the previous smb.conf back (ENOSPC)");
+  });
+
+  it("fails when smbd does not reload, and warns when nmbd will not follow the scope", async () => {
+    const reload = failing((binary, args) => args[0] === "reload-or-restart", "Job failed");
+    await expect(sambaApply({ shares: [] }, { run: reload, files: fakeFiles({ existing: conf }) })).rejects.toThrow("smbd did not load it: Job failed");
+    const nmbd = failing((binary, args) => args.includes("nmbd"), "Unit nmbd.service not found");
+    const lan = await sambaApply({ scope: "lan", shares: [] }, { run: nmbd, files: fakeFiles({ existing: conf }) });
+    expect(lan.warnings).toEqual([expect.stringContaining("nmbd did not start (Unit nmbd.service not found)")]);
+    const tailnet = await sambaApply({ shares: [] }, { run: nmbd, files: fakeFiles({ existing: conf }) });
+    expect(tailnet.warnings).toEqual([expect.stringContaining("nmbd could not be stopped")]);
+    expect(await sambaApply({ shares: [] }, { run: fakeRun(), files: fakeFiles({ existing: conf }) })).not.toHaveProperty("warnings");
+  });
+
+  it("logs, and still reports the bin emptied, when only the empty folders cannot be removed", async () => {
+    const files = { readFile: async () => "# Managed by BoxPilot\n[global]\n[Media]\n   path = /srv/media\n   vfs objects = fruit streams_xattr recycle\n" };
+    const run = failing((binary, args) => binary.endsWith("find") && args.includes("-empty"), "find: cannot delete: Device or resource busy");
+    const log = vi.fn();
+    await expect(sambaRecycleEmpty({ share: "Media", olderThanDays: 30 }, { run, log, files })).resolves.toMatchObject({ emptied: true });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("Could not remove the recycle bin's empty folders"), "stderr");
+  });
+
+  it("turning discovery off fails when the service keeps running, and warns about a rule it could not withdraw", async () => {
+    const files = { access: async (target) => { if (!target.endsWith("/wsdd.service")) throw new Error("ENOENT"); }, readFile: async () => conf };
+    const running = vi.fn(async (binary, args) => (args[0] === "is-active" ? { ok: true, stdout: "active\n", stderr: "" } : args[0] === "disable" ? { ok: false, stdout: "", stderr: "Access denied" } : { ok: true, stdout: "", stderr: "" }));
+    await expect(sambaDiscoverySet({ enabled: false }, { run: running, files })).rejects.toThrow("Could not stop wsdd, so Windows still lists this server");
+    const ruleStays = vi.fn(async (binary, args) => (args[0] === "is-active" ? { ok: false, stdout: "inactive\n", stderr: "" } : binary.endsWith("ufw") ? { ok: false, stdout: "", stderr: "ERROR: problem running iptables" } : { ok: true, stdout: "", stderr: "" }));
+    const off = await sambaDiscoverySet({ enabled: false }, { run: ruleStays, files });
+    expect(off).toMatchObject({ enabled: false, running: false });
+    expect(off.warnings).toEqual([expect.stringContaining("3702/udp could not be removed"), expect.stringContaining("5357/tcp could not be removed")]);
   });
 });

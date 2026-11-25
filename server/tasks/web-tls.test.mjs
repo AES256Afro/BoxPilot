@@ -94,6 +94,22 @@ describe("provisioning against a mocked host", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("fails before switching to HTTPS when the key cannot be given to the web service's group (M73)", async () => {
+    const run = vi.fn(async (binary) => (binary === "/bin/chown" ? { ok: false, stdout: "", stderr: "chown: invalid group: 'root:boxpilot'" } : { ok: true, stdout: "sha256 Fingerprint=1\nnotAfter=x", stderr: "" }));
+    const files = mockFiles({ "/e": "BOXPILOT_HOST=0.0.0.0\n" });
+    await expect(webTlsProvision({ names: ["boxpilot.lan"] }, { run, files, dir: "/etc/boxpilot/tls", envPath: "/e" })).rejects.toThrow(/could not give its key to the boxpilot group .*Nothing was switched to HTTPS/);
+    expect(files.store.get("/e")).not.toContain("BOXPILOT_TLS_KEY");
+    expect(run.mock.calls.some(([binary]) => binary.includes("systemd-run"))).toBe(false);
+  });
+
+  it("warns, and still switches to HTTPS, when the firewall cannot be opened for the port (M73)", async () => {
+    const run = vi.fn(async (binary) => (binary.endsWith("ufw") ? { ok: false, stdout: "", stderr: "ERROR: problem running iptables" } : { ok: true, stdout: "sha256 Fingerprint=1\nnotAfter=x", stderr: "" }));
+    const result = await webTlsProvision({ names: ["boxpilot.lan"], port: 8443 }, { run, files: mockFiles({}), dir: "/etc/boxpilot/tls", envPath: "/e" });
+    expect(result).toMatchObject({ restartScheduled: true, warnings: [expect.stringContaining("could not be opened for port 8443")] });
+    const quiet = await webTlsProvision({ names: ["boxpilot.lan"] }, { run: vi.fn(async () => ({ ok: true, stdout: "", stderr: "" })), files: mockFiles({}), dir: "/etc/boxpilot/tls", envPath: "/e" });
+    expect(quiet).not.toHaveProperty("warnings");
+  });
+
   it("reports a failed restart schedule instead of pretending it applied", async () => {
     const run = vi.fn(async (binary) => (binary.includes("systemd-run") ? { ok: false, stdout: "", stderr: "dbus down" } : { ok: true, stdout: "sha256 Fingerprint=1\nnotAfter=x", stderr: "" }));
     const files = mockFiles({});

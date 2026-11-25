@@ -3,6 +3,7 @@
  * declaratively; the generic deployer (server/app-helper.mjs) turns it into a compose project.
  * Validation is strict: unknown keys are errors so typos never silently deploy something else.
  */
+import { isBackupDestinationPath } from "../backup-mount.mjs";
 
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const imagePattern = /^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_.-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/;
@@ -500,11 +501,7 @@ export function validateManifest(raw) {
   }
   if (Array.isArray(raw.capabilities) && raw.capabilities.some((cap) => !/^CAP_[A-Z_]+$/.test(cap))) fail(errors, "manifest.capabilities", "entries must look like CAP_NET_ADMIN");
   // Anything with host-level reach (Docker socket, host network, kernel-level capabilities) at least asks for a confirmation.
-  const strongCapabilities = ["CAP_SYS_ADMIN", "CAP_SYS_MODULE", "CAP_SYS_RAWIO", "CAP_SYS_PTRACE", "CAP_NET_ADMIN", "CAP_DAC_READ_SEARCH"];
-  const hostReach = (Array.isArray(raw.volumes) && raw.volumes.some((volume) => typeof volume?.hostPath === "string" && /docker\.sock$/.test(volume.hostPath)))
-    || raw.network === "host"
-    || (Array.isArray(raw.capabilities) && raw.capabilities.some((cap) => strongCapabilities.includes(cap)));
-  if (hostReach && raw.risk === "low") fail(errors, "manifest.risk", "must be medium or high: this app reaches the Docker socket, the host network, or kernel capabilities");
+  if (systemReach(raw).length && raw.risk === "low") fail(errors, "manifest.risk", "must be medium or high: this app reaches the Docker socket, the host network, or kernel capabilities");
   if (raw.sysctls !== undefined && !(Array.isArray(raw.sysctls) && raw.sysctls.length <= 16 && raw.sysctls.every((entry) => typeof entry === "string" && /^net\.[a-z0-9_.]+=[A-Za-z0-9_.-]+$/.test(entry)))) fail(errors, "manifest.sysctls", "entries must be net.* kernel settings like net.ipv4.ip_forward=1");
   if (Array.isArray(raw.devices) && raw.devices.some((device) => !/^\/dev\/[A-Za-z0-9._/?*[\]-]+$/.test(device))) fail(errors, "manifest.devices", "entries must be /dev paths (globs like /dev/sd? are resolved at install time)");
   // `devices` is what the app is for — a Zigbee stick, a printer — and the install refuses without
@@ -572,6 +569,76 @@ export function validateManifest(raw) {
     })),
   });
   return { manifest, errors: [] };
+}
+
+const strongCapabilities = Object.freeze(["CAP_SYS_ADMIN", "CAP_SYS_MODULE", "CAP_SYS_RAWIO", "CAP_SYS_PTRACE", "CAP_NET_ADMIN", "CAP_DAC_READ_SEARCH"]);
+const dockerSocket = (hostPath) => typeof hostPath === "string" && /docker\.sock$/.test(hostPath);
+
+/**
+ * What in one container (the app, or a sidecar) gives it the server rather than a box of its own:
+ * Docker's socket, the host's network, a kernel-level capability. Read from a raw manifest as well
+ * as a validated one, so it takes nothing on trust about the shape.
+ *
+ * @param {any} container
+ * @returns {string[]}
+ */
+function systemReach(container) {
+  const reach = [];
+  if (Array.isArray(container?.volumes) && container.volumes.some((volume) => dockerSocket(volume?.hostPath))) reach.push("Docker's socket");
+  if (container?.network === "host") reach.push("the host's network");
+  const capabilities = Array.isArray(container?.capabilities) ? container.capabilities.filter((cap) => strongCapabilities.includes(cap)) : [];
+  if (capabilities.length) reach.push(capabilities.join(", "));
+  return reach;
+}
+
+/**
+ * Where an app's data folders are expected to live. A folder outside these, mounted read-write into
+ * a container that often runs as root inside, can be /var/spool/cron or an admin's home: a crontab
+ * or ~/.ssh, which is root on this server (escalation.mjs raises choosing one to the owner).
+ */
+export const dataRoots = Object.freeze(["/mnt", "/media", "/srv"]);
+const insideDataRoots = (folder) => dataRoots.some((root) => folder.replace(/\/+$/, "").startsWith(`${root}/`));
+// /home itself, a folder inside it, or a folder that holds it (/ does).
+const readsHomes = (folder) => { const trimmed = folder.replace(/\/+$/, "") || "/"; return trimmed === "/" || trimmed === "/home" || trimmed.startsWith("/home/"); };
+
+/**
+ * Everything in a validated manifest that reaches the server itself, sidecars included, in words
+ * for a refusal: Docker's socket, the host's network (or offering it as a choice), a kernel-level
+ * capability, or a host folder it may write that is outside the data roots, a protected location,
+ * or where the backups are kept. Empty when the app stays in its own box.
+ *
+ * M72 (ADR-019): a private manifest with any of these is root on the server for whoever installs
+ * it, so it must say risk: high (catalog/index.mjs, privateManifestProblems). Built-in manifests are
+ * held only to "not low" for the first three, above.
+ *
+ * @param {any} manifest
+ * @returns {string[]}
+ */
+export function hostReachOf(manifest) {
+  const reach = systemReach(manifest);
+  if (manifest?.network !== "host" && Array.isArray(manifest?.networkModes) && manifest.networkModes.includes("host")) reach.push("the host's network, offered as a choice");
+  const writable = (Array.isArray(manifest?.volumes) ? manifest.volumes : [])
+    .filter((volume) => typeof volume?.hostPath === "string" && !volume.readOnly && !dockerSocket(volume.hostPath))
+    .map((volume) => volume.hostPath)
+    .filter((folder) => isDeniedHostPath(folder) || !insideDataRoots(folder) || isBackupDestinationPath(folder));
+  if (writable.length) reach.push(`writes ${writable.join(", ")}`);
+  // Reading is reaching too where what it reads is the server's: /etc/shadow, root's or a person's
+  // SSH keys, every app's .env and the controller database in the backups (review of M72).
+  const read = (Array.isArray(manifest?.volumes) ? manifest.volumes : [])
+    .filter((volume) => typeof volume?.hostPath === "string" && volume.readOnly && !dockerSocket(volume.hostPath))
+    .map((volume) => volume.hostPath)
+    .filter((folder) => isDeniedHostPath(folder) || isBackupDestinationPath(folder) || readsHomes(folder));
+  if (read.length) reach.push(`reads ${read.join(", ")}`);
+  // A device is the hardware itself: a raw disk is every file on it, whatever the mounts say.
+  const devices = [...(manifest?.devices ?? []), ...(manifest?.optionalDevices ?? [])];
+  if (devices.length) reach.push(`devices ${devices.join(", ")}`);
+  // A sidecar's host mounts are always read-only (above), so only its socket, capabilities and devices count.
+  for (const sidecar of Array.isArray(manifest?.sidecars) ? manifest.sidecars : []) {
+    const sidecarReach = systemReach(sidecar);
+    if (Array.isArray(sidecar?.devices) && sidecar.devices.length) sidecarReach.push(`devices ${sidecar.devices.join(", ")}`);
+    if (sidecarReach.length) reach.push(`sidecar ${sidecar.id}: ${sidecarReach.join(", ")}`);
+  }
+  return reach;
 }
 
 // Each is a place a container writing as root turns into root on the server: cron's spool, dpkg's

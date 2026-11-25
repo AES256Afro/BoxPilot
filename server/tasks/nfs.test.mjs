@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { nfsApply, parseExports, renderExports, validateNfsConfig } from "./nfs.mjs";
+import { exportPathDenyPrefixes, nfsApply, parseExports, renderExports, validateNfsConfig } from "./nfs.mjs";
+import { cleanServedPath } from "./served-folder.mjs";
 
 function fakeRun({ exportfsFails = false } = {}) {
   return vi.fn(async (binary, args) => {
@@ -94,7 +95,7 @@ describe("nfs tasks", () => {
 
   it("restores the previous exports when exportfs rejects them, and refuses without the server", async () => {
     const files = fakeFiles({ existing: "# Managed by BoxPilot\n\"/srv/old\" 100.64.0.0/10(rw)\n" });
-    await expect(nfsApply({ exports: [{ path: "/srv/x" }] }, { run: fakeRun({ exportfsFails: true }), files })).rejects.toThrow("restored the previous file");
+    await expect(nfsApply({ exports: [{ path: "/srv/x" }] }, { run: fakeRun({ exportfsFails: true }), files })).rejects.toThrow("Put the previous exports file back");
     expect(files.state.exports).toContain("/srv/old");
     const missing = fakeFiles();
     missing.access = vi.fn(async () => { throw new Error("ENOENT"); });
@@ -116,5 +117,36 @@ describe("root-owned exports", () => {
     for (const path of ["/opt/boxpilot", "/opt", "/var/lib/libvirt/images", "/var/lib/docker"]) {
       expect(validateNfsConfig({ scope: "tailscale", exports: [{ path, readOnly: false }] })).toBeTruthy();
     }
+  });
+});
+
+describe("results that tell the truth (M73)", () => {
+  it("refuses to export the old backup mount, /mnt/boxpilot-backup, and anything inside it (M72)", () => {
+    for (const path of ["/mnt/boxpilot-backup", "/mnt/boxpilot-backup/apps"]) {
+      expect(cleanServedPath(path, exportPathDenyPrefixes)).toBeNull();
+      expect(validateNfsConfig({ exports: [{ path }] })).toContain("system locations");
+    }
+  });
+
+  it("on a first apply exportfs rejects, removes both new files, switches the server off again, and says each", async () => {
+    const files = { ...fakeFiles(), unlink: vi.fn(async () => {}) };
+    const base = fakeRun({ exportfsFails: true });
+    const run = vi.fn(async (binary, args, options) => (args[0] === "is-enabled" ? { ok: false, stdout: "disabled", stderr: "" } : base(binary, args, options)));
+    const failure = await nfsApply({ exports: [{ path: "/srv/x" }] }, { run, files }).catch((error) => error);
+    expect(failure.message).toContain("There was no exports file before, so the rejected one was removed");
+    expect(failure.message).toContain("removed /etc/nfs.conf.d/boxpilot.conf");
+    expect(failure.message).toContain("the NFS server was switched off again, as it was before");
+    expect(failure.message).not.toContain("restored");
+    expect(files.unlink).toHaveBeenCalledWith("/etc/exports.d/boxpilot.exports");
+    expect(files.unlink).toHaveBeenCalledWith("/etc/nfs.conf.d/boxpilot.conf");
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["disable", "--now", "nfs-server"], expect.anything());
+  });
+
+  it("leaves a server that was on running, and says when a file could not be removed", async () => {
+    const files = { ...fakeFiles(), unlink: vi.fn(async () => { throw new Error("EROFS"); }) };
+    const run = fakeRun({ exportfsFails: true });
+    const failure = await nfsApply({ exports: [{ path: "/srv/x" }] }, { run, files }).catch((error) => error);
+    expect(failure.message).toContain("could not be removed, so it is still at /etc/exports.d/boxpilot.exports (EROFS)");
+    expect(run).not.toHaveBeenCalledWith(expect.anything(), ["disable", "--now", "nfs-server"], expect.anything());
   });
 });

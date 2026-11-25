@@ -1,7 +1,8 @@
-import { access, mkdir, readFile, realpath, rename, stat } from "node:fs/promises";
+import { access, mkdir, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { cleanServedPath, homeThroughLink, readLoginHomes } from "./served-folder.mjs";
+import { backupDestinationPaths } from "../backup-mount.mjs";
 
 /**
  * Root-side NFS server tasks executed by scripts/boxpilot-run.mjs.
@@ -18,7 +19,8 @@ export const nfsConfPath = "/etc/nfs.conf.d/boxpilot.conf";
 export const managedMarker = "# Managed by BoxPilot";
 export const tailscaleRange = "100.64.0.0/10";
 export const scopes = Object.freeze(["tailscale", "lan"]);
-export const exportPathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/nfs", "/mnt/boxpilot"]);
+// M72: both backup destinations, the old /mnt/boxpilot-backup too; an operator alone must not export either.
+export const exportPathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/nfs", ...backupDestinationPaths]);
 export const maxExports = 32;
 
 const binaries = {
@@ -93,8 +95,35 @@ async function lanSubnetsFrom(run) {
 
 const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-3).join(" ");
 
+/**
+ * Undo a rejected apply, one step at a time, and say what each step did (M73). The message used to
+ * say "restored the previous file" on a first apply, when there was no previous file: the rejected
+ * one stayed, nfs.conf.d kept BoxPilot's settings, and nfs-server stayed switched on.
+ * @param {{ previous: string | null, previousConf: string | null, wasEnabled: boolean }} before
+ * @param {{ run: typeof fixedRun, files: any }} dependencies
+ * @returns {Promise<string[]>} one sentence per step, for the job's error
+ */
+async function putBackNfs({ previous, previousConf, wasEnabled }, { run, files }) {
+  const steps = [];
+  let restoredAll = true;
+  const attempt = async (done, failed, action) => {
+    try { await action(); steps.push(done); } catch (error) { restoredAll = false; steps.push(`${failed} (${error.message})`); }
+  };
+  if (previous !== null) await attempt("Put the previous exports file back", `Could not put the previous exports file back, so the rejected one is still at ${exportsPath}`, () => files.writeFile(exportsPath, previous, { mode: 0o644 }));
+  else await attempt("There was no exports file before, so the rejected one was removed", `There was no exports file before, and the rejected one could not be removed, so it is still at ${exportsPath}`, () => files.unlink(exportsPath));
+  if (previousConf !== null) await attempt(`put the previous ${nfsConfPath} back`, `could not put the previous ${nfsConfPath} back`, () => files.writeFile(nfsConfPath, previousConf, { mode: 0o644 }));
+  else await attempt(`removed ${nfsConfPath}`, `could not remove ${nfsConfPath}`, () => files.unlink(nfsConfPath));
+  const reload = await run(binaries.exportfs, ["-ra"], { timeout: 30_000 });
+  steps.push(!reload.ok ? `exportfs could not reload what is there now (${tail(reload.stderr) || "failed"})` : restoredAll ? "the NFS server exports what it did before" : "exportfs reloaded what is there now");
+  if (!wasEnabled) {
+    const stop = await run(binaries.systemctl, ["disable", "--now", "nfs-server"], { timeout: 60_000 });
+    steps.push(stop.ok ? "the NFS server was switched off again, as it was before" : `the NFS server could not be switched off again (${tail(stop.stderr) || "systemctl failed"}), so it is still running`);
+  }
+  return steps;
+}
+
 /** Write exports, validate with exportfs, start the server, verify it listens. */
-export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, mkdir, stat, access, realpath } } = {}) {
+export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, mkdir, stat, access, realpath, unlink } } = {}) {
   const problem = validateNfsConfig({ scope, exports });
   if (problem) throw new Error(`Invalid configuration: ${problem}`);
   const installed = await files.access(binaries.exportfs).then(() => true, () => false);
@@ -117,6 +146,9 @@ export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run
   const lanSubnets = scope === "lan" ? await lanSubnetsFrom(run) : [];
   if (scope === "lan" && !lanSubnets.length) throw new Error("Could not determine the LAN subnet (no link route)");
   const previous = await files.readFile(exportsPath, "utf8").catch(() => null);
+  const previousConf = await files.readFile(nfsConfPath, "utf8").catch(() => null);
+  // Whether the server was switched on before this apply: a rejected first apply turns it off again.
+  const wasEnabled = (await run(binaries.systemctl, ["is-enabled", "--quiet", "nfs-server"], { timeout: 15_000 })).ok;
   await files.mkdir("/etc/exports.d", { recursive: true, mode: 0o755 });
   await files.mkdir("/etc/nfs.conf.d", { recursive: true, mode: 0o755 });
   await files.writeFile(nfsConfPath, `${managedMarker}\n[nfsd]\nvers3=n\nvers4=y\n`, { mode: 0o644 });
@@ -127,8 +159,8 @@ export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run
   if (!enable.ok) throw new Error(`Could not start the NFS server: ${tail(enable.stderr)}`);
   const reexport = await run(binaries.exportfs, ["-ra"], { timeout: 30_000 });
   if (!reexport.ok || /exportfs:.*(error|failed|does not exist|invalid)/i.test(`${reexport.stderr}${reexport.stdout}`)) {
-    if (previous !== null) { await files.writeFile(exportsPath, previous, { mode: 0o644 }); await run(binaries.exportfs, ["-ra"], { timeout: 30_000 }).catch(() => {}); }
-    throw new Error(`exportfs rejected the exports (restored the previous file): ${tail(reexport.stderr) || tail(reexport.stdout)}`);
+    const steps = await putBackNfs({ previous, previousConf, wasEnabled }, { run, files });
+    throw new Error(`exportfs rejected the exports: ${tail(reexport.stderr) || tail(reexport.stdout)}. ${steps.join("; ")}.`);
   }
   log?.(`Wrote ${exportsPath}: ${exports.length} export(s) for ${[tailscaleRange, ...lanSubnets].join(", ")}`, "stdout");
   const listing = await run(binaries.exportfs, ["-v"], { timeout: 15_000 });

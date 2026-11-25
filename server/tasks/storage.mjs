@@ -245,12 +245,25 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
   // carries ownership as a mount option, so hand the whole volume to the apps user in the entry; a
   // Linux filesystem keeps its own on-disk permissions, so we chown the top of it after mounting.
   const permissionless = permissionlessFilesystems.includes(entryFstype);
-  const giveToApps = appWritable && !readOnly;
+  // M73 (SEC-4): the backup destination holds every app's .env, database copies and snapshots. On a
+  // filesystem that keeps no owners the mount options decide who reads them, and `defaults` makes
+  // every file world-readable (uid=1000 hands them to the apps user). So it is always root's alone,
+  // whatever "let apps write" says: the same rule tasks/shares.mjs applies to a CIFS destination.
+  const lockedToRoot = permissionless && name === backupMountName;
+  const giveToApps = appWritable && !readOnly && !lockedToRoot;
   // nosuid,nodev: a plugged-in drive is data, so a setuid binary or a device node someone put on it
   // gives nothing on this host.
-  const options = withDockerOrder(readOnly ? "ro,nofail,nosuid,nodev"
-    : giveToApps && permissionless ? `rw,nofail,nosuid,nodev,uid=${uid},gid=${gid}`
-      : "defaults,nofail,nosuid,nodev");
+  const options = withDockerOrder(lockedToRoot ? `${readOnly ? "ro" : "rw"},nofail,nosuid,nodev,uid=0,gid=0,fmask=0177,dmask=0077`
+    : readOnly ? "ro,nofail,nosuid,nodev"
+      : giveToApps && permissionless ? `rw,nofail,nosuid,nodev,uid=${uid},gid=${gid}`
+        : "defaults,nofail,nosuid,nodev");
+  /** @type {string[]} */
+  const notes = [];
+  if (lockedToRoot) {
+    const note = `${mountpoint} holds backups and is ${entryFstype}, which keeps no owners, so it is mounted readable by root only${appWritable && !readOnly ? "; \"let apps write\" does not apply to the backup drive" : ""}.`;
+    notes.push(note);
+    log?.(note, "stdout");
+  }
   const previous = await appendFstabEntry({ run, files, log }, name, `UUID=${uuid} ${mountpoint} ${entryFstype} ${options} 0 ${fsckPass}`);
   await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 });
   log?.(`$ mount ${mountpoint}`, "stdout");
@@ -264,11 +277,14 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
     : { ok: false, stdout: "", stderr: "" };
   if (!mountResult.ok || !check.stdout.trim()) {
     await files.writeFile(fstabPath, previous);
-    await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 }).catch(() => {});
+    // M73: the entry is gone from fstab either way; a failed reload only means systemd keeps its
+    // generated unit for it until the next reload or boot, which the message says.
+    const reloaded = await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 });
+    if (!reloaded.ok) log?.(`systemctl daemon-reload failed: ${tail(reloaded.stderr)}`, "stderr");
     const reason = mountResult.ok
       ? "mount reported success but nothing is mounted there — a drive ejected unsafely (exFAT/NTFS) or still spinning up can do this; reconnect or repair the drive and try again"
       : tail(mountResult.stderr);
-    throw new Error(`mount failed and the fstab entry was removed again: ${reason}`);
+    throw new Error(`mount failed and the fstab entry was removed again${reloaded.ok ? "" : " (systemd could not reload, so it may still know the old entry until the next boot)"}: ${reason}`);
   }
   // A Linux filesystem already mounted; give the top of it to the apps user so containers running as
   // that uid can create their own folders. Only the mountpoint itself, never a recursive sweep.
@@ -277,7 +293,7 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
     if (owned.ok) log?.(`Owner of ${mountpoint} set to ${uid}:${gid} so apps can write there`, "stdout");
     else log?.(`Could not set the owner of ${mountpoint}; apps may not be able to write there: ${tail(owned.stderr)}`, "stderr");
   }
-  return { mounted: true, name, mountpoint, uuid, device: dev, detail: check.stdout.trim(), owner: giveToApps ? `${uid}:${gid}` : null, persistent: true };
+  return { mounted: true, name, mountpoint, uuid, device: dev, detail: check.stdout.trim(), owner: lockedToRoot ? "0:0" : giveToApps ? `${uid}:${gid}` : null, persistent: true, ...(notes.length ? { notes } : {}) };
 }
 
 /**
@@ -415,7 +431,9 @@ export async function swapFileSet({ sizeGiB = null, remove = false } = {}, { run
   if (!allocate.ok) throw new Error(`Could not allocate the swap file: ${allocate.stderr.split("\n").slice(-2).join(" ")}`);
   let fstabBefore = null;
   try {
-    await run(binaries.chmod, ["600", swapPath], { timeout: 15_000 });
+    // M73: swap holds whatever memory was paged out; a swap file others can read is refused, not used.
+    const locked = await run(binaries.chmod, ["600", swapPath], { timeout: 15_000 });
+    if (!locked.ok) throw new Error(`Could not make the swap file readable by root only: ${tail(locked.stderr)}`);
     const mkswap = await run(binaries.mkswap, [swapPath], { timeout: 60_000 });
     if (!mkswap.ok) throw new Error(`mkswap failed: ${mkswap.stderr.split("\n").slice(-2).join(" ")}`);
     fstabBefore = await appendFstabEntry({ run, files, log }, "swap", `${swapPath} none swap sw,nofail 0 0`);
@@ -424,11 +442,17 @@ export async function swapFileSet({ sizeGiB = null, remove = false } = {}, { run
   } catch (error) {
     // The entry goes with the file. Left behind, it named a file that was gone, and every later try
     // was refused as "already exists": a retry that could never succeed.
+    // M73: each step's outcome goes into the message, so it never says less was left than was.
+    const leftovers = [];
     if (fstabBefore !== null) {
-      await files.writeFile(fstabPath, fstabBefore).catch(() => {});
-      await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 }).catch(() => {});
+      const restored = await files.writeFile(fstabPath, fstabBefore).then(() => true, (writeError) => { log?.(`Could not remove the swap entry from ${fstabPath}: ${writeError.message}`, "stderr"); return false; });
+      if (!restored) leftovers.push(`its entry is still in ${fstabPath}`);
+      const reloaded = await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 });
+      if (!reloaded.ok) log?.(`systemctl daemon-reload failed: ${tail(reloaded.stderr)}`, "stderr");
     }
-    await run(binaries.rm, ["-f", swapPath], { timeout: 30_000 }).catch(() => {});
+    const removed = await run(binaries.rm, ["-f", swapPath], { timeout: 30_000 });
+    if (!removed.ok) leftovers.push(`${swapPath} could not be deleted (${tail(removed.stderr) || "rm failed"})`);
+    if (leftovers.length) throw new Error(`${error.message}. The swap file was not set up, and ${leftovers.join(" and ")}; remove it before trying again.`);
     throw error;
   }
   return { created: true, path: swapPath, sizeGiB };

@@ -1,7 +1,8 @@
-import { access, copyFile, lchown, readFile, realpath, rename, stat } from "node:fs/promises";
+import { access, copyFile, lchown, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
 import { cleanServedPath, homeThroughLink, readLoginHomes } from "./served-folder.mjs";
+import { backupDestinationPaths } from "../backup-mount.mjs";
 
 /**
  * Root-side Samba (SMB file server) tasks executed by scripts/boxpilot-run.mjs.
@@ -21,7 +22,8 @@ export const workgroupPattern = /^[A-Za-z0-9_-]{1,15}$/;
 export const sambaUsernamePattern = /^[a-z_][a-z0-9_-]{0,31}$/;
 export const scopes = Object.freeze(["tailscale", "lan"]);
 export const reservedShareNames = Object.freeze(["global", "homes", "printers", "print$", "ipc$"]);
-export const sharePathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/samba", "/mnt/boxpilot"]);
+// M72: both backup destinations, the old /mnt/boxpilot-backup too; an operator alone must not share either.
+export const sharePathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/samba", ...backupDestinationPaths]);
 /** Written by useradd for the accounts sambaUserSet makes (system accounts, no shell, no home). */
 const sambaAccountComment = "BoxPilot Samba user";
 export const maxShares = 32;
@@ -208,7 +210,7 @@ async function ownerOf(run, files, directory) {
 const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-3).join(" ");
 
 /** Render, validate, and apply the whole configuration; reload smbd; verify it listens. */
-export async function sambaApply({ workgroup = "WORKGROUP", scope = "tailscale", shares = [] } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, copyFile, stat, access, realpath } } = {}) {
+export async function sambaApply({ workgroup = "WORKGROUP", scope = "tailscale", shares = [] } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, copyFile, stat, access, realpath, unlink } } = {}) {
   const problem = validateSambaConfig({ workgroup, scope, shares });
   if (problem) throw new Error(`Invalid configuration: ${problem}`);
   const installed = await files.access(binaries.smbd).then(() => true, () => false);
@@ -235,14 +237,38 @@ export async function sambaApply({ workgroup = "WORKGROUP", scope = "tailscale",
   await files.rename(`${smbConfPath}.tmp`, smbConfPath);
   const check = await run(binaries.testparm, ["-s", "--suppress-prompt", smbConfPath], { timeout: 30_000 });
   if (!check.ok) {
-    if (previous !== null) await files.writeFile(smbConfPath, previous, { mode: 0o644 });
-    throw new Error(`Samba rejected the configuration (restored the previous one): ${tail(check.stderr)}`);
+    // M73: the message says what the put-back did. With no smb.conf before, there is nothing to
+    // restore: the rejected file is removed, and if that fails the message says it is still there.
+    let putBack;
+    if (previous !== null) {
+      putBack = await Promise.resolve(files.writeFile(smbConfPath, previous, { mode: 0o644 })).then(
+        () => "put the previous smb.conf back",
+        (error) => `could not put the previous smb.conf back (${error.message}); the rejected file is still at ${smbConfPath}`);
+    } else {
+      putBack = await Promise.resolve().then(() => files.unlink(smbConfPath)).then(
+        () => `there was no smb.conf before, so the rejected one was removed`,
+        (error) => `there was no smb.conf before, and the rejected one could not be removed (${error.message}); it is still at ${smbConfPath}`);
+    }
+    throw new Error(`Samba rejected the configuration (${putBack}): ${tail(check.stderr)}`);
   }
   log?.(`Wrote ${smbConfPath}: ${shares.length} share(s), interfaces ${["lo", "tailscale0", ...(lanInterface ? [lanInterface] : [])].join(" ")}`, "stdout");
   const enable = await run(binaries.systemctl, ["enable", "--now", "smbd"], { timeout: 60_000 });
   if (!enable.ok) throw new Error(`Could not start smbd: ${tail(enable.stderr)}`);
-  await run(binaries.systemctl, ["reload-or-restart", "smbd"], { timeout: 60_000 });
-  await run(binaries.systemctl, [scope === "lan" ? "enable" : "disable", scope === "lan" ? "--now" : "--now", "nmbd"], { timeout: 60_000 }).catch(() => {});
+  // M73: a failed reload leaves smbd serving the shares it had, while the job would say these were applied.
+  const reload = await run(binaries.systemctl, ["reload-or-restart", "smbd"], { timeout: 60_000 });
+  if (!reload.ok) throw new Error(`Wrote ${smbConfPath}, but smbd did not load it: ${tail(reload.stderr)}`);
+  /** @type {string[]} */
+  const warnings = [];
+  // nmbd answers NetBIOS names on the LAN. The shares work by address without it, so a failure here
+  // is a warning the job shows rather than a failed apply (M73: it used to vanish).
+  const nmbd = await run(binaries.systemctl, [scope === "lan" ? "enable" : "disable", "--now", "nmbd"], { timeout: 60_000 });
+  if (!nmbd.ok) {
+    const warning = scope === "lan"
+      ? `The shares are applied, but nmbd did not start (${tail(nmbd.stderr) || "systemctl failed"}), so older computers may not find this server by name; it still answers at its address.`
+      : `The shares are applied, but nmbd could not be stopped (${tail(nmbd.stderr) || "systemctl failed"}), so it may still announce this server's name on the LAN.`;
+    warnings.push(warning);
+    log?.(warning, "stderr");
+  }
   let bound = await smbdListening(run);
   // A reload rereads smb.conf and keeps the sockets smbd already has. One the package started with
   // its own configuration listens on every address, and went on doing so after a tailnet-only
@@ -250,10 +276,12 @@ export async function sambaApply({ workgroup = "WORKGROUP", scope = "tailscale",
   // never what this file asks for, so smbd is restarted to bind where it is told.
   if (bound.some(everyAddress)) {
     log?.("smbd was still listening on every address after the reload; restarting it so it listens only where smb.conf says", "stderr");
-    await run(binaries.systemctl, ["restart", "smbd"], { timeout: 60_000 });
+    const restart = await run(binaries.systemctl, ["restart", "smbd"], { timeout: 60_000 });
+    if (!restart.ok) log?.(`Could not restart smbd: ${tail(restart.stderr)}`, "stderr");
     bound = await smbdListening(run);
+    if (bound.some(everyAddress)) warnings.push(`smbd is still listening on every address (${bound.join(", ")}), not only where smb.conf says; restart Samba from Services.`);
   }
-  return { applied: true, scope, workgroup, shares: shares.map((share) => share.name), interfaces: ["lo", "tailscale0", ...(lanInterface ? [lanInterface] : [])], listening: bound, forceUsers };
+  return { applied: true, scope, workgroup, shares: shares.map((share) => share.name), interfaces: ["lo", "tailscale0", ...(lanInterface ? [lanInterface] : [])], listening: bound, forceUsers, ...(warnings.length ? { warnings } : {}) };
 }
 
 /** Where smbd listens on 445, as `ss` names each address. */
@@ -281,7 +309,7 @@ const shareOwnerId = 1000;
  * mount decides. That is refused with the fix that does work, before anything is changed.
  * @param {{ share?: string }} [parameters]
  */
-export async function sambaShareWritable({ share } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, copyFile, stat, access, realpath }, chown = defaultChown } = {}) {
+export async function sambaShareWritable({ share } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, rename, copyFile, stat, access, realpath, unlink }, chown = defaultChown } = {}) {
   if (typeof share !== "string" || !shareNamePattern.test(share)) throw new Error("Share name is invalid");
   const config = parseSmbConf(await files.readFile(smbConfPath, "utf8").catch(() => ""));
   if (!config.managed) throw new Error("BoxPilot does not manage this server's file sharing, so nothing was changed");
@@ -346,14 +374,27 @@ export async function sambaUserSet({ username, password } = {}, { run = fixedRun
     if (!add.ok) throw new Error(`Could not create the account: ${tail(add.stderr)}`);
     created = true;
     log?.(`Created Linux account ${username} (no shell, no home) in group sambashare`, "stdout");
-  } else {
-    await run(binaries.usermod, ["-a", "-G", "sambashare", username], { timeout: 30_000 }).catch(() => {});
+  }
+  /** @type {string[]} */
+  const warnings = [];
+  if (!created) {
+    // M73: sambashare is the group every share writes as. Not being in it does not stop the
+    // password working, so it is a warning the job shows, not a failure.
+    const join = await run(binaries.usermod, ["-a", "-G", "sambashare", username], { timeout: 30_000 });
+    if (!join.ok) {
+      const warning = `${username} could not be added to the sambashare group (${tail(join.stderr) || "usermod failed"}), so it may not be able to write to the shares.`;
+      warnings.push(warning);
+      log?.(warning, "stderr");
+    }
   }
   const set = await run(binaries.smbpasswd, ["-s", "-a", username], { timeout: 30_000, input: `${password}\n${password}\n` });
   if (!set.ok) throw new Error(`smbpasswd failed: ${tail(set.stderr) || tail(set.stdout)}`);
-  await run(binaries.smbpasswd, ["-e", username], { timeout: 30_000 }).catch(() => {});
+  // M73: an account with a password but left disabled cannot sign in, and the job used to report
+  // "Samba password set" anyway. Enabling it is part of what this job promises.
+  const enable = await run(binaries.smbpasswd, ["-e", username], { timeout: 30_000 });
+  if (!enable.ok) throw new Error(`The Samba password for ${username} was saved, but the account could not be enabled, so it cannot sign in yet: ${tail(enable.stderr) || tail(enable.stdout) || "smbpasswd -e failed"}`);
   log?.(`Samba password set for ${username}`, "stdout");
-  return { username, created, updated: !created };
+  return { username, created, updated: !created, ...(warnings.length ? { warnings } : {}) };
 }
 
 /**
@@ -397,7 +438,9 @@ export async function sambaRecycleEmpty({ share, olderThanDays = 0 } = {}, { run
   if (days > 0) {
     const removed = await run(binaries.find, [recycleDir, "-type", "f", "-mtime", `+${days}`, "-delete"], { timeout: 300_000 });
     if (!removed.ok && !/No such file/i.test(removed.stderr)) throw new Error(`Could not clean the recycle bin: ${tail(removed.stderr)}`);
-    await run(binaries.find, [recycleDir, "-mindepth", "1", "-type", "d", "-empty", "-delete"], { timeout: 120_000 }).catch(() => {});
+    // Best effort (M73): empty folders left behind take no space; the files were what was asked for.
+    const folders = await run(binaries.find, [recycleDir, "-mindepth", "1", "-type", "d", "-empty", "-delete"], { timeout: 120_000 });
+    if (!folders.ok && !/No such file/i.test(folders.stderr)) log?.(`Could not remove the recycle bin's empty folders: ${tail(folders.stderr)}`, "stderr");
   } else {
     const removed = await run(binaries.rm, ["-rf", "--", recycleDir], { timeout: 300_000 });
     if (!removed.ok) throw new Error(`Could not empty the recycle bin: ${tail(removed.stderr)}`);
@@ -461,12 +504,27 @@ export async function sambaDiscoverySet({ enabled = true } = {}, { run = fixedRu
   }
   if (!on) {
     // Whichever release this is, the service is one of these; the other is simply not there.
-    for (const unit of discoveryUnits) await run(binaries.systemctl, ["disable", "--now", unit], { timeout: 60_000 }).catch(() => {});
+    // M73: the unit this release lacks fails to disable, which is expected; what counts is whether
+    // discovery is still running afterwards, read below.
+    for (const unit of discoveryUnits) {
+      const disabled = await run(binaries.systemctl, ["disable", "--now", unit], { timeout: 60_000 });
+      if (!disabled.ok) log?.(`systemctl disable ${unit}: ${tail(disabled.stderr) || "failed"}`, "stdout");
+    }
+    const state = await discoveryState(run, files);
+    if (state.running) throw new Error(`Could not stop ${state.unit}, so Windows still lists this server`);
+    /** @type {string[]} */
+    const warnings = [];
     for (const entry of discoveryPorts) {
-      await run(binaries.ufw, ["--force", "delete", "allow", `${entry.port}/${entry.protocol}`], { timeout: 30_000 }).catch(() => {});
+      const removed = await run(binaries.ufw, ["--force", "delete", "allow", `${entry.port}/${entry.protocol}`], { timeout: 30_000 });
+      // No ufw on this server means there is no rule to withdraw.
+      if (!removed.ok && !/ENOENT/.test(removed.stderr)) {
+        const warning = `Discovery is off, but the firewall rule for ${entry.port}/${entry.protocol} could not be removed (${tail(removed.stderr) || "ufw failed"}); remove it on the Firewall page.`;
+        warnings.push(warning);
+        log?.(warning, "stderr");
+      }
     }
     log?.("Windows discovery is off; shares stay reachable by typing the server name", "stdout");
-    return { enabled: false, ...(await discoveryState(run, files)) };
+    return { enabled: false, ...state, ...(warnings.length ? { warnings } : {}) };
   }
   const before = await discoveryState(run, files);
   if (!before.installed) {
