@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { refreshAfterJob } from "../shell/refresh";
 
 /**
  * Whether this device can reach BoxPilot right now (M25.1). The browser's own online flag says only
@@ -52,13 +53,19 @@ export interface WatchOptions {
   intervalMs?: number;
   /** How often while it is not: a restart or an update is over in seconds, and the banner should go with it. */
   retryMs?: number;
+  /**
+   * Said when BoxPilot answers again after not answering (M89): the page in front reads its facts
+   * again quietly, as when a job ends, so the outage's errors do not stay on screen once the banner
+   * has gone. The banner says "This page comes back by itself", and this is what makes it so.
+   */
+  onBack?: () => void;
   /** The timers, for tests. */
   setTimer?: (run: () => void, ms: number) => number;
   clearTimer?: (id: number) => void;
 }
 
 /** Start watching; returns the function that stops. Called once, from main.tsx. */
-export function watchConnection({ intervalMs = 60_000, retryMs = 5_000, setTimer = (run, ms) => window.setTimeout(run, ms), clearTimer = (id) => window.clearTimeout(id) }: WatchOptions = {}): () => void {
+export function watchConnection({ intervalMs = 60_000, retryMs = 5_000, onBack = () => refreshAfterJob(), setTimer = (run, ms) => window.setTimeout(run, ms), clearTimer = (id) => window.clearTimeout(id) }: WatchOptions = {}): () => void {
   const visible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
   const onOnline = () => { void checkConnection(); };
   const onOffline = () => set({ online: false });
@@ -88,6 +95,7 @@ export function watchConnection({ intervalMs = 60_000, retryMs = 5_000, setTimer
     if (now === was) return;
     was = now;
     arm();
+    if (now) onBack();
   });
   arm();
   void checkConnection();

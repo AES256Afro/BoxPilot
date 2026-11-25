@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { countOf } from "../../data";
-import { readJson } from "../../http";
+import { errorWords, readJson } from "../../http";
 import { inspectOperation } from "../../operations";
 import { Button, CodeBlock, EmptyState, Notice, PageHeader, Panel, Segmented, Select, SearchField, Switch, TextInput, Toolbar, useUrlParam } from "../../ui";
 import "./logs.css";
@@ -68,6 +68,10 @@ export interface LogsPageProps {
 export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPageProps) {
   const canRead = role === "owner" || role === "operator";
   const [sources, setSources] = useState<Sources | null>(null);
+  // The source list is its own read with its own retry (M89): its failure used to share the log
+  // read's notice, a good log read then cleared it, and every search said the service did not exist.
+  const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [sourcesAttempt, setSourcesAttempt] = useState(0);
   // What is being read lives in the address (?kind=, ?target=, ?since=), so a reload or a shared
   // link opens on the same source and window instead of BoxPilot's own journal.
   const [kind, setKind] = useUrlParam<Kind>("kind", kinds, "group");
@@ -96,8 +100,13 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
 
   useEffect(() => {
     if (!canRead) return;
-    inspectOperation<Sources>("logs.sources").then(({ result }) => setSources(result)).catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : "The log sources could not be listed"));
-  }, [canRead]);
+    let current = true;
+    inspectOperation<Sources>("logs.sources")
+      .then(({ result }) => { if (current) { setSources(result); setSourcesError(null); } })
+      .catch((requestError: unknown) => { if (current) setSourcesError(errorWords(requestError, "The list of services could not be read.")); });
+    return () => { current = false; };
+  }, [canRead, sourcesAttempt]);
+  const readSourcesAgain = () => { setSourcesError(null); setSourcesAttempt((attempt) => attempt + 1); };
 
   /**
    * `follow` asks only for what has arrived since the newest line already on screen, instead of
@@ -133,7 +142,7 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
       if (match) lastTimestamp.current = `${match[1]}T${match[2]}${match[3] ?? ""}`;
       setError(null);
     } catch (requestError) {
-      if (sequence === readSequence.current) setError(requestError instanceof Error ? requestError.message : "The logs could not be read");
+      if (sequence === readSequence.current) setError(errorWords(requestError, "The logs could not be read."));
     } finally {
       inFlight.current -= 1;
       if (sequence === readSequence.current) setLoading(false);
@@ -206,7 +215,8 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
 
       {canRead && (
         <>
-          <Panel padded className="logs-source" title="Source" meta={sources ? `${countOf(sources.units.length, "service")} · ${sources.dockerAvailable ? countOf(sources.containers.length, "container") : "Docker not answering"}` : undefined}>
+          <Panel padded className="logs-source" title="Source" meta={sources ? `${countOf(sources.units.length, "service")} · ${sources.dockerAvailable ? countOf(sources.containers.length, "container") : "Docker not answering"}` : sourcesError ? "Not read" : undefined}>
+            {sourcesError && <Notice tone="warning" live title="The list of services could not be read" action={<Button onClick={readSourcesAgain}>Try again</Button>}>{sourcesError}</Notice>}
             <div className="logs-source__rows">
               <Segmented label="Journal group" value={kind === "group" ? target : null} onChange={(id) => select("group", id)} options={groups.map((group) => ({ value: group.id, label: group.label }))} />
               <form className="logs-source__unit" onSubmit={(event) => { event.preventDefault(); if (chosenUnit) select("unit", chosenUnit.unit); }}>
@@ -214,7 +224,9 @@ export default function LogsPage({ csrfToken = "", role = "owner" }: LogsPagePro
                 <datalist id="logs-units">{unitOptions.map((unit) => <option key={unit.unit} value={unit.unit}>{unit.description}</option>)}</datalist>
                 <Button type="submit" disabled={!chosenUnit}>{chosenUnit && chosenUnit.unit !== pick.trim() ? `Open ${chosenUnit.unit}` : "Open service"}</Button>
               </form>
-              {pick.trim() && !chosenUnit && <p id="logs-unit-none" className="logs-source__none" role="status">No service has “{pick.trim()}” in its name.</p>}
+              {pick.trim() && !chosenUnit && <p id="logs-unit-none" className="logs-source__none" role="status">
+                {sources ? <>No service has “{pick.trim()}” in its name.</> : sourcesError ? "The list of services could not be read." : "Still reading the list of services…"}
+              </p>}
               {sources?.dockerAvailable && (
                 <Select aria-label="Container" mono className="logs-source__container" value={kind === "container" ? target : ""} placeholder="A container…"
                   onValueChange={(name) => { if (name) select("container", name); }}

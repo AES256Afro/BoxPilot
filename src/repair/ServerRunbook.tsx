@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { readJson } from "../http";
+import { errorWords, readJson } from "../http";
 import { Button, CodeBlock, Panel, type Status } from "../ui";
 
 /** Whether the copy the owner downloaded still describes this server (M34.4). From BoxPilot's own records only. */
@@ -87,7 +87,7 @@ export default function ServerRunbook() {
       if (!isPreview(body)) throw new Error("The runbook came back incomplete. Try again in a moment.");
       setPreview(body);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The runbook could not be put together");
+      setError(errorWords(reason, "The runbook could not be put together."));
     } finally {
       setBusy(null);
     }
@@ -109,7 +109,7 @@ export default function ServerRunbook() {
       setTimeout(() => URL.revokeObjectURL(url), 0);
       await loadStatus();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The runbook could not be downloaded");
+      setError(errorWords(reason, "The runbook could not be downloaded."));
     } finally {
       setBusy(null);
     }

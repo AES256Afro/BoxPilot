@@ -8,7 +8,11 @@ export interface CodeBlockProps {
   label: string;
   /** Offers a Copy button in the bar. On by default. */
   copy?: boolean;
-  /** Keep the newest line in view as text arrives, as a terminal does (a followed log). */
+  /**
+   * Keep the newest line in view as text arrives, as a terminal does (a followed log). Only while
+   * the view is at the bottom: once someone scrolls up to read, it stays put and offers "Jump to
+   * newest" until they scroll back down.
+   */
   follow?: boolean;
   /** Break long lines instead of scrolling sideways. On by default; turn it off for aligned columns. */
   wrap?: boolean;
@@ -26,10 +30,27 @@ export interface CodeBlockProps {
  * scrolls itself, never the page, and is one tab stop so the keyboard can scroll it. A clipboard
  * that refuses says so, and the text stays selectable to copy by hand.
  */
+
+/** How near the bottom, in px, still counts as reading the newest line. */
+const followSlack = 24;
+const nearBottom = (element: HTMLElement) => element.scrollHeight - element.scrollTop - element.clientHeight <= followSlack;
+
 export function CodeBlock({ children, label, copy = true, follow = false, wrap = true, empty, meta, maxHeight, className }: CodeBlockProps) {
   const pre = useRef<HTMLPreElement | null>(null);
   const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
-  useEffect(() => { if (follow && pre.current) pre.current.scrollTop = pre.current.scrollHeight; }, [children, follow]);
+  // Whether the view is at the newest line. Scrolling up to read lets go of it (M89): every chunk
+  // used to pull the view back to the bottom, mid-sentence, while a failing install streamed.
+  const [pinned, setPinned] = useState(true);
+  const [wasFollowing, setWasFollowing] = useState(follow);
+  if (wasFollowing !== follow) { setWasFollowing(follow); if (follow) setPinned(true); }
+  useEffect(() => { if (follow && pinned && pre.current) pre.current.scrollTop = pre.current.scrollHeight; }, [children, follow, pinned]);
+  const onScroll = () => { if (follow && pre.current) setPinned(nearBottom(pre.current)); };
+  // An instant jump, not a smooth one: nothing moves on its own for someone who asked for less motion,
+  // and the keyboard lands on the text it brought into view.
+  const jumpToNewest = () => {
+    if (pre.current) { pre.current.scrollTop = pre.current.scrollHeight; pre.current.focus(); }
+    setPinned(true);
+  };
   useEffect(() => { setCopied("idle"); }, [children]);
   const onCopy = async () => {
     try {
@@ -46,6 +67,7 @@ export function CodeBlock({ children, label, copy = true, follow = false, wrap =
       <div className="ui-code__bar">
         <span className="ui-code__label">{label}</span>
         {meta && <span className="ui-code__meta">{meta}</span>}
+        {follow && !pinned && <button type="button" className="ui-code__copy ui-code__jump" onClick={jumpToNewest}>Jump to newest</button>}
         {copy && (
           <button type="button" className="ui-code__copy" onClick={() => void onCopy()} disabled={!children}>
             {copied === "copied" ? "Copied" : "Copy"}
@@ -53,7 +75,7 @@ export function CodeBlock({ children, label, copy = true, follow = false, wrap =
         )}
       </div>
       {copied === "failed" && <p className="ui-code__note" role="status">The clipboard is not available here. Select the text and copy it by hand.</p>}
-      <pre ref={pre} className="ui-code__text" tabIndex={0} aria-label={label} style={maxHeight ? { maxHeight } : undefined}>
+      <pre ref={pre} className="ui-code__text" tabIndex={0} aria-label={label} onScroll={onScroll} style={maxHeight ? { maxHeight } : undefined}>
         {children || <span className="ui-code__empty">{empty ?? "Nothing to show."}</span>}
       </pre>
     </div>

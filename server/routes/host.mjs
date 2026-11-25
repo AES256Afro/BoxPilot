@@ -4,6 +4,7 @@
  * GitHub SSH-key proxy. Mounted at /api/v1 behind the session.
  */
 import { Router } from "express";
+import { helperFailure, sendHelperFailure } from "../helper-errors.mjs";
 import { productVersion } from "../version.mjs";
 import { runtimeDiagnostics } from "../runtime-diagnostics.mjs";
 import { registry, riskTiers } from "../ops/index.mjs";
@@ -108,7 +109,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // box - so they are asked at once. Only the first is required; the other two degrade.
     const [catalog, liveResult, snapshotResult] = await Promise.all([
       catalogService.all(),
-      helper.request("app.inspect", {}, { timeoutMs: 30_000 }).then((value) => ({ value }), (error) => ({ error: error.message })),
+      helper.request("app.inspect", {}, { timeoutMs: 30_000 }).then((value) => ({ value }), (error) => ({ error: helperFailure(error)?.error ?? error.message })),
       inventory.inspect().catch(() => null),
     ]);
     const { manifests, problems } = catalog;
@@ -415,7 +416,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     try {
       response.json(withOwnActors(request, await controllerRetention.inspect()));
     } catch (error) {
-      response.status(503).json({ error: error.message, code: "controller_retention_inspection_failed" });
+      if (!sendHelperFailure(response, error)) response.status(503).json({ error: error.message, code: "controller_retention_inspection_failed" });
     }
   });
 

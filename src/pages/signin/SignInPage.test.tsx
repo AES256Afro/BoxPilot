@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AuthScreen, { SignInLoading, SignInUnavailable, signedOutWords } from "./SignInPage";
 import { resetSigninStyleForTests, setSigninStyle } from "./signinStyle";
+import { resetConnection } from "../../pwa/connection";
 
 afterEach(() => {
   cleanup();
@@ -314,5 +315,46 @@ describe("which sign-in screen this browser shows", () => {
     await screen.findByRole("button", { name: "Sign in with GitHub" });
     fireEvent.keyDown(document.body, { key: "1" });
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/github/start"))).toBe(false);
+  });
+});
+
+describe("BoxPilot unavailable while it restarts (M89)", () => {
+  afterEach(() => { act(() => resetConnection()); });
+
+  it("asks again by itself, a little later each time, and says what else to check", async () => {
+    vi.useFakeTimers();
+    const onRetry = vi.fn(async () => undefined);
+    render(<SignInUnavailable problem="BoxPilot is not answering. It may be restarting. Try again in a moment." onRetry={onRetry} />);
+    expect(screen.getByText(/Check that Tailscale is connected on this device/)).toBeTruthy();
+    expect(screen.getByText(/asks again by itself/)).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_999); });
+    expect(onRetry).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_999); });
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(onRetry).toHaveBeenCalledTimes(2);
+    // Try again asks now, without reloading the page.
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(onRetry).toHaveBeenCalledTimes(3);
+  });
+
+  it("asks at once when the connection watcher hears BoxPilot again", async () => {
+    vi.useFakeTimers();
+    act(() => resetConnection({ reachable: false }));
+    const onRetry = vi.fn(async () => undefined);
+    render(<SignInUnavailable problem="BoxPilot did not answer. It may be restarting, or this device is off the network." onRetry={onRetry} />);
+    expect(onRetry).not.toHaveBeenCalled();
+    act(() => resetConnection({ reachable: true }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("says an offline device is offline", () => {
+    act(() => resetConnection({ online: false }));
+    render(<SignInUnavailable problem="BoxPilot did not answer." />);
+    expect(screen.getByText(/This device is offline/)).toBeTruthy();
   });
 });

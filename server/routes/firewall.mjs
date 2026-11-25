@@ -5,6 +5,7 @@
  * Mounted at /api/v1 behind the session. Read-only; changes go through registry ops.
  */
 import { Router } from "express";
+import { helperFailure } from "../helper-errors.mjs";
 import { listListeners } from "../ports.mjs";
 import { adviseFirewall, buildPlan, profiles, protectedRules, riskyPorts, services } from "../firewall-profiles.mjs";
 import { withOwnActors } from "./access.mjs";
@@ -30,7 +31,7 @@ export function createFirewallRouter({ state, helper, catalogService, webPort, w
 
   router.get("/firewall/overview", async (request, response) => {
     let report = null; let reportError = null;
-    try { report = await helper.request("firewall.inspect", {}, { timeoutMs: 30_000 }); } catch (error) { reportError = error.message; }
+    try { report = await helper.request("firewall.inspect", {}, { timeoutMs: 30_000 }); } catch (error) { reportError = helperFailure(error)?.error ?? error.message; }
     const [listening, apps, fail2ban] = await Promise.all([listeners().catch(() => []), installedApps().catch(() => []), helper.request("fail2ban.inspect", {}, { timeoutMs: 15_000 }).catch(() => null)]);
     // Which profile is in force is the server's; who applied it is the owner's to see (M29.4).
     const current = withOwnActors(request, state.getSetting("firewallProfile", null));

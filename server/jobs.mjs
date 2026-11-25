@@ -5,6 +5,7 @@ import { registry } from "./ops/index.mjs";
 import { budgetFor, internalRefusal, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, splitSecrets } from "./ops/registry.mjs";
 import { restartsBoxPilot } from "./ops/services.mjs";
 import { asSentence } from "./health-alerts.mjs";
+import { helperErrorCode, helperFailure } from "./helper-errors.mjs";
 import { formatDuration, jobTimeoutRecord, mayStillBeRunning, timeoutMessage, timeoutOf } from "./timeouts.mjs";
 import { productVersion } from "./version.mjs";
 
@@ -418,7 +419,7 @@ export function createJobService(store, helper, {
       } catch (error) {
         if (execution.run || !notStarted(error)) throw error;
         note("waiting", error.code === "helper_restarting" ? "BoxPilot is restarting, so this has not started; it is sent again once BoxPilot is back" : "BoxPilot's admin service is not answering, so this has not started; it is sent again once it is back");
-        if (!await helperBack()) throw Object.assign(new Error(`BoxPilot was not back within ${formatDuration(helperReturnMs)}, so this did not start and nothing was changed. Run it again once BoxPilot is back.`), { code: error.code });
+        if (!await helperBack()) throw Object.assign(new Error(`BoxPilot was not back within ${formatDuration(helperReturnMs)}, so this did not start and nothing was changed. Run it again once BoxPilot is back.`), { code: error.code, worded: true });
         // From here it may start: a web restart now reads it as cut off, never as never started.
         note("completed", "Sent again now that BoxPilot is back");
         return send();
@@ -446,19 +447,25 @@ export function createJobService(store, helper, {
         const timeout = current.state === "applying" && job.type.startsWith("op:") ? await timeoutRecordFor(job, execution, error, startedAt) : null;
         // A step's own limit comes with the operation's sentence (what it undid); the whole budget
         // running out has no such sentence, so it gets one saying what is known.
-        const message = timeout && (mayStillBeRunning(timeout) || timeout.phase === "queued") ? timeoutMessage(job.title, timeout) : error.message;
+        // The admin service not answering is said in the same words the pages use (M89), never the
+        // socket's own text; a sentence this file already wrote about it stands.
+        const unanswered = error?.worded ? null : helperFailure(error, { doing: "run" });
+        const message = timeout && (mayStillBeRunning(timeout) || timeout.phase === "queued") ? timeoutMessage(job.title, timeout) : unanswered?.error ?? error.message;
         if (timeout) store.addJobStep(jobId, "timeout", "reached", timeoutStep(timeout).slice(0, 500));
         // The step that failed is the one that was running. A failure while applying used to be
         // written as "verify failed" beside an "apply running" nothing ever closed, so the job's
         // steps said the operation was still going while the job said it had failed; verify never
         // ran at all. Applying ends as failed, with the operation's own sentence; verifying (a
         // record that could not be saved) ends verify.
-        if (current.state === "applying") store.addJobStep(jobId, "apply", "failed", (timeout ? `${job.title} ran out of time` : `${job.title} failed: ${message}`).slice(0, 500));
+        if (current.state === "applying") store.addJobStep(jobId, "apply", "failed", (timeout ? `${job.title} ran out of time` : unanswered ? `${job.title}: ${message}` : `${job.title} failed: ${message}`).slice(0, 500));
         else store.addJobStep(jobId, "verify", "failed", execution.failed);
         const rolledBack = rollbackOutcome(error);
         if (rolledBack === true) store.addJobStep(jobId, "rollback", "completed", "The operation undid its partial changes before failing; existing data was preserved");
         else if (rolledBack === false) store.addJobStep(jobId, "rollback", "failed", "The operation tried to undo its partial changes and could not; check what it changed before running it again");
-        store.transitionJob(jobId, current.state, "failed", { error: message, ...(timeout ? { timeout } : {}) });
+        // Which way the admin service failed to answer, for the browser to read rather than the
+        // words (M89): a batch of fixes stops on it instead of sending the next into the same silence.
+        const helperCode = helperErrorCode(error) ?? (error?.code === "helper_restarting" ? "helper_restarting" : null);
+        store.transitionJob(jobId, current.state, "failed", { error: message, ...(timeout ? { timeout } : {}), ...(helperCode ? { recovery: { helperCode } } : {}) });
       }
       store.recordAudit("job.failed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
       await persistJobOutput(jobId);

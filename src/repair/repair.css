@@ -112,3 +112,7 @@
   .rp-row { grid-template-columns: minmax(0, 1fr); }
   .rp-row__act { justify-content: flex-start; }
 }
+/* The page's one verdict notice when a check could not read everything (M89). */
+.rp-verdict p { margin: 0 0 4px; }
+.rp-verdict p:last-child { margin-bottom: 0; }
+.rp-job__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; }

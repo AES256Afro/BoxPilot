@@ -128,6 +128,18 @@ anything able to reach the loopback port could otherwise claim a tailnet address
 Sessions are cookies (`HttpOnly`, `SameSite=Strict`, `Secure` behind TLS) with a CSRF token
 required on every change. Repeated wrong passwords throttle that account.
 
+A session lasts twelve hours from its last use, and use keeps it alive for at most three days
+from the sign-in. `GET /api/v1/auth/status` answers with `expiresAt` (when it ends if nothing
+else happens) and `sessionCap` (the latest it can ever be renewed to). A request that renews it
+answers with the headers `X-BoxPilot-Session-Expires` (the new end) and `X-BoxPilot-Session-Cap`
+(the same cap), both ISO times, so the page can tell "ends because it was not used" from "you
+signed in three days ago".
+
+When the admin service (the root helper) does not answer, an API error carries `code`
+`helper_unavailable` (nothing to connect to: nothing ran), `helper_timeout` (no answer in time)
+or `helper_closed` (the connection dropped partway), with an `error` in plain words. The socket's
+own text stays in the web service's log, never in the response.
+
 ## What is written where
 
 | Path | Contents |

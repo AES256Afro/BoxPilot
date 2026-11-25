@@ -84,6 +84,137 @@ describe("Activity history transport", () => {
   });
 });
 
+describe("back to the live stream (M89)", () => {
+  it("opens the stream again after it drops, without polling, and is live on its next snapshot", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource); vi.stubGlobal("fetch", vi.fn());
+    const onSnapshot = vi.fn(); const onStatus = vi.fn();
+    const stop = followJobs({ onSnapshot, onJob: vi.fn(), onStatus });
+    const first = FakeSource.last!;
+    first.emit("snapshot", { jobs: [job] });
+    first.onerror?.();
+    expect(first.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(FakeSource.opened).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeSource.opened).toBe(2);
+    // A restart: the next try fails too, and the one after waits longer.
+    FakeSource.last!.onerror?.();
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(FakeSource.opened).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeSource.opened).toBe(3);
+    // (Still running, so it is not news of a job ending: the page-refresh timer is the tab's, not this test's.)
+    const started = { ...job, id: "job-2", state: "applying" } as Job;
+    FakeSource.last!.emit("snapshot", { jobs: [started, job] });
+    expect(onSnapshot).toHaveBeenLastCalledWith([started, job]);
+    expect(onStatus).toHaveBeenLastCalledWith("live");
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(FakeSource.opened).toBe(3);
+    stop(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("says the feed is unavailable once the stream has failed to come back three times", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource); vi.stubGlobal("fetch", vi.fn());
+    const onStatus = vi.fn();
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn(), onStatus });
+    FakeSource.last!.emit("snapshot", { jobs: [] });
+    FakeSource.last!.onerror?.(); await vi.advanceTimersByTimeAsync(1000);
+    FakeSource.last!.onerror?.(); await vi.advanceTimersByTimeAsync(2000);
+    expect(onStatus).toHaveBeenLastCalledWith("live");
+    FakeSource.last!.onerror?.();
+    expect(onStatus).toHaveBeenLastCalledWith("unavailable");
+    await vi.advanceTimersByTimeAsync(4000);
+    FakeSource.last!.emit("snapshot", { jobs: [] });
+    expect(onStatus).toHaveBeenLastCalledWith("live");
+    stop();
+  });
+
+  it("polls the summary view while the stream has never worked, and stops when a later try of the stream answers", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource);
+    vi.stubGlobal("fetch", vi.fn(async () => response({ jobs: [job] })));
+    const onStatus = vi.fn();
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn(), onStatus });
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(vi.mocked(fetch).mock.calls[0]![0]).toBe("/api/v1/jobs?limit=50&view=summary");
+    expect(onStatus).toHaveBeenLastCalledWith("polling");
+    // The stream is asked again 30 s after it was let go.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeSource.opened).toBe(2);
+    FakeSource.last!.emit("snapshot", { jobs: [job] });
+    expect(onStatus).toHaveBeenLastCalledWith("live");
+    const polls = vi.mocked(fetch).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetch).toHaveBeenCalledTimes(polls);
+    stop(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("stops trying the stream once the session it worked for has been refused", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource);
+    vi.stubGlobal("fetch", vi.fn(async () => response({ bootstrapRequired: false, authenticated: false, owner: null, csrfToken: null, expiresAt: null })));
+    const onStatus = vi.fn();
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn(), onStatus });
+    FakeSource.last!.emit("snapshot", { jobs: [] });
+    FakeSource.last!.onerror?.(); await vi.advanceTimersByTimeAsync(1000);
+    FakeSource.last!.onerror?.(); await vi.advanceTimersByTimeAsync(2000);
+    FakeSource.last!.onerror?.(); await vi.advanceTimersByTimeAsync(0);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual(["/api/v1/auth/status"]);
+    expect(onStatus).toHaveBeenLastCalledWith("unavailable");
+    const opened = FakeSource.opened;
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(FakeSource.opened).toBe(opened);
+    expect(vi.getTimerCount()).toBe(0);
+    stop();
+  });
+
+  it("keeps trying while the session still answers, as through a restart", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource);
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn() });
+    FakeSource.last!.emit("snapshot", { jobs: [] });
+    for (const wait of [1000, 2000, 4000]) { FakeSource.last!.onerror?.(); await vi.advanceTimersByTimeAsync(wait); }
+    expect(FakeSource.opened).toBe(4);
+    stop();
+  });
+
+  it("polls while a stream that worked before is slow to send its first snapshot again, and stops on it", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource);
+    // Still running, so it is not news of a job ending (the page-refresh timer is the tab's).
+    const running = { ...job, state: "applying" } as Job;
+    vi.stubGlobal("fetch", vi.fn(async () => response({ jobs: [running] })));
+    const onSnapshot = vi.fn(); const onStatus = vi.fn();
+    const stop = followJobs({ onSnapshot, onJob: vi.fn(), onStatus });
+    FakeSource.last!.emit("snapshot", { jobs: [] });
+    FakeSource.last!.onerror?.();
+    await vi.advanceTimersByTimeAsync(1000);
+    const reopened = FakeSource.last!;
+    expect(FakeSource.opened).toBe(2);
+    await vi.advanceTimersByTimeAsync(2500);
+    // Not dropped: the same stream is still waited for, and the list is read meanwhile.
+    expect(reopened.closed).toBe(false);
+    expect(vi.mocked(fetch).mock.calls[0]![0]).toBe("/api/v1/jobs?limit=50&view=summary");
+    expect(onSnapshot).toHaveBeenLastCalledWith([running]);
+    reopened.emit("snapshot", { jobs: [running] });
+    expect(onStatus).toHaveBeenLastCalledWith("live");
+    const polls = vi.mocked(fetch).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetch).toHaveBeenCalledTimes(polls);
+    stop(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("tries the stream first when the tab is looked at again", async () => {
+    vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource); vi.stubGlobal("fetch", vi.fn());
+    const stop = followJobs({ onSnapshot: vi.fn(), onJob: vi.fn() });
+    FakeSource.last!.emit("snapshot", { jobs: [] });
+    FakeSource.last!.onerror?.();
+    expect(FakeSource.opened).toBe(1);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(FakeSource.opened).toBe(2);
+    expect(fetch).not.toHaveBeenCalled();
+    stop(); expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe("one job feed per tab (M50.2)", () => {
   it("opens one stream for every follower, hands a late one what is known, and closes with the last", async () => {
     vi.useFakeTimers(); vi.stubGlobal("EventSource", FakeSource); vi.stubGlobal("fetch", vi.fn());

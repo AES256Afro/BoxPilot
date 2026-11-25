@@ -1,5 +1,7 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { AuthError, bootstrapOwner, fetchIdentityOptions, loginOwner, loginWithTailscale, pollGithubSignIn, startGithubSignIn, type AuthStatus, type GithubFlow, type IdentityOptions, type SignedOutReason } from "../../auth";
+import { errorWords } from "../../http";
+import { connected, useConnection } from "../../pwa/connection";
 import { passkeysSupported, signInWithPasskey, signInWithRecoveryCode } from "../../passkey";
 import { Button, CodeBlock, CopyButton, Field, Progress, SecretInput, TextInput } from "../../ui";
 import { ThemeSwitch } from "../../ui/ThemeSwitch";
@@ -73,15 +75,54 @@ export function SignInLoading() {
   );
 }
 
-/** BoxPilot did not answer the question whether anyone is signed in. */
-export function SignInUnavailable({ problem }: { problem: string }) {
+/** The waits between asking again by itself: a restart is over in seconds, a longer outage is asked about twice a minute. */
+const retryDelaysMs = [2_000, 4_000, 8_000, 15_000, 30_000];
+
+/**
+ * BoxPilot did not answer the question whether anyone is signed in. Most often it is restarting (an
+ * update), so the screen asks again by itself (M89): on a widening timer, and at once when the
+ * connection watcher hears BoxPilot again. The owner can ask now, and is told what else to check.
+ */
+export function SignInUnavailable({ problem, onRetry }: { problem: string; /** Asks again; the screen goes when it is answered. */ onRetry?: () => Promise<unknown> }) {
   const titleId = useId();
+  const connection = useConnection();
+  const reachable = connected(connection);
+  const [attempt, setAttempt] = useState(0);
+  const [asking, setAsking] = useState(false);
+  const askingNow = useRef(false);
+  const latest = useRef(onRetry);
+  useEffect(() => { latest.current = onRetry; }, [onRetry]);
+  const ask = useCallback(() => {
+    const retry = latest.current;
+    if (!retry || askingNow.current) return;
+    askingNow.current = true;
+    setAsking(true);
+    void retry().finally(() => { askingNow.current = false; setAsking(false); setAttempt((count) => count + 1); });
+  }, []);
+  // The next try, a little later each time; an answer unmounts this screen and its timer with it.
+  useEffect(() => {
+    if (!onRetry) return undefined;
+    const timer = window.setTimeout(ask, retryDelaysMs[Math.min(attempt, retryDelaysMs.length - 1)]);
+    return () => window.clearTimeout(timer);
+  }, [attempt, ask, onRetry]);
+  // BoxPilot answered the connection watcher's health check: ask now rather than wait out the timer.
+  const wasReachable = useRef(reachable);
+  useEffect(() => {
+    if (reachable && !wasReachable.current) ask();
+    wasReachable.current = reachable;
+  }, [reachable, ask]);
   return (
     <SignInFrame labelledBy={titleId}>
       <span className="signin-kicker">Connection failed</span>
       <h1 id={titleId} className="signin-title">BoxPilot is unavailable</h1>
       <p className="signin-error" role="alert">{problem}</p>
-      <Button variant="primary" onClick={() => window.location.reload()}>Try again</Button>
+      <p className="signin-hint">
+        {connection.online
+          ? "The server may be restarting; an update takes a minute or two. Away from home? Check that Tailscale is connected on this device."
+          : "This device is offline. Connect it to a network, and to Tailscale when away from home."}
+        {onRetry && " This page asks again by itself and opens when BoxPilot answers."}
+      </p>
+      <Button variant="primary" busy={asking} onClick={onRetry ? ask : () => window.location.reload()}>Try again</Button>
     </SignInFrame>
   );
 }
@@ -141,7 +182,7 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
       setDevicePrompt(null); setDevicePassword("");
     } catch (requestError) {
       if (requestError instanceof AuthError && requestError.code === "device_password_required") { setDevicePrompt({ username: requestError.username ?? "" }); if (password) setError("That password was not accepted", "tailscale"); }
-      else setError(requestError instanceof Error ? requestError.message : "Tailscale sign-in failed", "tailscale");
+      else setError(errorWords(requestError, "Tailscale sign-in failed"), "tailscale");
     } finally { setSubmitting(false); }
   };
 
@@ -149,7 +190,7 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
   const passkeySignIn = async () => {
     setSubmitting(true); setError(null);
     try { onAuthenticated(await signInWithPasskey()); }
-    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Passkey sign-in failed", "passkey"); }
+    catch (requestError) { setError(errorWords(requestError, "Passkey sign-in failed"), "passkey"); }
     finally { setSubmitting(false); }
   };
 
@@ -158,7 +199,7 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
   const recoverySignIn = async () => {
     setSubmitting(true); setError(null);
     try { onAuthenticated(await signInWithRecoveryCode(recoveryCode)); }
-    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "That recovery code was not accepted", "recovery"); }
+    catch (requestError) { setError(errorWords(requestError, "That recovery code was not accepted"), "recovery"); }
     finally { setSubmitting(false); }
   };
 
@@ -179,13 +220,13 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
           setGithub(null); setGithubStatus(null); setError(result.error ?? (result.status === "expired" ? "The GitHub code expired; try again." : result.status === "denied" ? "GitHub authorization was denied." : "GitHub sign-in failed."), "github");
         } catch (pollError) {
           if (!current()) return;
-          setGithub(null); setGithubStatus(null); setError(pollError instanceof Error ? pollError.message : "GitHub sign-in failed", "github");
+          setGithub(null); setGithubStatus(null); setError(errorWords(pollError, "GitHub sign-in failed"), "github");
         }
       };
       pollTimer.current = window.setTimeout(() => void poll(), flow.intervalSeconds * 1000);
     } catch (requestError) {
       if (!current()) return;
-      setGithubStatus(null); setError(requestError instanceof Error ? requestError.message : "GitHub sign-in failed", "github");
+      setGithubStatus(null); setError(errorWords(requestError, "GitHub sign-in failed"), "github");
     }
   };
 
@@ -206,7 +247,7 @@ export default function SignInPage({ bootstrapRequired, onAuthenticated, notice 
         : await loginOwner(username, password);
       onAuthenticated(result);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Authentication failed");
+      setError(errorWords(requestError, "Authentication failed"));
     } finally {
       setSubmitting(false);
     }

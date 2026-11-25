@@ -52,6 +52,7 @@ import { createAgentStore } from "./agents/store.mjs";
 import { createAgentService } from "./agents/service.mjs";
 import { createRateLimit } from "./agents/budget.mjs";
 import { createHelperClient } from "./helper-client.mjs";
+import { sendHelperFailure } from "./helper-errors.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
 import { createAppGlances } from "./app-glances.mjs";
@@ -638,6 +639,9 @@ app.use((error, request, response, _next) => {
     response.status(status).json({ error: error.type === "entity.too.large" ? "That request was too large." : "That request could not be read.", code: error.type === "entity.too.large" ? "request_too_large" : "invalid_request" });
     return;
   }
+  // The admin service not answering is not a fault in this route: said in plain words, by code (M89),
+  // with the socket's own text kept for the log.
+  if (sendHelperFailure(response, error)) { console.warn(`${request.method} ${request.path}: ${error.message} ${error.detail ?? ""}`.trim()); return; }
   const reference = randomUUID().slice(0, 8);
   console.error(`Unhandled error ${reference} on ${request.method} ${request.path}: ${error?.stack ?? error}`);
   response.status(500).json({ error: `Something went wrong in BoxPilot (reference ${reference}). The Logs page has the details.`, code: "internal_error", reference });

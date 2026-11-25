@@ -63,7 +63,7 @@ describe("sharing helper reads", () => {
       return {};
     });
     const client = createHelperClient({ socketPath, queueTimeoutMs: 120 });
-    await expect(client.request("apt.upgrade", {}, { timeoutMs: 60_000 })).rejects.toThrow("overall deadline");
+    await expect(client.request("apt.upgrade", {}, { timeoutMs: 60_000 })).rejects.toMatchObject({ code: "helper_timeout", detail: expect.stringContaining("overall deadline") });
   });
 
   it("measures an operation's budget from when the helper starts it, not from time spent queued", async () => {
@@ -120,7 +120,7 @@ describe("sharing helper reads", () => {
     });
     const client = createHelperClient({ socketPath });
     const began = Date.now();
-    await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 100 })).rejects.toThrow("overall deadline");
+    await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 100 })).rejects.toMatchObject({ code: "helper_timeout", detail: expect.stringContaining("overall deadline") });
     expect(Date.now() - began).toBeLessThan(5_000);
   });
 
@@ -206,7 +206,7 @@ describe("sharing helper reads", () => {
     const client = createHelperClient({ socketPath });
     const impatient = client.request("app.inspect", {}, { timeoutMs: 40 });
     const patient = client.request("app.inspect", {}, { timeoutMs: 30_000 });
-    await expect(impatient).rejects.toThrow("Helper request timed out");
+    await expect(impatient).rejects.toMatchObject({ code: "helper_timeout" });
     release();
     await expect(patient).resolves.toEqual({ slow: true });
   });
@@ -262,7 +262,7 @@ describe("deadlines on shared reads", () => {
     const client = createHelperClient({ socketPath });
     const quick = client.request("app.inspect", {}, { timeoutMs: 40 });
     const longer = client.request("app.inspect", {}, { timeoutMs: 45_000 });
-    await expect(quick).rejects.toThrow("Helper request timed out");
+    await expect(quick).rejects.toMatchObject({ code: "helper_timeout" });
     release();
     await expect(longer).resolves.toEqual({ late: true });
   });
@@ -285,7 +285,7 @@ describe("a request that runs out of time (M30.3)", () => {
     const socketPath = await helperSocket(async (_request, connection) => { await new Promise((resolve) => connection.once("close", resolve)); return {}; });
     const client = createHelperClient({ socketPath });
     const error = await client.request("app.install", { id: "demo" }, { timeoutMs: 120 }).catch((caught) => caught);
-    expect(error.message).toContain("timed out");
+    expect(error).toMatchObject({ code: "helper_timeout", message: "BoxPilot's admin service did not answer in time.", detail: "Helper request timed out (overall deadline reached)" });
     expect(error.timeout).toEqual({ scope: "operation", budgetMs: 120 });
   });
 
@@ -316,10 +316,54 @@ describe("a request that runs out of time (M30.3)", () => {
     // Between a helper restart's stop and start there is no socket: nothing was sent, so nothing ran.
     const missing = process.platform === "win32" ? "\\\\?\\pipe\\boxpilot-no-helper-here" : path.join(tmpdir(), "boxpilot-no-helper-here.sock");
     const refused = await createHelperClient({ socketPath: missing }).request("backup.sync", {}, { timeoutMs: 5000 }).catch((caught) => caught);
-    expect(refused).toMatchObject({ code: "helper_unavailable", message: expect.stringMatching(/^Helper unavailable: /) });
+    expect(refused).toMatchObject({ code: "helper_unavailable", detail: expect.stringMatching(/^Helper unavailable: /) });
     // One the helper had read and then lost is not said to be safe to send again.
     const socketPath = await helperSocket(async (_request, connection) => { connection.destroy(); return {}; });
     const lost = await createHelperClient({ socketPath }).request("backup.sync", {}, { timeoutMs: 5000 }).catch((caught) => caught);
-    expect(lost.code).toBeUndefined();
+    expect(lost.code).toBe("helper_closed");
+  });
+});
+
+describe("what the owner is told when the admin service does not answer (M89)", () => {
+  /** Nothing an owner reads names a socket, a Node error code or the word "Helper". */
+  const developerWords = /ENOENT|ECONN|EPIPE|\.sock|Helper |overall deadline|\/run\//;
+
+  it("says it is not answering when there is nothing to connect to, and keeps the socket's words for the log", async () => {
+    const missing = process.platform === "win32" ? "\\\\?\\pipe\\boxpilot-no-helper-m89" : path.join(tmpdir(), "boxpilot-no-helper-m89.sock");
+    const error = await createHelperClient({ socketPath: missing }).request("journal.read", {}, { timeoutMs: 5000 }).catch((caught) => caught);
+    expect(error).toMatchObject({ code: "helper_unavailable", message: "BoxPilot's admin service is not answering." });
+    expect(error.message).not.toMatch(developerWords);
+    expect(error.detail).toContain("boxpilot-no-helper-m89");
+    expect(error.cause).toBeInstanceOf(Error);
+  });
+
+  it("says it stopped answering partway when the connection drops before the answer", async () => {
+    const socketPath = await helperSocket(async (_request, connection) => { connection.end(); return {}; });
+    const error = await createHelperClient({ socketPath }).request("journal.read", {}, { timeoutMs: 5000 }).catch((caught) => caught);
+    expect(error).toMatchObject({ code: "helper_closed", message: "BoxPilot's admin service stopped answering partway." });
+    expect(error.message).not.toMatch(developerWords);
+  });
+
+  it("says it did not answer in time, for a shared read as well as a single one", async () => {
+    const socketPath = await helperSocket(async (_request, connection) => { await new Promise((resolve) => connection.once("close", resolve)); return {}; });
+    const client = createHelperClient({ socketPath });
+    for (const asked of [client.request("journal.read", { lines: 10 }, { timeoutMs: 60 }), client.request("app.inspect", {}, { timeoutMs: 60 })]) {
+      const error = await asked.catch((caught) => caught);
+      expect(error).toMatchObject({ code: "helper_timeout", message: "BoxPilot's admin service did not answer in time." });
+      expect(error.timeout).toMatchObject({ scope: "operation", budgetMs: 60 });
+    }
+  });
+
+  it("leaves an operation's own failure as the helper said it", async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "boxpilot-helper-"));
+    const socketPath = process.platform === "win32" ? path.join("\\\\?\\pipe", path.basename(dir)) : path.join(dir, "helper.sock");
+    server = net.createServer((connection) => {
+      sockets.add(connection);
+      connection.setEncoding("utf8");
+      connection.once("data", (chunk) => { const request = JSON.parse(chunk.trim()); connection.end(`${JSON.stringify({ version: 1, id: request.id, ok: false, error: "No unit called nginx", code: "operation_failed" })}\n`); });
+    });
+    await new Promise((resolve) => server.listen(socketPath, resolve));
+    const error = await createHelperClient({ socketPath }).request("journal.read", {}, { timeoutMs: 5000 }).catch((caught) => caught);
+    expect(error).toMatchObject({ code: "operation_failed", message: "No unit called nginx" });
   });
 });

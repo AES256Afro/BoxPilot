@@ -274,6 +274,12 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
     return `${secure ? hostCookieName : cookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
   }
 
+  /** When a session stops being renewed: maxAgeMs from its sign-in, as an ISO time; null when the sign-in time is unknown. */
+  function capOf(session) {
+    const started = Date.parse(session?.createdAt ?? "");
+    return Number.isFinite(started) ? new Date(started + maxAgeMs).toISOString() : null;
+  }
+
   /** Add a cookie without dropping one an earlier step already set (device cookie + session). */
   function appendCookie(request, response, value) {
     const earlier = response.getHeader("Set-Cookie");
@@ -296,8 +302,11 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
     if (!renewed || Date.parse(renewed) <= ends) return session;
     appendCookie(request, response, cookieHeader(request, session.token, Math.max(1, Math.floor((Date.parse(renewed) - at) / 1000))));
     // The page keeps its own copy of when the session ends (the sign-out timer, the ten-minute
-    // notice, what it says after a sign-out); this is how it hears the end moved.
+    // notice, what it says after a sign-out); this is how it hears the end moved. The cap beside it
+    // is the latest that end can ever move to (maxAgeMs from the sign-in), so the page can tell
+    // "ends because it was not used" from "you signed in three days ago" (M89). Both are ISO times.
     response.setHeader("X-BoxPilot-Session-Expires", renewed);
+    response.setHeader("X-BoxPilot-Session-Cap", capOf(session));
     return { ...session, expiresAt: renewed };
   }
 
@@ -574,6 +583,8 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, s
       owner: session?.owner ?? null,
       csrfToken: session?.csrfToken ?? null,
       expiresAt: session?.expiresAt ?? null,
+      // The latest the session can be renewed to, however busy it is (the X-BoxPilot-Session-Cap header's value).
+      sessionCap: session ? capOf(session) : null,
       elevatedUntil: session?.elevatedUntil ?? null,
       // Why this browser's session is gone, when it went because it came back from another address.
       ...(!session && request.boxpilotSignedOut ? { signedOut: request.boxpilotSignedOut } : {}),

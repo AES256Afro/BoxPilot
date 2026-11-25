@@ -53,6 +53,8 @@ export interface Finding {
   /** Every fix, best first; `fix` is the first. Older servers send only `fix`. */
   fixes?: RepairFix[];
   manual: string | null;
+  /** Commands the owner runs over SSH when nothing in the browser can fix it (the admin service down, M89). */
+  commands?: string[];
   /** The page that holds what the owner does about it, when that is not Repair (the router's DNS steps are on Network). */
   view?: ViewName;
   /** What the finding says, hashed; a dismissal holds only while it matches. */

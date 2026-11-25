@@ -9,6 +9,7 @@ import { JobLogView } from "../JobLogView";
 import { adviseRetry } from "../retryAdvice";
 import { openView, viewIsShowing } from "../activityEvents";
 import { pageFollowsJob } from "./refresh";
+import { errorWords } from "../http";
 import { Button, Facts, Field, JobProgress, Notice, Progress, SecretInput, TextInput, riskOf } from "../ui";
 import { CloseIcon, LockIcon } from "../ui/icons";
 import "./look.css";
@@ -202,7 +203,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     };
     (retryFrom ? retryWithMoreTime(retryFrom, csrfToken) : owned ? stageOperation(operationId, parameters, csrfToken) : existing())
       .then((staged) => { stagedState.jobId = staged.job.id; if (cancelled) { withdraw(); return; } setJob(staged.job); setPolicy(staged.approval); setPhase("ready"); onStagedRef.current?.(staged.job); })
-      .catch((stageError: unknown) => { if (cancelled) return; setError(stageError instanceof Error ? stageError.message : "Could not prepare this action"); setPhase("error"); });
+      .catch((stageError: unknown) => { if (cancelled) return; setError(errorWords(stageError, "Could not prepare this action.")); setPhase("error"); });
     return () => { cancelled = true; withdraw(); };
   }, [operationId, parameters, csrfToken, retryFrom, existingJobId, attempt]);
 
@@ -271,12 +272,13 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       onFinishedRef.current?.(ended);
     } catch (approveError) {
       if (tracking.signal.aborted) return;
-      // Lost track of a running job (five failed reads, or two hours): its end is the feed's to tell.
+      // Lost track of a running job (no such job, five failed reads while BoxPilot answered, or two
+      // hours; a restart is waited out): its end is the feed's to tell.
       if (accepted) lostTrack?.();
       if (!mounted.current) return;
       if (!accepted && stagedRef.current) stagedRef.current.approvalStarted = false;
-      const detail = approveError instanceof Error ? approveError.message : "Could not follow this job";
-      setError(accepted ? `${detail}. The job may still be running. Check Activity for its current state.` : detail);
+      const detail = errorWords(approveError, accepted ? "Could not follow this job." : "Could not approve this job.");
+      setError(accepted ? `${/[.!?]$/.test(detail) ? detail : `${detail}.`} The job may still be running. Check Activity for its current state.` : detail);
       setPhase(accepted ? "error" : "ready");
       if (!accepted) {
         // The policy was read when the job was staged. If the elevated session lapsed since, the

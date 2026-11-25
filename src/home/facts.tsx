@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { appUrl, type TailnetServe } from "../appLinks";
 import type { AppProtection } from "../backupProtection";
 import type { ViewName } from "../data";
-import { readJson } from "../http";
+import { errorWords, readJson } from "../http";
 import { offBoxVerdict, type OffBoxInputs, type OffBoxVerdict } from "../offBox";
 import { keepNewest } from "../jobStatus";
 import { followJobs, inspectOperation, type Job } from "../operations";
@@ -637,7 +637,7 @@ export function FactsProvider({ children }: { children: ReactNode }) {
     setFacts((current) => (current[key].value === null ? { ...current, [key]: { state: "loading", value: null, error: null } } : current));
     const reading = (loaders[key] as (options: { fresh: boolean }) => Promise<unknown>)({ fresh })
       .then((value) => set(key, { state: "ready", value, error: null } as Facts[typeof key]))
-      .catch((error: unknown) => set(key, { state: "failed", value: null, error: error instanceof Error ? error.message : "Could not be read" } as Facts[typeof key]))
+      .catch((error: unknown) => set(key, { state: "failed", value: null, error: errorWords(error, "Could not be read.") } as Facts[typeof key]))
       .finally(() => { if (inFlight.current.get(key) === reading) inFlight.current.delete(key); });
     inFlight.current.set(key, reading);
     return reading;

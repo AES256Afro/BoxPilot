@@ -383,7 +383,9 @@ export function createActionCenterService({ recoveryKit, inventory = null, listJ
         title: "Nothing could be read from this host",
         summary: "Disk health, power protection and update state could not be read, so none of them is being reported either way.",
         evidence: ["The server inventory could not be read."],
-        recommendation: { view: "ops", title: "Open Ops", steps: ["Open Ops and press Check again.", "Check that BoxPilot's admin service (boxpilot-helper) is running on the Services page.", "Press Check again here once it answers."] },
+        // The Services page reads through the admin service too, so it cannot say this one is down (M89):
+        // the way back is SSH.
+        recommendation: { view: "repairs", title: "Open Repair", steps: ["Press Check again; a moment's restart clears by itself.", "If it still cannot read, start BoxPilot's admin service again over SSH: sudo systemctl restart boxpilot-helper", "If it does not stay up, sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --control-plane says why."] },
         boundary: boundary(),
       });
     }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RepairCenter from "./RepairCenter";
 
@@ -11,10 +11,11 @@ describe("Repair Center", () => {
   it("keeps the page usable when collectors return incomplete JSON", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}")));
     render(<RepairCenter csrfToken="csrf-token" />);
-    expect(await screen.findByText("Checks incomplete")).toBeTruthy();
-    expect(screen.getByText("Prerequisites unavailable")).toBeTruthy();
-    expect(screen.getByText("Protection checks incomplete")).toBeTruthy();
-    expect(screen.getByText("Could not build the rebuild checklist")).toBeTruthy();
+    // One notice says what was not read (M89), and the panels say "not read" in their meta line.
+    expect(await screen.findByText("Not everything could be checked")).toBeTruthy();
+    expect(screen.getAllByText(/^Not read:/)).toHaveLength(1);
+    expect(screen.getByText(/Not read: .*prerequisites, protection checks, the rebuild checklist, Activity\./)).toBeTruthy();
+    for (const name of ["Prerequisites", "Protection gaps", "Rebuild checklist"]) expect(within(screen.getByRole("region", { name })).getByText("not read")).toBeTruthy();
     expect(screen.getByText(/Activity is unavailable\./)).toBeTruthy();
     expect(screen.queryByText("0 of 0 ready")).toBeNull();
   });
@@ -30,8 +31,8 @@ describe("Repair Center", () => {
     render(<RepairCenter csrfToken="csrf-token" />);
     expect(await screen.findByText("1 of 1 ready")).toBeTruthy();
     fail = true;
-    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
-    expect(await screen.findByText("Prerequisites unavailable")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Check again" })[0]!);
+    expect(await within(screen.getByRole("region", { name: "Prerequisites" })).findByText("not read")).toBeTruthy();
     expect(screen.queryByText("1 of 1 ready")).toBeNull();
   });
 
@@ -46,11 +47,10 @@ describe("Repair Center", () => {
       return new Response(JSON.stringify({ error: "unavailable" }), { status: 503 });
     }));
     render(<RepairCenter csrfToken="csrf-token" />);
-    expect(await screen.findByText("Checks incomplete")).toBeTruthy();
-    expect(screen.getByText("Problem scan incomplete")).toBeTruthy();
+    expect(await screen.findByText("Not everything could be checked")).toBeTruthy();
     expect(screen.queryByText("Nothing needs fixing")).toBeNull();
     expect(screen.queryByText("Problem scan complete")).toBeNull();
-    if (mode === "partial") expect(screen.getByText(/Could not check: Drives and mounts/)).toBeTruthy();
+    expect(screen.getByText(mode === "partial" ? /Not read: Drives and mounts/ : /Not read: the problem scan/)).toBeTruthy();
   });
 
   it("renders live checks and verifies the helper directly", async () => {
@@ -269,8 +269,8 @@ describe("Repair Center", () => {
     render(<RepairCenter csrfToken="csrf-token" />);
 
     expect(await screen.findByText("Restricted helper")).toBeTruthy();
-    expect(screen.getByText("Could not build the rebuild checklist")).toBeTruthy();
-    expect(screen.getByText(/The rest of this page still works/)).toBeTruthy();
+    expect(screen.getByText(/Not read: .*protection checks, the rebuild checklist/)).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Rebuild checklist" })).getByText("not read")).toBeTruthy();
   });
 
   it("reviews a pinned repair through the registry inspect and stages it in the shared dialog", async () => {
@@ -583,4 +583,130 @@ describe("Repair that fixes (M35)", () => {
     expect(screen.queryByRole("button", { name: /^Let apps write to the drive/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Dismiss/ })).toBeNull();
   });
+
 });
+
+describe("Repair on a bad day (M89)", () => {
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  const helperDown = { error: "BoxPilot's admin service is not answering, so this could not be read. Repair says how to start it again.", code: "helper_unavailable" };
+  const unread = ["Drives and mounts", "Applications", "File sharing", "USB history", "Unclean unmounts", "Drive filesystems", "App backups", "Signed releases"];
+  const serviceFinding = {
+    id: "helper.not-answering", severity: "critical", title: "BoxPilot's admin service is not answering",
+    detail: "BoxPilot reads the drives, apps and shares, and makes every change, through its admin service (boxpilot-helper). It is not running or not accepting connections.",
+    evidence: [], fix: null, fixes: [], manual: "On the server over SSH, run `sudo systemctl restart boxpilot-helper`.",
+    commands: ["sudo systemctl restart boxpilot-helper", "sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --control-plane"],
+  };
+  const stub = (findings: unknown[], canary: () => Response, counts = { critical: findings.length, warning: 0, info: 0 }) => {
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      asked.push(url);
+      if (url.endsWith("/remediations?fresh=1")) return json({ findings, counts, sourceStatus: "partial", unavailableChecks: unread });
+      if (url.endsWith("/operations/canary.verify/inspect")) return canary();
+      if (url.includes("prerequisites") || url.includes("action-center") || url.includes("recovery-kit")) return json(helperDown, 503);
+      return json({ jobs: [] });
+    }));
+    return asked;
+  };
+
+  it("names the cause once, with the command to run and the retry, instead of a stack of warnings", async () => {
+    stub([serviceFinding], () => json(helperDown, 503));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("Admin service down")).toBeTruthy();
+    const notice = screen.getByText("BoxPilot's admin service is not answering", { selector: ".ui-notice__title" }).closest(".ui-notice") as HTMLElement;
+    expect(within(notice).getByText("sudo systemctl restart boxpilot-helper")).toBeTruthy();
+    expect(within(notice).getByRole("button", { name: "Check again" })).toBeTruthy();
+    expect(within(notice).getByText(/Not read: Drives and mounts, Applications/)).toBeTruthy();
+    // Said once: not again as a card in Critical, and no other warning notice.
+    expect(screen.queryByRole("region", { name: /^Critical/ })).toBeNull();
+    expect(document.querySelectorAll(".ui-notice")).toHaveLength(1);
+    expect(screen.queryByText("Not everything could be checked")).toBeNull();
+  });
+
+  it("asks the admin service itself when every check through it came back unread, and says its answer", async () => {
+    const asked = stub([], () => json(helperDown, 503));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText(/Asked directly, it did not answer either: BoxPilot's admin service is not answering/)).toBeTruthy();
+    expect(screen.getByText("Admin service down")).toBeTruthy();
+    expect(asked.filter((url) => url.endsWith("/canary.verify/inspect"))).toHaveLength(1);
+  });
+
+  it("says when the admin service answers after all, so it was slow rather than down", async () => {
+    stub([], () => json({ operation: "canary.verify", result: { verified: true, helperVersion: "1.255.0" } }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText(/Asked directly, the admin service answers \(version 1\.255\.0\)/)).toBeTruthy();
+    expect(screen.getByText("Not everything could be checked")).toBeTruthy();
+    expect(screen.queryByText("Admin service down")).toBeNull();
+  });
+
+  const restartPlex = { id: "stale-bind:bp-plex", severity: "critical", title: "plex is still using the old copy", detail: "", evidence: [], fix: { operationId: "app.action", parameters: { id: "plex", action: "restart" }, label: "Restart plex", preview: "Restarts plex.", risk: "low" }, fixes: [{ operationId: "app.action", parameters: { id: "plex", action: "restart" }, label: "Restart plex", preview: "Restarts plex.", risk: "low" }], manual: null, fingerprint: "0123456789abcdef" };
+
+  it("offers no batch of fixes while the admin service is down, and says why", async () => {
+    // Each fix would wait ten minutes for the admin service and fail; five would take most of an hour.
+    stub([serviceFinding, restartPlex], () => json(helperDown, 503));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    const batch = await screen.findByRole("button", { name: "Fix the safe ones (1)" });
+    await waitFor(() => expect((batch as HTMLButtonElement).disabled).toBe(true));
+    expect(batch.getAttribute("title")).toMatch(/admin service is not answering, so no fix can run until it is back/);
+  });
+
+  it("counts the other critical findings in the verdict while the admin service is down", async () => {
+    const second = { ...restartPlex, id: "stale-bind:bp-jellyfin", title: "jellyfin is still using the old copy" };
+    stub([serviceFinding, restartPlex, second], () => json(helperDown, 503), { critical: 3, warning: 0, info: 0 });
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText(/2 other things to fix in what could be read, 2 of them critical\./)).toBeTruthy();
+  });
+
+  it("does not call the admin service down when asking it was refused for another reason", async () => {
+    stub([], () => json({ error: "Your session has ended. Sign in again.", code: "session_expired" }, 401));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText(/Asking the admin service directly did not work: Your session has ended/)).toBeTruthy();
+    expect(screen.queryByText("Admin service down")).toBeNull();
+    expect(screen.getByText("Not everything could be checked")).toBeTruthy();
+  });
+
+  it("calls it down when asking it got no reply at all", async () => {
+    stub([], () => { throw new TypeError("Failed to fetch"); });
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("Admin service down")).toBeTruthy();
+  });
+
+  it("keeps the direct answer beside the scan's finding when the two disagree", async () => {
+    stub([serviceFinding], () => json({ operation: "canary.verify", result: { verified: true, helperVersion: "1.255.0" } }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText(/Asked directly, the admin service answers \(version 1\.255\.0\)/)).toBeTruthy();
+  });
+
+  it("reads again quietly when a job ends elsewhere: the notice stays and the button is not busy", async () => {
+    stub([], () => json({ operation: "canary.verify", result: { verified: true, helperVersion: "1.255.0" } }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("Not everything could be checked")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Check again" }).length).toBeGreaterThan(0));
+    act(() => { window.dispatchEvent(new CustomEvent("boxpilot:refresh", { cancelable: true, detail: "job" })); });
+    expect(screen.getByText("Not everything could be checked")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Checking…" })).toBeNull();
+  });
+
+  it("offers what Activity offers for a failed job, and opens it in Activity", async () => {
+    const failed = { id: "job-f", title: "Install Jellyfin", type: "op:app.install", state: "failed", risk: "medium", error: "The image could not be pulled", steps: [], parameters: { id: "jellyfin" }, createdAt: "2026-11-25T10:00:00Z" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/remediations?fresh=1")) return json({ findings: [], counts: { critical: 0, warning: 0, info: 0 } });
+      if (url.includes("prerequisites")) return json({ checks: [] });
+      if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
+      return json({ jobs: [failed] });
+    }));
+    const opened = vi.fn();
+    window.addEventListener("boxpilot:open-activity", opened);
+    try {
+      render(<RepairCenter csrfToken="csrf-token" />);
+      const panel = await screen.findByRole("region", { name: "Activity on this server" });
+      expect(await within(panel).findByRole("button", { name: "Dismiss" })).toBeTruthy();
+      expect(within(panel).getByRole("button", { name: /try again/i })).toBeTruthy();
+      fireEvent.click(within(panel).getByRole("button", { name: "Open in Activity" }));
+      expect(opened).toHaveBeenCalledTimes(1);
+      expect((opened.mock.calls[0]![0] as CustomEvent).detail).toMatchObject({ jobId: "job-f" });
+    } finally { window.removeEventListener("boxpilot:open-activity", opened); }
+  });
+});
+

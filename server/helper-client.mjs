@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import net from "node:net";
 import { shared } from "./cache.mjs";
+import { helperError } from "./helper-errors.mjs";
 import { createHelperResponseReader, helperProtocolVersion, maxHelperResponseBytes } from "./helper-response.mjs";
-import { timedOut } from "./timeouts.mjs";
 
 /**
  * Reads that several routes ask for at once, and that take no arguments so one answer serves them
@@ -88,7 +88,8 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
         deadline = schedule(() => fail(ranOut(message, ms)), ms);
         deadline.unref?.();
       }
-      const ranOut = (message, ms) => timedOut(message, { scope: "operation", budgetMs: ms, ...(queued && !started ? { phase: "queued" } : {}) });
+      // The owner is told in plain words (helper-errors.mjs); these sentences stay as `detail` for the logs.
+      const ranOut = (message, ms) => helperError("helper_timeout", message, { timeout: { scope: "operation", budgetMs: ms, ...(queued && !started ? { phase: "queued" } : {}) } });
       const notify = (callback) => { try { callback?.(); } catch { /* the request's own outcome stands */ } };
       // The operation's budget is measured from when the helper starts it. A request the helper says
       // is queued behind earlier work waits under the queue ceiling instead, and gets its full budget
@@ -130,7 +131,8 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
           connection.destroy();
           resolve(result);
         } catch (error) {
-          fail(error);
+          // The socket ended before the reply's line arrived: dropped partway, not a refusal.
+          fail(error?.code === "helper_closed" ? helperError("helper_closed", error.message, { cause: error }) : error);
         }
       }
       // The reply is whole once its line has arrived. The socket's end can follow later under load,
@@ -139,8 +141,9 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
       connection.on("end", succeed);
       // Nothing heard for the whole budget: the same timeout, reached through the idle timer.
       connection.on("timeout", () => fail(ranOut("Helper request timed out", connection.timeout ?? requestTimeoutMs)));
-      connection.on("error", (error) => fail(Object.assign(new Error(`Helper unavailable: ${error.message}`), sent ? {} : { code: "helper_unavailable" })));
-      connection.on("close", () => { if (!settled) fail(new Error("Helper connection closed before sending a result")); });
+      // Not there at all (nothing was sent, so nothing ran), or lost after the request went (it may have run).
+      connection.on("error", (error) => fail(helperError(sent ? "helper_closed" : "helper_unavailable", `Helper unavailable: ${error.message}`, { cause: error })));
+      connection.on("close", () => { if (!settled) fail(helperError("helper_closed", "Helper connection closed before sending a result")); });
     });
   }
 
@@ -172,7 +175,7 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
     // Every caller races the read against its own deadline - including the long ones, who were
     // previously handed the read itself and so inherited whatever ceiling it happened to have.
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(timedOut("Helper request timed out", { scope: "operation", budgetMs: requestTimeoutMs })), requestTimeoutMs);
+      const timer = setTimeout(() => reject(helperError("helper_timeout", "Helper request timed out", { timeout: { scope: "operation", budgetMs: requestTimeoutMs } })), requestTimeoutMs);
       timer.unref?.();
       underlying.then((value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); });
     });

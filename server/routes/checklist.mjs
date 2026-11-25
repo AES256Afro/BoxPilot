@@ -8,6 +8,7 @@
  * M29.4 keeps open to viewers.
  */
 import { Router } from "express";
+import { sendHelperFailure } from "../helper-errors.mjs";
 import { buildChecklist, gatherChecklistEvidence } from "../setup-checklist.mjs";
 
 export function createChecklistRouter({ state, helper, notifications, inventory, network, driveChecks = undefined, storage = null }) {
@@ -16,7 +17,7 @@ export function createChecklistRouter({ state, helper, notifications, inventory,
     try {
       response.json(buildChecklist(await gatherChecklistEvidence({ state, helper, notifications, inventory, network, driveChecks, storage })));
     } catch (error) {
-      response.status(503).json({ error: error.message, code: "checklist_unavailable" });
+      if (!sendHelperFailure(response, error)) response.status(503).json({ error: error.message, code: "checklist_unavailable" });
     }
   });
   return router;

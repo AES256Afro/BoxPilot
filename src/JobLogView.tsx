@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { followJobOutput, terminalJobStates, type Job, type JobStep } from "./operations";
-import { readJson } from "./http";
+import { ApiError, errorWords, readJson } from "./http";
+import { connected, connectionState, subscribeConnection } from "./pwa/connection";
 import { jobOutputText } from "./jobOutputText";
 import { JobWarnings } from "./JobWarnings";
 import { JobTimeoutNotice, errorIsTheTimeout } from "./JobTimeout";
@@ -47,33 +48,60 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
   const [goneId, setGoneId] = useState<string | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  // Read the job again, without following its output again: the output stream saw it end (M89).
+  const [reread, setReread] = useState(0);
   const job = given ?? (fetched?.id === jobId ? fetched : null);
   const id = given?.id ?? jobId ?? null;
+
+  // BoxPilot answering again after not answering reads everything again, as "Try reading again" does (M89).
+  useEffect(() => {
+    let was = connected(connectionState());
+    return subscribeConnection(() => {
+      const now = connected(connectionState());
+      if (now && !was) setRetry((value) => value + 1);
+      was = now;
+    });
+  }, []);
 
   // Only the id-based form fetches; a caller holding the job already keeps it fresh itself.
   useEffect(() => {
     if (given || !jobId) return undefined;
     let cancelled = false;
-    const controller = new AbortController();
+    let controller: AbortController | null = null;
     setJobError(null); setGoneId(null);
     let timer: ReturnType<typeof setTimeout> | null = null;
     let deadline: ReturnType<typeof setTimeout> | null = null;
+    // A failed read is tried again by itself, less often each time (M89): one blip used to freeze a
+    // running fix's "live" log as running until someone pressed "Try reading again".
+    let failures = 0;
     const read = async () => {
-      deadline = setTimeout(() => controller.abort(), 15_000);
+      const reading = new AbortController();
+      controller = reading;
+      deadline = setTimeout(() => reading.abort(), 15_000);
       try {
-        const response = await fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`, { signal: controller.signal });
+        const response = await fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`, { signal: reading.signal });
         if (response.status === 404) { if (!cancelled) setGoneId(jobId); return; }
         const body = await readJson<{ job: Job }>(response);
-        if (!body.job || body.job.id !== jobId || !Array.isArray(body.job.steps)) throw new Error("The job response is incomplete. Try again.");
+        if (!body.job || body.job.id !== jobId || !Array.isArray(body.job.steps)) throw new Error("The job response is incomplete.");
         if (cancelled) return;
-        setFetched(body.job);
+        failures = 0;
+        setFetched(body.job); setJobError(null);
         if (!terminalJobStates.has(body.job.state)) timer = setTimeout(() => void read(), 2000);
-      } catch { if (!cancelled) setJobError("This job could not be refreshed. Try again to read its current state."); }
-      finally { if (deadline) clearTimeout(deadline); }
+      } catch (error) {
+        if (cancelled) return;
+        // Refused, not missed: asking again cannot change the answer, as a 404 cannot.
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          setJobError(`This job could not be read. ${errorWords(error, "BoxPilot refused the read.")}`);
+          return;
+        }
+        failures += 1;
+        setJobError(`This job could not be refreshed. ${errorWords(error, "The read failed.")} Trying again by itself.`);
+        timer = setTimeout(() => void read(), Math.min(30_000, 2000 * 2 ** Math.min(failures, 4)));
+      } finally { if (deadline) clearTimeout(deadline); }
     };
     void read();
-    return () => { cancelled = true; controller.abort(); if (timer) clearTimeout(timer); if (deadline) clearTimeout(deadline); };
-  }, [given, jobId, retry]);
+    return () => { cancelled = true; controller?.abort(); if (timer) clearTimeout(timer); if (deadline) clearTimeout(deadline); };
+  }, [given, jobId, retry, reread]);
 
   const [output, setOutput] = useState("");
   const [outputError, setOutputError] = useState<string | null>(null);
@@ -100,7 +128,12 @@ export function JobLogView({ job: given, jobId, title, onMoreTime }: { job?: Job
     setOutput("");
     // The stream appends fragments; asking returns the whole log, which replaces. Appending both
     // duplicated every line whenever the stream could not get through a buffering proxy.
-    return followJobOutput(id, { onOutput: (text, append) => setOutput((current) => jobOutputText(current, text, append)), onState: () => {} });
+    // The output stream seeing the job end is a cue to read the job again (M89): its steps, error and
+    // state, rather than waiting for the next poll or showing "running" after a missed one.
+    return followJobOutput(id, {
+      onOutput: (text, append) => setOutput((current) => jobOutputText(current, text, append)),
+      onState: (state) => { if (terminalJobStates.has(state.state)) setReread((value) => value + 1); },
+    });
     // Re-follow only when the job or its finished-ness changes, not on every step update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, job !== null, finished, retry]);

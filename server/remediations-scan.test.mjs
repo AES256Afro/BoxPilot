@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { helperError } from "./helper-errors.mjs";
 import { registry } from "./ops/index.mjs";
 import { dnsServerFrom, scanRemediations } from "./remediations-scan.mjs";
 
@@ -145,6 +146,51 @@ describe("a read that fails", () => {
       now,
     });
     expect(scanned.unavailableChecks).toContain("Application definitions");
+  });
+});
+
+describe("when the admin service itself is not answering (M89)", () => {
+  const down = () => helperError("helper_unavailable", "Helper unavailable: connect ENOENT /run/boxpilot/helper.sock");
+  const late = () => helperError("helper_timeout", "Helper request timed out (overall deadline reached)");
+  /** A helper that fails every read with the error `make` returns. */
+  const silent = (make) => ({ request: () => Promise.reject(make()) });
+
+  it("is the critical finding, with the SSH command as its fix and no button that needs the service", async () => {
+    const scanned = await scan({ helper: silent(down), operatorReads: true });
+    const finding = scanned.findings.find((entry) => entry.id === "helper.not-answering");
+    expect(finding).toMatchObject({ severity: "critical", title: "BoxPilot's admin service is not answering", fix: null, fixes: [] });
+    expect(finding.manual).toContain("sudo systemctl restart boxpilot-helper");
+    expect(finding.commands).toEqual(["sudo systemctl restart boxpilot-helper", "sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --control-plane"]);
+    expect(finding.evidence.join(" ")).toContain("Applications");
+    expect(scanned.counts.critical).toBe(1);
+    // It is still a partial scan, and it says which checks the outage left unread.
+    expect(scanned.sourceStatus).toBe("partial");
+    expect(JSON.stringify(finding)).not.toMatch(/ENOENT|helper\.sock/);
+  });
+
+  it("is the finding when every read ran out of time", async () => {
+    const scanned = await scan({ helper: silent(late) });
+    expect(scanned.findings[0]).toMatchObject({ id: "helper.not-answering", severity: "critical" });
+    expect(scanned.findings[0].detail).toContain("did not answer in time");
+  });
+
+  it("is not claimed for one slow read beside reads that answered", async () => {
+    const helper = fakeHelper({ "app.inspect": { available: true, applications: [] }, "app.backup.protection": late() });
+    const scanned = await scan({ helper });
+    expect(scanned.findings.map((entry) => entry.id)).not.toContain("helper.not-answering");
+    expect(scanned.unavailableChecks).toContain("App backups");
+  });
+
+  it("is not claimed for one refused read beside reads that answered, as while the helper restarts", async () => {
+    const helper = fakeHelper({ "app.inspect": { available: true, applications: [] }, "app.backup.protection": down() });
+    const scanned = await scan({ helper });
+    expect(scanned.findings.map((entry) => entry.id)).not.toContain("helper.not-answering");
+    expect(scanned.unavailableChecks).toContain("App backups");
+  });
+
+  it("is not claimed for a read the service answered with a failure", async () => {
+    const scanned = await scan({ helper: silent(() => new Error("the read failed")) });
+    expect(scanned.findings.map((entry) => entry.id)).not.toContain("helper.not-answering");
   });
 });
 

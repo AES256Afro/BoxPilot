@@ -10,6 +10,7 @@
  * `internal` first.
  */
 import { Router } from "express";
+import { sendHelperFailure } from "../helper-errors.mjs";
 import { registry } from "../ops/index.mjs";
 import { internalRefusal } from "../ops/registry.mjs";
 import { callerId, seesEveryAccount } from "./access.mjs";
@@ -49,6 +50,8 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
     try {
       return response.json({ operation: operation.id, result: await helper.request(operation.id, {}, { timeoutMs: operation.timeoutMs }) });
     } catch (error) {
+      // The admin service not answering is said in plain words, by code (M89); the socket's text is for logs.
+      if (sendHelperFailure(response, error)) return undefined;
       return response.status(503).json({ error: error.message, code: "operation_failed" });
     }
   });
@@ -66,6 +69,8 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
     try {
       return response.json({ operation: operation.id, result: await helper.request(operation.id, parameters, { timeoutMs: operation.timeoutMs }) });
     } catch (error) {
+      // The admin service not answering is said in plain words, by code (M89); the socket's text is for logs.
+      if (sendHelperFailure(response, error)) return undefined;
       return response.status(503).json({ error: error.message, code: "operation_failed" });
     }
   });

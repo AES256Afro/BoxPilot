@@ -13,6 +13,39 @@ import { applyLedger, attemptsKey, dismissalsKey } from "./repair-ledger.mjs";
 import { dnsAppIds } from "./dns-resilience.mjs";
 import { inspectNameLookups } from "./name-lookups.mjs";
 import { computeNextRun } from "./scheduler.mjs";
+import { helperErrorCode } from "./helper-errors.mjs";
+
+/** What the owner runs over SSH when the admin service is not answering: nothing in the browser can start it. */
+const restartAdminService = "sudo systemctl restart boxpilot-helper";
+const controllerDoctor = "sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --control-plane";
+
+/**
+ * Whether the admin service itself is not answering: every read through it failed, and at least one
+ * found nothing to connect to or ran out of time waiting for it. One refused or slow read beside reads
+ * that answered (the moment the helper restarts, say) is not that.
+ * @param {{ made: number, failed: Array<string | null> }} reads
+ */
+function adminServiceDown({ made, failed }) {
+  if (made === 0 || failed.length !== made) return null;
+  if (failed.includes("helper_unavailable")) return "helper_unavailable";
+  if (failed.includes("helper_timeout")) return "helper_timeout";
+  return null;
+}
+
+/** The finding that names the cause when the admin service is not answering (M89). Its fix is a command, not a button. */
+function adminServiceFinding(code, unread) {
+  return {
+    id: "helper.not-answering",
+    severity: "critical",
+    title: "BoxPilot's admin service is not answering",
+    detail: `BoxPilot reads the drives, apps and shares, and makes every change, through its admin service (boxpilot-helper). It ${code === "helper_timeout" ? "did not answer in time" : "is not running or not accepting connections"}, so nothing that needs it can be checked or fixed from here until it is back. Start it again over SSH.`,
+    evidence: [code === "helper_timeout" ? "Every read through the admin service ran out of time." : "Nothing answered on the admin service's socket.", ...(unread.length ? [`Not checked because of it: ${unread.join(", ")}.`] : [])],
+    fix: null,
+    fixes: [],
+    manual: `On the server over SSH, run \`${restartAdminService}\`, then press Check again. If it does not stay up, \`${controllerDoctor}\` says why.`,
+    commands: [restartAdminService, controllerDoctor],
+  };
+}
 
 /**
  * The DNS app on this server the rest of the house uses, if one is installed (Pi-hole, AdGuard Home),
@@ -33,7 +66,14 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   // operator reads (ADR-003). A viewer is not handed what they hold as findings: they are not read
   // on a viewer's behalf, and the scan says which checks it left to an operator (M29.4).
   const operatorReads = Boolean(operatorReadsWanted);
-  const reading = helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null);
+  // Every read through the admin service, and how each that failed failed: when the service itself
+  // is not answering, that is the finding, not eight quiet "could not check" lines (M89).
+  const helperReads = { made: 0, failed: [] };
+  const ask = (operation, options) => {
+    helperReads.made += 1;
+    return helper.request(operation, {}, options).catch((error) => { helperReads.failed.push(helperErrorCode(error)); return null; });
+  };
+  const reading = ask("app.inspect", { timeoutMs: 30_000 });
   // Whether this server can look names up (2026-09-29), read here: the helper has no network. The
   // home network's DNS app is asked too, but only once lookups have failed.
   const namesRead = Promise.resolve().then(() => inspectNames({
@@ -42,18 +82,18 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   const [storage, live, samba, usb, unclean, volumes, protection, releaseSigner] = await Promise.all([
     collect().catch(() => null),
     reading,
-    operatorReads ? helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null) : null,
-    operatorReads ? helper.request("storage.usb.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
-    operatorReads ? helper.request("storage.unclean.events", {}, { timeoutMs: 45_000 }).catch(() => null) : null,
+    operatorReads ? ask("samba.inspect", { timeoutMs: 30_000 }) : null,
+    operatorReads ? ask("storage.usb.events", { timeoutMs: 45_000 }) : null,
+    operatorReads ? ask("storage.unclean.events", { timeoutMs: 45_000 }) : null,
     // What each drive's filesystem says about its last unmount (M26): the kernel's warnings are
     // only evidence for the mount they were printed at.
-    operatorReads ? helper.request("storage.volumes.state", {}, { timeoutMs: 90_000 }).catch(() => null) : null,
+    operatorReads ? ask("storage.volumes.state", { timeoutMs: 90_000 }) : null,
     // Which apps have a recent backup (M35), the same read Home's backup panel makes.
-    helper.request("app.backup.protection", {}, { timeoutMs: 60_000 }).catch(() => null),
+    ask("app.backup.protection", { timeoutMs: 60_000 }),
     // Whether an update has to be signed before this server builds it (M55.1). The file lives in
     // the helper's own root-only directory, and `system.update.status` is operator-gated, so this
     // read is an operator's too (ADR-003).
-    operatorReads ? helper.request("system.update.signer", {}, { timeoutMs: 15_000 }).catch(() => null) : null,
+    operatorReads ? ask("system.update.signer", { timeoutMs: 15_000 }) : null,
   ]);
   facts.usb = usb;
   facts.unclean = unclean;
@@ -218,8 +258,9 @@ export async function scanRemediations({ helper, state, catalogService, inventor
   if (facts.nameLookups?.available === false) unavailableChecks.push("Name lookups");
   if (facts.apps.some((app) => app.published?.length) && !Array.isArray(facts.listeners)) unavailableChecks.push("Ports in use");
   const detected = detectRemediations(facts);
+  const helperDown = adminServiceDown(helperReads);
   // Each fix carries its tier from the registry, the same the approval dialog will ask for.
-  const tiered = detected.findings.map((entry) => {
+  const tiered = [...(helperDown ? [adminServiceFinding(helperDown, unavailableChecks)] : []), ...detected.findings].map((entry) => {
     const fixes = entry.fixes.map((fix) => ({ ...fix, risk: registry.get(fix.operationId)?.risk ?? "high" }));
     return { ...entry, fix: fixes[0] ?? null, fixes };
   });

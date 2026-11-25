@@ -160,15 +160,20 @@ export function createJobStore({ database, now, timestamp, recordAudit, deleteEx
     return { removedJobs, removedAudit, removedAbandoned, removedSessions, removedPlans };
   }
 
-  function transitionJob(jobId, fromStates, state, { result = undefined, error = undefined, timeout = undefined } = {}) {
+  /**
+   * `recovery` is merged into the job's recovery record, never replaces it: a failure adds what the
+   * browser needs to read (M89: `helperCode`, the admin service not answering) beside what staging kept.
+   */
+  function transitionJob(jobId, fromStates, state, { result = undefined, error = undefined, timeout = undefined, recovery = undefined } = {}) {
     const allowed = Array.isArray(fromStates) ? fromStates : [fromStates];
     const placeholders = allowed.map(() => "?").join(", ");
-    const current = database.prepare(`SELECT state FROM jobs WHERE id = ? AND state IN (${placeholders})`).get(jobId, ...allowed);
+    const current = database.prepare(`SELECT state, recovery_json FROM jobs WHERE id = ? AND state IN (${placeholders})`).get(jobId, ...allowed);
     if (!current) throw new Error("Job is not in an allowed state");
+    const mergedRecovery = recovery ? json({ ...(parseJson(current.recovery_json) ?? {}), ...recovery }) : null;
     // COALESCE, not overwrite: a job that succeeded on the host and then failed its evidence check
     // would otherwise lose the artifact path and checksum the earlier transition recorded.
-    database.prepare("UPDATE jobs SET state = ?, result_json = COALESCE(?, result_json), error = COALESCE(?, error), timeout_json = COALESCE(?, timeout_json), updated_at = ? WHERE id = ?")
-      .run(state, result === undefined ? null : json(result), error ?? null, timeout ? json(timeout) : null, timestamp(), jobId);
+    database.prepare("UPDATE jobs SET state = ?, result_json = COALESCE(?, result_json), error = COALESCE(?, error), timeout_json = COALESCE(?, timeout_json), recovery_json = COALESCE(?, recovery_json), updated_at = ? WHERE id = ?")
+      .run(state, result === undefined ? null : json(result), error ?? null, timeout ? json(timeout) : null, mergedRecovery, timestamp(), jobId);
     emitJobChanged(jobId);
     return getJob(jobId);
   }

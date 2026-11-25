@@ -39,7 +39,8 @@ describe("watching the connection", () => {
     try {
       const fetcher = vi.fn(async () => new Response("{}", { headers: { "Content-Type": "application/json" } }));
       vi.stubGlobal("fetch", fetcher);
-      const stop = watchConnection({ intervalMs: 1_000 });
+      // (No page read on coming back here: that is the next test's, and its one-a-second timer is the tab's.)
+      const stop = watchConnection({ intervalMs: 1_000, onBack: () => {} });
       expect(fetcher).toHaveBeenCalledTimes(1);
       window.dispatchEvent(new Event("online"));
       document.dispatchEvent(new Event("visibilitychange"));
@@ -106,5 +107,36 @@ describe("how often it asks", () => {
     await vi.waitFor(() => expect(connectionState().reachable).toBe(false));
     expect(clock.delays()).toEqual([1_000]);
     stop();
+  });
+});
+
+describe("coming back (M89)", () => {
+  it("has the page read again quietly, once, when BoxPilot answers after not answering", async () => {
+    vi.useFakeTimers();
+    try {
+      let up = true;
+      vi.stubGlobal("fetch", vi.fn(async () => (up ? new Response("{}", { headers: { "Content-Type": "application/json" } }) : new Response("<html>502</html>", { status: 502, headers: { "Content-Type": "text/html" } }))));
+      const reads: unknown[] = [];
+      const listener = (event: Event) => { reads.push((event as CustomEvent).detail); };
+      window.addEventListener("boxpilot:refresh", listener);
+      const stop = watchConnection({ intervalMs: 60_000, retryMs: 5_000 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads).toEqual([]);
+      up = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(connected(connectionState())).toBe(false);
+      expect(reads).toEqual([]);
+      up = true;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(connected(connectionState())).toBe(true);
+      expect(reads).toEqual(["job"]);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(reads).toEqual(["job"]);
+      stop();
+      window.removeEventListener("boxpilot:refresh", listener);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
