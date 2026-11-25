@@ -75,7 +75,6 @@
     "server/agents/zulip.mjs: chatOutputKinds": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/agents/zulip.mjs: flaggedLine": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/app-helper.mjs: updateHistoryLimit": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
-    "server/archive-expansion.mjs: expandedBytes": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/assistant/facts.mjs: appSummary": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/assistant/facts.mjs: jobSources": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
     "server/assistant/facts.mjs: storageSummary": "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.",
