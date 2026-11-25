@@ -104,10 +104,25 @@ describe("provisioning against a mocked host", () => {
 
   it("warns, and still switches to HTTPS, when the firewall cannot be opened for the port (M73)", async () => {
     const run = vi.fn(async (binary) => (binary.endsWith("ufw") ? { ok: false, stdout: "", stderr: "ERROR: problem running iptables" } : { ok: true, stdout: "sha256 Fingerprint=1\nnotAfter=x", stderr: "" }));
-    const result = await webTlsProvision({ names: ["boxpilot.lan"], port: 8443 }, { run, files: mockFiles({}), dir: "/etc/boxpilot/tls", envPath: "/e" });
+    const result = await webTlsProvision({ names: ["boxpilot.lan"], port: 8443 }, { run, files: mockFiles({ "/e": "BOXPILOT_HOST=0.0.0.0\n" }), dir: "/etc/boxpilot/tls", envPath: "/e" });
     expect(result).toMatchObject({ restartScheduled: true, warnings: [expect.stringContaining("could not be opened for port 8443")] });
     const quiet = await webTlsProvision({ names: ["boxpilot.lan"] }, { run: vi.fn(async () => ({ ok: true, stdout: "", stderr: "" })), files: mockFiles({}), dir: "/etc/boxpilot/tls", envPath: "/e" });
     expect(quiet).not.toHaveProperty("warnings");
+  });
+
+  // M90: the HTTPS listener binds the same address as HTTP, so with LAN access off it answers on
+  // loopback only; opening 8443 then (or on a renewal) left a port open to nothing.
+  it("opens the HTTPS port only while LAN access is on", async () => {
+    const run = vi.fn(async () => ({ ok: true, stdout: "sha256 Fingerprint=1\nnotAfter=x", stderr: "" }));
+    const files = mockFiles({ "/e": "BOXPILOT_HOST=127.0.0.1\n" });
+    const result = await webTlsProvision({ names: ["boxpilot.lan"], port: 8443 }, { run, files, dir: "/etc/boxpilot/tls", envPath: "/e" });
+    expect(run.mock.calls.some(([binary]) => binary.endsWith("ufw"))).toBe(false);
+    expect(result).toMatchObject({ restartScheduled: true });
+    expect(files.store.get("/e")).toContain("BOXPILOT_TLS_PORT=8443");
+    // No BOXPILOT_HOST is loopback too (server/env-file.mjs webHostOf).
+    const bare = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await webTlsProvision({ names: ["boxpilot.lan"] }, { run: bare, files: mockFiles({}), dir: "/etc/boxpilot/tls", envPath: "/e" });
+    expect(bare.mock.calls.some(([binary]) => binary.endsWith("ufw"))).toBe(false);
   });
 
   it("reports a failed restart schedule instead of pretending it applied", async () => {

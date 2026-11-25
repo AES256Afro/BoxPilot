@@ -8,12 +8,14 @@ const job = (id: string, risk: string) => ({ job: { id: `job-${id}`, type: `op:$
 
 const report = {
   users: [
-    { name: "root", uid: 0, shell: "/bin/bash", sudo: true, keyCount: 0 },
-    { name: "alex", uid: 1000, shell: "/bin/bash", sudo: true, keyCount: 2 },
-    { name: "pat", uid: 1001, shell: "/bin/bash", sudo: false, keyCount: 0 },
+    { name: "root", uid: 0, shell: "/bin/bash", sudo: true, keyCount: 0, rootEquivalent: true },
+    { name: "alex", uid: 1000, shell: "/bin/bash", sudo: true, keyCount: 2, rootEquivalent: true },
+    { name: "pat", uid: 1001, shell: "/bin/bash", sudo: false, keyCount: 0, rootEquivalent: false },
   ],
   sshd: { passwordAuthentication: true, keyboardInteractive: false, pubkeyAuthentication: true, permitRootLogin: "prohibit-password", port: 22 },
   sshActive: true,
+  keyAdmins: ["alex"],
+  keyOnlyProblem: null,
 };
 
 /** The users read, and every staged operation recorded by its id. */
@@ -134,11 +136,11 @@ describe("Users & SSH page", () => {
     await waitFor(() => expect(staged["ssh.password-auth.set"]).toEqual({ parameters: { enabled: false } }));
     cleanup();
 
-    mockFetch({ ...report, users: report.users.map((user) => ({ ...user, keyCount: 0 })) });
+    mockFetch({ ...report, users: report.users.map((user) => ({ ...user, keyCount: 0 })), keyAdmins: [] });
     render(<UsersPage csrfToken="csrf" />);
     const button = await screen.findByRole("button", { name: "Turn off password login" });
     expect((button as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/Import a key before turning passwords off/)).toBeTruthy();
+    expect(screen.getByText(/Import a key for an administrator before turning passwords off/)).toBeTruthy();
   });
 
   it("says when root can sign in with a password", async () => {
@@ -152,7 +154,8 @@ describe("Users & SSH page", () => {
     render(<UsersPage csrfToken="csrf" role="operator" />);
     const table = await screen.findByRole("table", { name: "Accounts that can sign in" });
     await within(table).findByText("alex");
-    expect(within(table).queryAllByRole("button").filter((button) => !button.classList.contains("ui-table__sort"))).toEqual([]);
+    // Locking pat is medium; locking alex, an administrator, is high and is not offered.
+    expect(within(table).queryAllByRole("button").filter((button) => !button.classList.contains("ui-table__sort")).map((button) => button.getAttribute("aria-label"))).toEqual(["Lock pat"]);
     expect(screen.queryByRole("button", { name: "Turn off password login" })).toBeNull();
     expect(screen.getByRole("button", { name: "Add a user…" })).toBeTruthy();
     cleanup();
@@ -170,5 +173,78 @@ describe("Users & SSH page", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("The helper is not answering");
     expect(screen.getByText("Not read").closest(".ui-chip")?.getAttribute("data-status")).toBe("unknown");
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  // M90 (audit s1-06 Function #3): "Key-only login" while keyboard-interactive still took the password.
+  it("does not call it key-only while keyboard-interactive still asks for the password", async () => {
+    const staged: Record<string, unknown> = {};
+    mockFetch({ ...report, sshd: { ...report.sshd, passwordAuthentication: false, keyboardInteractive: true } }, staged);
+    render(<UsersPage csrfToken="csrf" />);
+    expect(await screen.findByText("Passwords via keyboard-interactive")).toBeTruthy();
+    expect(screen.queryByText("Key-only login")).toBeNull();
+    expect(screen.getByText(/keyboard-interactive login still asks for the password/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Turn off password login" }));
+    await waitFor(() => expect(staged["ssh.password-auth.set"]).toEqual({ parameters: { enabled: false } }));
+  });
+
+  it("will not turn passwords off when the only keys are root's (PermitRootLogin no) or on an account without sudo", async () => {
+    mockFetch({ ...report, users: [{ ...report.users[0], keyCount: 1 }, { ...report.users[1], keyCount: 0 }, { ...report.users[2], keyCount: 2 }], sshd: { ...report.sshd, permitRootLogin: "no" }, keyAdmins: [] });
+    render(<UsersPage csrfToken="csrf" />);
+    expect(((await screen.findByRole("button", { name: "Turn off password login" })) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  // M90 review: a docker (or lxd, libvirt, wheel, sudoers.d) member is root in all but name, and the
+  // server raises locking it to high; the page offers it to the owner, at high, and not to an operator.
+  it("treats an account that is root in all but name as an administrator when locking it", async () => {
+    const dockerPat = { ...report, users: report.users.map((user) => (user.name === "pat" ? { ...user, rootEquivalent: true } : user)) };
+    mockFetch(dockerPat);
+    render(<UsersPage csrfToken="csrf" />);
+    expect((await screen.findByRole("button", { name: "Lock pat" })).getAttribute("data-risk")).toBe("high");
+    cleanup();
+    mockFetch(dockerPat);
+    render(<UsersPage csrfToken="csrf" role="operator" />);
+    await within(await screen.findByRole("table", { name: "Accounts that can sign in" })).findByText("pat");
+    expect(screen.queryByRole("button", { name: "Lock pat" })).toBeNull();
+  });
+
+  // M90 review: the server says why passwords cannot go off (AuthenticationMethods, sudo without a
+  // password); the page shows that, and does not offer the switch.
+  it("shows why turning passwords off would be refused", async () => {
+    const problem = "This server's SSH configuration asks for more than a key to sign in (AuthenticationMethods publickey,keyboard-interactive).";
+    mockFetch({ ...report, keyOnlyProblem: problem });
+    render(<UsersPage csrfToken="csrf" />);
+    expect(((await screen.findByRole("button", { name: "Turn off password login" })) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(problem)).toBeTruthy();
+  });
+
+  // M90 (audit s1-06 Function #7): an account could be added, never locked or removed.
+  it("locks an account, and removes one with the home folder only when that is ticked and called out", async () => {
+    const staged: Record<string, unknown> = {};
+    mockFetch(report, staged);
+    render(<UsersPage csrfToken="csrf" />);
+    const table = await screen.findByRole("table", { name: "Accounts that can sign in" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(within(rows[0]).queryByRole("button", { name: /Lock|Remove/ })).toBeNull();
+    expect(within(rows[1]).getByRole("button", { name: "Lock alex" }).getAttribute("data-risk")).toBe("high");
+    const lock = within(rows[2]).getByRole("button", { name: "Lock pat" });
+    expect(lock.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(lock);
+    await waitFor(() => expect(staged["users.lock"]).toEqual({ parameters: { username: "pat" } }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(within(rows[2]).getByRole("button", { name: "Remove pat" }));
+    const sheet = await screen.findByRole("dialog", { name: "Remove pat" });
+    fireEvent.click(within(sheet).getByLabelText("Also remove the home folder"));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Remove…" }));
+    expect(await screen.findByText(/The home folder is deleted too/)).toBeTruthy();
+    await waitFor(() => expect(staged["users.remove"]).toEqual({ parameters: { username: "pat", removeHome: true } }));
+  });
+
+  it("offers to unlock a locked account", async () => {
+    const staged: Record<string, unknown> = {};
+    mockFetch({ ...report, users: report.users.map((user) => (user.name === "pat" ? { ...user, locked: true } : user)) }, staged);
+    render(<UsersPage csrfToken="csrf" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Unlock pat" }));
+    await waitFor(() => expect(staged["users.unlock"]).toEqual({ parameters: { username: "pat" } }));
   });
 });

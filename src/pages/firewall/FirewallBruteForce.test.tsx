@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FirewallBruteForce } from "./FirewallBruteForce";
 import type { Fail2banState } from "./types";
 
@@ -25,5 +25,32 @@ describe("brute-force thresholds being edited", () => {
     // The thresholds in force changed (an apply finished): the form shows them.
     view.rerender(<FirewallBruteForce {...props} state={read(60)} />);
     expect(banFor().value).toBe("60");
+  });
+});
+
+// M90: the page said how many addresses were banned, never which, and only "Turn off protection" lifted one.
+describe("banned addresses", () => {
+  const withBans = { ...read(120), bannedAddresses: ["203.0.113.7", "2001:db8::5"] } as Fail2banState;
+
+  it("are listed for every role, and an operator lifts one ban with its own medium job", () => {
+    const start = vi.fn();
+    render(<FirewallBruteForce error={null} role="operator" start={start} onRetry={() => undefined} state={withBans} />);
+    const table = screen.getByRole("table", { name: "Addresses banned from SSH now" });
+    expect(within(table).getAllByRole("row").slice(1).map((row) => row.querySelector("code")?.textContent)).toEqual(["203.0.113.7", "2001:db8::5"]);
+    const unban = within(table).getByRole("button", { name: "Lift the ban on 203.0.113.7" });
+    expect(unban.getAttribute("data-risk")).toBe("medium");
+    fireEvent.click(unban);
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "fail2ban.unban", parameters: { address: "203.0.113.7" } }));
+    cleanup();
+
+    render(<FirewallBruteForce error={null} role="viewer" start={start} onRetry={() => undefined} state={withBans} />);
+    const viewerTable = screen.getByRole("table", { name: "Addresses banned from SSH now" });
+    expect(within(viewerTable).getByText("203.0.113.7")).toBeTruthy();
+    expect(within(viewerTable).queryByRole("button", { name: /Lift the ban/ })).toBeNull();
+  });
+
+  it("say how many more are banned than were listed", () => {
+    render(<FirewallBruteForce error={null} role="owner" start={() => undefined} onRetry={() => undefined} state={{ ...withBans, currentlyBanned: 5 }} />);
+    expect(screen.getByText("and 3 more not listed")).toBeTruthy();
   });
 });

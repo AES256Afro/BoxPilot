@@ -24,6 +24,13 @@ export interface NetworkOverviewProps {
   onCheckAgain?: () => void;
 }
 
+/**
+ * The socket Tailscale Serve should forward to (server/serve-socket.mjs, ADR-017): only BoxPilot and
+ * root can open it, so no program on the server can pose as Serve, as it could on the loopback port.
+ */
+const serveSocket = "/run/boxpilot-web/serve.sock";
+const publishCommand = `sudo tailscale serve --bg unix:${serveSocket}`;
+
 /** How to trust BoxPilot's own certificate authority on each kind of device. */
 const trustSteps = [
   { id: "windows", label: "Windows", value: <>Double-click the file, Install Certificate, Local Machine, &ldquo;Place all certificates in the following store&rdquo;, Browse, <em>Trusted Root Certification Authorities</em>. Restart the browser.</> },
@@ -42,9 +49,18 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
   const canWake = mayStart(role, "network.wake");
   const moveServe = (): void => start({
     operationId: "tailscale.serve.socket", title: "Move Tailscale Serve to BoxPilot's socket", parameters: {},
-    preview: <span>Points Tailscale Serve at <code>/run/boxpilot-web/serve.sock</code> instead of port {networkCap?.port ?? 8787}. Only BoxPilot and root can open the socket, so no app on this server can pose as Serve. Your tailnet address stays the same. Needs a Tailscale that can forward to a socket; if yours cannot, nothing changes.</span>,
+    preview: <span>Points Tailscale Serve at <code>{serveSocket}</code> instead of port {networkCap?.port ?? 8787}. Only BoxPilot and root can open the socket, so no app on this server can pose as Serve. Your tailnet address stays the same. Needs a Tailscale that can forward to a socket; if yours cannot, nothing changes.</span>,
   });
   const canLan = mayStart(role, "system.web.lan.set");
+  const lanOn = networkCap?.lan ?? false;
+  const toggleLan = (): void => start({
+    operationId: "system.web.lan.set",
+    title: lanOn ? "Stop serving BoxPilot on the LAN" : "Reach BoxPilot on your local network",
+    parameters: { enabled: !lanOn },
+    preview: <span>{lanOn
+      ? <>Returns BoxPilot to Tailscale-and-loopback only and closes the web port{tlsCap?.provisioned ? " and the HTTPS port" : ""} on the firewall.</>
+      : <>Also serves BoxPilot on this server&apos;s network address and opens the web port{tlsCap?.provisioned ? " and the HTTPS port" : ""} on the firewall. The Tailscale path keeps working{tlsCap?.provisioned ? "" : "; the password crosses the LAN unencrypted"}. BoxPilot restarts a few seconds after you approve.</>}</span>,
+  });
   const canTls = mayStart(role, "system.web.tls.provision");
 
   const wayColumns: Array<TableColumn<ReachWay>> = [
@@ -104,7 +120,7 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
           {untrusted ? <Button variant="ghost" onClick={() => setTrusting(true)}>Trust the certificate…</Button> : null}
         </> : undefined}
         footer={reach && !reach.servePublished
-          ? <span className="network-value">Publish it on your tailnet with <code>tailscale serve --bg http://127.0.0.1:{networkCap?.port ?? 8787}</code> to reach it from anywhere over HTTPS.<CopyValue value={`tailscale serve --bg http://127.0.0.1:${networkCap?.port ?? 8787}`} label="Copy the tailscale serve command" /></span>
+          ? <span className="network-value">Publish it on your tailnet by running <code>{publishCommand}</code> on this server, to reach it from anywhere over HTTPS. Serve then forwards to BoxPilot&apos;s socket, which only Serve can reach.<CopyValue value={publishCommand} label="Copy the tailscale serve command" /></span>
           : reach?.serveOverLoopback ? <>Tailscale Serve reaches BoxPilot through port {networkCap?.port ?? 8787}, which any program on this server can open and claim to be Serve, apps on the host network included. Move it to BoxPilot&apos;s socket so only Serve can.</> : undefined}
       >
         <Table caption="Addresses BoxPilot answers on" columns={wayColumns} rows={ways} rowKey={(way) => way.id} empty={reach ? "BoxPilot reported no address to reach it on." : "Reading…"} />
@@ -118,12 +134,7 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
             title="LAN access"
             count={{ status: !networkCap.lan ? "neutral" : tlsCap?.provisioned ? "good" : "warning", label: networkCap.lan ? (tlsCap?.provisioned ? "on" : "on, plain HTTP") : "off" }}
             actions={canLan ? (
-              <Button variant={networkCap.lan ? "secondary" : "primary"} risk={riskOf("system.web.lan.set")} onClick={() => start({
-                operationId: "system.web.lan.set",
-                title: networkCap.lan ? "Stop serving BoxPilot on the LAN" : "Reach BoxPilot on your local network",
-                parameters: { enabled: !networkCap.lan },
-                preview: <span>{networkCap.lan ? <>Returns BoxPilot to Tailscale-and-loopback only and closes the web port on the firewall.</> : <>Also serves BoxPilot on this server&apos;s network address and opens the web port on the firewall. The Tailscale path keeps working; the password crosses the LAN unencrypted. BoxPilot restarts a few seconds after you approve.</>}</span>,
-              })}>{networkCap.lan ? "Turn off LAN access" : "Turn on LAN access"}</Button>
+              <Button variant={networkCap.lan ? "secondary" : "primary"} risk={riskOf("system.web.lan.set")} onClick={toggleLan}>{networkCap.lan ? "Turn off LAN access" : "Turn on LAN access"}</Button>
             ) : undefined}
           >
             <KeyValue items={[
@@ -133,12 +144,30 @@ export function NetworkOverview({ topology, networkCap, tlsCap, reach, role, sta
             <p className="network-note">
               {networkCap.lan
                 ? (tlsCap?.provisioned ? "The LAN can also use HTTPS, so the password need not cross it in the clear." : "This is plain HTTP: set up HTTPS on the LAN so the password is encrypted on your network.")
-                : "Over plain HTTP the sign-in password would cross your LAN unencrypted: set up HTTPS on the LAN first, and turn this on only on a network you trust."}
+                : tlsCap?.provisioned
+                  ? "Turning it on serves HTTPS on the LAN again, with the certificate already issued."
+                  : "Over plain HTTP the sign-in password would cross your LAN unencrypted: turn this on only on a network you trust, then set up HTTPS on the LAN."}
             </p>
           </Panel>
         )}
 
-        {tlsCap?.canProvision && (
+        {tlsCap?.canProvision && !lanOn && (
+          // M90: HTTPS listens where HTTP does, so with LAN access off it answered on loopback only
+          // while this panel offered it and said "on".
+          <Panel
+            padded
+            className="network-tls"
+            title="HTTPS on the LAN"
+            count={{ status: "neutral", label: tlsCap.provisioned ? "off" : "needs LAN access" }}
+            actions={canLan && networkCap?.canSet ? <Button variant="secondary" risk={riskOf("system.web.lan.set")} aria-label="Turn on LAN access for HTTPS" onClick={toggleLan}>Turn on LAN access</Button> : undefined}
+          >
+            <p className="network-note">{tlsCap.provisioned
+              ? "The certificate is issued, but HTTPS answers on your network only while LAN access is on. Turn LAN access on to serve it again."
+              : "HTTPS on the LAN encrypts BoxPilot on your local network, which passkeys need too. Turn on LAN access first; then set it up here."}</p>
+          </Panel>
+        )}
+
+        {tlsCap?.canProvision && lanOn && (
           <Panel
             padded
             className="network-tls"

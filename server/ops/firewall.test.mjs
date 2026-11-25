@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { validateParameters } from "./registry.mjs";
-import { firewallOperations, mergeRuleFamilies, parseDefaultPolicies, parseUfwConf, parseUserRules } from "./firewall.mjs";
+import { firewallOperations, parseDefaultPolicies, parseUfwConf } from "./firewall.mjs";
+import { mergeRuleFamilies, parseUserRules } from "../firewall-profiles.mjs";
 
 const operations = Object.fromEntries(firewallOperations().map((operation) => [operation.id, operation]));
 
@@ -70,7 +71,7 @@ describe("firewall operations", () => {
     await operations["firewall.set"].run({ enabled: true }, { runUnit, jobLog: null });
     expect(runUnit.runTask).toHaveBeenCalledWith("firewall.set", { enabled: true }, expect.anything());
     await operations["firewall.rule.add"].run({ action: "allow", port: 8096, protocol: "tcp", comment: "Jellyfin" }, { runUnit, jobLog: null });
-    expect(runUnit.runTask).toHaveBeenCalledWith("firewall.rule-add", { action: "allow", port: 8096, protocol: "tcp", comment: "Jellyfin" }, expect.anything());
+    expect(runUnit.runTask).toHaveBeenCalledWith("firewall.rule-add", { action: "allow", port: 8096, protocol: "tcp", comment: "Jellyfin", source: null }, expect.anything());
     expect(validateParameters(operations["firewall.rule.add"].parameters, { action: "allow", port: 8096, protocol: "tcp" }, "t")).toBeNull();
     expect(validateParameters(operations["firewall.rule.add"].parameters, { action: "allow", port: 70000, protocol: "tcp" }, "t")).toContain("port");
     expect(validateParameters(operations["firewall.rule.delete"].parameters, { action: "allow", port: 8096, protocol: "sctp" }, "t")).toContain("one of");
@@ -78,14 +79,33 @@ describe("firewall operations", () => {
     expect(validateParameters(operations["firewall.rule.add"].parameters, { action: "limit", port: 22, protocol: "tcp" }, "t")).toBeNull();
   });
 
+  // M90: a rule can be limited to where it lets traffic in from, and only an address or range gets through.
+  it("takes a source as an address or range only, and passes it to the root task", async () => {
+    const runUnit = { runTask: vi.fn(async () => ({ ok: true })) };
+    const check = (id, source) => validateParameters(operations[id].parameters, { action: "allow", port: 8096, protocol: "tcp", source }, "t");
+    for (const id of ["firewall.rule.add", "firewall.rule.delete"]) {
+      for (const good of ["192.168.1.0/24", "100.64.0.0/10", "fd7a:115c:a1e0::/48", "192.168.8.20", null]) expect(check(id, good), `${id} ${good}`).toBeNull();
+      for (const bad of ["192.168.1.5/24", "0.0.0.0/0", "::/0", "any", "lan", "192.168.1.0/33", "192.168.1.0/24 to any port 22", "10.0.0.0/8,0.0.0.0/0", "fe80::1%eth0/64", "example.com", ""]) expect(check(id, bad), `${id} ${bad}`).toContain("source");
+    }
+    await operations["firewall.rule.add"].run({ action: "allow", port: 8096, protocol: "tcp", source: "192.168.1.0/24" }, { runUnit, jobLog: null });
+    expect(runUnit.runTask).toHaveBeenCalledWith("firewall.rule-add", { action: "allow", port: 8096, protocol: "tcp", comment: null, source: "192.168.1.0/24" }, expect.anything());
+    await operations["firewall.rule.delete"].run({ action: "allow", port: 8096, protocol: "tcp", source: "192.168.1.0/24" }, { runUnit, jobLog: null });
+    expect(runUnit.runTask).toHaveBeenCalledWith("firewall.rule-delete", { action: "allow", port: 8096, protocol: "tcp", source: "192.168.1.0/24" }, expect.anything());
+    expect(operations["firewall.rule.add"].risk).toBe("medium");
+  });
+
   it("stages profile application as a high-risk root task with validated profile and service ids", async () => {
     const runUnit = { runTask: vi.fn(async () => ({ ok: true })) };
     const operation = operations["firewall.profile.apply"];
     expect(operation.risk).toBe("high");
     await operation.run({ profile: "home-server", services: ["dns"] }, { runUnit, jobLog: null });
-    expect(runUnit.runTask).toHaveBeenCalledWith("firewall.profile-apply", { profile: "home-server", services: ["dns"], replace: false, sshRateLimit: false }, expect.anything());
+    expect(runUnit.runTask).toHaveBeenCalledWith("firewall.profile-apply", { profile: "home-server", services: ["dns"], replace: false, sshRateLimit: false, closes: [] }, expect.anything());
     expect(validateParameters(operation.parameters, { profile: "tailscale-only", services: [], replace: true, sshRateLimit: true }, "t")).toBeNull();
     expect(validateParameters(operation.parameters, { profile: "fortress" }, "t")).toContain("one of");
     expect(validateParameters(operation.parameters, { profile: "home-server", services: ["irc"] }, "t")).toContain("may only contain");
+    // M90 review: the removals the preview showed travel with the job, as rules and nothing else.
+    expect(validateParameters(operation.parameters, { profile: "tailscale-only", closes: [{ action: "allow", port: 80, protocol: "tcp", source: null }] }, "t")).toBeNull();
+    expect(validateParameters(operation.parameters, { profile: "tailscale-only", closes: [{ action: "reset", port: 80, protocol: "tcp" }] }, "t")).toContain("each entry must be a rule");
+    expect(validateParameters(operation.parameters, { profile: "tailscale-only", closes: ["allow 80/tcp"] }, "t")).toContain("each entry must be a rule");
   });
 });

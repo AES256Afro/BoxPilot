@@ -18,7 +18,8 @@
 import { readFile, mkdir, chmod, rm } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
 import { fixedRun } from "../exec.mjs";
-import { setEnvValue } from "./web-bind.mjs";
+import { webListenFromEnv } from "../env-file.mjs";
+import { isLoopbackHost, setEnvValue } from "./web-bind.mjs";
 
 const envPathDefault = process.env.BOXPILOT_ENV_FILE ?? "/etc/boxpilot/boxpilot.env";
 const tlsDirDefault = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls";
@@ -160,13 +161,21 @@ export async function webTlsProvision(
 
   // Open the HTTPS port for the network; harmless if it is already open. HTTPS still works on the
   // tailnet and from the box without it, so a failure is a warning the job shows (M73), not a failure.
+  // M90: only while LAN access is on. The HTTPS listener binds the same address as HTTP, so with LAN
+  // access off it answers on loopback and an open port reached nothing; turning LAN access on opens it
+  // (web-bind.mjs), and a renewal while it is off leaves the firewall as it was.
   /** @type {string[]} */
   const warnings = [];
-  const opened = await run(ufw, ["allow", `${tlsPort}/tcp`], { timeout: 30_000 });
-  if (!opened.ok && !/ENOENT/.test(opened.stderr)) {
-    const warning = `HTTPS is set up, but the firewall could not be opened for port ${tlsPort} (${opened.stderr || "ufw failed"}), so other devices on the network may not reach it; allow ${tlsPort}/tcp on the Firewall page.`;
-    warnings.push(warning);
-    log?.(warning, "stderr");
+  const onLan = !isLoopbackHost(webListenFromEnv(before).webHost);
+  if (onLan) {
+    const opened = await run(ufw, ["allow", `${tlsPort}/tcp`], { timeout: 30_000 });
+    if (!opened.ok && !/ENOENT/.test(opened.stderr)) {
+      const warning = `HTTPS is set up, but the firewall could not be opened for port ${tlsPort} (${opened.stderr || "ufw failed"}), so other devices on the network may not reach it; allow ${tlsPort}/tcp on the Firewall page.`;
+      warnings.push(warning);
+      log?.(warning, "stderr");
+    }
+  } else {
+    log?.(`LAN access is off, so port ${tlsPort} stays closed; turning LAN access on opens it`, "stdout");
   }
 
   // Restart a few seconds out so the response returns first. The plain HTTP path is untouched, so a

@@ -17,8 +17,9 @@
  */
 import { readFile } from "node:fs/promises";
 import { writeFileDurably as writeFile } from "../durable-file.mjs";
-import { setEnvValue, webListenFromEnv } from "../env-file.mjs";
+import { envFileValue, setEnvValue, webListenFromEnv } from "../env-file.mjs";
 import { fixedRun } from "../exec.mjs";
+import { tlsPortOf } from "../tls-listener.mjs";
 
 const envPath = process.env.BOXPILOT_ENV_FILE ?? "/etc/boxpilot/boxpilot.env";
 const systemctl = "/usr/bin/systemctl";
@@ -26,6 +27,19 @@ const systemdRun = "/usr/bin/systemd-run";
 const ufw = "/usr/sbin/ufw";
 const loopback = "127.0.0.1";
 const allInterfaces = "0.0.0.0";
+
+/** Whether a BOXPILOT_HOST value keeps the web service (and its HTTPS listener) off the network. */
+export function isLoopbackHost(host) {
+  return ["127.0.0.1", "::1", "localhost"].includes(String(host ?? ""));
+}
+
+/**
+ * The HTTPS port, when HTTPS on the LAN is set up (web-tls.mjs wrote a certificate into the env
+ * file): the HTTPS listener binds the same address as HTTP, so it follows LAN access on the firewall.
+ */
+function tlsPortFromEnv(text) {
+  return envFileValue(text, "BOXPILOT_TLS_CERT") && envFileValue(text, "BOXPILOT_TLS_KEY") ? String(tlsPortOf(envFileValue(text, "BOXPILOT_TLS_PORT"))) : null;
+}
 
 // Read and written as systemd reads the file (server/env-file.mjs): the first `^KEY=` line taken
 // literally opened a port the service was not on, and rewrote a BOXPILOT_HOST line a later one overrode.
@@ -47,16 +61,22 @@ export async function webBindSet({ scope } = {}, { run = fixedRun, log = null, f
   // firewall lets it); a failed closing only leaves a rule for a port nothing listens on, so it is logged.
   /** @type {string[]} */
   const warnings = [];
-  const rule = scope === "lan"
-    ? await run(ufw, ["allow", `${port}/tcp`], { timeout: 30_000 })
-    : await run(ufw, ["--force", "delete", "allow", `${port}/tcp`], { timeout: 30_000 });
-  if (!rule.ok && !/ENOENT/.test(rule.stderr)) {
+  // M90: the HTTPS listener binds the same address as HTTP (server/index.mjs), so with LAN access off
+  // it answers on loopback only and its port is closed too; turning LAN access back on reopens it.
+  const tlsPort = tlsPortFromEnv(before);
+  for (const [label, rulePort] of [["web", port], ...(tlsPort && tlsPort !== port ? [["HTTPS", tlsPort]] : [])]) {
+    const rule = scope === "lan"
+      ? await run(ufw, ["allow", `${rulePort}/tcp`], { timeout: 30_000 })
+      : await run(ufw, ["--force", "delete", "allow", `${rulePort}/tcp`], { timeout: 30_000 });
+    if (rule.ok || /ENOENT/.test(rule.stderr)) continue;
     if (scope === "lan") {
-      const warning = `BoxPilot will listen on the LAN, but the firewall could not be opened for port ${port} (${rule.stderr || "ufw failed"}); allow ${port}/tcp on the Firewall page, or other devices cannot reach it.`;
+      const warning = label === "web"
+        ? `BoxPilot will listen on the LAN, but the firewall could not be opened for port ${rulePort} (${rule.stderr || "ufw failed"}); allow ${rulePort}/tcp on the Firewall page, or other devices cannot reach it.`
+        : `BoxPilot will listen on the LAN, but the firewall could not be opened for its HTTPS port ${rulePort} (${rule.stderr || "ufw failed"}); allow ${rulePort}/tcp on the Firewall page, or other devices cannot reach it over HTTPS.`;
       warnings.push(warning);
       log?.(warning, "stderr");
     } else {
-      log?.(`Could not remove the firewall rule for ${port}/tcp (${rule.stderr || "ufw failed"}); nothing listens there beyond this server now`, "stderr");
+      log?.(`Could not remove the firewall rule for ${rulePort}/tcp (${rule.stderr || "ufw failed"}); nothing listens there beyond this server now`, "stderr");
     }
   }
 
@@ -64,5 +84,5 @@ export async function webBindSet({ scope } = {}, { run = fixedRun, log = null, f
   // restart hiccups the Serve/tailnet path is unaffected.
   const scheduled = await run(systemdRun, ["--quiet", "--on-active", "5", "--unit", "boxpilot-rebind", systemctl, "restart", "boxpilot.service"], { timeout: 30_000 });
   if (!scheduled.ok) throw new Error(`Wrote the new bind but could not schedule the restart: ${scheduled.stderr || "systemd-run failed"}. Restart boxpilot.service to apply it.`);
-  return { scope, host, port, restartScheduled: true, ...(warnings.length ? { warnings } : {}) };
+  return { scope, host, port, ...(tlsPort ? { tlsPort } : {}), restartScheduled: true, ...(warnings.length ? { warnings } : {}) };
 }

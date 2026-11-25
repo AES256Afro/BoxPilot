@@ -74,6 +74,7 @@ const reviewed = {
   "samba.share.writable": "a configured share by name; ownership to the apps user",
   "samba.user.set": "refuses root and accounts below uid 1000 it did not create; password on stdin",
   "samba.user.remove": "only accounts BoxPilot created",
+  "fail2ban.unban": "one address (net.isIP, no prefix or zone) passed as one argument; lifts a ban fail2ban lifts itself when it runs out",
   "ups.setup": "enum- or pattern-bound fields, no quotes or newlines; password generated",
   "power.wake-on-lan.set": "interface must be one listed from /sys/class/net",
   "housekeeping.reclaim": "category enum; keeps 3 backups per app; unreadable snapshots refused",

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet, readWebEnv, validateRule } from "./firewall.mjs";
+import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet, readWebEnv, sourceProblem, validateRule } from "./firewall.mjs";
 
 const okRun = () => vi.fn(async (binary, args) => {
   if (args[0] === "status") return { ok: true, stdout: "Status: active\nTo  Action  From\n22/tcp  ALLOW IN  Anywhere", stderr: "" };
@@ -119,7 +119,7 @@ describe("root firewall tasks", () => {
     const result = await firewallProfileApply({ profile: "home-server", services: ["dns", "web"], sshRateLimit: true }, { run, envPath: "/tmp/x.env", now: () => new Date("2026-08-21T16:00:00Z"), ...(await (async () => ({}))()) }).catch((error) => error);
     // The default env file does not exist in tests, so the LAN port is not opened here...
     expect(result).toMatchObject({ profile: "home-server", services: ["dns", "web"], sshRateLimit: true, appliedAt: "2026-08-21T16:00:00.000Z" });
-    const calls = run.mock.calls.map(([, args]) => args.join(" "));
+    const calls = run.mock.calls.filter(([binary]) => binary === "/usr/sbin/ufw").map(([, args]) => args.join(" "));
     // `limit` replaces an allow for the same tuple, so it needs no position and works on an empty
     // rule list — which is exactly what "start from scratch" leaves behind.
     expect(calls[0]).toBe("limit 22/tcp comment BoxPilot keeps SSH reachable (rate-limited)");
@@ -163,6 +163,88 @@ describe("root firewall tasks", () => {
     await expect(firewallProfileApply({ profile: "fortress" }, { run, ...lanEnv })).rejects.toThrow("Unknown firewall profile");
     await expect(firewallProfileApply({ profile: "home-server", services: ["telnet"] }, { run, ...lanEnv })).rejects.toThrow("Unknown services");
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+// M90: a rule can be limited to this LAN or the tailnet, and deleted by the same words.
+describe("rules from one source", () => {
+  it("refuses anything but an address or range", () => {
+    expect(sourceProblem("192.168.1.0/24")).toBeNull();
+    expect(sourceProblem("2001:db8::/32")).toBeNull();
+    expect(sourceProblem("192.168.1.5/24")).toContain("network address");
+    expect(sourceProblem("0.0.0.0/0")).toContain("leave the source out");
+    expect(sourceProblem("192.168.1.0/24 port 22")).not.toBeNull();
+    expect(validateRule({ action: "allow", port: 8096, protocol: "tcp", source: "anywhere" })).toContain("source");
+  });
+
+  it("adds and deletes a LAN-only rule with ufw's from ... to any port ... proto", async () => {
+    const run = okRun();
+    const added = await firewallRuleAdd({ action: "allow", port: 8096, protocol: "tcp", comment: "Jellyfin", source: "192.168.1.0/24" }, { run, ...lanEnv });
+    expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["allow", "from", "192.168.1.0/24", "to", "any", "port", "8096", "proto", "tcp", "comment", "Jellyfin"], expect.anything());
+    expect(added).toMatchObject({ source: "192.168.1.0/24", sources: ["192.168.1.0/24"] });
+    await firewallRuleDelete({ action: "allow", port: 8096, protocol: "tcp", source: "192.168.1.0/24" }, { run, ...lanEnv });
+    expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["--force", "delete", "allow", "from", "192.168.1.0/24", "to", "any", "port", "8096", "proto", "tcp"], expect.anything());
+    // tcp + udp has no proto.
+    await firewallRuleAdd({ action: "allow", port: 53, protocol: "any", source: "192.168.1.0/24" }, { run, ...lanEnv });
+    expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["allow", "from", "192.168.1.0/24", "to", "any", "port", "53"], expect.anything());
+    await expect(firewallRuleAdd({ action: "allow", port: 8096, protocol: "tcp", source: "0.0.0.0/0" }, { run, ...lanEnv })).rejects.toThrow("Invalid rule");
+  });
+
+  it("writes the tailnet in both families, and carries on when ufw has IPv6 off", async () => {
+    const run = vi.fn(async (binary, args) => (args.includes("fd7a:115c:a1e0::/48") ? { ok: false, stdout: "", stderr: "ERROR: IPv6 support not enabled" } : { ok: true, stdout: "", stderr: "" }));
+    const added = await firewallRuleAdd({ action: "allow", port: 3000, protocol: "tcp", source: "100.64.0.0/10" }, { run, ...lanEnv });
+    const calls = run.mock.calls.map(([, args]) => args.join(" "));
+    expect(calls).toContain("allow from 100.64.0.0/10 to any port 3000 proto tcp");
+    expect(calls).toContain("allow from fd7a:115c:a1e0::/48 to any port 3000 proto tcp");
+    expect(added.sources).toEqual(["100.64.0.0/10"]);
+    // The one asked for failing is a failure.
+    const refusing = vi.fn(async () => ({ ok: false, stdout: "", stderr: "ERROR: Bad source" }));
+    await expect(firewallRuleAdd({ action: "allow", port: 3000, protocol: "tcp", source: "100.64.0.0/10" }, { run: refusing, ...lanEnv })).rejects.toThrow("ufw rejected the rule");
+  });
+
+  it("deletes the tailnet rule in both families, and says so when the one named is gone", async () => {
+    const run = vi.fn(async (binary, args) => (args[0] === "--force" && args.includes("fd7a:115c:a1e0::/48") ? { ok: true, stdout: "Could not delete non-existent rule", stderr: "" } : { ok: true, stdout: "Rule deleted", stderr: "" }));
+    const result = await firewallRuleDelete({ action: "allow", port: 3000, protocol: "tcp", source: "100.64.0.0/10" }, { run, ...lanEnv });
+    expect(result.deleted).toMatchObject({ source: "100.64.0.0/10", sources: ["100.64.0.0/10"] });
+    const gone = vi.fn(async (binary, args) => (args[0] === "--force" ? { ok: true, stdout: "Could not delete non-existent rule", stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    await expect(firewallRuleDelete({ action: "allow", port: 9000, protocol: "tcp", source: "192.168.1.0/24" }, { run: gone, ...lanEnv })).rejects.toThrow("does not exist any more");
+  });
+
+  it("still refuses to delete an allow on a protected port, whatever its source", async () => {
+    const run = okRun();
+    await expect(firewallRuleDelete({ action: "allow", port: 22, protocol: "tcp", source: "192.168.1.0/24" }, { run, ...lanEnv })).rejects.toThrow("SSH rule stays");
+    expect(run).not.toHaveBeenCalled();
+  });
+});
+
+// M90: the root task reads the rules in place and closes what the new choice no longer keeps.
+describe("applying a profile closes what it no longer keeps", () => {
+  const hex = (text) => Buffer.from(text).toString("hex");
+  const userRules = [
+    `### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 in comment=${hex("BoxPilot keeps SSH reachable")}`,
+    `### tuple ### allow tcp 80 0.0.0.0/0 any 0.0.0.0/0 in comment=${hex("BoxPilot service: Web (HTTP/HTTPS)")}`,
+    `### tuple ### allow tcp 32400 0.0.0.0/0 any 0.0.0.0/0 in comment=${hex("BoxPilot service: Plex")}`,
+  ].join("\n");
+  const readRules = vi.fn(async (file) => (file.endsWith("/user.rules") ? userRules : ""));
+
+  it("deletes the earlier services' allows on Tailscale only, before turning the firewall on", async () => {
+    const run = okRun();
+    const closes = [{ action: "allow", port: 80, protocol: "tcp", source: null }, { action: "allow", port: 32400, protocol: "tcp", source: null }];
+    const result = await firewallProfileApply({ profile: "tailscale-only", closes }, { run, ...lanEnv, ufwDirectory: "/etc/ufw", readRules });
+    expect(readRules).toHaveBeenCalledWith("/etc/ufw/user.rules");
+    const calls = run.mock.calls.map(([, args]) => args.join(" "));
+    expect(calls).toContain("--force delete allow 80/tcp");
+    expect(calls).toContain("--force delete allow 32400/tcp");
+    expect(calls.some((call) => call.startsWith("--force delete allow 22"))).toBe(false);
+    expect(calls.indexOf("--force delete allow 80/tcp")).toBeLessThan(calls.indexOf("--force enable"));
+    expect(result.closed.map((rule) => rule.port)).toEqual([80, 32400]);
+  });
+
+  it("deletes only the service no longer ticked on Home server", async () => {
+    const run = okRun();
+    await firewallProfileApply({ profile: "home-server", services: ["web"], closes: [{ action: "allow", port: 32400, protocol: "tcp", source: null }] }, { run, ...lanEnv, readRules });
+    const calls = run.mock.calls.map(([, args]) => args.join(" ")).filter((call) => call.includes("delete"));
+    expect(calls).toEqual(["--force delete allow 32400/tcp"]);
   });
 });
 
@@ -274,5 +356,138 @@ describe("starting from scratch", () => {
       const leftovers = (await fs.readdir(host.directory)).filter((name) => name.endsWith(".boxpilot-pre"));
       expect(leftovers).toEqual([]);
     } finally { await host.cleanup(); }
+  });
+});
+
+// M90 review: what the outside review found in applying a profile and in sources.
+describe("applying a profile keeps BoxPilot's HTTPS port and SSH on its real port", () => {
+  const hex = (text) => Buffer.from(text).toString("hex");
+  // What web-tls writes (`ufw allow 8443/tcp`, no comment), SSH moved to 2222 and rate-limited, one service.
+  const userRules = [
+    "### tuple ### allow tcp 8443 0.0.0.0/0 any 0.0.0.0/0 in",
+    "### tuple ### limit tcp 2222 0.0.0.0/0 any 0.0.0.0/0 in",
+    `### tuple ### allow tcp 32400 0.0.0.0/0 any 0.0.0.0/0 in comment=${hex("BoxPilot service: Plex")}`,
+  ].join("\n");
+  const readRules = async (file) => (file.endsWith("/user.rules") ? userRules : "");
+  const tlsLan = async () => "BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=8787\nBOXPILOT_TLS_CERT=/etc/boxpilot/tls/leaf.crt\nBOXPILOT_TLS_KEY=/etc/boxpilot/tls/leaf.key\nBOXPILOT_TLS_PORT=8443\n";
+  const runWith = (sshd) => vi.fn(async (binary, args) => {
+    if (binary === "/usr/sbin/sshd") return sshd;
+    if (args[0] === "status") return { ok: true, stdout: "Status: active\n", stderr: "" };
+    return { ok: true, stdout: "", stderr: "" };
+  });
+  const ufwCalls = (run) => run.mock.calls.filter(([binary]) => binary === "/usr/sbin/ufw").map(([, args]) => args.join(" "));
+  const plex = [{ action: "allow", port: 32400, protocol: "tcp", source: null }];
+
+  it("closes neither the HTTPS port nor sshd's port on Tailscale only, and keeps SSH open on it", async () => {
+    const run = runWith({ ok: true, stdout: "port 2222\naddressfamily any\nlistenaddress 0.0.0.0:2222\n", stderr: "" });
+    const result = await firewallProfileApply({ profile: "tailscale-only", closes: plex }, { run, ...lanEnv, readEnv: tlsLan, readRules });
+    const calls = ufwCalls(run);
+    expect(calls.filter((call) => call.includes("delete"))).toEqual(["--force delete allow 32400/tcp"]);
+    expect(calls).toContain("allow 2222/tcp comment BoxPilot keeps SSH reachable");
+    expect(calls).toContain("allow 8443/tcp comment BoxPilot keeps BoxPilot HTTPS reachable");
+    expect(result.closed.map((rule) => rule.port)).toEqual([32400]);
+  });
+
+  it("keeps every rule that could be SSH's when sshd -T cannot be read", async () => {
+    const run = runWith({ ok: false, stdout: "", stderr: "sshd: no hostkeys available -- exiting." });
+    const rules = [
+      "### tuple ### limit tcp 2200 0.0.0.0/0 any 0.0.0.0/0 in",
+      "### tuple ### allow tcp 2222 0.0.0.0/0 any 0.0.0.0/0 in",
+      `### tuple ### allow tcp 4022 0.0.0.0/0 any 0.0.0.0/0 in comment=${hex("my ssh")}`,
+      "### tuple ### allow tcp 3000 0.0.0.0/0 any 0.0.0.0/0 in",
+    ].join("\n");
+    const log = vi.fn();
+    await firewallProfileApply({ profile: "tailscale-only", closes: [{ action: "allow", port: 3000, protocol: "tcp", source: null }] }, { run, ...lanEnv, log, readRules: async (file) => (file.endsWith("/user.rules") ? rules : "") });
+    expect(ufwCalls(run).filter((call) => call.includes("delete"))).toEqual(["--force delete allow 3000/tcp"]);
+    expect(ufwCalls(run)).toContain("allow 22/tcp comment BoxPilot keeps SSH reachable");
+    expect(log.mock.calls.some(([line]) => /SSH port could not be read/.test(line))).toBe(true);
+  });
+
+  it("refuses, changing nothing, when it would close a rule the preview did not show", async () => {
+    const run = runWith({ ok: true, stdout: "port 2222\n", stderr: "" });
+    await expect(firewallProfileApply({ profile: "tailscale-only", closes: [] }, { run, ...lanEnv, readEnv: tlsLan, readRules }))
+      .rejects.toThrow("Nothing was changed: applying Tailscale only now would also close allow 32400/tcp, which the preview did not show");
+    expect(ufwCalls(run)).toEqual([]);
+    // Left out entirely, nothing may close either.
+    await expect(firewallProfileApply({ profile: "tailscale-only" }, { run, ...lanEnv, readEnv: tlsLan, readRules })).rejects.toThrow("review the profile again");
+    expect(ufwCalls(run)).toEqual([]);
+    // A preview that listed more than now closes is fine: what runs is a subset of what was shown.
+    await firewallProfileApply({ profile: "tailscale-only", closes: [...plex, { action: "allow", port: 80, protocol: "tcp", source: null }] }, { run, ...lanEnv, readEnv: tlsLan, readRules });
+    expect(ufwCalls(run)).toContain("--force enable");
+  });
+
+  it("puts back the rules it closed when a later step fails, and says so", async () => {
+    const run = vi.fn(async (binary, args) => {
+      if (binary === "/usr/sbin/sshd") return { ok: true, stdout: "port 22\n", stderr: "" };
+      if (args.join(" ") === "default deny incoming") return { ok: false, stdout: "", stderr: "ERROR: problem running ufw-init" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const rules = [
+      `### tuple ### allow tcp 32400 0.0.0.0/0 any 0.0.0.0/0 in comment=${hex("BoxPilot service: Plex")}`,
+      "### tuple ### allow tcp 3000 0.0.0.0/0 any 192.168.1.0/24 in",
+    ].join("\n");
+    const closes = [...plex, { action: "allow", port: 3000, protocol: "tcp", source: "192.168.1.0/24" }];
+    const failure = await firewallProfileApply({ profile: "tailscale-only", closes }, { run, ...lanEnv, readRules: async (file) => (file.endsWith("/user.rules") ? rules : "") }).catch((error) => error);
+    const calls = ufwCalls(run);
+    expect(calls).toContain("allow 32400/tcp comment BoxPilot service: Plex");
+    expect(calls).toContain("allow from 192.168.1.0/24 to any port 3000 proto tcp");
+    expect(calls.indexOf("allow 32400/tcp comment BoxPilot service: Plex")).toBeGreaterThan(calls.indexOf("default deny incoming"));
+    expect(calls).not.toContain("--force enable");
+    expect(failure.message).toContain("It had closed allow 32400/tcp, allow 3000/tcp from 192.168.1.0/24 first; those rules were put back.");
+    expect(failure.message).not.toContain("nothing new is blocked");
+  });
+
+  it("says which closed rules it could not put back", async () => {
+    const run = vi.fn(async (binary, args) => {
+      const call = args.join(" ");
+      if (binary === "/usr/sbin/sshd") return { ok: true, stdout: "port 22\n", stderr: "" };
+      if (call === "--force enable") return { ok: false, stdout: "", stderr: "ERROR: Could not load logging rules" };
+      if (call.startsWith("allow 32400/tcp")) return { ok: false, stdout: "", stderr: "ERROR: Could not update running firewall" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const plexOnly = `### tuple ### allow tcp 32400 0.0.0.0/0 any 0.0.0.0/0 in comment=${hex("BoxPilot service: Plex")}`;
+    const failure = await firewallProfileApply({ profile: "tailscale-only", closes: plex }, { run, ...lanEnv, readRules: async (file) => (file.endsWith("/user.rules") ? plexOnly : "") }).catch((error) => error);
+    expect(failure.message).toContain("Turn the firewall on failed: ERROR: Could not load logging rules.");
+    expect(failure.message).toContain("It had closed allow 32400/tcp first, and could not put it back: add it again on the Rules tab.");
+  });
+
+  it("refuses to delete or deny sshd's own port, and the HTTPS port BoxPilot serves on", async () => {
+    const run = runWith({ ok: true, stdout: "port 2222\n", stderr: "" });
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "boxpilot-firewall-tls-"));
+    try {
+      const envPath = path.join(directory, "boxpilot.env");
+      await fs.writeFile(envPath, await tlsLan());
+      const options = { run, envPath, dockerSync: lanEnv.dockerSync };
+      await expect(firewallRuleDelete({ action: "limit", port: 2222, protocol: "tcp" }, options)).rejects.toThrow("SSH rule stays");
+      await expect(firewallRuleAdd({ action: "deny", port: 2222, protocol: "tcp" }, options)).rejects.toThrow("it is SSH");
+      await expect(firewallRuleDelete({ action: "allow", port: 8443, protocol: "tcp" }, options)).rejects.toThrow("BoxPilot HTTPS rule stays");
+      expect(ufwCalls(run)).toEqual([]);
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("sources the review found accepted", () => {
+  it("refuses the unspecified address, IPv4-mapped IPv6, a padded prefix, and an IPv6 range off its network address", () => {
+    expect(sourceProblem("0.0.0.0")).toContain("leave the source out");
+    expect(sourceProblem("::")).toContain("leave the source out");
+    expect(sourceProblem("0.0.0.0/8")).toContain("leave the source out");
+    expect(sourceProblem("1.2.3.0/032")).not.toBeNull();
+    expect(sourceProblem("1.2.3.4/032")).not.toBeNull();
+    expect(sourceProblem("10.0.0.0/08")).not.toBeNull();
+    expect(sourceProblem("::ffff:10.0.0.0/104")).toContain("IPv4");
+    expect(sourceProblem("::ffff:a00:0/104")).toContain("IPv4");
+    expect(sourceProblem("::1.2.3.4")).toContain("IPv4");
+    expect(sourceProblem("fd00::1/64")).toContain("network address");
+    expect(sourceProblem("2001:db8::8000/112")).toContain("network address");
+    // Still accepted.
+    expect(sourceProblem("fd00::/64")).toBeNull();
+    expect(sourceProblem("fd7a:115c:a1e0::/48")).toBeNull();
+    expect(sourceProblem("2001:db8::1")).toBeNull();
+    expect(sourceProblem("2001:db8::1/128")).toBeNull();
+    expect(sourceProblem("1.2.3.4/32")).toBeNull();
+    expect(sourceProblem("100.64.0.0/10")).toBeNull();
+    expect(sourceProblem("::1")).toBeNull();
   });
 });

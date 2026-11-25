@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
-import { commentPattern, ruleActions, ruleProtocols } from "../tasks/firewall.mjs";
-import { profileIds, serviceIds } from "../firewall-profiles.mjs";
+import { commentPattern, ruleActions, ruleProtocols, sourceProblem } from "../tasks/firewall.mjs";
+import { mergeRuleFamilies, parseUserRules, profileIds, serviceIds, sshPortsFromSshdT } from "../firewall-profiles.mjs";
 import { hasDockerRules } from "../tasks/firewall-docker.mjs";
 
 const minutes = (value) => value * 60_000;
@@ -23,78 +23,26 @@ export function parseDefaultPolicies(content) {
   return { incoming: policy("INPUT"), outgoing: policy("OUTPUT"), routed: policy("FORWARD") };
 }
 
-/** ufw's "from anywhere", in either family. */
-const anywhere = new Set(["0.0.0.0/0", "::/0", "any"]);
-
-/**
- * Parse `### tuple ###` lines from /etc/ufw/user.rules:
- *   action proto dport dst sport src [dapp sapp] direction [comment=hex]
- * `source` is where the rule lets traffic come from (`ufw status`'s From column), null for anywhere:
- * a rule for 192.168.8.0/24 and one for anywhere on the same port are different rules.
- * `destination` is the address on this server the rule is for (`ufw allow to 192.168.1.5 port 3306`),
- * null for any of them.
- * `deletable` says whether firewall.rule.delete can reach the rule: it runs `ufw delete <action>
- * <port>/<proto>`, which matches a plain port rule from anywhere to anywhere and nothing narrower,
- * so a rule tied to an interface, an application profile, a source or a destination is not one it
- * can remove.
- */
-export function parseUserRules(content, family = "v4") {
-  const rules = [];
-  for (const line of String(content ?? "").split("\n")) {
-    const match = line.match(/^### tuple ###\s+(.*)$/);
-    if (!match) continue;
-    const fields = match[1].trim().split(/\s+/);
-    let comment = null;
-    if (fields.at(-1)?.startsWith("comment=")) {
-      const hex = fields.pop().slice("comment=".length);
-      comment = /^[0-9a-f]*$/i.test(hex) ? Buffer.from(hex, "hex").toString("utf8") : null;
-    }
-    const direction = fields.at(-1)?.match(/^(in|out)(?:_(.+))?$/);
-    if (!direction || fields.length < 7) { rules.push({ raw: match[1], family }); continue; }
-    const [action, protocol, dport, dst, , src] = fields;
-    const app = fields.length >= 9 && fields[6] !== "-" ? fields[6] : null;
-    const port = /^\d+$/.test(dport) ? Number(dport) : null;
-    const source = anywhere.has(src) ? null : src;
-    const destination = anywhere.has(dst) ? null : dst;
-    const iface = direction[2] ?? null;
-    rules.push({
-      action,
-      protocol: protocol === "any" ? "any" : protocol,
-      port,
-      app,
-      source,
-      destination,
-      direction: direction[1],
-      interface: iface,
-      deletable: port !== null && !app && !source && !destination && !iface,
-      comment,
-      family,
-    });
-  }
-  return rules;
-}
-
-/** Collapse identical v4/v6 rules into one entry with family "both"; a rule from one source is never merged with one from anywhere. */
-export function mergeRuleFamilies(v4Rules, v6Rules) {
-  const key = (rule) => JSON.stringify([rule.action, rule.protocol, rule.port, rule.app, rule.source ?? null, rule.destination ?? null, rule.direction, rule.interface, rule.raw ?? null]);
-  const merged = [...v4Rules];
-  const seen = new Map(v4Rules.map((rule) => [key(rule), rule]));
-  for (const rule of v6Rules) {
-    const existing = seen.get(key(rule));
-    if (existing) existing.family = "both";
-    else merged.push(rule);
-  }
-  return merged;
+/** A previewed removal: what a delete names, as the plan's `removes` gives it. */
+function closesProblem(value) {
+  if (value.length > 500) return "lists more rules than a firewall holds";
+  const valid = (entry) => entry && typeof entry === "object" && !Array.isArray(entry)
+    && ruleActions.includes(entry.action) && Number.isInteger(entry.port) && entry.port >= 1 && entry.port <= 65535
+    && ruleProtocols.includes(entry.protocol) && (entry.source === undefined || entry.source === null || (typeof entry.source === "string" && entry.source.length <= 64));
+  return value.every(valid) ? null : "each entry must be a rule: action, port, protocol and source";
 }
 
 export function firewallOperations() {
   return [
     defineOperation({
       id: "firewall.inspect", title: "Read firewall state", risk: "low", readOnly: true, timeoutMs: 30_000,
-      description: "Whether ufw is installed and enabled, its default policies, and the configured rules.",
-      run: async () => {
+      description: "Whether ufw is installed and enabled, its default policies, the configured rules, and the ports sshd listens on.",
+      run: async (_parameters, { run }) => {
         const installed = await access("/usr/sbin/ufw").then(() => true, () => false);
         if (!installed) return { installed: false, enabled: null, defaults: null, rules: [] };
+        // M90 review: SSH's port, so the profile preview keeps it as the root task does; null when
+        // sshd -T cannot be read, and the plan then keeps every rule that could be SSH's.
+        const sshd = await Promise.resolve(run("/usr/sbin/sshd", ["-T"], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 })).catch(() => null);
         const [conf, defaults, v4, v6] = await Promise.all([
           readFile("/etc/ufw/ufw.conf", "utf8").catch(() => ""),
           readFile("/etc/default/ufw", "utf8").catch(() => ""),
@@ -107,6 +55,7 @@ export function firewallOperations() {
           defaults: parseDefaultPolicies(defaults),
           rules: mergeRuleFamilies(parseUserRules(v4, "v4"), parseUserRules(v6, "v6")),
           dockerRules: hasDockerRules(await readFile("/etc/ufw/after.rules", "utf8").catch(() => "")),
+          sshPorts: sshd?.ok ? sshPortsFromSshdT(sshd.stdout) : null,
         };
       },
     }),
@@ -118,24 +67,27 @@ export function firewallOperations() {
     }),
     defineOperation({
       id: "firewall.rule.add", title: "Add a firewall rule", risk: "medium", timeoutMs: minutes(2),
-      description: "Allows, denies, or rate-limits a port with ufw, for tcp, udp, or both. SSH, Tailscale, and BoxPilot's port can never be denied.",
+      description: "Allows, denies, or rate-limits a port with ufw, for tcp, udp, or both, from anywhere or from one address or range (this LAN, the tailnet). SSH, Tailscale, and BoxPilot's port can never be denied.",
       parameters: { fields: {
         action: { type: "string", enum: [...ruleActions] },
         port: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 65535 ? null : "must be a port between 1 and 65535") },
         protocol: { type: "string", enum: [...ruleProtocols] },
         comment: { type: "string", optional: true, nullable: true, maxLength: 60, pattern: commentPattern },
+        // M90: an address or range only (sourceProblem); left out, the rule is from anywhere.
+        source: { type: "string", optional: true, nullable: true, maxLength: 64, validate: sourceProblem },
       } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("firewall.rule-add", { action: parameters.action, port: parameters.port, protocol: parameters.protocol, comment: parameters.comment ?? null }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("firewall.rule-add", { action: parameters.action, port: parameters.port, protocol: parameters.protocol, comment: parameters.comment ?? null, source: parameters.source ?? null }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "firewall.rule.delete", title: "Delete a firewall rule", risk: "medium", timeoutMs: minutes(2),
-      description: "Deletes the matching ufw rule. The SSH, Tailscale, and BoxPilot allow rules cannot be deleted from here.",
+      description: "Deletes the matching ufw rule, from anywhere or from the one address or range it names. The SSH, Tailscale, and BoxPilot allow rules cannot be deleted from here.",
       parameters: { fields: {
         action: { type: "string", enum: [...ruleActions] },
         port: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 65535 ? null : "must be a port between 1 and 65535") },
         protocol: { type: "string", enum: [...ruleProtocols] },
+        source: { type: "string", optional: true, nullable: true, maxLength: 64, validate: sourceProblem },
       } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("firewall.rule-delete", { action: parameters.action, port: parameters.port, protocol: parameters.protocol }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("firewall.rule-delete", { action: parameters.action, port: parameters.port, protocol: parameters.protocol, source: parameters.source ?? null }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "firewall.profile.apply", title: "Apply a firewall profile", risk: "high", timeoutMs: minutes(5),
@@ -145,8 +97,11 @@ export function firewallOperations() {
         services: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && serviceIds.includes(id)) ? null : `may only contain ${serviceIds.join(", ")}`) },
         replace: { type: "boolean", optional: true },
         sshRateLimit: { type: "boolean", optional: true },
+        // M90 review: the rules the preview showed closing. The task refuses, changing nothing, when
+        // the plan it rebuilds would close anything else; left out, it may close nothing.
+        closes: { type: "array", optional: true, validate: closesProblem },
       } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("firewall.profile-apply", { profile: parameters.profile, services: parameters.services ?? [], replace: parameters.replace ?? false, sshRateLimit: parameters.sshRateLimit ?? false }, { timeoutMs: minutes(4), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("firewall.profile-apply", { profile: parameters.profile, services: parameters.services ?? [], replace: parameters.replace ?? false, sshRateLimit: parameters.sshRateLimit ?? false, closes: parameters.closes ?? [] }, { timeoutMs: minutes(4), logPath: jobLog?.path ?? null }),
     }),
   ];
 }

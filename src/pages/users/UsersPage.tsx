@@ -4,7 +4,7 @@ import { onPageRefresh } from "../../shell/refresh";
 import { useOperation } from "../../shell/ApproveDialog";
 import { countOf } from "../../data";
 import { inspectOperation } from "../../operations";
-import { Button, Field, KeyValue, Notice, PageHeader, Panel, Sheet, Table, Tag, TextInput, Textarea, mayStart, riskOf, type TableColumn } from "../../ui";
+import { Button, Checkbox, Field, KeyValue, Notice, PageHeader, Panel, Sheet, Table, Tag, TextInput, Textarea, mayStart, riskOf, type TableColumn } from "../../ui";
 import "./users.css";
 
 /*
@@ -12,11 +12,15 @@ import "./users.css";
  * setting that decides how exposed this server is), then how SSH is set up, then the accounts with
  * their sudo and their keys. Adding an account and importing keys are forms, so they open in
  * sheets; every action carries its tier, and a role that cannot start one does not see it.
+ * An account can be locked (password locked and expired, so a key does not sign it in either) and
+ * removed (M90), the home folder kept unless the owner chooses otherwise.
  */
 
-interface UserRow { name: string; uid: number; shell: string; sudo: boolean; keyCount: number }
+/** rootEquivalent: in sudo, admin, wheel, docker, lxd or libvirt, or named in sudoers (or sudoers unread): locking it is the owner's. */
+interface UserRow { name: string; uid: number; shell: string; sudo: boolean; keyCount: number; locked?: boolean; rootEquivalent?: boolean }
 interface SshdConfig { passwordAuthentication: boolean; keyboardInteractive: boolean; pubkeyAuthentication: boolean; permitRootLogin: string | null; port: number }
-interface UsersReport { users: UserRow[]; sshd: SshdConfig | null; sshActive: boolean }
+/** keyAdmins: administrators who could sign in with a key sshd accepts and use sudo, were passwords off; keyOnlyProblem: why turning passwords off would be refused. */
+interface UsersReport { users: UserRow[]; sshd: SshdConfig | null; sshActive: boolean; keyAdmins?: string[]; keyOnlyProblem?: string | null }
 
 export interface UsersPageProps {
   csrfToken: string;
@@ -34,7 +38,9 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
   const [report, setReport] = useState<UsersReport | null>(null);
   const [loading, setLoading] = useState(canRead);
   const [error, setError] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<"add" | "keys" | null>(null);
+  const [sheet, setSheet] = useState<"add" | "keys" | "remove" | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
+  const [removeHome, setRemoveHome] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newGithub, setNewGithub] = useState("");
   const [keysTarget, setKeysTarget] = useState<string | null>(null);
@@ -73,13 +79,26 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
   const users = report?.users ?? [];
   const sshd = report?.sshd ?? null;
   const passwordAuth = sshd?.passwordAuthentication ?? null;
-  const anyKeys = users.some((user) => user.keyCount > 0);
+  // With keyboard-interactive on, PAM asks for the same password: passwords are still a way in.
+  const passwordsAccepted = sshd ? sshd.passwordAuthentication || sshd.keyboardInteractive : null;
+  // Only a key on an administrator sshd admits (root only while PermitRootLogin lets a key in) keeps a way in.
+  const keyAdmins = report?.keyAdmins ?? [];
+  const keyOnlyProblem = report?.keyOnlyProblem ?? null;
+  const anyKeys = keyAdmins.length > 0 && !keyOnlyProblem;
   const sudoCount = users.filter((user) => user.sudo).length;
   const keyCount = users.reduce((sum, user) => sum + user.keyCount, 0);
   const canAdd = mayStart(role, "users.add");
   const canImport = mayStart(role, "users.keys.import");
   const canSudo = mayStart(role, "users.sudo.set");
   const canPassword = mayStart(role, "ssh.password-auth.set");
+  const canLock = mayStart(role, "users.lock");
+  const canUnlock = mayStart(role, "users.unlock");
+  const canRemove = mayStart(role, "users.remove");
+  /** Root and the system accounts are not shown as lockable or removable; the server refuses them too.
+   * Locking an administrator is raised to high (server/ops/escalation.mjs), so it goes with the sudo switch. */
+  const personal = (user: UserRow) => user.name !== "root" && user.uid >= 1000;
+  /** Locking or opening an account that is root in all but name is raised to high, like the sudo switch. */
+  const administers = (user: UserRow) => user.sudo || user.rootEquivalent !== false;
 
   const openKeys = (name: string) => {
     if (keysTarget !== name) { setKeysGithub(""); setKeysPasted(""); }
@@ -116,12 +135,40 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
 
   const setPasswordLogin = () => start({
     operationId: "ssh.password-auth.set",
-    title: passwordAuth ? "Turn off SSH password login" : "Allow SSH password login",
-    parameters: { enabled: !passwordAuth },
-    preview: passwordAuth
-      ? <span>Turns off signing in over SSH with a password. Only key holders can sign in over plain SSH afterwards; Tailscale SSH is unaffected.</span>
-      : <span>Turns signing in over SSH with a password back on. Open sessions stay.</span>,
+    title: passwordsAccepted ? "Turn off SSH password login" : "Allow SSH password login",
+    parameters: { enabled: !passwordsAccepted },
+    preview: passwordsAccepted
+      ? <span>Writes <code>PasswordAuthentication no</code> and <code>KbdInteractiveAuthentication no</code>, so SSH takes no password either way. Only key holders can sign in over plain SSH afterwards ({keyAdmins.join(", ")} as an administrator); Tailscale SSH is unaffected.</span>
+      : <span>Turns signing in over SSH with a password back on, and leaves keyboard-interactive login to the rest of sshd's configuration. Open sessions stay.</span>,
   });
+
+  const lockUser = (user: UserRow) => start({
+    operationId: user.locked ? "users.unlock" : "users.lock",
+    title: user.locked ? `Unlock ${user.name}` : `Lock ${user.name}`,
+    parameters: { username: user.name },
+    preview: user.locked
+      ? <span>Clears {user.name}'s expiry so it can sign in again with its keys, and with its password if it has one.</span>
+      : <span>Locks {user.name}'s password and expires the account, so it cannot sign in with a password or a key. Its files and keys are kept, and sessions already open stay until they end.{administers(user) ? " It is an administrator, so this needs your password." : ""}</span>,
+  });
+
+  const openRemove = (name: string) => {
+    if (removeTarget !== name) setRemoveHome(false);
+    setRemoveTarget(name);
+    setSheet("remove");
+  };
+
+  const removeUser = () => {
+    if (!removeTarget) return;
+    setSheet(null);
+    start({
+      operationId: "users.remove",
+      title: removeHome ? `Remove ${removeTarget} and their home folder` : `Remove ${removeTarget}`,
+      parameters: { username: removeTarget, removeHome },
+      preview: removeHome
+        ? <span><code>userdel --remove {removeTarget}</code>. <strong>The home folder is deleted too, with everything in it</strong>, and cannot be brought back from here.</span>
+        : <span><code>userdel {removeTarget}</code>. The home folder is kept, still owned by the old user number, which a new account may be given later.</span>,
+    });
+  };
 
   const toggleSudo = (user: UserRow) => start({
     operationId: "users.sudo.set",
@@ -134,6 +181,7 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
     { id: "name", header: "User", sortValue: (user) => user.name, cell: (user) => <code className="users-name">{user.name}</code> },
     { id: "uid", header: "UID", numeric: true, sortValue: (user) => user.uid, cell: (user) => user.uid },
     { id: "shell", header: "Shell", hideOnPhone: true, sortValue: (user) => user.shell, cell: (user) => <code className="users-shell">{user.shell}</code> },
+    { id: "state", header: "Login", sortValue: (user) => (user.locked ? 1 : 0), cell: (user) => (user.locked ? <Tag tone="neutral" title="Password locked and account expired">locked</Tag> : <span className="users-dim">open</span>) },
     { id: "sudo", header: "Sudo", sortValue: (user) => (user.sudo ? 0 : 1), cell: (user) => (user.sudo ? <Tag tone="warning" title="Full administrator rights">sudo</Tag> : <span className="users-dim">—</span>) },
     { id: "keys", header: "SSH keys", numeric: true, sortValue: (user) => user.keyCount, cell: (user) => user.keyCount },
     {
@@ -142,6 +190,12 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
           {canImport && <Button variant="ghost" onClick={() => openKeys(user.name)} aria-label={`Import keys for ${user.name}`}>Import keys…</Button>}
           {canSudo && user.name !== "root" && (
             <Button risk={riskOf("users.sudo.set")} onClick={() => toggleSudo(user)} aria-label={`${user.sudo ? "Remove sudo from" : "Grant sudo to"} ${user.name}`}>{user.sudo ? "Remove sudo" : "Grant sudo"}</Button>
+          )}
+          {personal(user) && (administers(user) ? canSudo : user.locked ? canUnlock : canLock) && (
+            <Button risk={administers(user) ? "high" : riskOf(user.locked ? "users.unlock" : "users.lock")} onClick={() => lockUser(user)} aria-label={`${user.locked ? "Unlock" : "Lock"} ${user.name}`}>{user.locked ? "Unlock" : "Lock"}</Button>
+          )}
+          {personal(user) && canRemove && (
+            <Button variant="ghost" risk={riskOf("users.remove")} onClick={() => openRemove(user.name)} aria-label={`Remove ${user.name}`}>Remove…</Button>
           )}
         </span>
       ),
@@ -154,9 +208,13 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
         : !sshd ? { status: "unknown" as const, label: "SSH not read" }
           : !report.sshActive ? { status: "neutral" as const, label: "SSH not running" }
             : passwordAuth ? { status: "warning" as const, label: "Password login on" }
-              : { status: "good" as const, label: "Key-only login" };
+              : sshd.keyboardInteractive ? { status: "warning" as const, label: "Passwords via keyboard-interactive" }
+                : { status: "good" as const, label: "Key-only login" };
   const rootWithPassword = Boolean(sshd && report?.sshActive && passwordAuth && sshd.permitRootLogin === "yes");
-  const passwordHint = passwordAuth === false ? "Key-only SSH login." : anyKeys ? "Keys are in place, so passwords can be turned off." : "Import a key before turning passwords off: nobody could sign in over SSH otherwise.";
+  const passwordHint = passwordsAccepted === false ? "Key-only SSH login."
+    : passwordAuth === false ? "Password login is off, but keyboard-interactive login still asks for the password. Turning password login off closes both."
+      : anyKeys ? "An administrator has a key and can use sudo, so passwords can be turned off."
+        : keyOnlyProblem ?? "Import a key for an administrator before turning passwords off: nobody could sign in over SSH and use sudo otherwise.";
   const username = newUsername.trim();
   const usernameProblem = username && !validUsername(username) ? "Lowercase letters, digits, - and _, starting with a letter or _; at most 32." : null;
   const keysGithubProblem = githubProblem(keysGithub.trim());
@@ -195,12 +253,12 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
             className="users-ssh"
             title="SSH"
             count={report ? { status: report.sshActive ? "good" : "neutral", label: report.sshActive ? "running" : "not running" } : undefined}
-            actions={canPassword && passwordAuth !== null ? (
-              <Button risk={riskOf("ssh.password-auth.set")} disabled={loading || (passwordAuth && !anyKeys)} onClick={setPasswordLogin}>
-                {passwordAuth ? "Turn off password login" : "Allow password login"}
+            actions={canPassword && passwordsAccepted !== null ? (
+              <Button risk={riskOf("ssh.password-auth.set")} disabled={loading || (passwordsAccepted && !anyKeys)} onClick={setPasswordLogin}>
+                {passwordsAccepted ? "Turn off password login" : "Allow password login"}
               </Button>
             ) : undefined}
-            footer={passwordAuth !== null ? passwordHint : undefined}
+            footer={passwordsAccepted !== null ? passwordHint : undefined}
           >
             {!report ? <p className="users-dim">{loading ? "Reading sshd…" : "Not read."}</p> : !sshd ? <p className="users-dim">The SSH server's settings could not be read.</p> : (
               <KeyValue
@@ -210,7 +268,7 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
                   { id: "port", label: "Port", value: sshd.port, mono: true },
                   { id: "password", label: "Password login", value: sshd.passwordAuthentication ? "Allowed" : "Off", status: sshd.passwordAuthentication ? "warning" : "good" },
                   { id: "keys", label: "Key login", value: sshd.pubkeyAuthentication ? "Allowed" : "Off" },
-                  { id: "interactive", label: "Keyboard-interactive", value: sshd.keyboardInteractive ? "On" : "Off" },
+                  { id: "interactive", label: "Keyboard-interactive", value: sshd.keyboardInteractive ? "On" : "Off", status: sshd.keyboardInteractive ? "warning" : undefined },
                   { id: "root", label: "Root login", value: sshd.permitRootLogin ?? "unknown", mono: true, status: sshd.permitRootLogin === "yes" ? "warning" : undefined },
                 ]}
               />
@@ -250,6 +308,26 @@ export default function UsersPage({ csrfToken, role = "owner" }: UsersPageProps)
             <Field label="Or paste public keys" hint={keysGithub ? "The GitHub account is used; clear it to paste instead." : "One per line: ssh-ed25519 AAAA… comment. Existing keys are kept."}>
               <Textarea mono rows={5} value={keysPasted} onValueChange={setKeysPasted} disabled={Boolean(keysGithub)} spellCheck={false} placeholder="ssh-ed25519 AAAA… you@laptop" />
             </Field>
+          </div>
+        </Sheet>
+      )}
+
+      {sheet === "remove" && removeTarget && (
+        <Sheet
+          kicker="Remove account"
+          title={`Remove ${removeTarget}`}
+          side="center"
+          size="sm"
+          onClose={() => setSheet(null)}
+          onSubmit={removeUser}
+          footer={<>
+            <Button variant="ghost" onClick={() => setSheet(null)}>Cancel</Button>
+            <Button variant="primary" type="submit" risk={riskOf("users.remove")}>Remove…</Button>
+          </>}
+        >
+          <div className="users-form">
+            <p>Deletes the account {removeTarget}. Its keys stop working. You confirm with your password and by typing the name.</p>
+            <Checkbox label="Also remove the home folder" description={`Deletes /home/${removeTarget} and everything in it. Left unticked, the folder is kept.`} checked={removeHome} onChange={setRemoveHome} />
           </div>
         </Sheet>
       )}
