@@ -141,7 +141,11 @@ export async function dnsFallbackRehearse(parameters = {}, { run = fixedRun, log
     // a stop that timed out after stopping it anyway, is exactly what the timer is for: disarming it
     // on every path left the house without its DNS app, after an error saying the timer would retry.
     const inspected = await run(dockerBinary(), ["inspect", "--format", "{{.State.Running}}", container], { timeout: 20_000 }).catch(() => null);
-    if (inspected?.ok && inspected.stdout.trim() === "true") await run(systemctlBinary(), ["stop", `${unit}.timer`], { timeout: 20_000 }).catch(() => null);
-    else log(`${label} is not running; the safety timer ${unit}.timer stays armed and starts it within three minutes.`, "stderr");
+    if (inspected?.ok && inspected.stdout.trim() === "true") {
+      // A timer that would not stop is still armed: it starts an app that is already running, which
+      // does no harm, but the log says so rather than implying it was disarmed (M84).
+      const disarmed = await run(systemctlBinary(), ["stop", `${unit}.timer`], { timeout: 20_000 });
+      if (!disarmed.ok) log(`Could not stop the safety timer ${unit}.timer (${disarmed.stderr || `exit ${disarmed.code ?? "?"}`}); it stays armed and finds ${label} already running.`, "stderr");
+    } else log(`${label} is not running; the safety timer ${unit}.timer stays armed and starts it within three minutes.`, "stderr");
   }
 }

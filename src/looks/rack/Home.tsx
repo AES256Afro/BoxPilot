@@ -179,7 +179,7 @@ export default function RackHome({ csrfToken, role, onNavigate, now = Date.now }
   /** One unit of fixes: its engraved name down the side, the LCD with a line a need, a key a fix. */
   const needsUnit = (title: string, list: Need[], first: number, waiting = false) => {
     const keys: ReactNode[] = [];
-    list.forEach((need, index) => {
+    list.forEach((need) => {
       const run = need.finding ? fixRuns[need.finding.id] : undefined;
       const busy = run && ["queued", "running", "checking"].includes(run.phase);
       const actions = actionsOf(need);

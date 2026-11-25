@@ -59,7 +59,7 @@ const status = (role: string) => ({
 
 describe("approvals on your phone", () => {
   it("lists this account's devices, and lets the owner choose the tiers, quiet hours and ntfy", async () => {
-    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => (init?.method === "PUT" ? json(JSON.parse(String(init.body))) : json(status("owner"))));
+    const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => (init?.method === "PUT" ? json(JSON.parse(String(init.body))) : json(status("owner"))));
     vi.stubGlobal("fetch", fetch);
     render(<PushPanel csrfToken="csrf" role="owner" />);
     const panel = await screen.findByRole("region", { name: "Approvals on your phone" });

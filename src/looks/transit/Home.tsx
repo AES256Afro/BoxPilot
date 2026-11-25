@@ -7,7 +7,7 @@ import { runWords } from "../../home/useNeedActions";
 import { Button } from "../../ui";
 import { riskCopy } from "../../ui/Button";
 import { clockTime, shortName, useHomeData, type AppRow } from "../swiss/homeData";
-import { LINE_COLOURS, transitMap, type LineId, type PlacedStop } from "./map";
+import { LINE_COLOURS, transitMap, type PlacedStop } from "./map";
 import "./home.css";
 
 /*

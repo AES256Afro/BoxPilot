@@ -2,14 +2,12 @@ import { verifyPassword } from "./security.mjs";
 import { defaultThrottle as throttle } from "./login-throttle.mjs";
 import { approvalRequirement, defaultApprovalMode, elevationTtlMs, higherTier, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
-import { budgetFor, internalRefusal, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets } from "./ops/registry.mjs";
+import { budgetFor, internalRefusal, nextBudgetMs, placeholderPaths, restoreSecrets, secretPaths, splitSecrets } from "./ops/registry.mjs";
 import { restartsBoxPilot } from "./ops/services.mjs";
 import { asSentence } from "./health-alerts.mjs";
 import { formatDuration, jobTimeoutRecord, mayStillBeRunning, timeoutMessage, timeoutOf } from "./timeouts.mjs";
 import { productVersion } from "./version.mjs";
 
-/** What a secret parameter looks like in the database and the job API. */
-export { secretPlaceholder };
 export const stagedSecretTtlMs = 30 * 60_000;
 /**
  * How long a staged job may wait for an approval nobody gives (M36). Past this it is cancelled, with

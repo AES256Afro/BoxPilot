@@ -150,11 +150,25 @@ export async function moveBackupMount(_parameters = {}, { run = fixedRun, log = 
     if (!plan.automount && wasMounted && !real(types)) throw new Error(`the drive did not mount at ${backupMountpoint}`);
   } catch (error) {
     log?.(`Putting everything back: ${error.message}`, "stderr");
-    if (fstabWritten) await files.writeFile(fstabPath, before).catch(() => {});
-    await systemctl(run, ["stop", `${newBase}.mount`, `${newBase}.automount`], log).catch(() => {});
-    await systemctl(run, ["daemon-reload"], log).catch(() => {});
-    await startAt(run, log, oldBase, { automount: plan.automount, wasMounted }).catch(() => {});
-    throw new Error(`The backup destination was not moved (${error.message}); ${fstabWritten ? `fstab was restored from ${fstabCopy}` : "fstab was not changed"} and ${legacyBackupMountpoint} is set up as before.`);
+    const fstabRestored = fstabWritten ? await Promise.resolve(files.writeFile(fstabPath, before)).then(() => true, () => false) : false;
+    // Each put-back step is judged by its own result (M84): the message used to say the old mount
+    // point was "set up as before" when systemctl had refused to start it again.
+    const stuck = [];
+    // One unit per call: systemctl answers a call with one exit code, and with both units in one call
+    // an `.automount` that does not exist (a drive has none) answered 5 for the pair even when the
+    // `.mount` was busy and refused to stop. Exit 5 is "unit not loaded", excused only per unit: the
+    // move failed before systemd ever saw it, so there is nothing at the new place to stop.
+    for (const unit of [`${newBase}.mount`, ...(plan.automount ? [`${newBase}.automount`] : [])]) {
+      const stopped = await systemctl(run, ["stop", unit], log);
+      if (!stopped.ok && stopped.code !== 5) { stuck.push(`${backupMountpoint} could not be stopped (${tail(stopped.stderr) || "systemctl failed"})`); break; }
+    }
+    const reloaded = await systemctl(run, ["daemon-reload"], log);
+    if (!reloaded.ok) stuck.push(`systemd did not reload the restored fstab (${tail(reloaded.stderr) || "systemctl failed"})`);
+    const restarted = await startAt(run, log, oldBase, { automount: plan.automount, wasMounted });
+    if (!restarted.ok) stuck.push(`${legacyBackupMountpoint} did not start again (${tail(restarted.stderr) || "systemctl failed"})`);
+    const fstabSaid = !fstabWritten ? "fstab was not changed" : fstabRestored ? `fstab was restored from ${fstabCopy}` : `fstab could not be restored, so copy ${fstabCopy} back over ${fstabPath} by hand`;
+    const outcome = stuck.length ? `, but ${stuck.join("; ")}.` : fstabWritten && !fstabRestored ? "." : ` and ${legacyBackupMountpoint} is set up as before.`;
+    throw new Error(`The backup destination was not moved (${error.message}); ${fstabSaid}${outcome}`);
   }
   // The old folder goes when it is empty; one with anything left in it stays.
   const oldFolderRemoved = await files.rmdir(legacyBackupMountpoint).then(() => true, () => false);

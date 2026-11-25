@@ -42,7 +42,7 @@ import { readFile as fsReadFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import { promisify } from "node:util";
-import { controlDomain, dnsBlockerVerify } from "./tasks/dns-check.mjs";
+import { dnsBlockerVerify } from "./tasks/dns-check.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -467,5 +467,3 @@ export function createDnsResilienceService({ network, helper = null, store = nul
 
   return { check, forget, internals: { gather, routerCanary } };
 }
-
-export { controlDomain };

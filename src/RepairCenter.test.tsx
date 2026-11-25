@@ -54,7 +54,7 @@ describe("Repair Center", () => {
   });
 
   it("renders live checks and verifies the helper directly", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.includes("prerequisites")) {
         return new Response(JSON.stringify({ checks: [

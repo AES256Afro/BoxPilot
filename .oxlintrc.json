@@ -1,0 +1,17 @@
+{
+  // The UI's lint (M84). ESLint cannot parse src/ here: typescript-eslint needs a TypeScript with a
+  // JS API and this repo is on 7.x, which has none. oxlint parses TypeScript itself, implements the
+  // react-hooks rules, and honours the `eslint-disable` comments src/ already carries, so it stands in.
+  // Only the two hooks rules are on: the default correctness category added ~135 findings, nearly
+  // all React Compiler advisories (set-state-in-effect, refs) and unused names tsc already reports.
+  // test/ui-lint.test.mjs plants a violation of each rule and shows this config fails on it.
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react"],
+  "categories": {
+    "correctness": "off"
+  },
+  "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "error"
+  }
+}

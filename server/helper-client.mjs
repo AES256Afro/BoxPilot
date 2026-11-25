@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import net from "node:net";
 import { shared } from "./cache.mjs";
-import { createHelperResponseReader, maxHelperResponseBytes } from "./helper-response.mjs";
+import { createHelperResponseReader, helperProtocolVersion, maxHelperResponseBytes } from "./helper-response.mjs";
 import { timedOut } from "./timeouts.mjs";
 
 /**
@@ -119,7 +119,7 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
       // Until it connects, nothing has been sent: a helper that is not there (stopped and not yet
       // started again, mid restart) ran nothing, which the job layer may send again (sweep 5).
       let sent = false;
-      connection.on("connect", () => { sent = true; connection.write(`${JSON.stringify({ version: 1, id, operation, parameters, ...(Object.keys(context).length ? { context } : {}) })}\n`); });
+      connection.on("connect", () => { sent = true; connection.write(`${JSON.stringify({ version: helperProtocolVersion, id, operation, parameters, ...(Object.keys(context).length ? { context } : {}) })}\n`); });
       function succeed() {
         if (settled) return;
         try {

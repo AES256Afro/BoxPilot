@@ -5,7 +5,7 @@ import { autoReconnectRule, type AutoReconnectControl } from "../../AutoReconnec
 import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mountpoints";
 import { mayServe } from "../../servedFolder";
 import type { MapApp, MapSambaShare } from "../../storageMap";
-import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Sheet, Table, Tag, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
+import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, Sheet, Table, Tag, TextInput, mayStart, type KnownOperation, riskOf, type TableColumn } from "../../ui";
 import { DriveHealthPanel } from "./DriveHealthPanel";
 import { ReconnectSwitch, UsageMeter } from "./parts";
 import { checkableFs, gib, managedMounts, nameValid, percentUsed, permissionlessFs, slug, type DeviceRow, type MountRow, type StorageReport } from "./types";
@@ -91,7 +91,7 @@ export default function DrivesTab({ csrfToken, role, report, loading, autoReconn
   const growable = (report?.volumeGroups ?? []).flatMap((group) => group.logicalVolumes.filter((volume) => volume.growable).map((volume) => ({ group, volume }))).filter(({ group }) => group.freeBytes - snapshotReserveBytes >= 256 * 1024 ** 2);
   const devices = report?.devices ?? [];
 
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
 
   // The check Repair offers after a drop or an unclean unmount, on demand for any drive BoxPilot
   // mounted. The preview names the apps it pauses, since those are what the owner will notice.

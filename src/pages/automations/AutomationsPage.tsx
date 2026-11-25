@@ -207,7 +207,7 @@ export default function AutomationsPage({ csrfToken, role = "owner" }: Automatio
       : behind ? { status: "warning", label: `${behind} behind` }
         : list.length + scheduleList.length === 0 ? { status: "neutral", label: "None set up" }
           : { status: "good", label: "None failed" };
-  const installed = useMemo(() => new Set(list.map((flow) => flow.name)), [list]);
+  const installed = useMemo(() => new Set((flows ?? []).map((flow) => flow.name)), [flows]);
   const suggestedShelf = shelf.filter((item) => suggestions[item.slug ?? item.name] && !installed.has(item.name)).length;
   // Suggested ones first: a shelf that lists everything equally reads as a catalogue, with no
   // reason to pick one, so nobody picks any.

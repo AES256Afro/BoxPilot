@@ -24,7 +24,7 @@ import { repoRoot } from "./check-harness.mjs";
 /** Checks whose correctness is not ours to prove, and why. Anything else needs a self-test. */
 const reviewed = {
   "check:types": "tsc; the TypeScript project proves its own type checker",
-  "lint": "eslint's own rules; the local rules in eslint-rules/ are tested individually below",
+  "lint": "eslint's own rules; the local rules in eslint-rules/ are tested individually below, and lint:ui's oxlint config over src/ (M84) by test/ui-lint.test.mjs, which also plants an unused name against tsconfig.app.json",
   "check:retention": "a churn probe that asserts directly rather than reporting findings; run by .github/workflows/ci.yml as its own step, not by `npm run check`",
 };
 
@@ -109,6 +109,7 @@ describe("the self-tests prove failure, not just success", () => {
     "scripts/check-sweep-coverage.test.mjs",
     "scripts/check-sources.test.mjs",
     "eslint-rules/use-the-injected-clock.test.mjs",
+    "test/ui-lint.test.mjs",
   ])("%s asserts a non-zero exit or an invalid case", async (file) => {
     const text = await readFile(path.join(repoRoot, file), "utf8");
     // Either a check run that must fail, or a RuleTester invalid list.

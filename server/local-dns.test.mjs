@@ -106,6 +106,16 @@ describe("naming the apps on this server", () => {
     expect(await readFile(path.join(hosts, "custom.list"), "utf8")).toContain("printer.lan");
   });
 
+  it("says whether the DNS server reloaded after the names came out (M84)", async () => {
+    const { service, runDocker } = await fixture();
+    await service.apply({ address: "192.168.1.10", domain: "lan" });
+    await expect(service.clear()).resolves.toEqual({ cleared: true, reloaded: true });
+    runDocker.mockResolvedValue({ ok: false, stdout: "", stderr: "not running" });
+    const progress = vi.fn();
+    await expect(service.clear({ progress })).resolves.toEqual({ cleared: true, reloaded: false });
+    expect(progress).toHaveBeenCalledWith(expect.stringContaining("did not reload on request"), "stderr");
+  });
+
   it("reads back what is in force, ignoring comments and blank lines", () => {
     const text = renderHostsFile([{ address: "10.0.0.1", name: "a.lan" }, { address: "10.0.0.1", name: "b.lan" }], { generatedAt: "2026-08-25T18:00:00.000Z" });
     expect(parseHostsFile(text)).toEqual([{ address: "10.0.0.1", name: "a.lan" }, { address: "10.0.0.1", name: "b.lan" }]);

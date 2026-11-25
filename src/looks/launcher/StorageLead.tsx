@@ -1,10 +1,10 @@
 import { useId, type ReactNode } from "react";
 import { mountpointFor } from "../../mountpoints";
 import { ReconnectSwitch } from "../../pages/storage/parts";
-import { gib, managedMounts, percentUsed, type DeviceRow, type MountRow, type StorageReport } from "../../pages/storage/types";
+import { gib, managedMounts, percentUsed, type DeviceRow, type MountRow } from "../../pages/storage/types";
 import { useOperation } from "../../shell/ApproveDialog";
 import { AreaIcon, BellIcon } from "../../shell/areaIcons";
-import { Button, RiskTag, StatusChip, mayStart, riskOf, type Status } from "../../ui";
+import { Button, RiskTag, StatusChip, mayStart, type KnownOperation, riskOf, type Status } from "../../ui";
 import type { ViewName } from "../../data";
 import type { StorageLeadProps } from "../StorageLead";
 import "./lead.css";
@@ -94,7 +94,7 @@ function Pane({ icon, title, count, all, className, children }: { icon: ReactNod
 
 export default function StorageLead({ csrfToken, role, report, loading, forecasts, fsSnapshots, sambaShares, autoReconnect, onTab, onChanged }: StorageLeadProps) {
   const { start, dialog } = useOperation(csrfToken, () => onChanged());
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
   const open = (tab: Tab) => onTab(tab);
 
   const devices = report?.devices ?? [];
@@ -135,7 +135,7 @@ export default function StorageLead({ csrfToken, role, report, loading, forecast
   const growable = (report?.volumeGroups ?? []).flatMap((group) => group.logicalVolumes.filter((volume) => volume.growable).map((volume) => ({ group, volume }))).filter(({ group }) => group.freeBytes - snapshotReserveBytes >= 256 * 1024 ** 2);
   const claim = growable[0] ?? null;
   const claimOnSystem = claim ? claim.volume.mountpoints.includes("/") : false;
-  const useTheRest = claim ? () => start({
+  const claimTheRest = claim ? () => start({
     operationId: "storage.lvm.extend",
     title: `Grow ${claim.volume.mountpoints[0]} by ${gib(claim.group.freeBytes - snapshotReserveBytes)}`,
     parameters: { path: claim.volume.path },
@@ -242,8 +242,8 @@ export default function StorageLead({ csrfToken, role, report, loading, forecast
                     {may("storage.lvm.extend") && <RiskTag risk={riskOf("storage.lvm.extend")} className="launcher-need__tier" />}
                     <p>Claiming it happens while running. No reboot, nothing erased.</p>
                     <div className="launcher-need__acts">
-                      {may("storage.lvm.extend") && useTheRest
-                        ? <Button risk={riskOf("storage.lvm.extend")} onClick={useTheRest}>Use the rest of the disk</Button>
+                      {may("storage.lvm.extend") && claimTheRest
+                        ? <Button risk={riskOf("storage.lvm.extend")} onClick={claimTheRest}>Use the rest of the disk</Button>
                         : <Button variant="ghost" onClick={() => open("drives")}>Details</Button>}
                     </div>
                   </div>

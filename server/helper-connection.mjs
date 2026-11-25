@@ -7,7 +7,7 @@
  * Moved out of helper-server.mjs, which builds every host service as it loads, so this part can be
  * tested against a real socket with stand-ins for the registry and the operations.
  */
-import { helperErrorReply, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
+import { helperErrorReply, helperProtocolVersion, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
 import { laneFor } from "./helper-lanes.mjs";
 import { restartRefusalError } from "./self-restart.mjs";
 import { whileHoldingRootTasks } from "./run-unit.mjs";
@@ -51,7 +51,7 @@ export function createHelperConnectionHandler({
         request = JSON.parse(payload);
         payload = "";
       } catch {
-        reply({ version: 1, id: null, ok: false, error: "Malformed JSON request", code: "malformed_json" });
+        reply({ version: helperProtocolVersion, id: null, ok: false, error: "Malformed JSON request", code: "malformed_json" });
         return;
       }
       try {
@@ -121,7 +121,7 @@ export function createHelperConnectionHandler({
       payload += chunk;
       if (Buffer.byteLength(payload, "utf8") > maxRequestBytes) {
         handled = true;
-        reply({ version: 1, id: null, ok: false, error: "Request is too large", code: "request_too_large" });
+        reply({ version: helperProtocolVersion, id: null, ok: false, error: "Request is too large", code: "request_too_large" });
         return;
       }
       if (payload.includes("\n")) {

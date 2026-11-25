@@ -10,6 +10,8 @@
  * machine over SSH, or a drive that is not the system disk.
  */
 
+import type { KnownOperation } from "./ui/operationRisk";
+
 export interface DestinationState {
   /** A destination has been saved. Says nothing about whether anything reached it. */
   configured: boolean;
@@ -97,8 +99,8 @@ export function offBoxWarning(verdict: OffBoxVerdict): string | null {
 }
 
 /** The sync operations worth scheduling for whatever is actually set up. */
-export function mirrorOperations(inputs: OffBoxInputs): string[] {
-  const operations: string[] = [];
+export function mirrorOperations(inputs: OffBoxInputs): KnownOperation[] {
+  const operations: KnownOperation[] = [];
   if (inputs.cloud?.configured) operations.push("backup.cloud.sync");
   if (inputs.ssh?.configured) operations.push("backup.remote.sync");
   if (inputs.drive?.configured) operations.push("backup.sync");

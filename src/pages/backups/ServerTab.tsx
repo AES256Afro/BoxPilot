@@ -1,6 +1,6 @@
 import { useOperation } from "../../shell/ApproveDialog";
 import { formatBytes } from "../../formatBytes";
-import { Button, CopyButton, EmptyState, Notice, Panel, StatusChip, Table, mayStart, riskOf, type TableColumn } from "../../ui";
+import { Button, CopyButton, EmptyState, Notice, Panel, StatusChip, Table, mayStart, type KnownOperation, riskOf, type TableColumn } from "../../ui";
 import { when, withData, type BackupRecord, type MachineSnapshot, type MachineSnapshotState, type ProtectionState, type RetentionStatus } from "./types";
 
 /*
@@ -23,7 +23,7 @@ export interface ServerTabProps {
 
 export default function ServerTab({ csrfToken, role, loading, backups, protection, retention, machine, onChanged }: ServerTabProps) {
   const { start, dialog } = useOperation(csrfToken, () => onChanged());
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
 
   // A copy the retention run forgot is no longer in the repository, so it is not a protected copy.
   const live = (protection?.protections ?? []).filter((entry) => entry.retained !== false && entry.protected !== false);

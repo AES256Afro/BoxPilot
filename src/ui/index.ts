@@ -42,5 +42,5 @@ export { SecretInput, TextInput, Textarea, type SecretInputProps, type TextInput
 export { ThemeSwitch } from "./ThemeSwitch";
 export { Tile, initials, type TileProps } from "./Tile";
 export { SearchField, Toolbar, type SearchFieldProps, type ToolbarProps } from "./Toolbar";
-export { mayStart, operationRisk, ownerOnlyOperations, riskOf } from "./operationRisk";
+export { isKnownOperation, mayStart, operationRisk, ownerOnlyOperations, riskOf, type KnownOperation } from "./operationRisk";
 export { STATUSES, statusWords, type Density, type RiskTier, type Status } from "./types";

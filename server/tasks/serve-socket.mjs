@@ -67,8 +67,14 @@ export async function serveSocketMove({ run = fixedRun, log = null, socketPath =
     const missing = ours.filter((serve) => !isServeSocketTarget(after.find((entry) => same(entry, serve))?.target, socketPath));
     if (missing.length) throw new Error(`Tailscale accepted the change but port ${missing.map((serve) => serve.port).join(", ")} does not forward to the socket; check tailscale serve status.`);
   } catch (error) {
-    // Put back what was moved, so the tailnet address keeps reaching BoxPilot the way it did.
-    for (const serve of moved) await run(tailscaleBinary(), ["serve", "--bg", "--yes", flag(serve), serve.target], { timeout: 60_000 }).catch(() => null);
+    // Put back what was moved, so the tailnet address keeps reaching BoxPilot the way it did. A port
+    // that could not be put back is named in the error: it may now forward to the socket, or nowhere (M84).
+    const stuck = [];
+    for (const serve of moved) {
+      const putBack = await run(tailscaleBinary(), ["serve", "--bg", "--yes", flag(serve), serve.target], { timeout: 60_000 });
+      if (!putBack.ok) stuck.push(`port ${serve.port} to ${serve.target}`);
+    }
+    if (stuck.length) error.message = `${error.message} Could not put back ${stuck.join(", ")}; check tailscale serve status.`;
     throw error;
   }
   log?.(`Tailscale Serve forwards to ${socketPath} on port ${ours.map((serve) => serve.port).join(", ")}`, "stdout");

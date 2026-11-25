@@ -46,7 +46,7 @@ const stepTimedOut = (result, step, budgetMs) => (result?.timedOut ? timedOut(`$
 const actions = Object.freeze(["start", "stop", "restart", "pause", "unpause"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 export { keepsBackupData };
-export { backupNamePattern, checkpointCeilingMs } from "./app-backups.mjs";
+export { checkpointCeilingMs } from "./app-backups.mjs";
 /** How many updates to remember per app. Enough to step back through a bad week, small enough to store. */
 export const updateHistoryLimit = 10;
 
@@ -715,8 +715,9 @@ export function createAppHelper({
     // data folder is left owned by root and the container crash-loops on its first mkdir.
     if (!inspected.ok && mayRun) {
       declaredUserCache.delete(reference); declaredOwnerCache.delete(reference);
-      await docker(["pull", reference], { timeout: 15 * 60_000, ...access }).catch(() => null);
-      inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
+      // A pull that failed leaves nothing new to inspect; its result is the answer (M84).
+      const pulled = await docker(["pull", reference], { timeout: 15 * 60_000, ...access });
+      inspected = pulled.ok ? await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 }) : pulled;
     }
     // Never cache "could not read it". The cache is keyed on the reference alone, so a read-only
     // catalog listing that ran before the image was pulled would otherwise store null and the next
@@ -1103,7 +1104,9 @@ export function createAppHelper({
     progress?.(`Downloading the images for ${manifest.name}`, "stdout");
     const access = await registryAccess(manifest);
     for (const reference of [manifest.image.reference, ...(manifest.sidecars ?? []).map((sidecar) => sidecar.image)]) {
-      await docker(["pull", reference], { timeout: scaled(15 * 60_000, timeScale), ...access }).catch(() => null);
+      const pulled = await docker(["pull", reference], { timeout: scaled(15 * 60_000, timeScale), ...access });
+      // Not fatal here (`up` pulls again and reports it), but said, so a later failure has its first cause (M84).
+      if (!pulled.ok) progress?.(`Could not download ${reference} yet (${redact(pulled.stderr).split("\n").slice(-2).join(" ") || "no reason given"}); starting the app will try again.`, "stderr");
     }
     progress?.(`Writing compose project for ${manifest.name} (${manifest.image.reference})`, "stdout");
     // writeProject makes the app's folder before it can refuse (no saved VPN profile, a device that
@@ -1136,10 +1139,12 @@ export function createAppHelper({
       return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, exposure: values.exposure ?? "lan", health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name), setup, ...withPortWarnings(ports) };
     } catch (error) {
       progress?.(`Install failed: ${error.message}. Rolling back...`, "stderr");
-      await compose(id, ["down", "--remove-orphans"], { timeout: stopBudgetMs(manifest), progress }).catch(() => {});
+      const down = await compose(id, ["down", "--remove-orphans"], { timeout: stopBudgetMs(manifest), progress });
       recentlyTouched.add(id);
       if (!directoryExisted) await rm(dirFor(id), { recursive: true, force: true }).catch(() => {});
-      throw keepTimeout(error, new Error(`${manifest.name} installation failed and was rolled back. ${error.message}`));
+      // "Rolled back" only when Docker says its containers went (M84); otherwise say they may be running.
+      const undone = down.ok ? " and was rolled back" : `, and Docker could not take down what it started (${redact(down.stderr).split("\n").slice(-2).join(" ") || "no reason given"}), so some of it may still be running`;
+      throw keepTimeout(error, new Error(`${manifest.name} installation failed${undone}. ${error.message}`));
     }
   }
 
@@ -1219,9 +1224,12 @@ export function createAppHelper({
       return { reinstalled: true, started: true, id, name: manifest.name, projectRewritten: rewritten, image: status.image, health: status.health, ...withPortWarnings(ports) };
     } catch (error) {
       progress?.(`${manifest.name} did not come up: ${error.message}. Taking down what started...`, "stderr");
-      await compose(id, ["down", "--remove-orphans"], { timeout: stopBudgetMs(manifest), progress }).catch(() => {});
+      const down = await compose(id, ["down", "--remove-orphans"], { timeout: stopBudgetMs(manifest), progress });
       recentlyTouched.add(id);
-      throw keepTimeout(error, new Error(`${manifest.name} could not be ${start ? "started" : "created"} again, so what ${start ? "started" : "was made"} was taken down. Its data folder and saved settings are as they were. ${error.message}`));
+      const undone = down.ok
+        ? `so what ${start ? "started" : "was made"} was taken down`
+        : `and Docker could not take down what ${start ? "started" : "was made"} (${redact(down.stderr).split("\n").slice(-2).join(" ") || "no reason given"}), so some of it may still be running`;
+      throw keepTimeout(error, new Error(`${manifest.name} could not be ${start ? "started" : "created"} again, ${undone}. Its data folder and saved settings are as they were. ${error.message}`));
     }
   }
 

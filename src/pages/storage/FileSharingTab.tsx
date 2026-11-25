@@ -4,7 +4,7 @@ import type { ViewName } from "../../data";
 import { formatBytes } from "../../formatBytes";
 import { inspectOperation } from "../../operations";
 import { connectPaths, nfsFstabLine, nfsPaths } from "../../sharePaths";
-import { Button, Checkbox, EmptyState, Field, Notice, Panel, SecretInput, Segmented, Select, Sheet, Table, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
+import { Button, Checkbox, EmptyState, Field, Notice, Panel, SecretInput, Segmented, Select, Sheet, Table, TextInput, mayStart, type KnownOperation, riskOf, type TableColumn } from "../../ui";
 import { CheckList, CopyLines } from "./parts";
 import type { DiagnosticCheck, NfsExport, SambaShare, Scope } from "./types";
 import type { NfsControl, SambaControl } from "./useSharing";
@@ -57,7 +57,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
     if (job.state === "completed" && job.type === "op:nfs.apply") nfs.settle();
     onChanged();
   });
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
   const canApply = may("samba.apply");
   const foldersId = useId();
 
@@ -205,7 +205,7 @@ export default function FileSharingTab({ csrfToken, role, samba, nfs, folders, p
   const exportValid = nfsPathValid(exportPath.trim()) && !nfs.draft.some((entry) => entry.path === normalized);
   const sambaInstalled = state ? state.installed || Boolean(state.error) : true;
   const nfsInstalled = nfs.state ? nfs.state.installed || Boolean(nfs.state.error) : true;
-  const applyBar = (dirty: boolean, configured: boolean, onApply: () => void, operationId: string, first: string, onDiscard: () => void) => (
+  const applyBar = (dirty: boolean, configured: boolean, onApply: () => void, operationId: KnownOperation, first: string, onDiscard: () => void) => (
     <div className="storage-apply">
       <span className="storage-apply__state ui-marked" data-status={dirty ? "warning" : configured ? "good" : "neutral"}>
         <span className="ui-mark" aria-hidden="true" />

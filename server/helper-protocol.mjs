@@ -9,7 +9,7 @@ import { createAppHelper } from "./app-helper.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createJobLogWriter, serviceGroupId, jobIdPattern } from "./job-log.mjs";
-export { serviceGroupId };
+import { helperProtocolVersion } from "./helper-response.mjs";
 import { createVmHelper } from "./vm-helper.mjs";
 import { createVmMediaHelper } from "./vm-media-helper.mjs";
 import { createVmProtectionHelper } from "./vm-protection-helper.mjs";
@@ -22,8 +22,6 @@ import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
 import { createControllerProtectionHelper } from "./controller-protection-helper.mjs";
 import { createControllerRetentionHelper } from "./controller-retention-helper.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
-
-export const helperProtocolVersion = 1;
 
 export const helperOperations = new Set(registry.ids());
 

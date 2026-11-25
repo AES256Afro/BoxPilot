@@ -8,25 +8,15 @@
  * /run/boxpilot/run/<id>.result.json = { ok, task, result } | { ok: false, task, error }.
  * It refuses anything not in the task table, a malformed id, or a stale approval.
  */
-import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { tasks } from "../server/tasks/index.mjs";
 import { fixedRun } from "../server/exec.mjs";
-import { createJobLogWriter, defaultJobLogDirectory, jobIdPattern } from "../server/job-log.mjs";
+import { createJobLogWriter, defaultJobLogDirectory, jobIdPattern, serviceGroupId } from "../server/job-log.mjs";
 
 export const runDirectory = process.env.BOXPILOT_RUN_DIRECTORY ?? "/run/boxpilot/run";
-const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const maxApprovalAgeMs = 5 * 60 * 1000;
-
-function serviceGroupId() {
-  try {
-    const line = readFileSync("/etc/group", "utf8").split("\n").find((entry) => entry.startsWith("boxpilot:"));
-    const gid = line ? Number.parseInt(line.split(":")[2], 10) : Number.NaN;
-    return Number.isInteger(gid) ? gid : null;
-  } catch { return null; }
-}
 
 /** Longest a task may ask for: the unit's TimeoutStartSec, less a minute for systemd to stop it cleanly. */
 export const maxTaskTimeoutMs = 12 * 60 * 60 * 1000 - 60_000;
@@ -60,7 +50,7 @@ async function writeResult(id, payload) {
 }
 
 export async function runTask(id, { now = () => new Date(), taskTable = tasks } = {}) {
-  if (typeof id !== "string" || !idPattern.test(id)) throw new Error("Task id must be a UUID");
+  if (typeof id !== "string" || !jobIdPattern.test(id)) throw new Error("Task id must be a UUID");
   const specPath = path.join(runDirectory, `${id}.json`);
   const spec = parseSpec(await readFile(specPath, "utf8"), now());
   const task = taskTable[spec.task];
