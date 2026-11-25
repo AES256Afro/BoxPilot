@@ -10,7 +10,7 @@
 import { createOpenAiClient } from "../../packages/harness/src/index.mjs";
 import { createOllamaClient } from "./ollama.mjs";
 
-export { createOpenAiClient, readTimings, streamLimits } from "../../packages/harness/src/index.mjs";
+export { createOpenAiClient } from "../../packages/harness/src/index.mjs";
 
 export const modelProviders = Object.freeze(["openai", "ollama"]);
 

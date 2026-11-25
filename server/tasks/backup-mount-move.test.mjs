@@ -111,6 +111,47 @@ describe("moving the backup destination", () => {
     expect(host.state.mounts).toEqual([{ target: "/mnt/boxpilot-backup", fstype: "autofs" }]);
   });
 
+  it("says so when the old automount does not start again, instead of 'set up as before' (M84)", async () => {
+    const host = fakeHost({ fstab: fstabWith(share), mounts: [{ target: "/mnt/boxpilot-backup", fstype: "autofs" }], verify: (content) => !content.includes("/mnt/boxpilot/backup") });
+    let rollingBack = false;
+    const run = async (binary, args) => {
+      if (args[0] === "--verify") rollingBack = true;
+      if (rollingBack && args[0] === "start") return { ok: false, code: 1, stdout: "", stderr: "Job for mnt-boxpilot\\x2dbackup.automount failed." };
+      return host.run(binary, args);
+    };
+    const failure = await moveBackupMount({}, { run, files: host.files, now }).catch((error) => error);
+    expect(failure.message).toMatch(/fstab was restored from \/etc\/fstab\.boxpilot-20260928T120000Z, but \/mnt\/boxpilot-backup did not start again \(Job for .* failed\.\)\.$/);
+    expect(failure.message).not.toMatch(/set up as before/);
+  });
+
+  it("says a busy new mount was not stopped when the drive has no automount to answer 'not loaded' for it (M84)", async () => {
+    // A drive: no `.automount` unit exists at either place. The new `.mount` starts without mounting,
+    // so the move fails its check, and then refuses to stop because something holds it.
+    const host = fakeHost({ fstab: fstabWith(drive, "boxpilot-backup"), mounts: [{ target: "/mnt/boxpilot-backup", fstype: "ext4" }] });
+    const run = async (binary, args) => {
+      const units = args.filter((arg) => arg.startsWith("mnt-boxpilot-backup."));
+      if (args[0] === "start" && units.length) return { ok: true, code: 0, stdout: "", stderr: "" };
+      if (args[0] === "stop" && units.length) {
+        // As systemctl does: one exit code for the call, and 5 when any unit named is not loaded.
+        if (units.includes("mnt-boxpilot-backup.automount")) return { ok: false, code: 5, stdout: "", stderr: "Failed to stop mnt-boxpilot-backup.automount: Unit mnt-boxpilot-backup.automount not loaded." };
+        return { ok: false, code: 1, stdout: "", stderr: "umount: /mnt/boxpilot/backup: target is busy." };
+      }
+      return host.run(binary, args);
+    };
+    const failure = await moveBackupMount({}, { run, files: host.files, now }).catch((error) => error);
+    expect(failure.message).toMatch(/the drive did not mount at \/mnt\/boxpilot\/backup/);
+    expect(failure.message).toMatch(/, but \/mnt\/boxpilot\/backup could not be stopped \(umount: \/mnt\/boxpilot\/backup: target is busy\.\)/);
+    expect(failure.message).not.toMatch(/set up as before/);
+    expect(host.state.calls).not.toContain("systemctl stop mnt-boxpilot-backup.automount");
+  });
+
+  it("stops the new mount and automount in calls of their own when the share has an automount", async () => {
+    const host = fakeHost({ fstab: fstabWith(share), mounts: [{ target: "/mnt/boxpilot-backup", fstype: "autofs" }], verify: (content) => !content.includes("/mnt/boxpilot/backup") });
+    await expect(moveBackupMount({}, { run: host.run, files: host.files, now })).rejects.toThrow(/set up as before/);
+    expect(host.state.calls).toContain("systemctl stop mnt-boxpilot-backup.mount");
+    expect(host.state.calls).toContain("systemctl stop mnt-boxpilot-backup.automount");
+  });
+
   it("does not blame the move for a warning fstab already had", async () => {
     const host = fakeHost({ fstab: fstabWith(share), mounts: [{ target: "/mnt/boxpilot-backup", fstype: "autofs" }], verify: () => false });
     await expect(moveBackupMount({}, { run: host.run, files: host.files, now })).resolves.toMatchObject({ moved: true });

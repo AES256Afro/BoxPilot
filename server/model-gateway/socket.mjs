@@ -11,8 +11,6 @@ import net from "node:net";
 import { gatewayLimits } from "./terms.mjs";
 import { defaultGatewaySocket } from "./paths.mjs";
 
-export { defaultGatewaySocket };
-
 /** Largest answer the client reads: a model's answer with its thinking blocks, well inside this. */
 export const maxReplyBytes = 4 * 1024 * 1024;
 

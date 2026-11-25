@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { AppIcon, Button, KeyValue, Notice, Panel, Sheet, StatusChip, Tabs, mayStart, riskOf, type KeyValueItem, type TabItem } from "../../ui";
+import { AppIcon, Button, KeyValue, Notice, Panel, Sheet, StatusChip, Tabs, mayStart, type KnownOperation, riskOf, type KeyValueItem, type TabItem } from "../../ui";
 import { inline } from "../agents/Prose";
 import { AccessTab } from "./AccessTab";
 import { BackupsTab } from "./BackupsTab";
@@ -99,7 +99,7 @@ export function AppSheet({ entry, ctx, tab: firstTab = "overview", onTab, onClos
 function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; onTab: (tab: SheetTab) => void }) {
   const { manifest, live } = entry;
   const { role, act, stats, tunnels, rehearsal, killswitch } = ctx;
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
   const installed = Boolean(live?.installed);
   const running = isRunning(live);
   const paused = isPaused(live);
@@ -190,10 +190,10 @@ function Overview({ entry, ctx, onTab }: { entry: Entry; ctx: CatalogContext; on
       {/* What the app's manifest offers to do inside it (M38: Zulip's "Create your organization"),
           each a registered operation approved at its own tier. It runs inside the container, so
           only while the app is running. */}
-      {installed && (manifest.actions ?? []).some((action) => may(action.operation)) && (
+      {installed && (manifest.actions ?? []).some((action) => mayStart(role, action.operation)) && (
         <Panel level={3} title={`In ${name}`} className="catalog-app-actions">
           <ul className="catalog-rows">
-            {(manifest.actions ?? []).filter((action) => may(action.operation)).map((action) => (
+            {(manifest.actions ?? []).filter((action) => mayStart(role, action.operation)).map((action) => (
               <li key={action.id} className="catalog-row">
                 <span className="catalog-row__main">
                   <strong>{action.label}</strong>

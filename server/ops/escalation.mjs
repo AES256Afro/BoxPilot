@@ -12,7 +12,6 @@ import { dataRoots } from "../catalog/schema.mjs";
 import { loginHomesFrom, servesHome } from "../tasks/served-folder.mjs";
 export { loginHomesFrom };
 import { packageBase, protectedPackages } from "../tasks/apt.mjs";
-export { protectedPackages };
 import { tunnelAppId } from "../cloudflare-tunnel.mjs";
 import { defaultKeepBackupsPerApp } from "../housekeeping.mjs";
 

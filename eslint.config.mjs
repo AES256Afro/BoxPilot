@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import globals from "globals";
+import checkTheRunResult from "./eslint-rules/check-the-run-result.mjs";
 import useTheInjectedClock from "./eslint-rules/use-the-injected-clock.mjs";
 
 /**
@@ -7,6 +8,10 @@ import useTheInjectedClock from "./eslint-rules/use-the-injected-clock.mjs";
  *
  * `boxpilot/use-the-injected-clock` is the invariant M52.1 and M53.1 were both written against
  * (see `eslint-rules/use-the-injected-clock.mjs`): a function given a `now` must use it for dates.
+ *
+ * `boxpilot/check-the-run-result` is the one M73 fixed by hand 17 times (M84, see
+ * `eslint-rules/check-the-run-result.mjs`): `fixedRun` never rejects, so a `.catch` on it whose
+ * value is thrown away drops a failed command without a word.
  */
 export default [
   { ignores: ["dist/**", "node_modules/**", "docs/**", "catalog/**"] },
@@ -24,7 +29,8 @@ export default [
       "no-useless-assignment": "off",
       "preserve-caught-error": "off",
       "boxpilot/use-the-injected-clock": "error",
+      "boxpilot/check-the-run-result": "error",
     },
-    plugins: { boxpilot: { rules: { "use-the-injected-clock": useTheInjectedClock } } },
+    plugins: { boxpilot: { rules: { "use-the-injected-clock": useTheInjectedClock, "check-the-run-result": checkTheRunResult } } },
   },
 ];

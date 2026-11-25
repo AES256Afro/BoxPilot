@@ -21,7 +21,7 @@ import { toAnthropicRequest } from "../../packages/harness/src/providers/anthrop
 import { anthropicPrices, priceFor } from "../../packages/harness/src/providers/anthropic-prices.mjs";
 import { gatewayLimits, offeredModels } from "./terms.mjs";
 
-export { gatewayLimits, offeredModels };
+export { gatewayLimits };
 
 /** Failures Claude answered before any token was billed: the reservation goes back. */
 const unbilled = new Set(["auth", "forbidden", "rate-limited", "overloaded", "bad-request", "not-found", "unreachable"]);

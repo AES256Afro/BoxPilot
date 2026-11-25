@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useOperation } from "../../shell/ApproveDialog";
-import { Button, EmptyState, Field, Notice, Panel, Select, Sheet, Table, Tag, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
+import { Button, EmptyState, Field, Notice, Panel, Select, Sheet, Table, Tag, TextInput, mayStart, type KnownOperation, riskOf, type TableColumn } from "../../ui";
 import { gib, when, type FsSnapshots, type SnapshotRow, type StorageReport } from "./types";
 
 /*
@@ -25,7 +25,7 @@ const fsNameValid = (name: string) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(n
 
 export default function SnapshotsTab({ csrfToken, role, report, loading, fsSnapshots, onChanged }: SnapshotsTabProps) {
   const { start, dialog } = useOperation(csrfToken, () => onChanged());
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
   const [lvmForm, setLvmForm] = useState<{ origin: string; /** As typed: parsed when it is used, so clearing the box does not snap it to 1. */ size: string; label: string } | null>(null);
   const [fsForm, setFsForm] = useState<{ key: string; name: string } | null>(null);
 

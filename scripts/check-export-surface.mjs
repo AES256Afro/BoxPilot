@@ -21,12 +21,21 @@
  * export looked read and the check was quietly inert. A build artifact in someone's working copy
  * must not be able to decide the answer, and git's list is the one CI and a checkout agree on.
  *
- * What it reads, and what it therefore cannot see: declaration exports (`export function`,
- * `export const|let|class`, with `async`, `*` and TypeScript modifiers). Not `export { a, b }`, not
- * `export default`, not `export type|interface` — the type checker already has an opinion about
- * those. "Read somewhere else" is a word-boundary match in any other file of the corpus below,
+ * What it reads: declaration exports (`export function`, `export const|let|class`, with `async`, `*`
+ * and TypeScript modifiers), and export lists (`export { a, b as c }`, `export { a } from "./x"`),
+ * whose exported name is the one after `as`. Not `export default`, not `export * from`, not
+ * `export type|interface` nor a list entry marked `type` — the type checker already has an opinion
+ * about those. "Read somewhere else" is a word-boundary match in any other file of the corpus below,
  * which counts a name reached through a string or a computed property as unread: that is what the
  * allowlist is for.
+ *
+ * A list entry that passes a binding through (`export { x } from "./y"`, or `export { x }` where the
+ * file imported `x`) needs one more thing of its reader. The first version skipped lists, and six
+ * such pass-throughs nobody imported sat in server/ (M84, CODE-9); but the plain rule cannot see
+ * them either, because the module that defines `x` always mentions it, as does everyone who imports
+ * it from there. So for those a reader must also name this file in a relative specifier (an import,
+ * an `export … from`, a dynamic `import()`, a `vi.mock`) that resolves to it. A name declared in the
+ * file and listed is judged like a declaration export.
  */
 import { execFile as execFileCallback } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
@@ -85,23 +94,94 @@ async function collect() {
   return { sources, corpus };
 }
 
-/** Every exported declaration nothing outside its own file reads, as "<path>: <name>". */
+/** `export { … }` with an optional `from "…"`; `export type { … }` is left to the type checker. */
+const exportListPattern = /^export\s*\{([^}]*)\}\s*(?:from\s*["']([^"']+)["'])?/gm;
+/** An import clause, `import a, { b, c as d } from "…"` or `import * as e from "…"`, not `import type`. */
+const importClausePattern = /^import\s+(?!type\s)([^;"']*?)\s+from\s*["'][^"']+["']/gm;
+/** `import|export … from "./x"`: the clause, and the specifier. */
+const fromClausePattern = /\b(?:import|export)\s+(?:type\s+)?([^;"'()]*?)\s+from\s*["'](\.\.?(?:\/[^"'\n]*)?)["']/g;
+/** A relative module specifier in any string: `import()`, `vi.mock`, a bare `import "./x"`. */
+const relativeSpecifierPattern = /["'](\.\.?(?:\/[^"'\n]*)?)["']/g;
+const identifier = /^[A-Za-z_$][\w$]*$/;
+
+/** `a`, `b as c`, `type T` → the names a list exports, and the local name each comes from. */
+function listEntries(body) {
+  return body.split(",").map((entry) => entry.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "").trim()).filter(Boolean)
+    .filter((entry) => !/^type\s/.test(entry))
+    .map((entry) => {
+      const [local, exported = local] = entry.split(/\s+as\s+/).map((part) => part.trim());
+      return { local, exported };
+    })
+    .filter(({ local, exported }) => identifier.test(exported) && exported !== "default" && (identifier.test(local) || local === "default"));
+}
+
+/** The names a file's import clauses bind. */
+function importedNames(text) {
+  const names = new Set();
+  for (const [, clause] of text.matchAll(importClausePattern)) {
+    const braces = clause.match(/\{([^}]*)\}/);
+    if (braces) for (const { exported } of listEntries(braces[1])) names.add(exported);
+    const rest = clause.replace(/\{[^}]*\}/, "");
+    const namespace = rest.match(/\*\s*as\s+([A-Za-z_$][\w$]*)/);
+    if (namespace) names.add(namespace[1]);
+    const defaultName = rest.replace(/\*\s*as\s+[A-Za-z_$][\w$]*/, "").replace(/,/g, " ").trim();
+    if (identifier.test(defaultName)) names.add(defaultName);
+  }
+  return names;
+}
+
+/** Every exported name in a file: `{ name, passedThrough }`, the second for a binding from elsewhere. */
+function exportsOf(text) {
+  const found = [...text.matchAll(exportPattern)].map(([, name]) => ({ name, passedThrough: false }));
+  const imported = importedNames(text);
+  for (const [, body, from] of text.matchAll(exportListPattern)) {
+    for (const { local, exported } of listEntries(body)) found.push({ name: exported, passedThrough: Boolean(from) || imported.has(local) });
+  }
+  return found;
+}
+
+const moduleCandidates = (target) => [target, ...[".mjs", ".js", ".ts", ".tsx"].map((extension) => `${target}${extension}`), ...["mjs", "js", "ts", "tsx"].map((extension) => `${target}/index.${extension}`)];
+
+const resolvesTo = (from, specifier, file) => moduleCandidates(path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier.replace(/[?#].*$/, "")))).includes(file);
+
+/**
+ * Whether `text`, the file at `from`, takes `name` from the module `file`: a named import or
+ * re-export of it from there, or any other way of reaching that module whole (a namespace or default
+ * import, `import()`, `vi.mock`), after which a mention of the name is as good as it gets.
+ */
+function takesFrom(text, from, file, name) {
+  const clauses = new Set();
+  for (const match of text.matchAll(fromClausePattern)) {
+    const [, clause, specifier] = match;
+    clauses.add(match.index + match[0].lastIndexOf(specifier) - 1);
+    if (!resolvesTo(from, specifier, file)) continue;
+    const braces = clause.match(/^\{([^}]*)\}$/);
+    if (!braces) return true;
+    if (braces[1].split(",").some((entry) => entry.replace(/^\s*type\s+/, "").split(/\s+as\s+/)[0].trim() === name)) return true;
+  }
+  for (const match of text.matchAll(relativeSpecifierPattern)) {
+    if (!clauses.has(match.index) && resolvesTo(from, match[1], file)) return true;
+  }
+  return false;
+}
+
+/** Every export nothing outside its own file reads, as "<path>: <name>". */
 function unread({ sources, corpus }) {
-  const found = [];
+  const found = new Set();
   for (const file of sources) {
     const text = corpus.get(file);
     if (!text) continue;
-    for (const [, name] of text.matchAll(exportPattern)) {
+    for (const { name, passedThrough } of exportsOf(text)) {
       const word = new RegExp(`\\b${name.replace(/\$/g, "\\$")}\\b`);
       let read = false;
       for (const [other, otherText] of corpus) {
         if (other === file) continue;
-        if (otherText.includes(name) && word.test(otherText)) { read = true; break; }
+        if (otherText.includes(name) && word.test(otherText) && (!passedThrough || takesFrom(otherText, other, file, name))) { read = true; break; }
       }
-      if (!read) found.push(`${file}: ${name}`);
+      if (!read) found.add(`${file}: ${name}`);
     }
   }
-  return found.sort();
+  return [...found].sort();
 }
 
 const seeded = "2026-11-04 (M52.5): exported before this check existed. Drop the export, or say here who needs it.";

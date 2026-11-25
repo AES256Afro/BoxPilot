@@ -241,9 +241,9 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
         }
       }
     }).catch(() => {});
-  }, []);
+  }, [readWatch]);
 
-  const useLocalServer = () => {
+  const pickLocalServer = () => {
     if (!localServer) return;
     setEditing(true);
     setKind(localServer.kind);
@@ -325,7 +325,7 @@ export default function NotificationsPanel({ csrfToken, onChange }: { csrfToken:
           {!current && !readError && <p className="settings-quiet">Reading…</p>}
           {readError && <Notice tone="danger" live title="The notification settings could not be read" action={<Button onClick={() => void refresh()}>Try again</Button>}>{readError}</Notice>}
           {offerLocal && localServer && (
-            <Notice tone="info" title={`${localServer.name} is running on this server`} action={<Button onClick={useLocalServer}>Use the {localServer.name} on this server</Button>}>
+            <Notice tone="info" title={`${localServer.name} is running on this server`} action={<Button onClick={pickLocalServer}>Use the {localServer.name} on this server</Button>}>
               Point BoxPilot at it in one step.
             </Notice>
           )}

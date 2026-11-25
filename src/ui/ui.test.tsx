@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reloadThemeChoice } from "../useTheme";
-import { Button, Dock, MetricTile, Panel, RiskTag, Section, StatusChip, ThemeSwitch, Tile, riskOf } from ".";
+import { Button, Dock, MetricTile, Panel, RiskTag, Section, StatusChip, ThemeSwitch, Tile, mayStart, riskOf } from ".";
 
 afterEach(() => cleanup());
 
@@ -77,7 +77,14 @@ describe("tiers and statuses", () => {
   it("treats an operation it does not know as high", () => {
     expect(riskOf("apt.refresh")).toBe("low");
     expect(riskOf("system.reboot")).toBe("high");
-    expect(riskOf("something.new")).toBe("high");
+    // An id that arrives as data is typed string and falls back to high; a literal the table lacks
+    // does not compile (M84), which the build's tsc proves on the line marked below.
+    const fromData: string = "something.new";
+    expect(riskOf(fromData)).toBe("high");
+    // @ts-expect-error -- "app.restore" is not an operation (the real id is app.backup.restore).
+    expect(riskOf("app.restore")).toBe("high");
+    // @ts-expect-error -- the same check holds for mayStart.
+    expect(mayStart("owner", "app.restore")).toBe(true);
   });
 
   it("puts the words in the chip and the status on it", () => {

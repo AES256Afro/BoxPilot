@@ -16,7 +16,7 @@ import { overnightWindow } from "../../pages/today/today";
 import { useOperation } from "../../shell/ApproveDialog";
 import { AreaIcon, BellIcon, PlusIcon } from "../../shell/areaIcons";
 import { TopBarSlot } from "../../shell/TopBarSlot";
-import { AppIcon, Button, Sparkline, StatusChip, type Status } from "../../ui";
+import { AppIcon, Button, Sparkline, StatusChip, isKnownOperation, type KnownOperation, type Status } from "../../ui";
 import "./panel.css";
 import "./home.css";
 
@@ -139,12 +139,17 @@ function Cell({ label, value, unit, caption, status, bar, line, onSelect }: Cell
   );
 }
 
-/** The overnight jobs in plain words: what was done, and what it is when it failed or still runs. */
-const jobWords: Record<string, { done: string; doing: string }> = {
+/**
+ * The overnight jobs in plain words: what was done, and what it is when it failed or still runs.
+ * Keyed by KnownOperation (M84): this table once keyed "app.restore", which no operation is called,
+ * so a restore fell back to its raw title and nothing said why.
+ */
+const jobWords: Partial<Record<KnownOperation, { done: string; doing: string }>> = {
   "app.backup": { done: "Backed up {app}", doing: "back up {app}" },
   "app.backup.verify": { done: "Test-restored {app}", doing: "test-restore {app}" },
   "app.update": { done: "Updated {app}", doing: "update {app}" },
-  "app.restore": { done: "Restored {app}", doing: "restore {app}" },
+  "app.backup.restore": { done: "Restored {app}", doing: "restore {app}" },
+  "app.backup.many": { done: "Backed up several apps", doing: "back up several apps" },
   "apt.upgrade": { done: "Installed updates", doing: "install updates" },
   "apt.refresh": { done: "Refreshed the package lists", doing: "refresh the package lists" },
   "storage.lvm.snapshot.create": { done: "Took a snapshot", doing: "take a snapshot" },
@@ -154,7 +159,8 @@ const jobWords: Record<string, { done: string; doing: string }> = {
 
 /** What a job did, in the past tense, with the app's name where it had one. */
 function jobSentence(job: Job, appName: (id: string) => string | null): string {
-  const words = jobWords[job.type.replace(/^op:/, "")];
+  const operationId = job.type.replace(/^op:/, "");
+  const words = isKnownOperation(operationId) ? jobWords[operationId] : undefined;
   if (!words) return job.title;
   const target = jobTarget(job);
   const app = target !== "—" ? appName(target) ?? target : "an app";

@@ -65,6 +65,13 @@ describe("moving Tailscale Serve to the socket", () => {
     expect(serve.get(8443)).toBe("http://127.0.0.1:8787");
   });
 
+  it("names a port it could not put back instead of implying it did (M84)", async () => {
+    const { run, serve } = tailscale({ 443: "http://127.0.0.1:8787", 8443: "http://127.0.0.1:8787" }, { refuse: (port) => port === 8443 });
+    const putBackRefused = vi.fn(async (binary, args) => (args.at(-1) === "http://127.0.0.1:8787" ? { ok: false, stdout: "", stderr: "tailscaled is not running" } : run(binary, args)));
+    await expect(serveSocketMove({ run: putBackRefused, socketPath, files: files() })).rejects.toThrow("Could not put back port 443 to http://127.0.0.1:8787; check tailscale serve status.");
+    expect(serve.get(443)).toBe(`unix:${socketPath}`);
+  });
+
   it("refuses before touching Serve when BoxPilot is not on the socket, or Serve does not forward to it", async () => {
     const { run } = tailscale({ 443: "http://127.0.0.1:8787" });
     await expect(serveSocketMove({ run, socketPath, files: files(false) })).rejects.toThrow("not listening on /run/boxpilot-web/serve.sock");

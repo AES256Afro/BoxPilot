@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PendingOperation } from "../../shell/ApproveDialog";
 import { relativeTime } from "../../home/format";
-import { Button, Field, KeyValue, MetricStrip, MetricTile, Notice, Panel, Progress, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
+import { Button, Field, KeyValue, MetricStrip, MetricTile, Notice, Panel, Progress, Select, StatusChip, Switch, Table, Tag, TextInput, mayStart, type KnownOperation, riskOf, type Status, type TableColumn } from "../../ui";
 import { agentsApi, type LibraryModel, type ModuleState, type RuntimeDriver, type RuntimeState, type Usage as UsageState } from "./api";
 import { bytes, duration, errorText, gibibytes, minutesOf, processorWords, secondsOf } from "./format";
 import { PasswordSheet } from "./PasswordSheet";
@@ -120,7 +120,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   const unsloth = runtime.unsloth;
   const service = installed?.service ?? null;
   const operation = (operationId: string, title: string, parameters: Record<string, unknown>, preview: string) => onStart({ operationId, title, parameters, preview: <span>{preview}</span> });
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
   // What is still missing to run an agent, in order. A step pressed here opens with the ones after
   // it chained, so installing Unsloth goes on to the model and the runner, one approval at a time.
   const steps = setupSteps(runtime, { enabled: module.enabled });
@@ -131,7 +131,7 @@ export function Usage({ module, csrfToken, role, now, onStart, onModuleChanged, 
   // On, and the runner not answering: the model cannot load, and the tile says what starts it.
   const down = module.enabled && !usage.runner.online;
   const silent = unitUp(service?.active);
-  const fix = down && steps?.length && steps.every((step) => may(step.operation.operationId)) ? <SetupAction steps={steps} onStart={onStart} /> : null;
+  const fix = down && steps?.length && steps.every((step) => mayStart(role, step.operation.operationId)) ? <SetupAction steps={steps} onStart={onStart} /> : null;
   const modelLoaded = usage.runner.online && live?.modelLoaded === true;
 
   const perAgent = usage.today.perAgent;

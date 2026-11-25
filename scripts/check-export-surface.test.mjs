@@ -108,15 +108,90 @@ describe("what the corpus is", () => {
   });
 });
 
+describe("export lists (M84, CODE-9)", () => {
+  it("fails on a listed name nothing reads, which the first version skipped", async () => {
+    const result = await check({
+      tracked: {
+        "server/thing.mjs": "const unused = 1;\nconst inner = 2;\nexport { unused, inner as renamed };\n",
+        "scripts/export-surface-allowed.json": allowlist(),
+      },
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("server/thing.mjs: unused");
+    // The exported name is the one after `as`.
+    expect(result.output).toContain("server/thing.mjs: renamed");
+    expect(result.output).not.toContain("server/thing.mjs: inner");
+  });
+
+  it("passes when the listed names are read elsewhere", async () => {
+    const result = await check({
+      tracked: {
+        "server/thing.mjs": "const used = 1;\nconst inner = 2;\nexport {\n  used,\n  inner as renamed,\n};\n",
+        "server/other.mjs": 'import { used, renamed } from "./thing.mjs";\nconsole.log(used, renamed);\n',
+        "scripts/export-surface-allowed.json": allowlist(),
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("0 of 0 unread exports are reviewed");
+  });
+
+  it("fails on a pass-through nobody imports from it, though the module that defines the name mentions it", async () => {
+    // The six M84 dropped: `import { x } from "./origin.mjs"; export { x };`. The origin and its own
+    // importers all name x, so a plain word match would call this read.
+    const result = await check({
+      tracked: {
+        "server/origin.mjs": "export const passed = 1;\n",
+        "server/middle.mjs": 'import { passed } from "./origin.mjs";\nexport { passed };\nexport const own = passed + 1;\n',
+        // Imports something else from the middle module, and `passed` from the origin: not a reader of the re-export.
+        "server/user.mjs": 'import { passed } from "./origin.mjs";\nimport { own } from "./middle.mjs";\nconsole.log(passed, own);\n',
+        "scripts/export-surface-allowed.json": allowlist(),
+      },
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("server/middle.mjs: passed");
+    expect(result.output).not.toContain("server/origin.mjs: passed");
+  });
+
+  it("fails on `export { x } from` nobody takes from it, and passes once a file does", async () => {
+    const tracked = {
+      "server/origin.mjs": "export const passed = 1;\n",
+      "server/barrel/index.mjs": 'export { passed } from "../origin.mjs";\n',
+      "server/user.mjs": 'import { passed } from "./origin.mjs";\nconsole.log(passed);\n',
+      "scripts/export-surface-allowed.json": allowlist(),
+    };
+    const unread = await check({ tracked });
+    expect(unread.code).toBe(1);
+    expect(unread.output).toContain("server/barrel/index.mjs: passed");
+
+    // Taken through the directory's index, as `import { … } from "./barrel"` reaches it.
+    const read = await check({ tracked: { ...tracked, "server/user.mjs": 'import { passed } from "./barrel";\nconsole.log(passed);\n' } });
+    expect(read.code).toBe(0);
+  });
+
+  it("counts a namespace import or a mock of the module as reaching every name it passes through", async () => {
+    const result = await check({
+      tracked: {
+        "server/origin.mjs": "export const first = 1;\nexport const second = 2;\n",
+        "server/middle.mjs": 'import { first, second } from "./origin.mjs";\nexport { first, second };\n',
+        "server/a.mjs": 'import * as middle from "./middle.mjs";\nconsole.log(middle.first);\n',
+        "server/b.test.mjs": 'vi.mock("./middle.mjs", () => ({ second: 3 }));\n',
+        "scripts/export-surface-allowed.json": allowlist(),
+      },
+    });
+    expect(result.code).toBe(0);
+  });
+});
+
 describe("what it deliberately does not read", () => {
-  it("leaves tests, type declarations and re-exports alone", async () => {
+  it("leaves tests, type declarations, defaults and type-only lists alone", async () => {
     const result = await check({
       tracked: {
         // A test's own exports are not the surface this guards.
         "server/thing.test.mjs": "export const helperForThisTestOnly = 1;\n",
         "server/types/thing.d.ts": "export declare const typeOnly: number;\n",
-        // `export { … }` and `export default` are the type checker's business, not this check's.
-        "server/other.mjs": "const inner = 1;\nexport { inner };\nexport default inner;\n",
+        // `export default` and types are the type checker's business, not this check's.
+        "server/other.mjs": "const inner = 1;\nexport default inner;\nexport * from \"./thing.mjs\";\n",
+        "src/types.ts": 'type Local = string;\nexport type { Local };\nexport { type Remote } from "./remote";\n',
         "scripts/export-surface-allowed.json": allowlist(),
       },
     });

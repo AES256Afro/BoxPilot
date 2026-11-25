@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { openView } from "../../activityEvents";
 import { JobLogView } from "../../JobLogView";
-import { Button, EmptyState, Field, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, TextInput, type Status, type TableColumn } from "../../ui";
+import { Button, EmptyState, Field, Notice, Panel, Select, Sheet, StatusChip, Table, Tag, type KnownOperation, type Status, type TableColumn } from "../../ui";
 import { CadenceFields, cadenceOf, startingCadence, type CadenceDraft } from "./CadenceFields";
 import "./automations.css";
 
@@ -24,7 +24,7 @@ export interface Schedule {
   lastReason?: string | null;
 }
 
-interface Template { key: string; label: string; operationId: string; parameters: Record<string, unknown> }
+interface Template { key: string; label: string; operationId: KnownOperation; parameters: Record<string, unknown> }
 
 
 /** The schedules, read once and again after each change, for the panel and for a page's verdict. */
@@ -113,7 +113,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null, role 
   }, [adding]);
 
   const templates = useMemo<Template[]>(() => [
-    ...installedApps.map((app) => ({ key: `backup:${app.id}`, label: `Back up ${app.name}`, operationId: "app.backup", parameters: { id: app.id } })),
+    ...installedApps.map((app): Template => ({ key: `backup:${app.id}`, label: `Back up ${app.name}`, operationId: "app.backup", parameters: { id: app.id } })),
     { key: "app.update.available", label: "Update every app that has an update (each backed up first)", operationId: "app.update.available", parameters: {} },
     { key: "apt.refresh", label: "Refresh package lists", operationId: "apt.refresh", parameters: {} },
     { key: "apt.upgrade", label: "Install all package updates", operationId: "apt.upgrade", parameters: {} },

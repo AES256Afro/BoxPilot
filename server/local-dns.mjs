@@ -220,8 +220,14 @@ export function createLocalDnsService({
     const folder = await hostsFolder(spec);
     if (folder) await unlink(path.join(folder, managedHostsFile)).catch(() => {});
     progress?.(`Removed ${fileFor(spec)}`, "stdout");
-    if (runDocker && spec.running) await runDocker(dockerBinary, ["exec", `bp-${spec.id}`, ...spec.reload], { timeout: 60_000 }).catch(() => {});
-    return { cleared: true };
+    // As in apply: the server notices the file going on its own, so a failed nudge is said, not fatal (M84).
+    let reloaded = false;
+    if (runDocker && spec.running) {
+      const result = await runDocker(dockerBinary, ["exec", `bp-${spec.id}`, ...spec.reload], { timeout: 60_000 }).catch(() => ({ ok: false }));
+      reloaded = Boolean(result.ok);
+      progress?.(reloaded ? "Asked the DNS server to reload." : "The DNS server did not reload on request; it watches the file and will drop the names shortly.", reloaded ? "stdout" : "stderr");
+    }
+    return { cleared: true, reloaded };
   }
 
   return { inspect, apply, clear, clients, internals: { platform, nameable, fileFor } };

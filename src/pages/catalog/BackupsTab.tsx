@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatBytes } from "../../formatBytes";
-import { Button, EmptyState, Notice, Panel, SearchField, StatusChip, mayStart, riskOf } from "../../ui";
+import { Button, EmptyState, Notice, Panel, SearchField, StatusChip, mayStart, type KnownOperation, riskOf } from "../../ui";
 import { ComposeAllowance, ComposeRefusal, type ComposeReview } from "../backups/ComposeReview";
 import { offlineFor, runRead } from "./appState";
 import type { CatalogContext, Entry } from "./types";
@@ -51,7 +51,7 @@ export function BackupsTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }
   // The backup whose restore is being looked over, and one that cannot be restored, with why.
   const [checking, setChecking] = useState<string | null>(null);
   const [refused, setRefused] = useState<{ backup: string; review: ComposeReview } | null>(null);
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
   const verification = live?.backupVerification ?? null;
   const name = manifest.name;
 

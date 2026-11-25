@@ -4,7 +4,7 @@ import { useOperation } from "../../shell/ApproveDialog";
 import SnapshotFirstButton from "../../SnapshotFirstButton";
 import { countOf } from "../../data";
 import { inspectOperation } from "../../operations";
-import { Button, Checkbox, EmptyState, Field, MetricStrip, MetricTile, Notice, PageHeader, Panel, Table, Tabs, Tag, TextInput, Toolbar, mayStart, riskOf, type Status, type TableColumn } from "../../ui";
+import { Button, Checkbox, EmptyState, Field, MetricStrip, MetricTile, Notice, PageHeader, Panel, Table, Tabs, Tag, TextInput, Toolbar, mayStart, type KnownOperation, riskOf, type Status, type TableColumn } from "../../ui";
 import "./updates.css";
 
 /*
@@ -85,7 +85,7 @@ export default function UpdatesPage({ csrfToken, role = "owner" }: UpdatesPagePr
   useEffect(() => onPageRefresh({ asked: () => refresh(), job: () => refresh({ quiet: true }) }), [refresh]);
 
   const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
 
   const packages = useMemo(() => report?.upgradable ?? [], [report]);
   const selectedList = useMemo(() => [...selected].sort(), [selected]);

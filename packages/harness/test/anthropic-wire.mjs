@@ -1,8 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createAnthropicClient } from "../src/providers/anthropic.mjs";
-import { eventStream, fakeAnthropicFetch } from "../src/providers/anthropic-fake.mjs";
-
-export { eventStream };
+import { fakeAnthropicFetch } from "../src/providers/anthropic-fake.mjs";
 
 /**
  * Claude's side of the wire, for tests: the real SDK client, with a `fetch` that answers from a

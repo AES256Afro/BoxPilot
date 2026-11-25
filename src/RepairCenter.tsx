@@ -11,7 +11,7 @@ import { stateWords, stepWords } from "./JobLogView";
 import { jobStatus } from "./jobStatus";
 import { countOf, type ViewName } from "./data";
 import { Button, Field, PageHeader, Panel, RiskTag, SecretInput, StatusChip, Table, TextInput, type RiskTier, type Status, type TableColumn } from "./ui";
-import { mayStart, riskOf } from "./ui/operationRisk";
+import { mayStart, riskOf, type KnownOperation } from "./ui/operationRisk";
 import { DriveAutoReconnect } from "./repair/DriveAutoReconnect";
 import { FindingCard, severityStatus } from "./repair/FindingCard";
 import { fixesOf, scanFrom, type Finding, type RepairScan, type Severity } from "./repair/types";
@@ -249,7 +249,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
 
   // One generic review flow: read the live pinned versions from the registry inspect,
   // then stage the matching install through the shared risk-tiered dialog.
-  const repairDefinitions: Record<string, { inspect: string; install: string; describe: (result: Record<string, unknown>) => { title: string; parameters: Record<string, unknown>; preview: ReactNode } }> = {
+  const repairDefinitions: Record<string, { inspect: string; install: KnownOperation; describe: (result: Record<string, unknown>) => { title: string; parameters: Record<string, unknown>; preview: ReactNode } }> = {
     "storage.drive-tools": {
       inspect: "prerequisite.drive-tools.inspect", install: "prerequisite.drive-tools.install",
       describe: (result) => {

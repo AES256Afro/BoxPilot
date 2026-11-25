@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { inspectOperation } from "../../operations";
-import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, SecretInput, Select, Table, TextInput, mayStart, riskOf, type KeyValueItem, type Status, type TableColumn } from "../../ui";
+import { Button, Checkbox, EmptyState, Field, KeyValue, Notice, Panel, SecretInput, Select, Table, TextInput, mayStart, type KnownOperation, riskOf, type KeyValueItem, type Status, type TableColumn } from "../../ui";
 import { isPaused, isRunning } from "./appState";
 import type { CatalogContext, Entry, ManifestPort } from "./types";
 
@@ -80,7 +80,7 @@ const firstPort = (choice: Choice | undefined) => (choice ? (choice.ports.find((
 
 export function TunnelTab({ entry, ctx }: { entry: Entry; ctx: CatalogContext }) {
   const { act, role, data } = ctx;
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
   const [state, setState] = useState<TunnelState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState("");

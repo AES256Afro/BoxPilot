@@ -3,7 +3,7 @@ import { useOperation } from "../../shell/ApproveDialog";
 import { readJson } from "../../http";
 import { BACKUP_MOUNT_NAME, BACKUP_MOUNTPOINT, mountpointFor } from "../../mountpoints";
 import { validShareName } from "../../shareName";
-import { Button, Checkbox, EmptyState, Field, Notice, Panel, SecretInput, Select, Sheet, StatusChip, Table, Tag, TextInput, mayStart, riskOf, type TableColumn } from "../../ui";
+import { Button, Checkbox, EmptyState, Field, Notice, Panel, SecretInput, Select, Sheet, StatusChip, Table, Tag, TextInput, mayStart, type KnownOperation, riskOf, type TableColumn } from "../../ui";
 import { UsageMeter } from "./parts";
 import { nameValid, percentUsed, slug, type Discovered, type ShareRow, type StorageReport } from "./types";
 
@@ -62,10 +62,10 @@ export default function SharesTab({ csrfToken, role, report, loading, tailnetHos
 
   const shares = report?.shares ?? [];
   const tools = report?.tools;
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
 
   const setShareAndName = (value: string) => { setShare(value); if (!nameTouched) setName(slug(value.split("/").filter(Boolean).at(-1) ?? value)); };
-  const useDevice = (device: Discovered) => { setHost(device.name ?? device.address); setKind(device.smb ? "smb" : "nfs"); setListed(null); setFormError(null); };
+  const pickDevice = (device: Discovered) => { setHost(device.name ?? device.address); setKind(device.smb ? "smb" : "nfs"); setListed(null); setFormError(null); };
   const discover = async () => {
     setDiscovering(true); setFormError(null);
     try { setDiscovered(await readJson(await fetch("/api/v1/storage/shares/discover"))); }
@@ -202,7 +202,7 @@ export default function SharesTab({ csrfToken, role, report, loading, tailnetHos
                   {device.name && <code>{device.address}</code>}
                   {device.smb && <Tag tone="good">SMB</Tag>}
                   {device.nfs && <Tag tone="good">NFS</Tag>}
-                  <Button variant="ghost" onClick={() => useDevice(device)} aria-label={`Use ${device.name ?? device.address}`}>Use this device</Button>
+                  <Button variant="ghost" onClick={() => pickDevice(device)} aria-label={`Use ${device.name ?? device.address}`}>Use this device</Button>
                 </li>
               ))}
             </ul>

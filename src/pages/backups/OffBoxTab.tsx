@@ -3,7 +3,7 @@ import { useOperation } from "../../shell/ApproveDialog";
 import { countOf, type ViewName } from "../../data";
 import { formatBytes } from "../../formatBytes";
 import type { OffBoxVerdict } from "../../offBox";
-import { Button, CodeBlock, EmptyState, Field, KeyValue, Notice, Panel, SecretInput, Select, Sheet, TextInput, Textarea, mayStart, riskOf, type Status } from "../../ui";
+import { Button, CodeBlock, EmptyState, Field, KeyValue, Notice, Panel, SecretInput, Select, Sheet, TextInput, Textarea, mayStart, type KnownOperation, riskOf, type Status } from "../../ui";
 import { passwordAsked, passwordAskedWords, useOwnerPassword } from "../../ownerPassword";
 import { ago, syncedAt, when, type CloudSettings, type CloudState, type MachineSnapshotState, type RemoteDestination, type RemoteMirrorState, type RemoteSettings } from "./types";
 
@@ -18,7 +18,7 @@ export interface OffBoxSummary {
   verdict: OffBoxVerdict;
   warning: string | null;
   /** The syncs worth scheduling for what is set up. */
-  wanted: string[];
+  wanted: KnownOperation[];
   /** Every one of them has a schedule. */
   scheduled: boolean;
 }
@@ -63,7 +63,7 @@ function destinationState(configured: boolean, lastSyncAt: string | null): { sta
 
 export default function OffBoxTab({ csrfToken, role, tailnetHosts, machine, remote, remoteSettings, cloud, cloudSettings, cloudError, summary, summaryUnknown = false, scheduling, onMirrorNightly, onChanged, onNavigate }: OffBoxTabProps) {
   const { start, dialog } = useOperation(csrfToken, () => onChanged());
-  const may = (operationId: string) => mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => mayStart(role, operationId);
   const hostsId = useId();
 
   // The port is held as typed (parsed on Save): as a number, an emptied box could not be retyped.

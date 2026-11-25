@@ -1002,6 +1002,26 @@ sidecars:
     expect(compose).not.toContain("nginx:1.27");
   });
 
+  it("does not say rolled back, or taken down, when Docker could not take the containers down (M84)", async () => {
+    const refuseDown = (runDocker) => {
+      const original = runDocker.getMockImplementation();
+      runDocker.mockImplementation(async (binary, args, options) => (args[0] === "compose" && args.includes("down") ? { ok: false, code: 1, stdout: "", stderr: "Cannot connect to the Docker daemon" } : original(binary, args, options)));
+    };
+    const fresh = await setup({ exitOnUp: true });
+    refuseDown(fresh.runDocker);
+    const installFailure = await fresh.apps.install({ id: "demo" }).catch((error) => error);
+    expect(installFailure.message).toMatch(/^Demo installation failed, and Docker could not take down what it started \(Cannot connect to the Docker daemon\), so some of it may still be running\. /);
+    expect(installFailure.message).not.toMatch(/rolled back/);
+
+    const rebuilt = await setup({ failUp: true });
+    refuseDown(rebuilt.runDocker);
+    const record = { id: "demo", installed: true, installedAt: "2026-08-01T00:00:00.000Z", image: { reference: "nginx:1.27" }, values: { ports: {}, env: {}, volumes: {}, setup: [] } };
+    await mkdir(path.join(rebuilt.catalogRoot, "demo"), { recursive: true });
+    await writeFile(path.join(rebuilt.catalogRoot, "demo", "boxpilot.json"), JSON.stringify(record));
+    await writeFile(path.join(rebuilt.catalogRoot, "demo", "compose.yaml"), "name: bp-demo\nservices:\n  demo:\n    image: nginx:1.27\n");
+    await expect(rebuilt.apps.reinstall({ id: "demo" })).rejects.toThrow("Demo could not be started again, and Docker could not take down what started (Cannot connect to the Docker daemon), so some of it may still be running.");
+  });
+
   it("takes down what started when a rebuilt app does not come up, and leaves its record and data alone (M35)", async () => {
     const { apps, catalogRoot, calls } = await setup({ failUp: true });
     await mkdir(path.join(catalogRoot, "demo", "data"), { recursive: true });

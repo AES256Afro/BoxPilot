@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, EmptyState, Field, KeyValue, Notice, Panel, Sheet, StatusChip, Switch, Table, Tag, TextInput, mayStart, riskOf, type KeyValueItem } from "../../ui";
+import { Button, EmptyState, Field, KeyValue, Notice, Panel, Sheet, StatusChip, Switch, Table, Tag, TextInput, mayStart, type KnownOperation, riskOf, type KeyValueItem } from "../../ui";
 import { formatMemory, type VirtualDomain } from "../../virtualization";
 import { gibFromKiB, rateLabel, type VmRate } from "./useVmStats";
 import { AsksFor, deleteVm, exportVm, forceOff, isVmName, lifecycle, snapshotCreate, snapshotDelete, snapshotRevert, stateOf, unmanagedNote, unmanagedSnapshotNote, vmAction, vmNamePattern, when, type StartOperation } from "./vmActions";
@@ -26,7 +26,7 @@ export function VmSheet({ domain, rate, role, onClose, start }: { domain: Virtua
   const running = domain.state === "running";
   const stopped = domain.state === "stopped";
   const managed = domain.managed;
-  const may = (operationId: string) => managed && mayStart(role, operationId);
+  const may = (operationId: KnownOperation) => managed && mayStart(role, operationId);
   const snapshotValid = isVmName(snapshotName);
 
   const facts: KeyValueItem[] = [
