@@ -1,5 +1,6 @@
 /** Client for the operation registry and the generic job path (ADR-001). */
-import { readJson } from "./http";
+import { ApiError, isNetworkError, readJson } from "./http";
+import { checkConnection, connected, connectionState, type ConnectionState } from "./pwa/connection";
 import { pageIsFollowing, refreshAfterJob } from "./shell/refresh";
 
 export type RiskTier = "low" | "medium" | "high";
@@ -46,7 +47,11 @@ export interface Job {
   parameters?: Record<string, unknown> | null;
   timeout?: JobTimeout | null;
   /** Where this run came from: a larger budget, or the run it repeats (M30.2/M30.3). */
-  recovery?: { budgetMs?: number; rerunOf?: string; retryOf?: string; /** The operation's description, as staged. */ reason?: string };
+  recovery?: {
+    budgetMs?: number; rerunOf?: string; retryOf?: string; /** The operation's description, as staged. */ reason?: string;
+    /** Set when it failed because BoxPilot's admin service did not answer (M89, server/jobs.mjs). */
+    helperCode?: "helper_unavailable" | "helper_timeout" | "helper_closed" | "helper_restarting";
+  };
   createdAt?: string;
   updatedAt?: string;
   steps: JobStep[];
@@ -135,8 +140,36 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-/** Wait for completion; abandoning the view cancels observation, not the host job. */
-export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs = 2 * 60 * 60 * 1000, sleep = abortableSleep, now = Date.now, signal }: { intervalMs?: number; timeoutMs?: number; sleep?: (ms: number, signal: AbortSignal) => Promise<void>; now?: () => number; signal?: AbortSignal } = {}): Promise<Job> {
+/**
+ * Whether BoxPilot answers right now, asked of the connection watcher (pwa/connection.ts): it asks
+ * the health route at once, so a failed job read is judged by a fresh answer, not a minute-old one.
+ */
+async function boxPilotAnswers(): Promise<boolean> {
+  return connected(await checkConnection());
+}
+
+/** How long the watcher waits between questions while BoxPilot is not answering. */
+const lostPaceMs = 5000;
+
+/**
+ * Wait for completion; abandoning the view cancels observation, not the host job.
+ *
+ * A restart is not a failure (M89). While BoxPilot does not answer (a web or helper restart, a proxy's
+ * 502, a phone between networks) the failed reads are not counted, and the gap between them widens to
+ * the connection watcher's own pace. What ends the wait is the job ending, the server saying it has no
+ * such job (404), the overall deadline, or five failed reads in a row while BoxPilot otherwise answers.
+ */
+export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs = 2 * 60 * 60 * 1000, sleep = abortableSleep, now = Date.now, signal, answers = boxPilotAnswers, maxLostMs = lostPaceMs }: {
+  intervalMs?: number;
+  timeoutMs?: number;
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  now?: () => number;
+  signal?: AbortSignal;
+  /** Whether BoxPilot answers at all, asked after a failed read (the connection watcher, by default). */
+  answers?: () => Promise<boolean>;
+  /** The longest gap between reads while BoxPilot is not answering. */
+  maxLostMs?: number;
+} = {}): Promise<Job> {
   const started = now();
   const controller = new AbortController();
   const onAbort = () => controller.abort(signal?.reason);
@@ -144,6 +177,7 @@ export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs =
   else signal?.addEventListener("abort", onAbort, { once: true });
   const deadline = setTimeout(() => controller.abort(new Error("Timed out waiting for the job to finish")), timeoutMs);
   let failures = 0;
+  let lost = 0;
   try { for (;;) {
     controller.signal.throwIfAborted();
     if (now() - started >= timeoutMs) throw new Error("Timed out waiting for the job to finish");
@@ -151,17 +185,40 @@ export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs =
     try {
       ({ job } = await getJob(jobId, { signal: controller.signal }));
       controller.signal.throwIfAborted();
-      failures = 0;
+      failures = 0; lost = 0;
     } catch (error) {
       controller.signal.throwIfAborted();
-      failures += 1;
-      if (failures >= 5) throw error;
-      await sleep(intervalMs, controller.signal);
+      // The server answered that there is no such job: waiting longer will not change that.
+      if (error instanceof ApiError && error.status === 404) throw error;
+      const reachable = await answers().catch(() => false);
+      controller.signal.throwIfAborted();
+      if (reachable) {
+        lost = 0;
+        failures += 1;
+        if (failures >= 5) throw error;
+        await sleep(intervalMs, controller.signal);
+      } else {
+        // Not answering at all: not counted, and asked again at the watcher's pace.
+        lost += 1;
+        await sleep(Math.min(maxLostMs, Math.max(intervalMs, intervalMs * 2 ** (lost - 1))), controller.signal);
+      }
       continue;
     }
     if (terminalJobStates.has(job.state)) return job;
     await sleep(intervalMs, controller.signal);
   } } finally { clearTimeout(deadline); signal?.removeEventListener("abort", onAbort); }
+}
+
+/**
+ * True when an error from staging, approving or following a job means BoxPilot is not answering (no
+ * reply, a proxy's 502/503/504, its admin service down, the connection watcher saying so) rather than
+ * a refusal: a batch stops
+ * there instead of sending the next job into a server that is not listening.
+ */
+export function lostConnection(error: unknown, connection: ConnectionState = connectionState()): boolean {
+  if (isNetworkError(error)) return true;
+  if (error instanceof ApiError && (error.status === 502 || error.status === 503 || error.status === 504)) return true;
+  return !connected(connection);
 }
 
 /**
@@ -265,72 +322,154 @@ export function followJobs(listener: JobFeedListener): () => void {
   };
 }
 
+/*
+ * The feed's transport (M89). The stream is the normal path, and it is kept: when it drops (a
+ * restart, a laptop waking, a phone changing networks) it is opened again, soon at first and then
+ * less often, and its next snapshot carries on where it left off. Polling is only the fallback for a
+ * path the stream has never worked on (a proxy that buffers it, or no EventSource at all), and asks
+ * for the summary view; even then the stream is tried again now and then, and its first snapshot
+ * ends the polling. Coming back to the tab tries the stream first.
+ */
 function openJobFeed({ onSnapshot, onJob, onStatus = () => {}, pollAfterMs = 2500, pollEveryMs = 5000 }: Omit<JobFeedListener, "now">): () => void {
   let stopped = false;
+  // No more automatic requests once the server has refused the session.
+  let refused = false;
   let polling = false;
   let source: EventSource | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  // A stream snapshot has arrived at least once: the stream works on this path.
+  let streamed = false;
+  let live = false;
+  let streamFailures = 0;
+  let pollFailures = 0;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let streamTimer: ReturnType<typeof setTimeout> | null = null;
   let request: AbortController | null = null;
-  let failures = 0;
+  const canStream = typeof EventSource !== "undefined";
+  const hidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
   onStatus("loading");
-  const clearTimer = () => { if (timer !== null) clearTimeout(timer); timer = null; };
+  const clearPollTimer = () => { if (pollTimer !== null) clearTimeout(pollTimer); pollTimer = null; };
+  const clearStreamTimer = () => { if (streamTimer !== null) clearTimeout(streamTimer); streamTimer = null; };
   const validSnapshot = (value: unknown): Job[] => {
     if (!Array.isArray(value) || !value.every(readableJob)) throw new Error("Job history was incomplete");
     // The newest fifty, and every job waiting for approval the server sends besides them (M88).
     return value.filter((job, index) => index < 50 || job.state === "awaiting_approval");
   };
   const read = async () => {
-    if (stopped || request) return;
-    clearTimer();
+    if (stopped || !polling || request) return;
+    clearPollTimer();
     const controller = new AbortController(); request = controller;
     const deadline = setTimeout(() => controller.abort(), 15_000);
-    let terminalRefusal = false;
     try {
-      const response = await fetch("/api/v1/jobs?limit=50", { signal: controller.signal });
-      terminalRefusal = response.status === 401 || response.status === 403;
+      // The summary view: what the rows and the state words read, without results and step logs.
+      const response = await fetch("/api/v1/jobs?limit=50&view=summary", { signal: controller.signal });
+      if (response.status === 401 || response.status === 403) refused = true;
       const body = await readJson<{ jobs: unknown }>(response);
       const snapshot = validSnapshot(body.jobs);
-      if (stopped) return;
-      failures = 0; onSnapshot(snapshot); onStatus("polling");
+      if (stopped || !polling) return;
+      pollFailures = 0; onSnapshot(snapshot); onStatus("polling");
     } catch {
-      if (!stopped) { failures += 1; onStatus("unavailable"); }
+      if (!stopped && polling) { pollFailures += 1; onStatus("unavailable"); }
     } finally {
-      clearTimeout(deadline); request = null;
-      if (!stopped && !terminalRefusal) {
-        const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
-        const interval = hidden ? 30_000 : Math.min(30_000, pollEveryMs * 2 ** Math.min(failures, 3));
-        timer = setTimeout(() => void read(), interval);
+      clearTimeout(deadline);
+      if (request === controller) request = null;
+      if (refused) { stopPolling(); clearStreamTimer(); }
+      else if (!stopped && polling) {
+        const interval = hidden() ? 30_000 : Math.min(30_000, pollEveryMs * 2 ** Math.min(pollFailures, 3));
+        pollTimer = setTimeout(() => void read(), interval);
       }
     }
   };
   const startPolling = () => {
-    if (stopped || polling) return;
-    polling = true; clearTimer(); source?.close(); source = null;
+    if (stopped || polling || refused) return;
+    polling = true;
     void read();
   };
+  function stopPolling() {
+    polling = false; clearPollTimer();
+    request?.abort(); request = null;
+  }
+  const reopenIn = () => (streamed
+    // It worked here: a restart or a network change, over in seconds.
+    ? Math.min(30_000, 1000 * 2 ** Math.min(streamFailures - 1, 5))
+    // It never has: most likely a buffering proxy, so ask it again rarely while polling carries on.
+    : Math.min(300_000, 30_000 * 2 ** Math.min(streamFailures - 1, 4)));
+  // The stream cannot say why it failed: a session that has ended looks like a restart, and was
+  // asked again every 30 s for as long as the tab stayed open. After a few failures the session is
+  // asked directly, and a refusal ends the feed as a refused poll does.
+  let askingSession = false;
+  const refuse = () => {
+    refused = true;
+    stopPolling(); clearStreamTimer();
+    source?.close(); source = null; live = false;
+    onStatus("unavailable");
+  };
+  const checkSession = async () => {
+    if (askingSession || stopped || refused) return;
+    askingSession = true;
+    try {
+      const response = await fetch("/api/v1/auth/status", { cache: "no-store" });
+      const body = (await response.json().catch(() => null)) as { authenticated?: unknown } | null;
+      if (!stopped && (response.status === 401 || response.status === 403 || (response.ok && body?.authenticated === false))) refuse();
+    } catch { /* no answer: BoxPilot is restarting, so the stream is tried again */ } finally { askingSession = false; }
+  };
+  const dropStream = (dropped: EventSource) => {
+    if (stopped || source !== dropped) return;
+    dropped.close(); source = null; live = false;
+    clearStreamTimer();
+    streamFailures += 1;
+    // Fall back to polling only on a path the stream has never worked on.
+    if (!streamed) startPolling();
+    else if (streamFailures >= 3) { onStatus("unavailable"); void checkSession(); }
+    if (!refused) streamTimer = setTimeout(openStream, reopenIn());
+  };
+  function openStream() {
+    if (stopped || refused || !canStream || source) return;
+    clearStreamTimer();
+    let opened: EventSource;
+    try { opened = new EventSource("/api/v1/events"); }
+    catch { if (!polling) startPolling(); return; }
+    source = opened;
+    live = false;
+    opened.addEventListener("snapshot", (event) => {
+      if (stopped || source !== opened) return;
+      let snapshot: Job[];
+      try { snapshot = validSnapshot((JSON.parse((event as MessageEvent).data) as { jobs: unknown }).jobs); }
+      catch { dropStream(opened); return; }
+      live = true; streamed = true; streamFailures = 0;
+      clearStreamTimer(); stopPolling();
+      onSnapshot(snapshot); onStatus("live");
+    });
+    opened.addEventListener("job", (event) => {
+      if (stopped || source !== opened || !live) return;
+      let job: unknown;
+      try { job = (JSON.parse((event as MessageEvent).data) as { job: unknown }).job; } catch { job = null; }
+      if (!readableJob(job)) { dropStream(opened); return; }
+      onJob(job);
+    });
+    opened.onerror = () => dropStream(opened);
+    // A stream a proxy holds back never sends its snapshot: give it a moment, then poll meanwhile.
+    // One that has worked here is kept open while the polls carry the list (a slow first snapshot
+    // after a restart is not a buffering proxy), and its snapshot ends the polling; dropping it
+    // left nothing reading at all, and a list that never filled.
+    streamTimer = setTimeout(() => {
+      streamTimer = null;
+      if (stopped || source !== opened) return;
+      if (streamed) startPolling(); else dropStream(opened);
+    }, pollAfterMs);
+  }
   const visible = () => {
-    if (!stopped && polling && document.visibilityState === "visible" && timer !== null) { clearTimer(); void read(); }
+    if (stopped || hidden()) return;
+    // The stream first; polling, if it is running, reads at once too.
+    if (!source && canStream && !refused) { clearStreamTimer(); openStream(); }
+    if (polling && pollTimer !== null) { clearPollTimer(); void read(); }
   };
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", visible);
-  try {
-    if (typeof EventSource === "undefined") startPolling();
-    else {
-      source = new EventSource("/api/v1/events");
-      source.addEventListener("snapshot", (event) => {
-        if (stopped || polling) return;
-        try { const snapshot = validSnapshot((JSON.parse((event as MessageEvent).data) as { jobs: unknown }).jobs); onSnapshot(snapshot); clearTimer(); onStatus("live"); }
-        catch { startPolling(); }
-      });
-      source.addEventListener("job", (event) => {
-        if (stopped || polling) return;
-        try { const job: unknown = (JSON.parse((event as MessageEvent).data) as { job: unknown }).job; if (!readableJob(job)) throw new Error("Invalid job event"); onJob(job); }
-        catch { startPolling(); }
-      });
-      source.onerror = startPolling;
-      timer = setTimeout(startPolling, pollAfterMs);
-    }
-  } catch { startPolling(); }
-  return () => { stopped = true; clearTimer(); request?.abort(); source?.close(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", visible); };
+  if (canStream) openStream(); else startPolling();
+  return () => {
+    stopped = true; clearPollTimer(); clearStreamTimer(); request?.abort(); request = null;
+    source?.close(); source = null;
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", visible);
+  };
 }
 
 /**

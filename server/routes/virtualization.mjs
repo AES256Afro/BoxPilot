@@ -5,6 +5,7 @@
  * Mounted at /api/v1 behind the session.
  */
 import { Router } from "express";
+import { helperFailure, sendHelperFailure } from "../helper-errors.mjs";
 import { getSetupPlan } from "../libvirt.mjs";
 import { buildConsoleGuidanceResponse } from "../helper-libvirt.mjs";
 import { validateVmPlanInput } from "../vm-plan.mjs";
@@ -59,7 +60,7 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
     try {
       response.json(await vmMedia.inspect());
     } catch (error) {
-      response.status(503).json({ error: error.message, code: "vm_media_inspection_failed" });
+      if (!sendHelperFailure(response, error)) response.status(503).json({ error: error.message, code: "vm_media_inspection_failed" });
     }
   });
 
@@ -92,7 +93,8 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
     try {
       result = await vmCreation.preview(request.body);
     } catch (error) {
-      response.status(503).json({ ok: false, errors: [error.message] });
+      const unanswered = helperFailure(error);
+      response.status(503).json({ ok: false, errors: [unanswered?.error ?? error.message], ...(unanswered ? { code: unanswered.code } : {}) });
       return;
     }
     if (result.ok) {
@@ -130,7 +132,7 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
     try {
       response.json(withOwnActors(request, await vmRetention.inspect()));
     } catch (error) {
-      response.status(503).json({ error: error.message, code: "vm_retention_inspection_failed" });
+      if (!sendHelperFailure(response, error)) response.status(503).json({ error: error.message, code: "vm_retention_inspection_failed" });
     }
   });
 

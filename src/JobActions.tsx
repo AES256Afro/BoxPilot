@@ -2,7 +2,7 @@ import { useState } from "react";
 import { dismissedFailure, ranAgain } from "./jobStatus";
 import { jobTimeout, mayStillBeRunning } from "./JobTimeout";
 import { adviseRetry } from "./retryAdvice";
-import { readJson } from "./http";
+import { errorWords, readJson } from "./http";
 import { cancelJob, type Job } from "./operations";
 import { Button, Notice, type RiskTier } from "./ui";
 import "./shell/jobs.css";
@@ -40,7 +40,7 @@ export function JobActions({ job, role, csrfToken, onReview, onRetry }: { job: J
   if (!csrfToken || role === "viewer") return null;
   const run = async (work: () => Promise<unknown>) => {
     setBusy(true); setProblem(null);
-    try { await work(); } catch (error) { setProblem(error instanceof Error ? error.message : "That did not work"); } finally { setBusy(false); }
+    try { await work(); } catch (error) { setProblem(errorWords(error, "That did not work.")); } finally { setBusy(false); }
   };
   const failure = problem && <Notice tone="danger" live className="jobs-actions__problem">{problem}</Notice>;
   if (job.state === "awaiting_approval") {
@@ -53,9 +53,16 @@ export function JobActions({ job, role, csrfToken, onReview, onRetry }: { job: J
     );
   }
   if (job.state === "failed" && !dismissedFailure(job) && !ranAgain(job)) {
+    // An error that ends by saying what to do first ("check what it changed before retrying") says
+    // it beside the button, and the button says it has been done (M89).
+    // Only a sentence that follows the error, not an error that merely starts with "Check a drive…".
+    const advised = onRetry && mayTryAgain(job) ? adviseRetry(job.error).instruction : undefined;
+    const first = advised && advised.length < (job.error ?? "").trim().length ? advised : undefined;
+    const firstWords = first ? `${first.charAt(0).toUpperCase()}${first.slice(1)}` : null;
     return (
       <div className="jobs-actions">
-        {onRetry && mayTryAgain(job) && <Button risk={tierOf(job.risk)} disabled={busy} onClick={() => onRetry(job)}>Try again</Button>}
+        {firstWords && <span className="jobs-actions__note jobs-actions__first">{firstWords}</span>}
+        {onRetry && mayTryAgain(job) && <Button risk={tierOf(job.risk)} disabled={busy} onClick={() => onRetry(job)}>{firstWords ? "Checked, try again" : "Try again"}</Button>}
         <Button variant="ghost" busy={busy} onClick={() => void run(() => dismissJob(job.id, csrfToken))}>Dismiss</Button>
         <span className="jobs-actions__note">It stays here; Home and Ops stop asking about it.</span>
         {failure}

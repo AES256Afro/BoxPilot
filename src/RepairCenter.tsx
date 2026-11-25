@@ -1,16 +1,19 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { readJson } from "./http";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ApiError, errorWords, isNetworkError, readJson } from "./http";
 import RuntimeHealth from "./RuntimeHealth";
 import PackageRecovery from "./PackageRecovery";
 import ControllerDoctor from "./repair/ControllerDoctor";
 import ServerRunbook from "./repair/ServerRunbook";
-import { useOperation } from "./shell/ApproveDialog";
+import { ApproveDialog, useOperation } from "./shell/ApproveDialog";
+import { onPageRefresh } from "./shell/refresh";
+import { openActivity } from "./activityEvents";
+import { JobActions } from "./JobActions";
 import { useAutoReconnect } from "./AutoReconnect";
 import { inspectOperation, type Job as ActivityJob } from "./operations";
 import { stateWords, stepWords } from "./JobLogView";
 import { jobStatus } from "./jobStatus";
 import { countOf, type ViewName } from "./data";
-import { Button, Field, PageHeader, Panel, RiskTag, SecretInput, StatusChip, Table, TextInput, type RiskTier, type Status, type TableColumn } from "./ui";
+import { Button, Field, Notice, PageHeader, Panel, RiskTag, SecretInput, StatusChip, Table, TextInput, type RiskTier, type Status, type TableColumn } from "./ui";
 import { mayStart, riskOf, type KnownOperation } from "./ui/operationRisk";
 import { DriveAutoReconnect } from "./repair/DriveAutoReconnect";
 import { FindingCard, severityStatus } from "./repair/FindingCard";
@@ -121,6 +124,30 @@ const prerequisiteStatus: Record<Prerequisite["status"], Status> = { ready: "goo
 const recoveryStatus: Record<RecoveryKit["checks"][number]["state"], Status> = { verified: "good", "action-required": "warning", "operator-check": "neutral", "not-applicable": "neutral", unavailable: "unknown" };
 const tierWord = (risk: string): RiskTier => (risk === "low" || risk === "medium" || risk === "high" ? risk : "high");
 
+/** The finding the scan reports when BoxPilot's admin service is not answering (M89): the page's verdict, not one card among many. */
+const adminServiceFindingId = "helper.not-answering";
+/**
+ * The scan's checks that read through the admin service (server/remediations-scan.mjs): every one
+ * of them unread is the admin service not answering, or near enough to ask it (canary.verify).
+ * The rest are an operator's reads, which a viewer's scan does not make.
+ */
+const helperChecks = ["Applications", "App backups"];
+const operatorHelperChecks = ["File sharing", "USB history", "Unclean unmounts", "Drive filesystems", "Signed releases"];
+const noParameters: Record<string, unknown> = {};
+
+/**
+ * What the admin service said when asked directly, for the scan it was asked after. "silent" is only
+ * the service itself not answering (a helper_* code, or no reply at all); any other refusal (a session
+ * that ended, too many requests) is "failed": said in its own words, and no verdict on the service.
+ */
+interface ServiceProbe { scan: number; state: "asking" | "answered" | "silent" | "failed"; words: string }
+
+/** Whether a failed direct ask means the admin service is not answering, rather than some other refusal. */
+function probeSilent(failure: unknown): boolean {
+  if (isNetworkError(failure)) return true;
+  return failure instanceof ApiError && typeof failure.code === "string" && failure.code.startsWith("helper_");
+}
+
 export default function RepairCenter({ csrfToken, role = "owner", onNavigate = () => undefined }: { csrfToken: string; role?: string; onNavigate?: (view: ViewName, options?: { tab?: string }) => void }) {
   const [checks, setChecks] = useState<Prerequisite[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -141,30 +168,44 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
   const [pending, setPending] = useState(false);
   const [canaryResult, setCanaryResult] = useState<string | null>(null);
   const [scan, setScan] = useState<RepairScan | null>(null);
+  // Counts scans read, so the admin service is asked once per scan that could not read through it.
+  const [scanCount, setScanCount] = useState(0);
+  const [probe, setProbe] = useState<ServiceProbe | null>(null);
   const [showDismissed, setShowDismissed] = useState(false);
+  // A job from the Activity panel being approved, or staged again, through the ordinary dialog.
+  const [reviewing, setReviewing] = useState<ActivityJob | null>(null);
+  const [again, setAgain] = useState<ActivityJob | null>(null);
 
   /** The problem scan alone: what a fix reads again when it ends. */
   const loadScan = useCallback(async (): Promise<RepairScan | null> => {
     try {
       const parsed = scanFrom(await readJson(await fetch("/api/v1/remediations?fresh=1")));
       setScan(parsed);
+      setScanCount((count) => count + 1);
       setScanError(parsed.sourceStatus === "partial" ? `Could not check: ${parsed.unavailableChecks.join(", ") || "some parts of this server"}. Other findings are shown below.` : null);
       return parsed;
-    } catch {
+    } catch (scanFailure) {
       // A problem sweep that cannot run must not take the page down with it, nor pass for a clean one.
       setScan(null);
-      setScanError("The problem scan could not finish. Check again to retry.");
+      setScanError(errorWords(scanFailure, "The problem scan could not finish."));
       return null;
     }
   }, []);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setPrerequisiteError(null);
-    setJobError(null);
-    setRecoveryError(null);
-    setActionError(null);
+  /**
+   * Everything read again. `quiet` is the read a job ending asks for (src/shell/refresh.ts): no busy
+   * button, and nothing shown is cleared first, so a notice does not flicker off and back on; each
+   * part's words change only when that part reads differently.
+   */
+  const refresh = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    if (!quiet) {
+      setLoading(true);
+      setError(null);
+      setPrerequisiteError(null);
+      setJobError(null);
+      setRecoveryError(null);
+      setActionError(null);
+    }
     try {
       // The fetches must start before allSettled sees them, or they run one after another and a
       // dropped connection escapes to the outer catch instead of failing just its own collector.
@@ -175,25 +216,25 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
         fetch("/api/v1/operations/action-center").then((response) => readJson<ActionCenter>(response)),
         loadScan(),
       ]);
-      if (actionResult.status === "fulfilled" && Array.isArray(actionResult.value?.notices) && actionResult.value.summary) setActionCenter(actionResult.value);
+      if (actionResult.status === "fulfilled" && Array.isArray(actionResult.value?.notices) && actionResult.value.summary) { setActionCenter(actionResult.value); setActionError(null); }
       else {
         setActionCenter(null);
-        setActionError(actionResult.status === "rejected" && actionResult.reason instanceof Error ? actionResult.reason.message : "Protection checks returned incomplete data");
+        setActionError(actionResult.status === "rejected" ? errorWords(actionResult.reason, "Protection checks returned incomplete data.") : "Protection checks returned incomplete data.");
       }
-      if (prerequisiteResult.status === "fulfilled" && Array.isArray(prerequisiteResult.value?.checks)) setChecks(prerequisiteResult.value.checks);
-      else { setChecks([]); setPrerequisiteError("Prerequisite checks could not finish. Check again to retry."); }
-      if (jobResult.status === "fulfilled" && Array.isArray(jobResult.value?.jobs)) setJobs(jobResult.value.jobs);
-      else setJobError("Activity could not be refreshed. Any jobs below are from the previous check.");
-      if (recoveryResult.status === "fulfilled" && Array.isArray(recoveryResult.value?.checks) && recoveryResult.value.summary && recoveryResult.value.product && Array.isArray(recoveryResult.value.evidence?.controllerBackups)) setRecoveryKit(recoveryResult.value);
+      if (prerequisiteResult.status === "fulfilled" && Array.isArray(prerequisiteResult.value?.checks)) { setChecks(prerequisiteResult.value.checks); setPrerequisiteError(null); }
+      else { setChecks([]); setPrerequisiteError(prerequisiteResult.status === "rejected" ? errorWords(prerequisiteResult.reason, "Prerequisite checks could not finish.") : "Prerequisite checks could not finish."); }
+      if (jobResult.status === "fulfilled" && Array.isArray(jobResult.value?.jobs)) { setJobs(jobResult.value.jobs); setJobError(null); }
+      else setJobError(jobResult.status === "rejected" ? errorWords(jobResult.reason, "Activity could not be read.") : "Activity could not be read.");
+      if (recoveryResult.status === "fulfilled" && Array.isArray(recoveryResult.value?.checks) && recoveryResult.value.summary && recoveryResult.value.product && Array.isArray(recoveryResult.value.evidence?.controllerBackups)) { setRecoveryKit(recoveryResult.value); setRecoveryError(null); }
       else {
         setRecoveryKit(null);
-        setRecoveryError(recoveryResult.status === "rejected" && recoveryResult.reason instanceof Error ? recoveryResult.reason.message : "The rebuild checklist returned incomplete data");
+        setRecoveryError(recoveryResult.status === "rejected" ? errorWords(recoveryResult.reason, "The rebuild checklist returned incomplete data.") : "The rebuild checklist returned incomplete data.");
       }
     } catch (requestError) {
       setErrorAt("page");
-      setError(requestError instanceof Error ? requestError.message : "Unable to inspect prerequisites");
+      setError(errorWords(requestError, "Unable to inspect prerequisites."));
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [loadScan]);
 
@@ -218,7 +259,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
   const [wasRunning, setWasRunning] = useState(false);
   useEffect(() => {
     if (running) { setWasRunning(true); return; }
-    if (wasRunning) { setWasRunning(false); void refresh(); }
+    if (wasRunning) { setWasRunning(false); void refresh({ quiet: true }); }
   }, [running, wasRunning, refresh]);
 
   const awaitingApproval = useMemo(() => jobs.find((job) => job.state === "awaiting_approval"), [jobs]);
@@ -246,6 +287,34 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
     return fresh;
   }, [loadScan, autoReconnect]);
   const fixes = useRepairFixes({ csrfToken, recheck });
+
+  // Something left unread (an outage, the admin service down): a job ending elsewhere, or BoxPilot
+  // answering again (M89), reads the whole page again; otherwise the scan and the jobs are enough.
+  const incomplete = Boolean(scanError || prerequisiteError || jobError || actionError || (role === "owner" && recoveryError) || (scan?.sourceStatus === "partial"));
+  const incompleteRef = useRef(incomplete);
+  incompleteRef.current = incomplete;
+  useEffect(() => onPageRefresh({ asked: () => refresh(), job: () => (incompleteRef.current ? refresh({ quiet: true }) : recheck()) }), [refresh, recheck]);
+
+  // Every check that reads through the admin service came back unread: ask it directly, once per
+  // scan, and say its answer in the verdict rather than leave a button for it further down (M89).
+  const ownHelperChecks = role === "owner" || role === "operator" ? [...helperChecks, ...operatorHelperChecks] : helperChecks;
+  const helperUnread = Boolean(scan && scan.sourceStatus === "partial" && ownHelperChecks.every((name) => scan.unavailableChecks.includes(name)));
+  const probeFor = helperUnread ? scanCount : null;
+  useEffect(() => {
+    if (probeFor === null) return undefined;
+    let gone = false;
+    inspectOperation<{ helperVersion?: string }>("canary.verify").then(
+      ({ result }) => { if (!gone) setProbe({ scan: probeFor, state: "answered", words: `Asked directly, the admin service answers${result?.helperVersion ? ` (version ${result.helperVersion})` : ""}, so it was busy or slow during the scan rather than down. Check again.` }); },
+      (failure: unknown) => {
+        if (gone) return;
+        setProbe(probeSilent(failure)
+          ? { scan: probeFor, state: "silent", words: `Asked directly, it did not answer either: ${errorWords(failure, "no reply.")}` }
+          : { scan: probeFor, state: "failed", words: `Asking the admin service directly did not work: ${errorWords(failure, "no reply.")}` });
+      },
+    );
+    return () => { gone = true; };
+  }, [probeFor]);
+  const serviceProbe: ServiceProbe | null = probeFor === null ? null : probe?.scan === probeFor ? probe : { scan: probeFor, state: "asking", words: "Asking the admin service directly whether it answers…" };
 
   // One generic review flow: read the live pinned versions from the registry inspect,
   // then stage the matching install through the shared risk-tiered dialog.
@@ -285,7 +354,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       startOperation({ operationId: definition.install, ...definition.describe(result) });
     } catch (requestError) {
       setErrorAt("prerequisites");
-      setError(requestError instanceof Error ? requestError.message : "Unable to inspect the prerequisite");
+      setError(errorWords(requestError, "Unable to inspect the prerequisite."));
     } finally {
       setPending(false);
     }
@@ -300,7 +369,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       setCanaryResult(`Answered: the admin service is running, version ${result.helperVersion}. Nothing on the server was changed.`);
     } catch (requestError) {
       setErrorAt("desk");
-      setError(requestError instanceof Error ? requestError.message : "The admin service did not answer");
+      setError(errorWords(requestError, "The admin service did not answer."));
     } finally {
       setPending(false);
     }
@@ -323,7 +392,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       await refresh();
     } catch (requestError) {
       setErrorAt("desk");
-      setError(requestError instanceof Error ? requestError.message : "Job approval failed");
+      setError(errorWords(requestError, "Job approval failed."));
     } finally {
       setPending(false);
     }
@@ -342,7 +411,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       await refresh();
     } catch (requestError) {
       setErrorAt("desk");
-      setError(requestError instanceof Error ? requestError.message : "Could not withdraw the job");
+      setError(errorWords(requestError, "Could not withdraw the job."));
     } finally {
       setPending(false);
     }
@@ -361,7 +430,10 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
     setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
-  const problems = scan?.findings ?? [];
+  // The admin service not answering is the verdict, said once at the top with what to run (M89).
+  const serviceFinding = scan?.findings.find((finding) => finding.id === adminServiceFindingId) ?? null;
+  const serviceDown = Boolean(serviceFinding) || serviceProbe?.state === "silent";
+  const problems = (scan?.findings ?? []).filter((finding) => finding.id !== adminServiceFindingId);
   const present = new Set(problems.map((problem) => problem.id));
   // Fixed from this page and gone from the scan since: shown once more, as fixed, above the rest.
   const justFixed = Object.values(fixes.remembered).filter((finding) => !present.has(finding.id) && fixes.runs[finding.id] && ["fixed", "scheduled"].includes(fixes.runs[finding.id].phase));
@@ -375,8 +447,11 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
     return fix && fix.kind !== "schedule" && tierOf(fix) === "low" && !busyRun(finding.id) ? [{ finding, fix }] : [];
   });
   const counts = scan?.counts ?? { critical: 0, warning: 0, info: 0 };
+  // The admin service's own finding is one of the scan's criticals; the verdict names it apart.
+  const otherCritical = Math.max(0, counts.critical - (serviceFinding ? 1 : 0));
   const verdict: { status: Status; label: string; sentence: string } = loading && !scan
     ? { status: "unknown", label: "Checking", sentence: "Checking this server…" }
+    : serviceDown ? { status: "danger", label: "Admin service down", sentence: `BoxPilot's admin service is not answering, so most of this server could not be checked.${problems.length ? ` ${countOf(problems.length, "other thing")} to fix in what could be read${otherCritical > 0 ? `, ${otherCritical} of them critical` : ""}.` : ""}` }
     : !scan ? { status: "unknown", label: "Not checked", sentence: "The problem scan could not finish, so this page cannot say what is wrong. Check again." }
       : counts.critical ? { status: "danger", label: `${counts.critical} critical`, sentence: `${countOf(problems.length, "thing")} to fix, ${counts.critical} of them critical. Each says what is wrong and what its fix does.` }
         : counts.warning ? { status: "warning", label: `${counts.warning} to fix`, sentence: `${countOf(problems.length, "thing")} to fix. Each says what is wrong and what its fix does.` }
@@ -417,6 +492,36 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
   const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const gaps = actionCenter?.summary;
 
+  // One notice for everything this check could not read, naming the cause when it is known and
+  // carrying the retry (M89, s1-05 Design #1): the same partial failure was said four to seven times.
+  const ownsRebuild = role === "owner";
+  const unread = [
+    ...(scan?.sourceStatus === "partial" ? scan.unavailableChecks : !scan && scanError ? ["the problem scan"] : []),
+    ...(prerequisiteError ? ["prerequisites"] : []),
+    ...(actionError ? ["protection checks"] : []),
+    ...(recoveryError && ownsRebuild ? ["the rebuild checklist"] : []),
+    ...(jobError ? ["Activity"] : []),
+  ];
+  const reasons = [...new Set([!scan ? scanError : null, prerequisiteError, actionError, ownsRebuild ? recoveryError : null, jobError].filter((reason): reason is string => Boolean(reason)))];
+  const notRead = unread.length ? <p>Not read: {unread.join(", ")}. What could be read is below.</p> : null;
+  const checkAgain = <Button onClick={() => void refresh()} disabled={loading}>{loading ? "Checking…" : "Check again"}</Button>;
+  const commands = serviceFinding?.commands?.length ? serviceFinding.commands : ["sudo systemctl restart boxpilot-helper", "sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --control-plane"];
+  const verdictNotice = serviceDown ? (
+    <Notice tone="danger" className="rp-verdict" title="BoxPilot's admin service is not answering" action={checkAgain}>
+      <p>{serviceFinding?.detail ?? "BoxPilot reads the drives, apps and shares, and makes every change, through its admin service (boxpilot-helper), so none of that can be checked or fixed from here until it is back."}</p>
+      <p>On the server over SSH, run <code>{commands[0]}</code>, then check again.{commands[1] ? <> If it does not stay up, <code>{commands[1]}</code> says why.</> : null}</p>
+      {/* What it said when asked directly, answered included: the scan's finding and the ask can disagree. */}
+      {serviceProbe && serviceProbe.state !== "asking" && <p>{serviceProbe.words}</p>}
+      {notRead}
+    </Notice>
+  ) : (unread.length > 0 || reasons.length > 0) && !loading ? (
+    <Notice tone="warning" className="rp-verdict" title="Not everything could be checked" action={checkAgain}>
+      {notRead}
+      {reasons.length > 0 && <p>{reasons.join(" ")}</p>}
+      {serviceProbe && <p>{serviceProbe.words}</p>}
+    </Notice>
+  ) : null;
+
   return (
     <div className="rp cc" data-density="compact">
       <PageHeader
@@ -425,18 +530,27 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
         summary={verdict.sentence}
         meta={<>critical <b>{counts.critical}</b> · to fix <b>{counts.warning}</b> · suggestions <b>{counts.info}</b> · dismissed <b>{dismissed.length}</b>{scan?.checkedAt ? <> · checked <b>{time(scan.checkedAt)}</b></> : null}</>}
         actions={<>
-          {safe.length > 0 && <Button variant="primary" risk="low" onClick={() => fixes.startBatch(safe)} disabled={fixes.busy}>{fixes.busy ? "Fixing…" : `Fix the safe ones (${safe.length})`}</Button>}
+          {/* Every fix runs through the admin service: while it is down each would wait for it and fail. */}
+          {safe.length > 0 && <Button variant="primary" risk="low" onClick={() => fixes.startBatch(safe)} disabled={fixes.busy || serviceDown}
+            title={serviceDown && !fixes.busy ? "BoxPilot's admin service is not answering, so no fix can run until it is back." : undefined}>{fixes.busy ? "Fixing…" : `Fix the safe ones (${safe.length})`}</Button>}
           <Button variant="ghost" onClick={() => void refresh()} disabled={loading}>{loading ? "Checking…" : "Check again"}</Button>
         </>}
         about="What is wrong on this server, worst first, each with the fix that fixes it. A fix runs through the approval dialog at its own tier, and the finding is checked again when it ends. Below the findings: prerequisites, the approval desk, the helper, BoxPilot's own resources, protection gaps, the rebuild checklist, the runbook and Activity."
       />
 
-      {(scanError || prerequisiteError || jobError) && !loading && <p className="rp-note" data-tone="warning" role="status"><StatusChip status="unknown">Checks incomplete</StatusChip><span>Some checks could not finish. What could be read is below; check again for the rest.</span></p>}
-      {scanError && <p className="rp-note" data-tone="warning" role="status"><strong>Problem scan incomplete</strong><span>{scanError}</span></p>}
+      {verdictNotice}
       {fixes.notice && <p className="rp-note" role="status">{fixes.notice}</p>}
       {error && errorAt === "page" && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
       {operationDialog}
       {fixes.dialog}
+      {reviewing && (
+        <ApproveDialog operationId={reviewing.type.replace(/^op:/, "")} title={reviewing.title} parameters={noParameters} existingJobId={reviewing.id} csrfToken={csrfToken}
+          preview={reviewing.recovery?.reason ? <span>{reviewing.recovery.reason}</span> : undefined} onClose={() => { setReviewing(null); void refresh(); }} />
+      )}
+      {again && (
+        <ApproveDialog operationId={again.type.replace(/^op:/, "")} title={again.title} parameters={again.parameters ?? noParameters} csrfToken={csrfToken}
+          preview={<span>Runs {again.title} again with the same settings. The last run failed: {again.error ?? "no error was recorded"}</span>} onClose={() => { setAgain(null); void refresh(); }} />
+      )}
 
       {/* Problems first, worst first: every entry here was a real failure that took a shell to explain. */}
       {(justFixed.length > 0 || inFlight.length > 0) && (
@@ -453,8 +567,8 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
           </Panel>
         );
       })}
-      {scan && problems.length === 0 && justFixed.length === 0 && (
-        <p className="rp-note" data-tone={scanError ? "warning" : "good"}><StatusChip status={scanError ? "unknown" : "good"}>{scanError ? "Not fully checked" : "Problem scan complete"}</StatusChip><span>{scanError ? "Nothing wrong in what could be read." : "No repair findings."}</span></p>
+      {scan && !scanError && problems.length === 0 && justFixed.length === 0 && (
+        <p className="rp-note" data-tone="good"><StatusChip status="good">Problem scan complete</StatusChip><span>No repair findings.</span></p>
       )}
       {dismissed.length > 0 && (
         <Panel title="Dismissed" label={`Dismissed, ${dismissed.length}`} count={{ status: "neutral", label: String(dismissed.length) }} meta="each comes back if it changes"
@@ -466,8 +580,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
       <div className="rp-grid">
         <Panel title="Prerequisites" label="Prerequisites"
           count={!loading && !prerequisiteError && checks.length > 0 ? { status: ready === checks.length ? "good" : "warning", label: `${ready}/${checks.length}` } : undefined}
-          meta={loading ? "Checking…" : prerequisiteError ? "Prerequisites unavailable" : checks.length ? `${ready} of ${checks.length} ready` : "No prerequisite checks returned"}>
-          {prerequisiteError && <p className="rp-note" data-tone="warning" role="status">{prerequisiteError}</p>}
+          meta={loading ? "Checking…" : prerequisiteError ? "not read" : checks.length ? `${ready} of ${checks.length} ready` : "No prerequisite checks returned"}>
           {error && errorAt === "prerequisites" && <p className="rp-note" data-tone="danger" role="alert">{error}</p>}
           {checks.length > 0 && <Table caption="Prerequisites" columns={prerequisiteColumns} rows={checks} rowKey={(item) => item.id} />}
         </Panel>
@@ -529,7 +642,7 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
         <PackageRecovery csrfToken={csrfToken} />
       </div>
 
-      {actionError && <p className="rp-note" data-tone="warning" role="status"><strong>Protection checks incomplete</strong><span>{actionError}. Press Check again to retry.</span></p>}
+      {actionError && !actionCenter && <Panel title="Protection gaps" label="Protection gaps" meta="not read" />}
       {actionCenter && gaps && (
         <Panel title="Protection gaps" label="Protection gaps"
           count={{ status: gaps.critical ? "danger" : gaps.warning ? "warning" : gaps.total ? "neutral" : "good", label: gaps.total ? String(gaps.total) : "none" }}
@@ -552,7 +665,8 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
         </Panel>
       )}
 
-      {recoveryError && <p className="rp-note" data-tone="warning" role="status"><strong>Could not build the rebuild checklist</strong><span>{recoveryError}. The rest of this page still works.</span></p>}
+      {/* The owner keeps the rebuild checklist; for anyone else it is not a failure (s1-05). */}
+      {recoveryError && !recoveryKit && ownsRebuild && <Panel title="Rebuild checklist" label="Rebuild checklist" meta="not read" />}
       {recoveryKit && (
         <Panel title="Rebuild checklist" label="Rebuild checklist"
           count={{ status: recoveryKit.summary.actionRequired > 0 ? "warning" : recoveryKit.summary.operatorChecks > 0 ? "neutral" : "good", label: recoveryKit.summary.actionRequired > 0 ? `${recoveryKit.summary.actionRequired} to sort out` : recoveryKit.summary.operatorChecks > 0 ? `${recoveryKit.summary.operatorChecks} to check` : "ready" }}
@@ -580,8 +694,8 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
 
       {/* The same words as the Activity drawer (M50): "Checked the request · done", "medium risk",
           "Awaiting approval", where this printed the server's own step names and states. */}
-      <Panel title="Activity" label="Activity on this server" count={jobs.length ? { status: jobs.some((job) => job.state === "failed") ? "warning" : "neutral", label: String(jobs.length) } : undefined} meta="every job, with its steps">
-        {jobError && <p className="rp-note" data-tone="warning" role="status">{jobError}</p>}
+      <Panel title="Activity" label="Activity on this server" count={jobs.length ? { status: jobs.some((job) => job.state === "failed") ? "warning" : "neutral", label: String(jobs.length) } : undefined}
+        meta={jobError ? (jobs.length ? "not read · from the last check" : "not read") : "every job, with its steps"}>
         {jobs.length === 0 ? <p className="rp-quiet">{jobError ? "Activity is unavailable." : "Nothing has run yet."} Every change you approve appears here with its steps.</p> : (
           <div className="rp-rows">
             {jobs.map((job) => (
@@ -594,6 +708,11 @@ export default function RepairCenter({ csrfToken, role = "owner", onNavigate = (
                 {job.steps.length > 0 && <ol className="rp-job__steps">{job.steps.map((step, index) => <li key={`${step.createdAt}-${index}`}><span>{stateWords(step.state)}</span><strong>{stepWords(step.name)}</strong><p>{step.detail}</p></li>)}</ol>}
                 {job.error && <p className="rp-finding__note rp-finding__note--failed">{job.error}</p>}
                 {job.recovery?.manual && <p className="rp-finding__manual"><strong>Recovery:</strong> {job.recovery.manual}</p>}
+                {/* What Activity offers for it (M89): approve, cancel, try again, dismiss; and its output there. */}
+                <div className="rp-job__actions">
+                  <JobActions job={job as unknown as ActivityJob} role={role} csrfToken={csrfToken} onReview={setReviewing} onRetry={setAgain} />
+                  <Button variant="ghost" onClick={() => openActivity(job.id)}>Open in Activity</Button>
+                </div>
               </details>
             ))}
           </div>

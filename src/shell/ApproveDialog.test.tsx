@@ -689,5 +689,17 @@ describe("an operation with a next step", () => {
     expect(await screen.findByText("Completed.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Next/ })).toBeNull();
   });
-});
 
+  // M89: the browser's own words ("Failed to fetch", "Load failed") never reach the owner.
+  it("says in plain words when BoxPilot did not answer, not the browser's", async () => {
+    stubApi({ confirmText: "" });
+    const answered = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (input.toString().endsWith("/jobs") && init?.method === "POST") return Promise.reject(new TypeError("Failed to fetch"));
+      return answered(input, init);
+    });
+    render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} />);
+    expect(await screen.findByText("BoxPilot did not answer. It may be restarting, or this device is off the network.")).toBeTruthy();
+    expect(screen.queryByText(/Failed to fetch/)).toBeNull();
+  });
+});

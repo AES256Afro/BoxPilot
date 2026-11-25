@@ -92,6 +92,8 @@ export function stubFetch(overrides: Record<string, unknown> = {}, fail = false)
     }
     if (fail && !url.startsWith("/api/v1/jobs")) return json({ error: "BoxPilot is not answering" }, 503);
     const table = { ...answers, ...overrides };
-    return url in table ? json(table[url]) : json({ error: `unexpected ${url}` }, 404);
+    // The job feed polls the summary view (M89); a test's jobs for the feed answer it as they are.
+    const key = url === "/api/v1/jobs?limit=50&view=summary" && !(url in table) ? "/api/v1/jobs?limit=50" : url;
+    return key in table ? json(table[key]) : json({ error: `unexpected ${url}` }, 404);
   });
 }

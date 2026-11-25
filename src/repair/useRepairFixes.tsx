@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApproveDialog } from "../shell/ApproveDialog";
-import { readJson } from "../http";
-import { approveJob, cancelJob, stageOperation, waitForJob, type Job } from "../operations";
+import { errorWords, readJson } from "../http";
+import { approveJob, cancelJob, lostConnection, stageOperation, waitForJob, type Job } from "../operations";
+import { connected, connectionState } from "../pwa/connection";
+import { pageFollowsJob } from "../shell/refresh";
 import { riskOf } from "../ui/operationRisk";
 import type { RiskTier } from "../ui/types";
 import { BatchDialog, DismissDialog, ScheduleDialog, type DismissTarget, type FindingTarget } from "./RepairDialogs";
@@ -76,6 +78,11 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
   useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
   const recheckRef = useRef(recheck);
   recheckRef.current = recheck;
+  // Jobs this hook follows to their end, and reads the scan again for itself: the job feed's news of
+  // the same end would be a second full scan per fix (M89). Handed back when the page goes.
+  const followed = useRef(new Set<() => void>());
+  useEffect(() => { const held = followed.current; return () => { for (const release of held) release(); held.clear(); }; }, []);
+  const followHere = useCallback((jobId: string) => { followed.current.add(pageFollowsJob(jobId)); }, []);
 
   const set = useCallback((id: string, run: FixRun) => { if (live.current) setRuns((current) => ({ ...current, [id]: run })); }, []);
   const remember = useCallback((finding: Finding) => { if (live.current) setRemembered((current) => ({ ...current, [finding.id]: finding })); }, []);
@@ -93,15 +100,16 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
   }, [set]);
 
   const follow = useCallback(async (finding: Finding, fix: RepairFix, jobId: string) => {
+    followHere(jobId);
     remember(finding);
     set(finding.id, { phase: "running", jobId, label: fix.label });
     try {
       const finished = await waitForJob(jobId);
       await settle([{ finding, fix, job: finished }]);
     } catch (error) {
-      set(finding.id, { phase: "still", jobId, label: fix.label, error: `${error instanceof Error ? error.message : "Lost sight of the job"}. It may still be running; Activity shows it.`, next: "Check again once it has finished." });
+      set(finding.id, { phase: "still", jobId, label: fix.label, error: `${errorWords(error, "Lost sight of the job.").replace(/\.$/, "")}. It may still be running; Activity shows it.`, next: "Check again once it has finished." });
     }
-  }, [remember, set, settle]);
+  }, [followHere, remember, set, settle]);
 
   const start = useCallback((finding: Finding, fix: RepairFix) => {
     setNotice(null);
@@ -119,8 +127,18 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
     for (const { finding, fix } of entries) { remember(finding); set(finding.id, { phase: "queued", label: fix.label }); }
     const done: Array<{ finding: Finding; fix: RepairFix; job: Job }> = [];
     let stopped: string | null = null;
+    // Set when BoxPilot stops answering: the rest are not sent into a server that is not listening (M89).
+    let lost: string | null = null;
+    let notStarted = "Not started: BoxPilot stopped answering before its turn.";
+    const lostWords = "BoxPilot stopped answering, so the batch stopped here. It may be restarting; the rest were not started.";
+    // The web side answering is not enough: a job that failed because the admin service did not
+    // answer says so in a code, and the next would wait just as long for nothing (M89).
+    const helperWords = "BoxPilot's admin service is not answering, so the batch stopped here; the rest were not started. Repair says how to start it again.";
     for (const { finding, fix } of entries) {
+      if (!lost && !connected(connectionState())) lost = lostWords;
+      if (lost) { set(finding.id, { phase: "still", jobId: null, label: fix.label, error: notStarted, next: "Run it again once BoxPilot answers." }); continue; }
       if (stopped) { set(finding.id, { phase: "still", jobId: null, label: fix.label, error: stopped, next: "Use its own button: it asks for what the server wants." }); continue; }
+      let jobId: string | null = null;
       try {
         const staged = await stageOperation(fix.operationId, fix.parameters ?? {}, csrfToken);
         // One click is what the server asks of a low-risk job, and all the batch may give. Anything
@@ -131,6 +149,8 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
           set(finding.id, { phase: "still", jobId: null, label: fix.label, error: stopped, next: "Use its own button: it asks for what the server wants." });
           continue;
         }
+        jobId = staged.job.id;
+        followHere(staged.job.id);
         void recordAttempt(finding.id, staged.job.id, csrfToken);
         await approveJob(staged.job.id, csrfToken);
         set(finding.id, { phase: "running", jobId: staged.job.id, label: fix.label });
@@ -140,8 +160,18 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
         set(finding.id, finished.state === "completed"
           ? { phase: "checking", jobId: finished.id, label: fix.label }
           : { phase: "still", jobId: finished.id, label: fix.label, error: finished.error ?? `The job ended ${finished.state}.`, next: nextStep(finding, true, finished.error ?? null) });
+        if (finished.state === "failed" && finished.recovery?.helperCode) {
+          lost = helperWords;
+          notStarted = "Not started: BoxPilot's admin service was not answering when its turn came.";
+        }
       } catch (error) {
-        set(finding.id, { phase: "still", jobId: null, label: fix.label, error: error instanceof Error ? error.message : "Could not run it", next: nextStep(finding, true) });
+        if (lostConnection(error)) {
+          // The job may well be running: the card keeps it, so its log and Activity still find it.
+          lost = lostWords;
+          set(finding.id, { phase: "still", jobId, label: fix.label, error: `${errorWords(error)}${jobId ? " It may still be running; Activity shows it." : ""}`, next: "Check again once BoxPilot answers." });
+        } else {
+          set(finding.id, { phase: "still", jobId, label: fix.label, error: errorWords(error, "Could not run it."), next: nextStep(finding, true) });
+        }
       }
       if (!live.current) return;
     }
@@ -149,9 +179,9 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
     if (live.current) {
       setBatchBusy(false);
       const fixed = done.filter(({ job }) => job.state === "completed").length;
-      setNotice(`Ran ${done.length} of ${entries.length} low-risk fix${entries.length === 1 ? "" : "es"}; ${fixed} finished. Each card says what changed.`);
+      setNotice(`${lost ? `${lost} ` : ""}Ran ${done.length} of ${entries.length} low-risk fix${entries.length === 1 ? "" : "es"}; ${fixed} finished. Each card says what changed.`);
     }
-  }, [csrfToken, remember, set, settle]);
+  }, [csrfToken, followHere, remember, set, settle]);
 
   const startBatch = useCallback((entries: BatchEntry[]) => { if (entries.length) setBatching(entries); }, []);
 
@@ -168,7 +198,7 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
         await readJson(response);
         created += 1;
       } catch (error) {
-        failures.push(`${String(spec.parameters.id ?? spec.parameters.subject ?? "one")}: ${error instanceof Error ? error.message : "refused"}`);
+        failures.push(`${String(spec.parameters.id ?? spec.parameters.subject ?? "one")}: ${errorWords(error, "refused")}`);
       }
     }
     remember(finding);
@@ -183,7 +213,7 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
       await readJson(await fetch(`/api/v1/remediations/dismissals/${encodeURIComponent(key)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } }));
       await recheckRef.current().catch(() => null);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not bring it back");
+      setNotice(errorWords(error, "Could not bring it back."));
     }
   }, [csrfToken]);
 
@@ -196,7 +226,7 @@ export function useRepairFixes({ csrfToken, recheck }: { csrfToken: string; rech
     void fetch(`/api/v1/jobs/${encodeURIComponent(target.jobId)}/dismiss`, { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } })
       .then((response) => readJson(response))
       .then(() => recheckRef.current().catch(() => null))
-      .catch((error: unknown) => setJobProblem(`Could not dismiss “${target.title}”: ${error instanceof Error ? error.message : "that did not work"}`));
+      .catch((error: unknown) => setJobProblem(`Could not dismiss “${target.title}”: ${errorWords(error, "that did not work")}`));
   }, [csrfToken]);
 
   let dialog: ReactNode = null;

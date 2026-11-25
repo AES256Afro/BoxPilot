@@ -7,6 +7,7 @@
  * smbclient/showmount need no privileges.
  */
 import { Router } from "express";
+import { helperFailure, sendHelperFailure } from "../helper-errors.mjs";
 import { createRateLimit, rateLimited } from "../rate-limit.mjs";
 import net from "node:net";
 import dns from "node:dns/promises";
@@ -97,7 +98,7 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
       overview.snapshots = (overview.snapshots ?? []).map((snapshot) => ({ ...snapshot, ...(records.find((entry) => entry.path === snapshot.path) ?? {}) }));
       response.json(overview);
     } catch (error) {
-      response.status(503).json({ error: error.message, code: "storage_unavailable" });
+      if (!sendHelperFailure(response, error)) response.status(503).json({ error: error.message, code: "storage_unavailable" });
     }
   });
 
@@ -181,7 +182,7 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
   router.get("/storage/nfs", async (_request, response) => {
     let state = { installed: false, running: null, configured: false, config: { managed: false, scope: "tailscale", exports: [] } };
     let error = null;
-    try { if (helper) state = await helper.request("nfs.inspect", {}, { timeoutMs: 30_000 }); } catch (requestError) { error = requestError.message; }
+    try { if (helper) state = await helper.request("nfs.inspect", {}, { timeoutMs: 30_000 }); } catch (requestError) { error = helperFailure(requestError)?.error ?? requestError.message; }
     response.json({ ...state, error, ...(await clientAddresses()) });
   });
 
@@ -192,7 +193,7 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
   router.get("/storage/samba", async (request, response) => {
     let state = { installed: false, running: null, configured: false, config: { managed: false, workgroup: "WORKGROUP", scope: "tailscale", interfaces: [], shares: [] }, users: [] };
     let error = null;
-    try { if (helper) state = await helper.request("samba.inspect", {}, { timeoutMs: 30_000 }); } catch (requestError) { error = requestError.message; }
+    try { if (helper) state = await helper.request("samba.inspect", {}, { timeoutMs: 30_000 }); } catch (requestError) { error = helperFailure(requestError)?.error ?? requestError.message; }
     if (!readsThroughHelper(request) && Array.isArray(state?.config?.shares)) {
       state = { ...state, config: { ...state.config, shares: state.config.shares.map(({ recycleBytes: _size, ownerUid: _owner, ...share }) => share) } };
     }

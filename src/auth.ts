@@ -1,4 +1,4 @@
-import { readJson } from "./http";
+import { errorWords, readJson } from "./http";
 import { clearLastKnown } from "./pwa/lastKnown";
 
 export interface Owner {
@@ -13,6 +13,8 @@ export interface AuthStatus {
   owner: Owner | null;
   csrfToken: string | null;
   expiresAt: string | null;
+  /** The latest this session can be renewed to (three days from signing in), however busy it is (M89). */
+  sessionCap?: string | null;
   /** ISO time until which high-risk approvals need no password (set by a recent password entry). */
   elevatedUntil?: string | null;
   /**
@@ -31,15 +33,30 @@ export class AuthError extends Error {
   constructor(message: string, code: string | null = null, username: string | null = null) { super(message); this.code = code; this.username = username; }
 }
 
+/**
+ * An auth answer. BoxPilot's own refusal keeps its words and code (a wrong password, a device to
+ * confirm); anything else - a proxy's page while BoxPilot restarts, a reply that is not JSON - is said
+ * in readJson's words (M89), not "Authentication request failed". A fetch that got no answer at all
+ * rejects with the browser's TypeError, which callers put in words with errorWords.
+ */
 async function authRequest(path: string, body?: Record<string, string>): Promise<AuthStatus> {
   const response = await fetch(path, body ? {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   } : undefined);
-  const result = await response.json().catch(() => ({})) as AuthStatus & { error?: string; code?: string; username?: string };
-  if (!response.ok) throw new AuthError(result.error ?? "Authentication request failed", result.code ?? null, result.username ?? null);
-  return result;
+  noteSessionCap(response.headers?.get?.("x-boxpilot-session-cap") ?? null);
+  const copy = typeof response.clone === "function" ? response.clone() : response;
+  const result = await response.json().catch(() => null) as (AuthStatus & { error?: string; code?: string; username?: string }) | null;
+  if (response.ok && result && typeof result === "object") return result;
+  if (!response.ok && typeof result?.error === "string" && result.error) throw new AuthError(result.error, result.code ?? null, result.username ?? null);
+  try {
+    await readJson<AuthStatus>(copy);
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    throw new AuthError(errorWords(error, "Authentication request failed"), typeof code === "string" ? code : null);
+  }
+  throw new AuthError("Authentication request failed");
 }
 
 /*
@@ -57,6 +74,21 @@ const sessionMark = "boxpilot:signed-in-until";
  * token and no password; it goes when the session does.
  */
 const accountMark = "boxpilot:signed-in-as";
+/**
+ * The latest the session can be kept to (M89): three days from signing in, sent by the server as
+ * X-BoxPilot-Session-Cap. The ten-minute notice tells "you signed in three days ago" from "unused".
+ */
+const capMark = "boxpilot:signed-in-cap";
+
+function noteSessionCap(capAt: string | null): void {
+  if (!capAt || !Number.isFinite(Date.parse(capAt))) return;
+  try { window.localStorage.setItem(capMark, capAt); } catch { /* private window: the notice falls back to asking */ }
+}
+
+/** When this browser's session can be kept to at the latest, if the server has said; null otherwise. */
+export function sessionCapAt(): string | null {
+  try { return window.localStorage.getItem(capMark); } catch { return null; }
+}
 
 export type SignedOutReason = "expired" | "ended" | "address-changed";
 
@@ -64,6 +96,9 @@ export function rememberSession(status: AuthStatus | null): void {
   try {
     if (!status?.authenticated || !status.expiresAt) return;
     window.localStorage.setItem(sessionMark, status.expiresAt);
+    // This session's own cap replaces whatever an earlier session left; none said is none known.
+    if (status.sessionCap && Number.isFinite(Date.parse(status.sessionCap))) window.localStorage.setItem(capMark, status.sessionCap);
+    else window.localStorage.removeItem(capMark);
     if (status.owner) window.localStorage.setItem(accountMark, JSON.stringify({ id: status.owner.id, username: status.owner.username, role: status.owner.role ?? "owner" }));
   } catch { /* private window: nothing to say later */ }
 }
@@ -73,7 +108,8 @@ export function rememberSession(status: AuthStatus | null): void {
  * this browser says after a sign-out stays true, and ask the app to read its status again, which
  * moves the sign-out timer and the ten-minute notice.
  */
-export function noteSessionRenewal(expiresAt: string | null): void {
+export function noteSessionRenewal(expiresAt: string | null, capAt: string | null = null): void {
+  noteSessionCap(capAt);
   if (!expiresAt || !Number.isFinite(Date.parse(expiresAt))) return;
   try {
     const known = window.localStorage.getItem(sessionMark);
@@ -88,13 +124,13 @@ export function watchSessionRenewals(target: typeof window = window): void {
   const original = target.fetch.bind(target);
   target.fetch = async (...args: Parameters<typeof fetch>) => {
     const response = await original(...args);
-    try { noteSessionRenewal(response.headers?.get?.("x-boxpilot-session-expires") ?? null); } catch { /* never break a request over this */ }
+    try { noteSessionRenewal(response.headers?.get?.("x-boxpilot-session-expires") ?? null, response.headers?.get?.("x-boxpilot-session-cap") ?? null); } catch { /* never break a request over this */ }
     return response;
   };
 }
 
 export function forgetSession(): void {
-  try { window.localStorage.removeItem(sessionMark); window.localStorage.removeItem(accountMark); } catch { /* nothing kept */ }
+  try { window.localStorage.removeItem(sessionMark); window.localStorage.removeItem(accountMark); window.localStorage.removeItem(capMark); } catch { /* nothing kept */ }
   // What the phone kept to show offline goes with the session (M25.1).
   clearLastKnown();
 }
@@ -148,6 +184,25 @@ export const sessionEndedEvent = "boxpilot:session-ended";
 
 export function fetchAuthStatus(): Promise<AuthStatus> {
   return authRequest("/api/v1/auth/status");
+}
+
+/**
+ * "Stay signed in" (M89): one request that needs the session, so the server renews it as any use
+ * does. Resolves with the session's end as the server now has it: later than before when it moved,
+ * the same when it could not (the session is at its three-day cap). No new end on the answer is not
+ * the cap by itself: another tab may have renewed it a moment ago, so the status is read to say which.
+ * The end reaches the app as any renewal does (noteSessionRenewal).
+ */
+export async function keepSessionAlive(): Promise<string | null> {
+  const response = await fetch("/api/v1/auth/sessions", { cache: "no-store" });
+  await readJson(response);
+  const renewed = response.headers?.get?.("x-boxpilot-session-expires") ?? null;
+  noteSessionRenewal(renewed, response.headers?.get?.("x-boxpilot-session-cap") ?? null);
+  if (renewed && Number.isFinite(Date.parse(renewed))) return renewed;
+  const status = await fetchAuthStatus();
+  if (!status.authenticated || !status.expiresAt || !Number.isFinite(Date.parse(status.expiresAt))) return null;
+  noteSessionRenewal(status.expiresAt, status.sessionCap ?? null);
+  return status.expiresAt;
 }
 
 export function bootstrapOwner(username: string, password: string, bootstrapToken: string): Promise<AuthStatus> {

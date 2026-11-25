@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errorWords } from "../http";
 import { inspectOperation } from "../operations";
 import { Button, CodeBlock, Panel, StatusChip, type Status } from "../ui";
 
@@ -38,7 +39,7 @@ export default function ControllerDoctor({ onOpenBackups }: { onOpenBackups?: ()
       const result = (await inspectOperation<Report>("controller.database.inspect")).result;
       if (!result || !Array.isArray(result.checks) || !result.checks.length) throw new Error("The database check returned incomplete data. Check that both services run the same release.");
       setDatabase(result);
-    } catch (reason) { setDatabaseError(reason instanceof Error ? reason.message : "The database check could not finish"); }
+    } catch (reason) { setDatabaseError(errorWords(reason, "The database check could not finish.")); }
     finally { setDatabaseBusy(false); }
   }
   async function check() {
@@ -48,7 +49,7 @@ export default function ControllerDoctor({ onOpenBackups }: { onOpenBackups?: ()
       if (!result || !Array.isArray(result.checks) || !result.checks.length) throw new Error("The installation check returned incomplete data. Check that both services run the same BoxPilot release.");
       setReport(result);
     }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not inspect the installation"); }
+    catch (reason) { setError(errorWords(reason, "Could not inspect the installation.")); }
     finally { setBusy(false); }
   }
   const problems = report?.checks.filter((item) => item.status !== "pass") ?? [];

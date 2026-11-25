@@ -430,7 +430,8 @@ describe("BoxPilot console", () => {
       vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
       render(<App />);
       await vi.waitFor(() => expect(screen.queryByRole("heading", { level: 1, name: "Today" })).toBeNull());
-      expect(await screen.findByText(/Failed to fetch/)).toBeTruthy();
+      expect(await screen.findByText("BoxPilot did not answer. It may be restarting, or this device is off the network.")).toBeTruthy();
+      expect(screen.queryByText(/Failed to fetch/)).toBeNull();
     });
   });
 });

@@ -87,7 +87,7 @@ export function createHelperResponseReader(id, { maxFrameBytes = maxHelperRespon
     if (pending.trim()) frame(pending);
     pending = "";
     pendingBytes = 0;
-    if (!complete) throw new Error("Helper closed before sending a result");
+    if (!complete) throw Object.assign(new Error("Helper closed before sending a result"), { code: "helper_closed" });
     return result;
   }
 

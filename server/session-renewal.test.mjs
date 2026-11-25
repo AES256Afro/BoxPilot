@@ -45,7 +45,7 @@ async function boot() {
   const signedInAt = clock;
   const ping = async () => {
     const response = await fetch(`${base}/ping`, { headers: { Cookie: cookie } });
-    return { status: response.status, body: response.status === 200 ? await response.json() : null, setCookie: response.headers.getSetCookie(), expiresHeader: response.headers.get("x-boxpilot-session-expires") };
+    return { status: response.status, body: response.status === 200 ? await response.json() : null, setCookie: response.headers.getSetCookie(), expiresHeader: response.headers.get("x-boxpilot-session-expires"), capHeader: response.headers.get("x-boxpilot-session-cap") };
   };
   return { ping, signedInAt, advance: (ms) => { clock += ms; }, now: () => clock, status: async () => (await fetch(`${base}/auth/status`, { headers: { Cookie: cookie } })).json() };
 }
@@ -80,6 +80,26 @@ describe("keeping a session in use alive", () => {
     expect(Date.parse(last.body.expiresAt)).toBeLessThanOrEqual(signedInAt + sessionMaxAgeMs);
     advance(sessionMaxAgeMs);
     expect((await ping()).status).toBe(401);
+  });
+
+  it("tells the page the cap beside the new end, so it can say which limit is near (M89)", async () => {
+    const { ping, signedInAt, advance, status } = await boot();
+    const cap = new Date(signedInAt + sessionMaxAgeMs).toISOString();
+    expect((await status()).sessionCap).toBe(cap);
+    advance(5 * hour);
+    expect((await ping()).capHeader).toBeNull();
+    advance(2 * hour);
+    expect((await ping()).capHeader).toBe(cap);
+    // Kept busy to the end, the last renewal's end is the cap itself: the banner says "three days ago".
+    let last = null;
+    for (let elapsed = 7 * hour; elapsed < sessionMaxAgeMs - 7 * hour; elapsed += 7 * hour) {
+      advance(7 * hour);
+      const answer = await ping();
+      expect(answer.status).toBe(200);
+      if (answer.expiresHeader) last = answer;
+    }
+    expect(last?.expiresHeader).toBe(cap);
+    expect(last?.capHeader).toBe(cap);
   });
 
   it("lets a session nobody used run out as before", async () => {

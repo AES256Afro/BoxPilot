@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { readJson } from "../http";
+import { errorWords, readJson } from "../http";
 import "../shell/look.css";
 import { Button, Field, Notice, RiskTag, Sheet, Textarea } from "../ui";
 import { riskOf } from "../ui/operationRisk";
@@ -91,7 +91,7 @@ export function DismissDialog({ target, csrfToken, onClose, onDone }: { target: 
       await readJson(await fetch("/api/v1/remediations/dismissals", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify(body) }));
       onDone();
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Could not dismiss it");
+      setError(errorWords(submitError, "Could not dismiss it."));
       setBusy(false);
     }
   };

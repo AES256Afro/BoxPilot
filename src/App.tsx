@@ -13,6 +13,7 @@ import { ThemeSwitch } from "./ui/ThemeSwitch";
 import { fetchAuthStatus, forgetAccount, forgetSession, rememberSession, rememberedAccount, signedOutReasonFor, type AuthStatus, type SignedOutReason } from "./auth";
 import { useSessionEnded } from "./sessionEnd";
 import { connected, useConnection } from "./pwa/connection";
+import { errorWords } from "./http";
 import { OfflineBanner } from "./shell/OfflineBanner";
 import { SessionEndingBanner } from "./shell/SessionEndingBanner";
 import { DeepLinkApproval, approvalFromUrl, openMessageType, takeApprovalFromLocation } from "./shell/DeepLinkApproval";
@@ -347,17 +348,17 @@ function App() {
     setAuthStatusState(status);
   }, []);
 
-  useEffect(() => {
-    void fetchAuthStatus()
-      .then((status) => { if (!status.authenticated) { setSignedOut(signedOutReasonFor(status)); forgetAccount(); } setAuthStatus(status); })
-      .catch((error) => {
-        // BoxPilot cannot be reached (M25.1): a device with a session that has time left opens as
-        // that account, offline, to read what it kept; nothing can be changed until BoxPilot answers.
-        const remembered = rememberedAccount();
-        if (remembered) { setAuthStatusState({ bootstrapRequired: false, authenticated: true, owner: remembered.owner, csrfToken: "", expiresAt: remembered.expiresAt, offline: true }); return; }
-        setAuthError(error instanceof Error ? error.message : "Unable to reach BoxPilot authentication");
-      });
-  }, [setAuthStatus]);
+  // Asked on load, and again by the unavailable screen (M89), which retries by itself until BoxPilot answers.
+  const loadAuth = useCallback(() => fetchAuthStatus()
+    .then((status) => { if (!status.authenticated) { setSignedOut(signedOutReasonFor(status)); forgetAccount(); } setAuthError(null); setAuthStatus(status); })
+    .catch((error: unknown) => {
+      // BoxPilot cannot be reached (M25.1): a device with a session that has time left opens as
+      // that account, offline, to read what it kept; nothing can be changed until BoxPilot answers.
+      const remembered = rememberedAccount();
+      if (remembered) { setAuthError(null); setAuthStatusState({ bootstrapRequired: false, authenticated: true, owner: remembered.owner, csrfToken: "", expiresAt: remembered.expiresAt, offline: true }); return; }
+      setAuthError(errorWords(error, "BoxPilot could not be reached."));
+    }), [setAuthStatus]);
+  useEffect(() => { void loadAuth(); }, [loadAuth]);
 
   // Offline, ask again as soon as BoxPilot answers; it decides whether the session still stands.
   const connection = useConnection();
@@ -378,7 +379,7 @@ function App() {
     if (next && next.startsWith("/oidc/")) window.location.href = next;
   }, [authStatus?.authenticated]);
 
-  if (authError) return <SignInUnavailable problem={authError} />;
+  if (authError) return <SignInUnavailable problem={authError} onRetry={loadAuth} />;
   if (!authStatus) return <SignInLoading />;
   if (!authStatus.authenticated) {
     // After signing in, continue an app's "Sign in with BoxPilot" flow if one sent us here. Only

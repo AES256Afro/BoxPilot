@@ -43,6 +43,18 @@ describe("read-only local Action Center", () => {
     expect(JSON.stringify(result)).not.toContain("offline secret");
   });
 
+  it("points to the SSH command, not the Services page, when nothing could be read from the host (M89)", async () => {
+    // The Services page reads through the admin service too, so it cannot be how the owner finds it down.
+    const recoveryKit = { inspect: vi.fn(async () => ({ checks: [], evidence: { jobs: [] } })) };
+    const inventory = { inspect: vi.fn(async () => { throw new Error("no inventory"); }) };
+    const result = await createActionCenterService({ recoveryKit, inventory, now }).inspect();
+    const notice = result.notices.find((item) => item.id === "host.evidence-unavailable");
+    const steps = notice.recommendation.steps.join(" ");
+    expect(steps).toContain("sudo systemctl restart boxpilot-helper");
+    expect(steps).toContain("sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --control-plane");
+    expect(steps).not.toContain("Services page");
+  });
+
   it("does not claim all-clear when an unknown actionable check appears", async () => {
     const recoveryKit = { inspect: vi.fn(async () => ({ checks: [{ id: "future.check", state: "action-required" }], evidence: { jobs: [] } })) };
     const result = await createActionCenterService({ recoveryKit, now }).inspect();

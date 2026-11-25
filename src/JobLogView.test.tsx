@@ -132,4 +132,64 @@ describe("the job log, viewable from wherever the action lives", () => {
     const terminal = screen.getByLabelText("Output for Install package updates");
     expect(terminal.textContent).toBe("Reading package lists...\nUnpacking openssl...\n");
   });
+
+  // M89: Repair's running-fix card says its log is live; one failed read used to freeze it as running.
+  it("keeps reading a job opened by id after a failed read, and clears the error once it answers", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let down = true;
+      const id = job({}).id;
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (down) throw new TypeError("Failed to fetch");
+        if (url.endsWith("/output")) return json({ output: "all done" });
+        return json({ job: job({ id, state: "completed" }) });
+      }));
+      render(<JobLogView jobId={id} />);
+      expect(await screen.findByText(/This job could not be refreshed\. BoxPilot did not answer\./)).toBeTruthy();
+      down = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+      expect(await screen.findByText("all done")).toBeTruthy();
+      expect(screen.queryByText(/could not be refreshed/)).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("stops reading a job the server refuses, rather than asking again forever", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      for (const [status, words] of [[401, "Sign in again."], [403, "Only the owner can read this job."]] as const) {
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL) => json({ error: words, code: status === 401 ? "authentication_required" : "forbidden" }, status));
+        vi.stubGlobal("fetch", fetchMock);
+        render(<JobLogView jobId={`refused-${status}`} />);
+        expect(await screen.findByText(new RegExp(`This job could not be read\\. ${words.replace(".", "\\.")}`))).toBeTruthy();
+        expect(screen.queryByText(/Trying again by itself/)).toBeNull();
+        await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+        expect(fetchMock.mock.calls.filter(([input]) => !String(input).endsWith("/output"))).toHaveLength(1);
+        cleanup();
+      }
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("reads the job again when its output stream says it has ended", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const id = job({}).id;
+    let state = "applying";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/output")) return json({ output: "saved log" });
+      return json({ job: job({ id, state, error: state === "failed" ? "The install failed" : null }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<JobLogView jobId={id} />);
+    await waitFor(() => expect(FakeEventSource.instances.some((source) => source.url.endsWith("/stream"))).toBe(true));
+    const reads = () => fetchMock.mock.calls.filter(([url]) => url.toString().endsWith(id)).length;
+    const before = reads();
+    state = "failed";
+    act(() => FakeEventSource.instances.find((source) => source.url.endsWith("/stream"))!.emit("state", { state: "failed", error: "The install failed" }));
+    // At once, not at the next two-second poll.
+    await act(async () => { await Promise.resolve(); });
+    expect(reads()).toBeGreaterThan(before);
+    expect(await screen.findByText("The install failed")).toBeTruthy();
+  });
 });
+

@@ -11,6 +11,7 @@ import { agentsModelRemove } from "./tasks/agents.mjs";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
 vi.setConfig({ testTimeout: 30_000 });
+import { helperError } from "./helper-errors.mjs";
 import { createJobService, jobLogAlertKey, logUnreadable, recordFailed } from "./jobs.mjs";
 import { createHealthAlerts } from "./health-alerts.mjs";
 import { hashPassword } from "./security.mjs";
@@ -249,6 +250,19 @@ describe("durable job executor", () => {
 
     await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("Helper unavailable");
     expect(store.getJob(job.id)).toMatchObject({ state: "failed", error: "Helper unavailable" });
+    store.close();
+  });
+
+  it("says in plain words when the admin service stopped answering partway, never the socket's text (M89)", async () => {
+    const helper = { request: vi.fn(async (operation) => { if (operation === "apt.refresh") throw helperError("helper_closed", "Helper unavailable: read ECONNRESET /run/boxpilot/helper.sock"); return {}; }) };
+    const { store, owner, jobs } = await setup(helper);
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+    await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toMatchObject({ code: "helper_closed" });
+    const failed = store.getJob(job.id);
+    const said = "BoxPilot's admin service stopped answering partway, so whether this finished is not known. Check what it changed before running it again.";
+    expect(failed).toMatchObject({ state: "failed", error: said });
+    expect(failed.steps.find((step) => step.name === "apply" && step.state === "failed").detail).toBe(`${job.title}: ${said}`);
+    expect(JSON.stringify(failed)).not.toMatch(/ECONNRESET|helper\.sock|Helper /);
     store.close();
   });
 
@@ -580,6 +594,41 @@ describe("durable job executor", () => {
         const second = await again.createOperationJob("apt.refresh", {}, owner.id);
         await expect(again.approveAndRun(second.id, owner.id, {})).rejects.toThrow(/^BoxPilot is restarting/);
         expect(twice.request.mock.calls.filter(([operation]) => operation === "apt.refresh")).toHaveLength(2);
+      } finally { store.close(); }
+    });
+
+    it("records on a failed job how the admin service failed to answer, keeping what staging recorded (M89)", async () => {
+      // A batch of fixes in the browser reads this code to stop, rather than send the next fix into
+      // the same silence and wait ten more minutes for each.
+      let at = 0;
+      const silent = { request: vi.fn(async (operation) => {
+        if (operation === "system.runtime.inspect") { at += 60_000; throw Object.assign(new Error("Helper unavailable: connect ENOENT"), { code: "helper_unavailable" }); }
+        if (operation === "job.output.release") return {};
+        throw Object.assign(new Error("Helper unavailable: connect ENOENT"), { code: "helper_unavailable" });
+      }) };
+      const { store, owner } = await setup(silent);
+      try {
+        const jobs = createJobService(store, silent, { ...fast, now: () => at });
+        const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+        const reason = store.getJob(job.id).recovery.reason;
+        await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow(/not back within/);
+        expect(store.getJob(job.id).recovery).toMatchObject({ helperCode: "helper_unavailable", reason });
+
+        const timedOut = { request: vi.fn(async (operation) => {
+          if (operation === "job.output.release") return {};
+          throw Object.assign(new Error("Helper request timed out"), { code: "helper_timeout" });
+        }) };
+        const later = createJobService(store, timedOut, fast);
+        const second = await later.createOperationJob("apt.refresh", {}, owner.id);
+        await expect(later.approveAndRun(second.id, owner.id, {})).rejects.toThrow();
+        expect(store.getJob(second.id).recovery.helperCode).toBe("helper_timeout");
+
+        // Any other failure records no code.
+        const broken = { request: vi.fn(async (operation) => { if (operation === "apt.refresh") throw new Error("apt-get failed"); return {}; }) };
+        const third = createJobService(store, broken, fast);
+        const failed = await third.createOperationJob("apt.refresh", {}, owner.id);
+        await expect(third.approveAndRun(failed.id, owner.id, {})).rejects.toThrow("apt-get failed");
+        expect(store.getJob(failed.id).recovery.helperCode).toBeUndefined();
       } finally { store.close(); }
     });
 

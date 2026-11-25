@@ -172,4 +172,33 @@ describe("Logs page", () => {
     expect(await screen.findByText("line from boxpilot")).toBeTruthy();
     expect((screen.getByRole("searchbox", { name: "Filter" }) as HTMLInputElement).value).toBe("");
   });
+  it("keeps a failed list of services apart from the log, with its own retry, and never says a service does not exist (M89)", async () => {
+    let sourcesCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/logs.sources/inspect")) {
+        sourcesCalls += 1;
+        if (sourcesCalls === 1) throw new TypeError("Failed to fetch");
+        return json({ operation: "logs.sources", result: { groups: [{ id: "boxpilot", label: "BoxPilot" }], units: [{ unit: "nginx.service", description: "nginx", active: "active" }], containers: [], dockerAvailable: false } });
+      }
+      const parameters = JSON.parse(init?.body as string).parameters as Record<string, unknown>;
+      return json({ operation: "logs.read", result: { lines: [`line from ${String(parameters.target)}`] } });
+    }));
+    render(<LogsPage csrfToken="csrf-token" />);
+    await screen.findByText("line from boxpilot");
+    const notice = (await screen.findByText("The list of services could not be read")).closest(".ui-notice") as HTMLElement;
+    expect(notice.textContent).toContain("BoxPilot did not answer. It may be restarting, or this device is off the network.");
+    expect(screen.queryByText("The logs could not be read")).toBeNull();
+    // A good log read does not hide it, and a search says the list is unread, not that nginx is missing.
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await screen.findByText("line from boxpilot");
+    expect(screen.getByText("The list of services could not be read")).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "Find a service" }), { target: { value: "nginx" } });
+    expect(screen.queryByText(/No service has/)).toBeNull();
+    expect(document.getElementById("logs-unit-none")?.textContent).toBe("The list of services could not be read.");
+    fireEvent.click(within(notice).getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("button", { name: "Open nginx.service" })).toBeTruthy();
+    expect(screen.queryByText("The list of services could not be read")).toBeNull();
+    expect(sourcesCalls).toBe(2);
+  });
 });

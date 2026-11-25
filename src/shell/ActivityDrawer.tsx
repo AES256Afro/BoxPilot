@@ -5,7 +5,7 @@ import { publishWaiting } from "./approvalsWaiting";
 import { activeJobStates, dismissedFailure, jobStatus, keepNewest, ranAgain } from "../jobStatus";
 import { openActivityEvent } from "../activityEvents";
 import { JobActions, dismissJob } from "../JobActions";
-import { readJson } from "../http";
+import { errorWords, readJson } from "../http";
 import { followJobs, type Job, type JobFeedStatus } from "../operations";
 import { Button, EmptyState, Notice, SearchField, Segmented, Sheet, StatusChip, type Status } from "../ui";
 import "./look.css";
@@ -108,7 +108,7 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
       setOlder(found);
       setOlderState({ busy: false, problem: null, end: found.length < limit || limit >= mostListed || !found.some((job) => !known.has(job.id)) });
     } catch (error) {
-      setOlderState({ busy: false, problem: error instanceof Error ? error.message : "The older jobs could not be read", end: false });
+      setOlderState({ busy: false, problem: errorWords(error, "The older jobs could not be read."), end: false });
     }
   };
   const runningCount = jobs.filter((job) => activeJobStates.has(job.state)).length;
@@ -241,7 +241,10 @@ export function ActivityDrawer({ csrfToken = "", role = "owner" }: { csrfToken?:
                     {isOpen && expanded && (
                       <div className="jobs-detail">
                         <JobActions job={expanded} role={role} csrfToken={csrfToken} onReview={review} onRetry={tryAgain} />
-                        <JobLogView job={expanded} onMoreTime={csrfToken ? tryWithMoreTime : undefined} />
+                        {/* Polling reads the summary view (M89), without step logs and results: the open row reads its job in full. */}
+                        {feedStatus === "polling"
+                          ? <JobLogView jobId={expanded.id} onMoreTime={csrfToken ? tryWithMoreTime : undefined} />
+                          : <JobLogView job={expanded} onMoreTime={csrfToken ? tryWithMoreTime : undefined} />}
                       </div>
                     )}
                   </li>

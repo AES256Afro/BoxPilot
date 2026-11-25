@@ -3554,6 +3554,7 @@ body {
 .ui-code__meta { min-width: 0; margin-left: auto; overflow: hidden; color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .ui-code__copy { flex: none; min-height: 24px; margin-left: auto; padding: 0 9px; border: 1px solid var(--border-strong); border-radius: 3px; color: var(--text-strong); background: var(--surface-raised); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .ui-code__meta + .ui-code__copy { margin-left: 0; }
+.ui-code__copy + .ui-code__copy { margin-left: 0; }
 .ui-code__copy:disabled { cursor: default; opacity: 0.5; }
 .ui-code__note { margin: 0; padding: 6px 11px; border-bottom: 1px solid var(--border); color: var(--status-warning-text); font-size: 12.5px; }
 .ui-code__text { max-height: 60vh; margin: 0; padding: 10px 12px; overflow: auto; color: var(--text-code); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
